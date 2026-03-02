@@ -66,8 +66,7 @@
 #include "lwip.h"
 #include "ndev.h"
 #include "ethif.h"
-
-#define LABEL_MAX	16	/* FIXME: this should be in a system header */
+#include <minix/rs.h>
 
 #define NDEV_SENDQ	2	/* minimum guaranteed send queue depth */
 #define NDEV_RECVQ	2	/* guaranteed receive queue depth */
@@ -93,7 +92,7 @@ struct ndev_queue {
 
 static struct ndev {
 	endpoint_t ndev_endpt;		/* driver endpoint */
-	char ndev_label[LABEL_MAX];	/* driver label */
+	char ndev_label[RS_MAX_LABEL_LEN];	/* driver label */
 	struct ethif *ndev_ethif;	/* ethif object, or NULL if init'ing */
 	struct ndev_queue ndev_sendq;	/* packet send and configure queue */
 	struct ndev_queue ndev_recvq;	/* packet receive queue */
@@ -480,7 +479,7 @@ ndev_check(void)
 			continue;
 
 		label = &key[prefixlen];
-		if (label[0] == '\0' || memchr(label, '\0', LABEL_MAX) == NULL)
+		if (label[0] == '\0' || memchr(label, '\0', RS_MAX_LABEL_LEN) == NULL)
 			continue;
 
 		ndev_up(label, endpt);
