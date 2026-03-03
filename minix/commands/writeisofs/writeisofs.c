@@ -264,15 +264,17 @@ void both32(unsigned char *both, unsigned long i32)
 static int cmpf(const void *v1, const void *v2)
 {
 	struct node *n1, *n2;
-	int i;
+	int i, len1, len2;
 	char f1[NAMELEN], f2[NAMELEN];
 
 	n1 = (struct node *) v1;
 	n2 = (struct node *) v2;
 	strcpy(f1, n1->name);
 	strcpy(f2, n2->name);
-	for(i = 0; i < strlen(f1); i++) f1[i] = toupper(f1[i]);
-	for(i = 0; i < strlen(f2); i++) f2[i] = toupper(f2[i]);
+	len1 = strlen(f1);
+	len2 = strlen(f2);
+	for(i = 0; i < len1; i++) f1[i] = toupper(f1[i]);
+	for(i = 0; i < len2; i++) f2[i] = toupper(f2[i]);
 
 
 	return -strcmp(f1, f2);
