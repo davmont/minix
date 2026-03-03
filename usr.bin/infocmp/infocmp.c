@@ -1,7 +1,7 @@
-/* $NetBSD: infocmp.c,v 1.8 2013/10/01 09:01:49 roy Exp $ */
+/* $NetBSD: infocmp.c,v 1.17 2020/03/31 12:44:15 roy Exp $ */
 
 /*
- * Copyright (c) 2009, 2010 The NetBSD Foundation, Inc.
+ * Copyright (c) 2009, 2010, 2020 The NetBSD Foundation, Inc.
  *
  * This code is derived from software contributed to The NetBSD Foundation
  * by Roy Marples.
@@ -28,7 +28,7 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: infocmp.c,v 1.8 2013/10/01 09:01:49 roy Exp $");
+__RCSID("$NetBSD: infocmp.c,v 1.17 2020/03/31 12:44:15 roy Exp $");
 
 #include <sys/ioctl.h>
 
@@ -40,6 +40,7 @@ __RCSID("$NetBSD: infocmp.c,v 1.8 2013/10/01 09:01:49 roy Exp $");
 #include <term_private.h>
 #include <term.h>
 #include <unistd.h>
+#include <util.h>
 
 #define SW 8
 
@@ -47,7 +48,7 @@ typedef struct tient {
 	char type;
 	const char *id;
 	signed char flag;
-	short num;
+	int num;
 	const char *str;
 } TIENT;
 
@@ -102,7 +103,7 @@ outstr(FILE *f, const char *str)
 			}
 			goto prnt;
 		}
-		
+
 		if (f != NULL)
 			fputc('\\', f);
 		r++;
@@ -127,14 +128,15 @@ ent_compare(const void *a, const void *b)
 static void
 setdb(char *db)
 {
-	size_t len;
+	static const char *ext[] = { ".cdb", ".db" };
 
-	len = strlen(db);
-	if (len > 3 &&
-	    db[len - 3] == '.' &&
-	    db[len - 2] == 'd' &&
-	    db[len - 1] == 'b')
-		db[len - 3] = '\0';
+	for (size_t i = 0; i < __arraycount(ext); i++) {
+		char *ptr = strstr(db, ext[i]);
+		if (ptr == NULL || ptr[strlen(ext[i])] != '\0')
+			continue;
+		*ptr = '\0';
+		break;
+	}
 	setenv("TERMINFO", db, 1);
 }
 
@@ -142,11 +144,11 @@ static void
 print_ent(const TIENT *ents, size_t nents)
 {
 	size_t col, i, l;
-	char nbuf[64];	
+	char nbuf[64];
 
 	if (nents == 0)
 		return;
-	
+
 	col = SW;
 	printf("\t");
 	for (i = 0; i < nents; i++) {
@@ -180,7 +182,7 @@ print_ent(const TIENT *ents, size_t nents)
 				l = strlen(ents[i].id) + 3;
 			break;
 		default:
-			errx(1, "invalid type");
+			errx(EXIT_FAILURE, "invalid type");
 		}
 		if (col != SW) {
 			if (col + l > cols) {
@@ -230,7 +232,7 @@ load_ents(TIENT *ents, TERMINAL *t, char type)
 	default:
 		max = TISTRMAX;
 	}
-	
+
 	n = 0;
 	for (i = 0; i <= max; i++) {
 		switch (type) {
@@ -263,7 +265,7 @@ load_ents(TIENT *ents, TERMINAL *t, char type)
 			break;
 		}
 	}
-	
+
 	if (xflag != 0 && t->_nuserdefs != 0) {
 		for (i = 0; i < t->_nuserdefs; i++) {
 			ud = &t->_userdefs[i];
@@ -293,7 +295,7 @@ load_ents(TIENT *ents, TERMINAL *t, char type)
 			}
 		}
 	}
-	
+
 	qsort(ents, n, sizeof(TIENT), ent_compare);
 	return n;
 }
@@ -308,7 +310,7 @@ cprint_ent(TIENT *ent)
 		else
 			printf("-");
 	}
-	
+
 	switch (ent->type) {
 	case 'f':
 		if (VALID_BOOLEAN(ent->flag))
@@ -351,7 +353,7 @@ compare_ents(TIENT *ents1, size_t n1, TIENT *ents2, size_t n2)
 	size_t i1, i2;
 	TIENT *e1, *e2, ee;
 	int c;
-	
+
 	i1 = i2 = 0;
 	ee.type = 'f';
 	ee.flag = ABSENT_BOOLEAN;
@@ -431,9 +433,7 @@ load_term(const char *name)
 {
 	TERMINAL *t;
 
-	t = calloc(1, sizeof(*t));
-	if (t == NULL)
-		err(1, "calloc");
+	t = ecalloc(1, sizeof(*t));
 	if (name == NULL)
 		name = getenv("TERM");
 	if (name == NULL)
@@ -442,9 +442,11 @@ load_term(const char *name)
 		return t;
 
 	if (_ti_database == NULL)
-		errx(1, "no terminal definition found in internal database");
+		errx(EXIT_FAILURE,
+		    "no terminal definition found in internal database");
 	else
-		errx(1, "no terminal definition found in %s.db", _ti_database);
+		errx(EXIT_FAILURE,
+		    "no terminal definition found in %s.db", _ti_database);
 }
 
 static void
@@ -452,7 +454,7 @@ show_missing(TERMINAL *t1, TERMINAL *t2, char type)
 {
 	ssize_t i, max;
 	const char *id;
-	
+
 	switch (type) {
 	case 'f':
 		max = TIFLAGMAX;
@@ -507,18 +509,16 @@ use_terms(TERMINAL *term, size_t nuse, char **uterms)
 	TERMUSERDEF *ud, *tud;
 	size_t i, j, agree, absent, data;
 
-	terms = malloc(sizeof(**terms) * nuse);
-	if (terms == NULL)
-		err(1, "malloc");
+	terms = ecalloc(nuse, sizeof(*terms));
 	for (i = 0; i < nuse; i++) {
 		if (strcmp(term->name, *uterms) == 0)
-			errx(1, "cannot use same terminal");
+			errx(EXIT_FAILURE, "cannot use same terminal");
 		for (j = 0; j < i; j++)
 			if (strcmp(terms[j]->name, *uterms) == 0)
-				errx(1, "cannot use same terminal");
+				errx(EXIT_FAILURE, "cannot use same terminal");
 		terms[i] = load_term(*uterms++);
 	}
-	
+
 	for (i = 0; i < TIFLAGMAX + 1; i++) {
 		agree = absent = data = 0;
 		for (j = 0; j < nuse; j++) {
@@ -538,7 +538,7 @@ use_terms(TERMINAL *term, size_t nuse, char **uterms)
 		else if (term->flags[i] == ABSENT_BOOLEAN)
 			term->flags[i] = CANCELLED_BOOLEAN;
 	}
-	
+
 	for (i = 0; i < TINUMMAX + 1; i++) {
 		agree = absent = data = 0;
 		for (j = 0; j < nuse; j++) {
@@ -558,7 +558,7 @@ use_terms(TERMINAL *term, size_t nuse, char **uterms)
 		else if (term->nums[i] == ABSENT_NUMERIC)
 			term->nums[i] = CANCELLED_NUMERIC;
 	}
-	
+
 	for (i = 0; i < TISTRMAX + 1; i++) {
 		agree = absent = data = 0;
 		for (j = 0; j < nuse; j++) {
@@ -628,10 +628,8 @@ use_terms(TERMINAL *term, size_t nuse, char **uterms)
 			ud = find_userdef(term, terms[i]->_userdefs[j].id);
 			if (ud != NULL)
 				continue; /* We have handled this */
-			term->_userdefs = realloc(term->_userdefs,
+			term->_userdefs = erealloc(term->_userdefs,
 			    sizeof(*term->_userdefs) * (term->_nuserdefs + 1));
-			if (term->_userdefs == NULL)
-				err(1, "malloc");
 			tud = &term->_userdefs[term->_nuserdefs++];
 			tud->id = terms[i]->_userdefs[j].id;
 			tud->type = terms[i]->_userdefs[j].flag;
@@ -717,17 +715,37 @@ main(int argc, char **argv)
 		use_terms(t, argc - optind, argv + optind);
 
 	if ((optind + 1 != argc && nflag == 0) || uflag != 0) {
-		if (uflag == 0) {
-			printf("# Reconstructed from ");
-			if (_ti_database == NULL)
-				printf("internal database\n");
-			else
-				printf("%s%s\n", _ti_database,
-				    *_ti_database == '/' ? ".cdb" : "");
-		}
+		if (uflag == 0)
+			printf("# Reconstructed from %s\n",
+			     _ti_database == NULL ?
+			     "internal database" : _ti_database);
+		/* Strip internal versioning */
+		term = strchr(t->name, TERMINFO_VDELIM);
+		if (term != NULL)
+			*term = '\0';
 		printf("%s", t->name);
-		if (t->_alias != NULL && *t->_alias != '\0')
-			printf("|%s", t->_alias);
+		if (t->_alias != NULL) {
+			char *alias, *aliascpy, *delim;
+
+			alias = aliascpy = estrdup(t->_alias);
+			while (alias != NULL && *alias != '\0') {
+				putchar('|');
+				delim = strchr(alias, TERMINFO_VDELIM);
+				if (delim != NULL)
+					*delim++ = '\0';
+				printf("%s", alias);
+				if (delim != NULL) {
+					while (*delim != '\0' && *delim != '|')
+						delim++;
+					if (*delim == '\0')
+						alias = NULL;
+					else
+						alias = delim + 1;
+				} else
+					alias = NULL;
+			}
+			free(aliascpy);
+		}
 		if (t->desc != NULL && *t->desc != '\0')
 			printf("|%s", t->desc);
 		printf(",\n");

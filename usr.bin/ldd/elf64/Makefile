@@ -1,4 +1,6 @@
-#	$NetBSD: Makefile,v 1.8 2014/08/28 12:23:29 joerg Exp $
+#	$NetBSD: Makefile,v 1.13 2021/04/25 23:52:59 christos Exp $
+
+NOSANITIZER=		# defined
 
 .include <bsd.own.mk>
 
@@ -38,8 +40,10 @@ RTLD_FUNCS	= \
 CPPFLAGS+=	-D${_d}=_elf64_${_d}
 .endfor
 
-.if (${MACHINE_ARCH} == "mips64el") || (${MACHINE_ARCH} == "mips64eb")
+.if ${MKCOMPAT} != "no"
+. if ${MACHINE_MIPS64}
 CPPFLAGS+=	-DRTLD_ARCH_SUBDIR=\"${MLIBDIR}\"
+. endif
 .endif
 
 .include "../Makefile.elf"

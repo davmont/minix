@@ -1,4 +1,4 @@
-/*	$NetBSD: show.c,v 1.48 2015/03/23 18:33:17 roy Exp $	*/
+/*	$NetBSD: show.c,v 1.51 2020/08/29 19:28:32 christos Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993
@@ -34,14 +34,13 @@
 #if 0
 static char sccsid[] = "from: @(#)route.c	8.3 (Berkeley) 3/9/94";
 #else
-__RCSID("$NetBSD: show.c,v 1.48 2015/03/23 18:33:17 roy Exp $");
+__RCSID("$NetBSD: show.c,v 1.51 2020/08/29 19:28:32 christos Exp $");
 #endif
 #endif /* not lint */
 
 #include <sys/param.h>
 #include <sys/protosw.h>
 #include <sys/socket.h>
-#include <sys/mbuf.h>
 
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -81,9 +80,6 @@ parse_show_opts(int argc, char * const *argv, int *afp, int *flagsp,
 		switch (keyword(argv[argc - 1] + 1)) {
 		case K_HOST:
 			flags |= RTF_HOST;
-			break;
-		case K_LLINFO:
-			flags |= RTF_LLINFO;
 			break;
 		case K_INET:
 			af = AF_INET;
@@ -136,8 +132,10 @@ void
 show(int argc, char *const *argv, int flags)
 {
 	int af, rflags;
-	static int interesting = RTF_UP | RTF_GATEWAY | RTF_HOST |
-	    RTF_REJECT | RTF_LLINFO | RTF_LOCAL | RTF_BROADCAST;
+	static int interesting = RTF_ANNOUNCE | RTF_BLACKHOLE | RTF_BROADCAST |
+	    RTF_CONNECTED | RTF_DYNAMIC | RTF_GATEWAY | RTF_HOST | RTF_LLDATA |
+	    RTF_LOCAL | RTF_MODIFIED | RTF_PROTO1 | RTF_PROTO2 | RTF_REJECT |
+	    RTF_STATIC | RTF_UP;
 
 	parse_show_opts(argc, argv, &af, &rflags, NULL, true);
 	p_rttables(af, flags, rflags, interesting);

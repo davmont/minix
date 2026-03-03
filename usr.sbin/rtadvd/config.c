@@ -1,10 +1,10 @@
-/*	$NetBSD: config.c,v 1.34 2015/06/05 14:09:20 roy Exp $	*/
+/*	$NetBSD: config.c,v 1.47 2021/11/27 22:30:26 rillig Exp $	*/
 /*	$KAME: config.c,v 1.93 2005/10/17 14:40:02 suz Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -67,6 +67,8 @@
 #include "timer.h"
 #include "if.h"
 #include "config.h"
+#include "logit.h"
+#include "prog_ops.h"
 
 #ifndef __arraycount
 #define __arraycount(__x)	(sizeof(__x) / sizeof(__x[0]))
@@ -95,13 +97,14 @@ encode_domain(char *dst, const char *src)
 		src = p + 1;
 	}
 	*dst++ = '\0';
-	
+
 	return dst - odst;
 }
 
 void
 free_rainfo(struct rainfo *rai)
 {
+	struct soliciter *sol;
 	struct prefix *pfx;
 	struct rtinfo *rti;
 	struct rdnss *rdnss;
@@ -110,6 +113,12 @@ free_rainfo(struct rainfo *rai)
 	struct dnssl_domain *dnsd;
 
 	rtadvd_remove_timer(&rai->timer);
+	rtadvd_remove_timer(&rai->timer_sol);
+
+	while ((sol = TAILQ_FIRST(&rai->soliciter))) {
+		TAILQ_REMOVE(&rai->soliciter, sol, next);
+		free(sol);
+	}
 
 	while ((pfx = TAILQ_FIRST(&rai->prefix))) {
 		TAILQ_REMOVE(&rai->prefix, pfx, next);
@@ -160,50 +169,53 @@ getconfig(const char *intface, int exithard)
 	struct rdnss *rdnss;
 	struct dnssl *dnssl;
 
-#define MUSTHAVE(var, cap)	\
+#define MUSTHAVE(var, cap)						\
     do {								\
 	int64_t t;							\
 	if ((t = agetnum(cap)) < 0) {					\
-		fprintf(stderr, "rtadvd: need %s for interface %s\n",	\
-			cap, intface);					\
+		logit(LOG_ERR, "%s: need %s for interface %s",		\
+		    __func__, cap, intface);				\
 		goto errexit;						\
 	}								\
 	var = t;							\
      } while (0)
-#define MAYHAVE(var, cap, def)	\
+
+#define MAYHAVE(var, cap, def)						\
      do {								\
 	if ((var = agetnum(cap)) < 0)					\
 		var = def;						\
      } while (0)
-#define	ELM_MALLOC(p)					\
+
+#define	ELM_MALLOC(p)							\
 	do {								\
 		p = calloc(1, sizeof(*p));				\
 		if (p == NULL) {					\
-			syslog(LOG_ERR, "<%s> calloc failed: %m",	\
+			logit(LOG_ERR, "%s: calloc failed: %m",	\
 			    __func__);					\
 			goto errexit;					\
 		}							\
 	} while(/*CONSTCOND*/0)
 
 	if (if_nametoindex(intface) == 0) {
-		syslog(LOG_INFO, "<%s> interface %s not found, ignoring",
+		logit(LOG_INFO, "%s: interface %s not found, ignoring",
 		       __func__, intface);
 		return;
 	}
 
-	syslog(LOG_DEBUG, "<%s> loading configuration for interface %s",
+	logit(LOG_DEBUG, "%s: loading configuration for interface %s",
 	       __func__, intface);
 
 	if ((stat = agetent(tbuf, intface)) <= 0) {
 		memset(tbuf, 0, sizeof(tbuf));
-		syslog(LOG_INFO,
-		       "<%s> %s isn't defined in the configuration file"
+		logit(LOG_INFO,
+		       "%s: %s isn't defined in the configuration file"
 		       " or the configuration file doesn't exist."
 		       " Treat it as default",
 		        __func__, intface);
 	}
 
 	ELM_MALLOC(tmp);
+	TAILQ_INIT(&tmp->soliciter);
 	TAILQ_INIT(&tmp->prefix);
 	TAILQ_INIT(&tmp->route);
 	TAILQ_INIT(&tmp->rdnss);
@@ -212,7 +224,7 @@ getconfig(const char *intface, int exithard)
 	/* check if we are allowed to forward packets (if not determined) */
 	if (forwarding < 0) {
 		if ((forwarding = getinet6sysctl(IPV6CTL_FORWARDING)) < 0)
-			exit(1);
+			exit(EXIT_FAILURE);
 	}
 
 	/* get interface information */
@@ -222,8 +234,8 @@ getconfig(const char *intface, int exithard)
 		tmp->advlinkopt = 1;
 	if (tmp->advlinkopt) {
 		if ((tmp->sdl = if_nametosdl(intface)) == NULL) {
-			syslog(LOG_ERR,
-			       "<%s> can't get information of %s",
+			logit(LOG_ERR,
+			       "%s: can't get information of %s",
 			       __func__, intface);
 			goto errexit;
 		}
@@ -231,8 +243,8 @@ getconfig(const char *intface, int exithard)
 	} else {
 		tmp->ifindex = if_nametoindex(intface);
 		if (tmp->ifindex == 0) {
-			syslog(LOG_ERR,
-			       "<%s> can't get information of %s",
+			logit(LOG_ERR,
+			       "%s: can't get information of %s",
 			       __func__, intface);
 			goto errexit;
 		}
@@ -241,8 +253,8 @@ getconfig(const char *intface, int exithard)
 	strlcpy(tmp->ifname, intface, sizeof(tmp->ifname));
 	if ((tmp->phymtu = if_getmtu(intface)) == 0) {
 		tmp->phymtu = IPV6_MMTU;
-		syslog(LOG_WARNING,
-		       "<%s> can't get interface mtu of %s. Treat as %d",
+		logit(LOG_WARNING,
+		       "%s: can't get interface mtu of %s. Treat as %d",
 		       __func__, intface, IPV6_MMTU);
 	}
 
@@ -251,8 +263,8 @@ getconfig(const char *intface, int exithard)
 	 */
 	MAYHAVE(val, "maxinterval", DEF_MAXRTRADVINTERVAL);
 	if (val < MIN_MAXINTERVAL || val > MAX_MAXINTERVAL) {
-		syslog(LOG_ERR,
-		       "<%s> maxinterval (%d) on %s is invalid "
+		logit(LOG_ERR,
+		       "%s: maxinterval (%d) on %s is invalid "
 		       "(must be between %u and %u)", __func__, val,
 		       intface, MIN_MAXINTERVAL, MAX_MAXINTERVAL);
 		goto errexit;
@@ -260,8 +272,8 @@ getconfig(const char *intface, int exithard)
 	tmp->maxinterval = val;
 	MAYHAVE(val, "mininterval", tmp->maxinterval/3);
 	if (val < MIN_MININTERVAL || val > (tmp->maxinterval * 3) / 4) {
-		syslog(LOG_ERR,
-		       "<%s> mininterval (%d) on %s is invalid "
+		logit(LOG_ERR,
+		       "%s: mininterval (%d) on %s is invalid "
 		       "(must be between %u and %d)",
 		       __func__, val, intface, MIN_MININTERVAL,
 		       (tmp->maxinterval * 3) / 4);
@@ -272,7 +284,7 @@ getconfig(const char *intface, int exithard)
 	MAYHAVE(val, "chlim", DEF_ADVCURHOPLIMIT);
 	tmp->hoplimit = val & 0xff;
 
-	if ((flagstr = (char *)agetstr("raflags", &bp))) {
+	if ((flagstr = agetstr("raflags", &bp))) {
 		val = 0;
 		if (strchr(flagstr, 'm'))
 			val |= ND_RA_FLAG_MANAGED;
@@ -282,7 +294,7 @@ getconfig(const char *intface, int exithard)
 			val |= ND_RA_FLAG_RTPREF_HIGH;
 		if (strchr(flagstr, 'l')) {
 			if ((val & ND_RA_FLAG_RTPREF_HIGH)) {
-				syslog(LOG_ERR, "<%s> the \'h\' and \'l\'"
+				logit(LOG_ERR, "%s: the \'h\' and \'l\'"
 				    " router flags are exclusive", __func__);
 				goto errexit;
 			}
@@ -299,15 +311,14 @@ getconfig(const char *intface, int exithard)
 #endif
 	tmp->rtpref = val & ND_RA_FLAG_RTPREF_MASK;
 	if (tmp->rtpref == ND_RA_FLAG_RTPREF_RSV) {
-		syslog(LOG_ERR, "<%s> invalid router preference (%02x) on %s",
+		logit(LOG_ERR, "%s: invalid router preference (%02x) on %s",
 		       __func__, tmp->rtpref, intface);
 		goto errexit;
 	}
 
-	MAYHAVE(val, "rltime", tmp->maxinterval * 3);
+	MAYHAVE(val, "rltime", DEF_ADVROUTERLIFETIME);
 	if (val && (val < tmp->maxinterval || val > MAXROUTERLIFETIME)) {
-		syslog(LOG_ERR,
-		       "<%s> router lifetime (%d) on %s is invalid "
+		logit(LOG_ERR, "%s: router lifetime (%d) on %s is invalid "
 		       "(must be 0 or between %d and %d)",
 		       __func__, val, intface,
 		       tmp->maxinterval, MAXROUTERLIFETIME);
@@ -322,8 +333,8 @@ getconfig(const char *intface, int exithard)
 	 * explicitly set zero. (see also the above section)
 	 */
 	if (val && forwarding == 0) {
-		syslog(LOG_ERR,
-		       "<%s> non zero router lifetime is specified for %s, "
+		logit(LOG_ERR,
+		       "%s: non zero router lifetime is specified for %s, "
 		       "which must not be allowed for hosts.  you must "
 		       "change router lifetime or enable IPv6 forwarding.",
 		       __func__, intface);
@@ -333,8 +344,8 @@ getconfig(const char *intface, int exithard)
 
 	MAYHAVE(val, "rtime", DEF_ADVREACHABLETIME);
 	if (val < 0 || val > MAXREACHABLETIME) {
-		syslog(LOG_ERR,
-		       "<%s> reachable time (%d) on %s is invalid "
+		logit(LOG_ERR,
+		       "%s: reachable time (%d) on %s is invalid "
 		       "(must be no greater than %d)",
 		       __func__, val, intface, MAXREACHABLETIME);
 		goto errexit;
@@ -343,15 +354,15 @@ getconfig(const char *intface, int exithard)
 
 	MAYHAVE(val64, "retrans", DEF_ADVRETRANSTIMER);
 	if (val64 < 0 || val64 > 0xffffffff) {
-		syslog(LOG_ERR, "<%s> retrans time (%lld) on %s out of range",
+		logit(LOG_ERR, "%s: retrans time (%lld) on %s out of range",
 		       __func__, (long long)val64, intface);
 		goto errexit;
 	}
 	tmp->retranstimer = (uint32_t)val64;
 
 	if (agetnum("hapref") != -1 || agetnum("hatime") != -1) {
-		syslog(LOG_ERR,
-		       "<%s> mobile-ip6 configuration not supported",
+		logit(LOG_ERR,
+		       "%s: mobile-ip6 configuration not supported",
 		       __func__);
 		goto errexit;
 	}
@@ -376,8 +387,8 @@ getconfig(const char *intface, int exithard)
 
 		/* allocate memory to store prefix information */
 		if ((pfx = calloc(1, sizeof(*pfx))) == NULL) {
-			syslog(LOG_ERR,
-			       "<%s> can't allocate memory: %m",
+			logit(LOG_ERR,
+			       "%s: can't allocate memory: %m",
 			       __func__);
 			goto errexit;
 		}
@@ -389,28 +400,28 @@ getconfig(const char *intface, int exithard)
 		pfx->origin = PREFIX_FROM_CONFIG;
 
 		if (inet_pton(AF_INET6, addr, &pfx->prefix) != 1) {
-			syslog(LOG_ERR,
-			       "<%s> inet_pton failed for %s",
+			logit(LOG_ERR,
+			       "%s: inet_pton failed for %s",
 			       __func__, addr);
 			goto errexit;
 		}
 		if (IN6_IS_ADDR_MULTICAST(&pfx->prefix)) {
-			syslog(LOG_ERR,
-			       "<%s> multicast prefix (%s) must "
+			logit(LOG_ERR,
+			       "%s: multicast prefix (%s) must "
 			       "not be advertised on %s",
 			       __func__, addr, intface);
 			goto errexit;
 		}
 		if (IN6_IS_ADDR_LINKLOCAL(&pfx->prefix))
-			syslog(LOG_NOTICE,
-			       "<%s> link-local prefix (%s) will be"
+			logit(LOG_NOTICE,
+			       "%s: link-local prefix (%s) will be"
 			       " advertised on %s",
 			       __func__, addr, intface);
 
 		makeentry(entbuf, sizeof(entbuf), i, "prefixlen");
 		MAYHAVE(val, entbuf, 64);
 		if (val < 0 || val > 128) {
-			syslog(LOG_ERR, "<%s> prefixlen (%d) for %s "
+			logit(LOG_ERR, "%s: prefixlen (%d) for %s "
 			       "on %s out of range",
 			       __func__, val, addr, intface);
 			goto errexit;
@@ -434,7 +445,7 @@ getconfig(const char *intface, int exithard)
 		makeentry(entbuf, sizeof(entbuf), i, "vltime");
 		MAYHAVE(val64, entbuf, DEF_ADVVALIDLIFETIME);
 		if (val64 < 0 || val64 > 0xffffffff) {
-			syslog(LOG_ERR, "<%s> vltime (%lld) for "
+			logit(LOG_ERR, "%s: vltime (%lld) for "
 			    "%s/%d on %s is out of range",
 			    __func__, (long long)val64,
 			    addr, pfx->prefixlen, intface);
@@ -445,7 +456,7 @@ getconfig(const char *intface, int exithard)
 		makeentry(entbuf, sizeof(entbuf), i, "vltimedecr");
 		if (agetflag(entbuf)) {
 			struct timespec now;
-			clock_gettime(CLOCK_MONOTONIC, &now);
+			prog_clock_gettime(CLOCK_MONOTONIC, &now);
 			pfx->vltimeexpire =
 				now.tv_sec + pfx->validlifetime;
 		}
@@ -453,8 +464,8 @@ getconfig(const char *intface, int exithard)
 		makeentry(entbuf, sizeof(entbuf), i, "pltime");
 		MAYHAVE(val64, entbuf, DEF_ADVPREFERREDLIFETIME);
 		if (val64 < 0 || val64 > 0xffffffff) {
-			syslog(LOG_ERR,
-			    "<%s> pltime (%lld) for %s/%d on %s "
+			logit(LOG_ERR,
+			    "%s: pltime (%lld) for %s/%d on %s "
 			    "is out of range",
 			    __func__, (long long)val64,
 			    addr, pfx->prefixlen, intface);
@@ -465,7 +476,7 @@ getconfig(const char *intface, int exithard)
 		makeentry(entbuf, sizeof(entbuf), i, "pltimedecr");
 		if (agetflag(entbuf)) {
 			struct timespec now;
-			clock_gettime(CLOCK_MONOTONIC, &now);
+			prog_clock_gettime(CLOCK_MONOTONIC, &now);
 			pfx->pltimeexpire =
 				now.tv_sec + pfx->preflifetime;
 		}
@@ -475,8 +486,8 @@ getconfig(const char *intface, int exithard)
 
 	MAYHAVE(val64, "mtu", 0);
 	if (val64 < 0 || val64 > 0xffffffff) {
-		syslog(LOG_ERR,
-		       "<%s> mtu (%" PRIi64 ") on %s out of range",
+		logit(LOG_ERR,
+		       "%s: mtu (%" PRIi64 ") on %s out of range",
 		       __func__, val64, intface);
 		goto errexit;
 	}
@@ -489,41 +500,13 @@ getconfig(const char *intface, int exithard)
 			tmp->linkmtu = tmp->phymtu;
 	}
 	else if (tmp->linkmtu < IPV6_MMTU || tmp->linkmtu > tmp->phymtu) {
-		syslog(LOG_ERR,
-		       "<%s> advertised link mtu (%d) on %s is invalid (must "
+		logit(LOG_ERR,
+		       "%s: advertised link mtu (%d) on %s is invalid (must "
 		       "be between least MTU (%d) and physical link MTU (%d)",
 		       __func__, tmp->linkmtu, intface,
 		       IPV6_MMTU, tmp->phymtu);
 		goto errexit;
 	}
-
-#ifdef SIOCSIFINFO_IN6
-	{
-		struct in6_ndireq ndi;
-		int s;
-
-		if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
-			syslog(LOG_ERR, "<%s> socket: %m", __func__);
-			goto errexit;
-		}
-		memset(&ndi, 0, sizeof(ndi));
-		strncpy(ndi.ifname, intface, IFNAMSIZ);
-		if (ioctl(s, SIOCGIFINFO_IN6, &ndi) < 0) {
-			syslog(LOG_INFO, "<%s> ioctl:SIOCGIFINFO_IN6 at %s: %m",
-			     __func__, intface);
-		}
-
-		/* reflect the RA info to the host variables in kernel */
-		ndi.ndi.chlim = tmp->hoplimit;
-		ndi.ndi.retrans = tmp->retranstimer;
-		ndi.ndi.basereachable = tmp->reachabletime;
-		if (ioctl(s, SIOCSIFINFO_IN6, &ndi) < 0) {
-			syslog(LOG_INFO, "<%s> ioctl:SIOCSIFINFO_IN6 at %s: %m",
-			     __func__, intface);
-		}
-		close(s);
-	}
-#endif
 
 	/* route information */
 	for (i = -1; i < MAXROUTE; i++) {
@@ -550,7 +533,7 @@ getconfig(const char *intface, int exithard)
 		TAILQ_INSERT_TAIL(&tmp->route, rti, next);
 
 		if (inet_pton(AF_INET6, addr, &rti->prefix) != 1) {
-			syslog(LOG_ERR, "<%s> inet_pton failed for %s",
+			logit(LOG_ERR, "%s: inet_pton failed for %s",
 			       __func__, addr);
 			goto errexit;
 		}
@@ -563,15 +546,15 @@ getconfig(const char *intface, int exithard)
 		 */
 		MAYHAVE(val64, entbuf, DEF_ADVVALIDLIFETIME);
 		if (IN6_IS_ADDR_MULTICAST(&rti->prefix)) {
-			syslog(LOG_ERR,
-			       "<%s> multicast route (%s) must "
+			logit(LOG_ERR,
+			       "%s: multicast route (%s) must "
 			       "not be advertised on %s",
 			       __func__, addr, intface);
 			goto errexit;
 		}
 		if (IN6_IS_ADDR_LINKLOCAL(&rti->prefix)) {
-			syslog(LOG_NOTICE,
-			       "<%s> link-local route (%s) will "
+			logit(LOG_NOTICE,
+			       "%s: link-local route (%s) will "
 			       "be advertised on %s",
 			       __func__, addr, intface);
 			goto errexit;
@@ -591,7 +574,7 @@ getconfig(const char *intface, int exithard)
 				val = 64;
 		}
 		if (val < 0 || val > 128) {
-			syslog(LOG_ERR, "<%s> prefixlen (%d) for %s on %s "
+			logit(LOG_ERR, "%s: prefixlen (%d) for %s on %s "
 			       "out of range",
 			       __func__, val, addr, intface);
 			goto errexit;
@@ -605,8 +588,8 @@ getconfig(const char *intface, int exithard)
 				val |= ND_RA_FLAG_RTPREF_HIGH;
 			if (strchr(flagstr, 'l')) {
 				if ((val & ND_RA_FLAG_RTPREF_HIGH)) {
-					syslog(LOG_ERR,
-					    "<%s> the \'h\' and \'l\' route"
+					logit(LOG_ERR,
+					    "%s: the \'h\' and \'l\' route"
 					    " preferences are exclusive",
 					    __func__);
 					goto errexit;
@@ -626,7 +609,7 @@ getconfig(const char *intface, int exithard)
 		}
 		rti->rtpref = val & ND_RA_FLAG_RTPREF_MASK;
 		if (rti->rtpref == ND_RA_FLAG_RTPREF_RSV) {
-			syslog(LOG_ERR, "<%s> invalid route preference (%02x) "
+			logit(LOG_ERR, "%s: invalid route preference (%02x) "
 			       "for %s/%d on %s",
 			       __func__, rti->rtpref, addr,
 			       rti->prefixlen, intface);
@@ -655,7 +638,7 @@ getconfig(const char *intface, int exithard)
 			}
 		}
 		if (val64 < 0 || val64 > 0xffffffff) {
-			syslog(LOG_ERR, "<%s> route lifetime (%lld) for "
+			logit(LOG_ERR, "%s: route lifetime (%lld) for "
 			    "%s/%d on %s out of range", __func__,
 			    (long long)val64, addr, rti->prefixlen, intface);
 			goto errexit;
@@ -683,7 +666,7 @@ getconfig(const char *intface, int exithard)
 			ELM_MALLOC(rdnsa);
 			TAILQ_INSERT_TAIL(&rdnss->list, rdnsa, next);
 			if (inet_pton(AF_INET6, abuf, &rdnsa->addr) != 1) {
-				syslog(LOG_ERR, "<%s> inet_pton failed for %s",
+				logit(LOG_ERR, "%s: inet_pton failed for %s",
 			           __func__, addr);
 				goto errexit;
 			}
@@ -691,11 +674,9 @@ getconfig(const char *intface, int exithard)
 
 		makeentry(entbuf, sizeof(entbuf), i, "rdnssltime");
 		MAYHAVE(val64, entbuf, tmp->maxinterval * 3 / 2);
-		if (val64 < tmp->maxinterval ||
-		    val64 > tmp->maxinterval * 2)
-		{
-			syslog(LOG_ERR, "<%s> %s (%lld) on %s is invalid",
-		    	     __func__, entbuf, (long long)val64, intface);
+		if (val64 < 0 || val64 > 0xffffffff) {
+			logit(LOG_ERR, "%s: %s (%lld) on %s is invalid",
+			     __func__, entbuf, (long long)val64, intface);
 			goto errexit;
 		}
 		rdnss->lifetime = (uint32_t)val64;
@@ -727,11 +708,9 @@ getconfig(const char *intface, int exithard)
 
 		makeentry(entbuf, sizeof(entbuf), i, "dnsslltime");
 		MAYHAVE(val64, entbuf, tmp->maxinterval * 3 / 2);
-		if (val64 < tmp->maxinterval ||
-		    val64 > tmp->maxinterval * 2)
-		{
-			syslog(LOG_ERR, "<%s> %s (%lld) on %s is invalid",
-		    	     __func__, entbuf, (long long)val64, intface);
+		if (val64 < 0 || val64 > 0xffffffff) {
+			logit(LOG_ERR, "%s: %s (%lld) on %s is invalid",
+			     __func__, entbuf, (long long)val64, intface);
 			goto errexit;
 		}
 		dnssl->lifetime = (uint32_t)val64;
@@ -741,6 +720,11 @@ getconfig(const char *intface, int exithard)
 	TAILQ_FOREACH(rai, &ralist, next) {
 		if (rai->ifindex == tmp->ifindex) {
 			TAILQ_REMOVE(&ralist, rai, next);
+			if (Cflag) {
+				free_rainfo(rai);
+				rai = NULL;
+				break;
+			}
 			/* If we already have a leaving RA use that
 			 * as this config hasn't been advertised */
 			if (rai->leaving) {
@@ -782,13 +766,14 @@ getconfig(const char *intface, int exithard)
 		return;
 	tmp->timer = rtadvd_add_timer(ra_timeout, ra_timer_update,
 				      tmp, tmp);
-	ra_timer_set_short_delay(tmp);
+	ra_timer_set_short_delay(tmp, tmp->timer);
+	tmp->timer_sol = rtadvd_add_timer(ra_timeout_sol, NULL, tmp, NULL);
 
 	return;
 
 errexit:
 	if (exithard)
-		exit(1);
+		exit(EXIT_FAILURE);
 	free_rainfo(tmp);
 }
 
@@ -802,10 +787,10 @@ get_prefix(struct rainfo *rai)
 	char ntopbuf[INET6_ADDRSTRLEN];
 
 	if (getifaddrs(&ifap) < 0) {
-		syslog(LOG_ERR,
-		       "<%s> can't get interface addresses",
+		logit(LOG_ERR,
+		       "%s: can't get interface addresses",
 		       __func__);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -823,10 +808,10 @@ get_prefix(struct rainfo *rai)
 		lim = (unsigned char *)(ifa->ifa_netmask) + ifa->ifa_netmask->sa_len;
 		plen = prefixlen(m, lim);
 		if (plen <= 0 || plen > 128) {
-			syslog(LOG_ERR, "<%s> failed to get prefixlen "
+			logit(LOG_ERR, "%s: failed to get prefixlen "
 			       "or prefix is invalid",
 			       __func__);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 		if (plen == 128)	/* XXX */
 			continue;
@@ -837,10 +822,10 @@ get_prefix(struct rainfo *rai)
 
 		/* allocate memory to store prefix info. */
 		if ((pp = calloc(1, sizeof(*pp))) == NULL) {
-			syslog(LOG_ERR,
-			       "<%s> can't get allocate buffer for prefix",
+			logit(LOG_ERR,
+			       "%s: can't get allocate buffer for prefix",
 			       __func__);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 
 		/* set prefix, sweep bits outside of prefixlen */
@@ -857,11 +842,11 @@ get_prefix(struct rainfo *rai)
 		}
 	        if (!inet_ntop(AF_INET6, &pp->prefix, ntopbuf,
 	            sizeof(ntopbuf))) {
-			syslog(LOG_ERR, "<%s> inet_ntop failed", __func__);
-			exit(1);
+			logit(LOG_ERR, "%s: inet_ntop failed", __func__);
+			exit(EXIT_FAILURE);
 		}
-		syslog(LOG_DEBUG,
-		       "<%s> add %s/%d to prefix list on %s",
+		logit(LOG_DEBUG,
+		       "%s: add %s/%d to prefix list on %s",
 		       __func__, ntopbuf, pp->prefixlen, rai->ifname);
 
 		/* set other fields with protocol defaults */
@@ -891,49 +876,6 @@ makeentry(char *buf, size_t len, int id, const char *string)
 }
 
 /*
- * Add a prefix to the list of specified interface and reconstruct
- * the outgoing packet.
- * The prefix must not be in the list.
- * XXX: other parameters of the prefix(e.g. lifetime) should be
- * able to be specified.
- */
-static void
-add_prefix(struct rainfo *rai, struct in6_prefixreq *ipr)
-{
-	struct prefix *prefix;
-	char ntopbuf[INET6_ADDRSTRLEN];
-
-	if ((prefix = calloc(1, sizeof(*prefix))) == NULL) {
-		syslog(LOG_ERR, "<%s> memory allocation failed",
-		       __func__);
-		return;		/* XXX: error or exit? */
-	}
-	prefix->prefix = ipr->ipr_prefix.sin6_addr;
-	prefix->prefixlen = ipr->ipr_plen;
-	prefix->validlifetime = ipr->ipr_vltime;
-	prefix->preflifetime = ipr->ipr_pltime;
-	prefix->onlinkflg = ipr->ipr_raf_onlink;
-	prefix->autoconfflg = ipr->ipr_raf_auto;
-	prefix->origin = PREFIX_FROM_DYNAMIC;
-
-	prefix->rainfo = rai;
-	TAILQ_INSERT_TAIL(&rai->prefix, prefix, next);
-	rai->pfxs++;
-
-	syslog(LOG_DEBUG, "<%s> new prefix %s/%d was added on %s",
-	       __func__, inet_ntop(AF_INET6, &ipr->ipr_prefix.sin6_addr,
-				       ntopbuf, INET6_ADDRSTRLEN),
-	       ipr->ipr_plen, rai->ifname);
-
-	/* free the previous packet */
-	free(rai->ra_data);
-	rai->ra_data = NULL;
-
-	/* reconstruct the packet */
-	make_packet(rai);
-}
-
-/*
  * Delete a prefix to the list of specified interface and reconstruct
  * the outgoing packet.
  * The prefix must be in the list.
@@ -946,7 +888,7 @@ delete_prefix(struct prefix *prefix)
 
 	TAILQ_REMOVE(&rai->prefix, prefix, next);
 	rai->pfxs--;
-	syslog(LOG_DEBUG, "<%s> prefix %s/%d was deleted on %s",
+	logit(LOG_DEBUG, "%s: prefix %s/%d was deleted on %s",
 	       __func__, inet_ntop(AF_INET6, &prefix->prefix,
 				       ntopbuf, INET6_ADDRSTRLEN),
 	       prefix->prefixlen, rai->ifname);
@@ -962,13 +904,13 @@ invalidate_prefix(struct prefix *prefix)
 	struct rainfo *rai = prefix->rainfo;
 
 	if (prefix->timer) {	/* sanity check */
-		syslog(LOG_ERR,
-		    "<%s> assumption failure: timer already exists",
+		logit(LOG_ERR,
+		    "%s: assumption failure: timer already exists",
 		    __func__);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
-	syslog(LOG_DEBUG, "<%s> prefix %s/%d was invalidated on %s, "
+	logit(LOG_DEBUG, "%s: prefix %s/%d was invalidated on %s, "
 	    "will expire in %ld seconds", __func__,
 	    inet_ntop(AF_INET6, &prefix->prefix, ntopbuf, INET6_ADDRSTRLEN),
 	    prefix->prefixlen, rai->ifname, (long)prefix_timo);
@@ -976,7 +918,7 @@ invalidate_prefix(struct prefix *prefix)
 	/* set the expiration timer */
 	prefix->timer = rtadvd_add_timer(prefix_timeout, NULL, prefix, NULL);
 	if (prefix->timer == NULL) {
-		syslog(LOG_ERR, "<%s> failed to add a timer for a prefix. "
+		logit(LOG_ERR, "%s: failed to add a timer for a prefix. "
 		    "remove the prefix", __func__);
 		delete_prefix(prefix);
 	}
@@ -1002,13 +944,13 @@ update_prefix(struct prefix * prefix)
 	struct rainfo *rai = prefix->rainfo;
 
 	if (prefix->timer == NULL) { /* sanity check */
-		syslog(LOG_ERR,
-		    "<%s> assumption failure: timer does not exist",
+		logit(LOG_ERR,
+		    "%s: assumption failure: timer does not exist",
 		    __func__);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
-	syslog(LOG_DEBUG, "<%s> prefix %s/%d was re-enabled on %s",
+	logit(LOG_DEBUG, "%s: prefix %s/%d was re-enabled on %s",
 	    __func__, inet_ntop(AF_INET6, &prefix->prefix, ntopbuf,
 	    INET6_ADDRSTRLEN), prefix->prefixlen, rai->ifname);
 
@@ -1017,73 +959,46 @@ update_prefix(struct prefix * prefix)
 }
 
 /*
- * Try to get an in6_prefixreq contents for a prefix which matches
- * ipr->ipr_prefix and ipr->ipr_plen and belongs to
- * the interface whose name is ipr->ipr_name[].
+ * Add a prefix to the list of specified interface and reconstruct
+ * the outgoing packet.
+ * The prefix must not be in the list.
+ * XXX: other parameters of the prefix(e.g. lifetime) should be
+ * able to be specified.
  */
-static int
-init_prefix(struct in6_prefixreq *ipr)
-{
-#if 0
-	int s;
-
-	if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
-		syslog(LOG_ERR, "<%s> socket: %m", __func__);
-		exit(1);
-	}
-
-	if (ioctl(s, SIOCGIFPREFIX_IN6, ipr) < 0) {
-		syslog(LOG_INFO, "<%s> ioctl:SIOCGIFPREFIX: %m", __func__);
-
-		ipr->ipr_vltime = DEF_ADVVALIDLIFETIME;
-		ipr->ipr_pltime = DEF_ADVPREFERREDLIFETIME;
-		ipr->ipr_raf_onlink = 1;
-		ipr->ipr_raf_auto = 1;
-		/* omit other field initialization */
-	}
-	else if (ipr->ipr_origin < PR_ORIG_RR) {
-		char ntopbuf[INET6_ADDRSTRLEN];
-
-		syslog(LOG_WARNING, "<%s> Added prefix(%s)'s origin %d is"
-		       "lower than PR_ORIG_RR(router renumbering)."
-		       "This should not happen if I am router", __func__,
-		       inet_ntop(AF_INET6, &ipr->ipr_prefix.sin6_addr, ntopbuf,
-				 sizeof(ntopbuf)), ipr->ipr_origin);
-		close(s);
-		return 1;
-	}
-
-	close(s);
-	return 0;
-#else
-	ipr->ipr_vltime = DEF_ADVVALIDLIFETIME;
-	ipr->ipr_pltime = DEF_ADVPREFERREDLIFETIME;
-	ipr->ipr_raf_onlink = 1;
-	ipr->ipr_raf_auto = 1;
-	return 0;
-#endif
-}
-
 void
-make_prefix(struct rainfo *rai, int ifindex, struct in6_addr *addr, int plen)
+add_prefix(struct rainfo *rai, int ifindex, const struct in6_addr *addr,
+    int plen)
 {
-	struct in6_prefixreq ipr;
+	struct prefix *prefix;
+	char ntopbuf[INET6_ADDRSTRLEN];
 
-	memset(&ipr, 0, sizeof(ipr));
-	if (if_indextoname(ifindex, ipr.ipr_name) == NULL) {
-		syslog(LOG_ERR, "<%s> Prefix added interface No.%d doesn't"
-		       "exist. This should not happen: %m", __func__,
-		       ifindex);
-		exit(1);
+	if ((prefix = calloc(1, sizeof(*prefix))) == NULL) {
+		logit(LOG_ERR, "%s: memory allocation failed",
+		       __func__);
+		return;		/* XXX: error or exit? */
 	}
-	ipr.ipr_prefix.sin6_len = sizeof(ipr.ipr_prefix);
-	ipr.ipr_prefix.sin6_family = AF_INET6;
-	ipr.ipr_prefix.sin6_addr = *addr;
-	ipr.ipr_plen = plen;
+	prefix->prefix = *addr;
+	prefix->prefixlen = plen;
+	prefix->validlifetime = DEF_ADVVALIDLIFETIME;
+	prefix->preflifetime = DEF_ADVPREFERREDLIFETIME;
+	prefix->onlinkflg = 1;
+	prefix->autoconfflg = 0;
+	prefix->origin = PREFIX_FROM_DYNAMIC;
 
-	if (init_prefix(&ipr))
-		return; /* init failed by some error */
-	add_prefix(rai, &ipr);
+	prefix->rainfo = rai;
+	TAILQ_INSERT_TAIL(&rai->prefix, prefix, next);
+	rai->pfxs++;
+
+	logit(LOG_DEBUG, "%s: new prefix %s/%d was added on %s",
+	       __func__, inet_ntop(AF_INET6, addr, ntopbuf, INET6_ADDRSTRLEN),
+	       plen, rai->ifname);
+
+	/* free the previous packet */
+	free(rai->ra_data);
+	rai->ra_data = NULL;
+
+	/* reconstruct the packet */
+	make_packet(rai);
 }
 
 void
@@ -1109,8 +1024,8 @@ make_packet(struct rainfo *rainfo)
 	packlen = sizeof(struct nd_router_advert);
 	if (rainfo->advlinkopt) {
 		if ((lladdroptlen = lladdropt_length(rainfo->sdl)) == 0) {
-			syslog(LOG_INFO,
-			       "<%s> link-layer address option has"
+			logit(LOG_INFO,
+			       "%s: link-layer address option has"
 			       " null length on %s.  Treat as not included.",
 			       __func__, rainfo->ifname);
 			rainfo->advlinkopt = 0;
@@ -1121,8 +1036,8 @@ make_packet(struct rainfo *rainfo)
 		packlen += sizeof(struct nd_opt_prefix_info) * rainfo->pfxs;
 	if (rainfo->linkmtu)
 		packlen += sizeof(struct nd_opt_mtu);
-	TAILQ_FOREACH(rti, &rainfo->route, next) 
-		packlen += sizeof(struct nd_opt_route_info) + 
+	TAILQ_FOREACH(rti, &rainfo->route, next)
+		packlen += sizeof(struct nd_opt_route_info) +
 			   ((rti->prefixlen + 0x3f) >> 6) * 8;
 
 	TAILQ_FOREACH(rdns, &rainfo->rdnss, next) {
@@ -1141,10 +1056,10 @@ make_packet(struct rainfo *rainfo)
 
 	/* allocate memory for the packet */
 	if ((buf = realloc(rainfo->ra_data, packlen)) == NULL) {
-		syslog(LOG_ERR,
-		       "<%s> can't get enough memory for an RA packet %m",
+		logit(LOG_ERR,
+		       "%s: can't get enough memory for an RA packet %m",
 		       __func__);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	rainfo->ra_data = buf;
 	/* XXX: what if packlen > 576? */
@@ -1152,12 +1067,12 @@ make_packet(struct rainfo *rainfo)
 #define CHECKLEN(size) \
 	do { \
 		if (buf + size > rainfo->ra_data + packlen) { \
-			syslog(LOG_ERR, \
-			    "<%s, %d> RA packet does not fit in %zu",\
+			logit(LOG_ERR, \
+			    "%s: @%d RA packet does not fit in %zu",\
 			    __func__, __LINE__, packlen); \
-			exit(1); \
+			exit(EXIT_FAILURE); \
 		} \
-	} while (/*CONSTCOND*/0)
+	} while (0)
 	/*
 	 * construct the packet
 	 */
@@ -1198,7 +1113,7 @@ make_packet(struct rainfo *rainfo)
 		buf += sizeof(struct nd_opt_mtu);
 	}
 
-	TAILQ_FOREACH(pfx, &rainfo->prefix, next) {	
+	TAILQ_FOREACH(pfx, &rainfo->prefix, next) {
 		uint32_t vltime, pltime;
 		struct timespec now;
 
@@ -1218,7 +1133,7 @@ make_packet(struct rainfo *rainfo)
 			vltime = 0;
 		else {
 			if (pfx->vltimeexpire || pfx->pltimeexpire)
-				clock_gettime(CLOCK_MONOTONIC, &now);
+				prog_clock_gettime(CLOCK_MONOTONIC, &now);
 			if (pfx->vltimeexpire == 0)
 				vltime = pfx->validlifetime;
 			else
@@ -1271,7 +1186,7 @@ make_packet(struct rainfo *rainfo)
 		ndopt_rdnss->nd_opt_rdnss_reserved = 0;
 		ndopt_rdnss->nd_opt_rdnss_lifetime = htonl(rdns->lifetime);
 		buf += sizeof(*ndopt_rdnss);
-	
+
 		TAILQ_FOREACH(rdnsa, &rdns->list, next) {
 			CHECKLEN(sizeof(rdnsa->addr));
 			memcpy(buf, &rdnsa->addr, sizeof(rdnsa->addr));
@@ -1288,7 +1203,7 @@ make_packet(struct rainfo *rainfo)
 		ndopt_dnssl->nd_opt_dnssl_reserved = 0;
 		ndopt_dnssl->nd_opt_dnssl_lifetime = htonl(dnsl->lifetime);
 		buf += sizeof(*ndopt_dnssl);
-	
+
 		TAILQ_FOREACH(dnsd, &dnsl->list, next) {
 			CHECKLEN(dnsd->len);
 			memcpy(buf, dnsd->domain, dnsd->len);
@@ -1313,12 +1228,10 @@ getinet6sysctl(int code)
 	size_t size;
 
 	size = sizeof(value);
-	if (sysctl(mib, __arraycount(mib), &value, &size, NULL, 0)
-	    < 0) {
-		syslog(LOG_ERR, "<%s>: failed to get ip6 sysctl(%d): %m",
+	if (prog_sysctl(mib, __arraycount(mib), &value, &size, NULL, 0) == -1) {
+		logit(LOG_ERR, "%s: failed to get ip6 sysctl(%d): %m",
 		       __func__, code);
 		return -1;
 	}
-	else
-		return value;
+	return value;
 }

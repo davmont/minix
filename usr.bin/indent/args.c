@@ -1,37 +1,11 @@
-/*	$NetBSD: args.c,v 1.11 2014/09/04 04:06:07 mrg Exp $	*/
+/*	$NetBSD: args.c,v 1.72 2021/11/25 21:48:23 rillig Exp $	*/
 
-/*
+/*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
+ * Copyright (c) 1985 Sun Microsystems, Inc.
  * Copyright (c) 1980, 1993
  *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
-
-/*
- * Copyright (c) 1976 Board of Trustees of the University of Illinois.
- * Copyright (c) 1985 Sun Microsystems, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,405 +37,274 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#ifndef lint
 #if 0
 static char sccsid[] = "@(#)args.c	8.1 (Berkeley) 6/6/93";
-#else
-__RCSID("$NetBSD: args.c,v 1.11 2014/09/04 04:06:07 mrg Exp $");
 #endif
-#endif				/* not lint */
 
-/*
- * Argument scanning and profile reading code.  Default parameters are set
- * here as well.
- */
+#include <sys/cdefs.h>
+#if defined(__NetBSD__)
+__RCSID("$NetBSD: args.c,v 1.72 2021/11/25 21:48:23 rillig Exp $");
+#elif defined(__FreeBSD__)
+__FBSDID("$FreeBSD: head/usr.bin/indent/args.c 336318 2018-07-15 21:04:21Z pstef $");
+#endif
 
-#include <ctype.h>
+/* Read options from profile files and from the command line. */
+
+#include <err.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "indent_globs.h"
 
-/* profile types */
-#define	PRO_SPECIAL	1	/* special case */
-#define	PRO_BOOL	2	/* boolean */
-#define	PRO_INT		3	/* integer */
-#define PRO_FONT	4	/* troff font */
+#include "indent.h"
 
-/* profile specials for booleans */
-#define	ON		1	/* turn it on */
-#define	OFF		0	/* turn it off */
+#if __STDC_VERSION__ >= 201112L
+#define assert_type(expr, type) _Generic((expr), type : (expr))
+#else
+#define assert_type(expr, type) (expr)
+#endif
 
-/* profile specials for specials */
-#define	IGN		1	/* ignore it */
-#define	CLI		2	/* case label indent (float) */
-#define	STDIN		3	/* use stdin */
-#define	KEY		4	/* type (keyword) */
+#define bool_option(name, value, var) \
+	{name, true, false, value, 0, 0, assert_type(&(opt.var), bool *)}
+#define bool_options(name, var) \
+	{name, true, true, false, 0, 0, assert_type(&(opt.var), bool *)}
+#define int_option(name, var, min, max) \
+	{name, false, false, false, min, max, assert_type(&(opt.var), int *)}
 
-const char *option_source = "?";
-
-/*
- * N.B.: because of the way the table here is scanned, options whose names are
- * substrings of other options must occur later; that is, with -lp vs -l, -lp
- * must be first.  Also, while (most) booleans occur more than once, the last
- * default value is the one actually assigned.
- */
-struct pro {
-	const char *p_name;	/* name, eg -bl, -cli */
-	int     p_type;		/* type (int, bool, special) */
-	int     p_default;	/* the default value (if int) */
-	int     p_special;	/* depends on type */
-	int    *p_obj;		/* the associated variable */
-}       pro[] = {
-	{
-		"T", PRO_SPECIAL, 0, KEY, 0
-	},
-	{
-		"bacc", PRO_BOOL, false, ON, &blanklines_around_conditional_compilation
-	},
-	{
-		"badp", PRO_BOOL, false, ON, &blanklines_after_declarations_at_proctop
-	},
-	{
-		"bad", PRO_BOOL, false, ON, &blanklines_after_declarations
-	},
-	{
-		"bap", PRO_BOOL, false, ON, &blanklines_after_procs
-	},
-	{
-		"bbb", PRO_BOOL, false, ON, &blanklines_before_blockcomments
-	},
-	{
-		"bc", PRO_BOOL, true, OFF, &ps.leave_comma
-	},
-	{
-		"bl", PRO_BOOL, true, OFF, &btype_2
-	},
-	{
-		"br", PRO_BOOL, true, ON, &btype_2
-	},
-	{
-		"bs", PRO_BOOL, false, ON, &Bill_Shannon
-	},
-	{
-		"cdb", PRO_BOOL, true, ON, &comment_delimiter_on_blankline
-	},
-	{
-		"cd", PRO_INT, 0, 0, &ps.decl_com_ind
-	},
-	{
-		"ce", PRO_BOOL, true, ON, &cuddle_else
-	},
-	{
-		"ci", PRO_INT, 0, 0, &continuation_indent
-	},
-	{
-		"cli", PRO_SPECIAL, 0, CLI, 0
-	},
-	{
-		"c", PRO_INT, 33, 0, &ps.com_ind
-	},
-	{
-		"di", PRO_INT, 16, 0, &ps.decl_indent
-	},
-	{
-		"dj", PRO_BOOL, false, ON, &ps.ljust_decl
-	},
-	{
-		"d", PRO_INT, 0, 0, &ps.unindent_displace
-	},
-	{
-		"eei", PRO_BOOL, false, ON, &extra_expression_indent
-	},
-	{
-		"ei", PRO_BOOL, true, ON, &ps.else_if
-	},
-	{
-		"fbc", PRO_FONT, 0, 0, (int *) &blkcomf
-	},
-	{
-		"fbx", PRO_FONT, 0, 0, (int *) &boxcomf
-	},
-	{
-		"fb", PRO_FONT, 0, 0, (int *) &bodyf
-	},
-	{
-		"fc1", PRO_BOOL, true, ON, &format_col1_comments
-	},
-	{
-		"fc", PRO_FONT, 0, 0, (int *) &scomf
-	},
-	{
-		"fk", PRO_FONT, 0, 0, (int *) &keywordf
-	},
-	{
-		"fs", PRO_FONT, 0, 0, (int *) &stringf
-	},
-	{
-		"ip", PRO_BOOL, true, ON, &ps.indent_parameters
-	},
-	{
-		"i", PRO_INT, 8, 0, &ps.ind_size
-	},
-	{
-		"lc", PRO_INT, 0, 0, &block_comment_max_col
-	},
-	{
-		"lp", PRO_BOOL, true, ON, &lineup_to_parens
-	},
-	{
-		"l", PRO_INT, 78, 0, &max_col
-	},
-	{
-		"nbacc", PRO_BOOL, false, OFF, &blanklines_around_conditional_compilation
-	},
-	{
-		"nbadp", PRO_BOOL, false, OFF, &blanklines_after_declarations_at_proctop
-	},
-	{
-		"nbad", PRO_BOOL, false, OFF, &blanklines_after_declarations
-	},
-	{
-		"nbap", PRO_BOOL, false, OFF, &blanklines_after_procs
-	},
-	{
-		"nbbb", PRO_BOOL, false, OFF, &blanklines_before_blockcomments
-	},
-	{
-		"nbc", PRO_BOOL, true, ON, &ps.leave_comma
-	},
-	{
-		"nbs", PRO_BOOL, false, OFF, &Bill_Shannon
-	},
-	{
-		"ncdb", PRO_BOOL, true, OFF, &comment_delimiter_on_blankline
-	},
-	{
-		"nce", PRO_BOOL, true, OFF, &cuddle_else
-	},
-	{
-		"ndj", PRO_BOOL, false, OFF, &ps.ljust_decl
-	},
-	{
-		"neei", PRO_BOOL, false, OFF, &extra_expression_indent
-	},
-	{
-		"nei", PRO_BOOL, true, OFF, &ps.else_if
-	},
-	{
-		"nfc1", PRO_BOOL, true, OFF, &format_col1_comments
-	},
-	{
-		"nip", PRO_BOOL, true, OFF, &ps.indent_parameters
-	},
-	{
-		"nlp", PRO_BOOL, true, OFF, &lineup_to_parens
-	},
-	{
-		"npcs", PRO_BOOL, false, OFF, &proc_calls_space
-	},
-	{
-		"npro", PRO_SPECIAL, 0, IGN, 0
-	},
-	{
-		"npsl", PRO_BOOL, true, OFF, &procnames_start_line
-	},
-	{
-		"nps", PRO_BOOL, false, OFF, &pointer_as_binop
-	},
-	{
-		"nsc", PRO_BOOL, true, OFF, &star_comment_cont
-	},
-	{
-		"nut", PRO_BOOL, true, OFF, &use_tabs
-	},
-	{
-		"nsob", PRO_BOOL, false, OFF, &swallow_optional_blanklines
-	},
-	{
-		"nv", PRO_BOOL, false, OFF, &verbose
-	},
-	{
-		"pcs", PRO_BOOL, false, ON, &proc_calls_space
-	},
-	{
-		"psl", PRO_BOOL, true, ON, &procnames_start_line
-	},
-	{
-		"ps", PRO_BOOL, false, ON, &pointer_as_binop
-	},
-	{
-		"sc", PRO_BOOL, true, ON, &star_comment_cont
-	},
-	{
-		"sob", PRO_BOOL, false, ON, &swallow_optional_blanklines
-	},
-	{
-		"st", PRO_SPECIAL, 0, STDIN, 0
-	},
-	{
-		"troff", PRO_BOOL, false, ON, &troff
-	},
-	{
-		"ut", PRO_BOOL, true, ON, &use_tabs
-	},
-	{
-		"v", PRO_BOOL, false, ON, &verbose
-	},
-	/* whew! */
-	{
-		0, 0, 0, 0, 0
-	}
+/* See set_special_option for special options. */
+static const struct pro {
+    const char p_name[5];	/* e.g. "bl", "cli" */
+    bool p_is_bool;
+    bool p_may_negate;
+    bool p_bool_value;		/* only relevant if !p_may_negate */
+    short i_min;
+    short i_max;
+    void *p_var;		/* the associated variable */
+} pro[] = {
+    bool_options("bacc", blanklines_around_conditional_compilation),
+    bool_options("bad", blanklines_after_decl),
+    bool_options("badp", blanklines_after_decl_at_top),
+    bool_options("bap", blanklines_after_procs),
+    bool_options("bbb", blanklines_before_block_comments),
+    bool_options("bc", break_after_comma),
+    bool_option("bl", false, brace_same_line),
+    bool_option("br", true, brace_same_line),
+    bool_options("bs", blank_after_sizeof),
+    int_option("c", comment_column, 1, 999),
+    int_option("cd", decl_comment_column, 1, 999),
+    bool_options("cdb", comment_delimiter_on_blankline),
+    bool_options("ce", cuddle_else),
+    int_option("ci", continuation_indent, 0, 999),
+    /* "cli" is special */
+    bool_options("cs", space_after_cast),
+    int_option("d", unindent_displace, -999, 999),
+    int_option("di", decl_indent, 0, 999),
+    bool_options("dj", ljust_decl),
+    bool_options("eei", extra_expr_indent),
+    bool_options("ei", else_if),
+    bool_options("fbs", function_brace_split),
+    bool_options("fc1", format_col1_comments),
+    bool_options("fcb", format_block_comments),
+    int_option("i", indent_size, 1, 80),
+    bool_options("ip", indent_parameters),
+    int_option("l", max_line_length, 1, 999),
+    int_option("lc", block_comment_max_line_length, 1, 999),
+    int_option("ldi", local_decl_indent, 0, 999),
+    bool_options("lp", lineup_to_parens),
+    bool_options("lpl", lineup_to_parens_always),
+    /* "npro" is special */
+    /* "P" is special */
+    bool_options("pcs", proc_calls_space),
+    bool_options("psl", procnames_start_line),
+    bool_options("sc", star_comment_cont),
+    bool_options("sob", swallow_optional_blanklines),
+    /* "st" is special */
+    bool_option("ta", true, auto_typedefs),
+    /* "T" is special */
+    int_option("ts", tabsize, 1, 80),
+    /* "U" is special */
+    bool_options("ut", use_tabs),
+    bool_options("v", verbose),
 };
-/*
- * set_profile reads $HOME/.indent.pro and ./.indent.pro and handles arguments
- * given in these files.
- */
-void
-set_profile(void)
+
+
+static void
+add_typedefs_from_file(const char *fname)
 {
-	FILE   *f;
-	char    fname[BUFSIZ];
-	static char prof[] = ".indent.pro";
+    FILE *file;
+    char line[BUFSIZ];
 
-	snprintf(fname, sizeof(fname), "%s/%s", getenv("HOME"), prof);
-	if ((f = fopen(option_source = fname, "r")) != NULL) {
-		scan_profile(f);
-		(void) fclose(f);
-	}
-	if ((f = fopen(option_source = prof, "r")) != NULL) {
-		scan_profile(f);
-		(void) fclose(f);
-	}
-	option_source = "Command line";
-}
-
-void
-scan_profile(FILE *f)
-{
-	int     i;
-	char   *p;
-	char    buf[BUFSIZ];
-
-	while (1) {
-		for (p = buf; (i = getc(f)) != EOF && (*p = i) > ' '; ++p);
-		if (p != buf) {
-			*p++ = 0;
-			if (verbose)
-				printf("profile: %s\n", buf);
-			set_option(buf);
-		} else
-			if (i == EOF)
-				return;
-	}
-}
-
-const char *param_start;
-
-int
-eqin(const char *s1, const char *s2)
-{
-	while (*s1) {
-		if (*s1++ != *s2++)
-			return (false);
-	}
-	param_start = s2;
-	return (true);
-}
-/*
- * Set the defaults.
- */
-void
-set_defaults(void)
-{
-	struct pro *p;
-
-	/*
-         * Because ps.case_indent is a float, we can't initialize it from the
-         * table:
-         */
-	ps.case_indent = 0.0;	/* -cli0.0 */
-	for (p = pro; p->p_name; p++)
-		if (p->p_type != PRO_SPECIAL && p->p_type != PRO_FONT)
-			*p->p_obj = p->p_default;
-}
-
-void
-set_option(char *arg)
-{
-	struct pro *p;
-
-	arg++;			/* ignore leading "-" */
-	for (p = pro; p->p_name; p++)
-		if (*p->p_name == *arg && eqin(p->p_name, arg))
-			goto found;
-	fprintf(stderr, "indent: %s: unknown parameter \"%s\"\n", option_source, arg - 1);
+    if ((file = fopen(fname, "r")) == NULL) {
+	fprintf(stderr, "indent: cannot open file %s\n", fname);
 	exit(1);
+    }
+    while ((fgets(line, BUFSIZ, file)) != NULL) {
+	/* Remove trailing whitespace */
+	line[strcspn(line, " \t\n\r")] = '\0';
+	register_typename(line);
+    }
+    (void)fclose(file);
+}
+
+static bool
+set_special_option(const char *arg, const char *option_source)
+{
+    const char *arg_end;
+
+    if (strcmp(arg, "-version") == 0) {
+	printf("NetBSD indent 2.1\n");
+	exit(0);
+    }
+
+    if (arg[0] == 'P' || strcmp(arg, "npro") == 0)
+	return true;
+
+    if (strncmp(arg, "cli", 3) == 0) {
+	arg_end = arg + 3;
+	if (arg_end[0] == '\0')
+	    goto need_arg;
+	char *end;
+	opt.case_indent = (float)strtod(arg_end, &end);
+	if (*end != '\0')
+	    errx(1, "%s: argument \"%s\" to option \"-%.*s\" must be numeric",
+		option_source, arg_end, (int)(arg_end - arg), arg);
+	return true;
+    }
+
+    if (strcmp(arg, "st") == 0) {
+	if (input == NULL)
+	    input = stdin;
+	if (output == NULL)
+	    output = stdout;
+	return true;
+    }
+
+    if (arg[0] == 'T') {
+	arg_end = arg + 1;
+	if (arg_end[0] == '\0')
+	    goto need_arg;
+	register_typename(arg_end);
+	return true;
+    }
+
+    if (arg[0] == 'U') {
+	arg_end = arg + 1;
+	if (arg_end[0] == '\0')
+	    goto need_arg;
+	add_typedefs_from_file(arg_end);
+	return true;
+    }
+
+    return false;
+
+need_arg:
+    errx(1, "%s: ``-%.*s'' requires an argument",
+	option_source, (int)(arg_end - arg), arg);
+    /* NOTREACHED */
+}
+
+static const char *
+skip_over(const char *s, bool may_negate, const char *prefix)
+{
+    if (may_negate && s[0] == 'n')
+	s++;
+    while (*prefix != '\0') {
+	if (*prefix++ != *s++)
+	    return NULL;
+    }
+    return s;
+}
+
+void
+set_option(const char *arg, const char *option_source)
+{
+    const struct pro *p;
+    const char *arg_arg;
+
+    arg++;			/* skip leading '-' */
+    if (set_special_option(arg, option_source))
+	return;
+
+    for (p = pro + array_length(pro); p-- != pro;)
+	if ((arg_arg = skip_over(arg, p->p_may_negate, p->p_name)) != NULL)
+	    goto found;
+    errx(1, "%s: unknown option \"-%s\"", option_source, arg);
 found:
-	switch (p->p_type) {
 
-	case PRO_SPECIAL:
-		switch (p->p_special) {
+    if (p->p_is_bool) {
+	if (arg_arg[0] != '\0')
+	    errx(1, "%s: unknown option \"-%s\"", option_source, arg);
 
-		case IGN:
-			break;
+	*(bool *)p->p_var = p->p_may_negate ? arg[0] != 'n' : p->p_bool_value;
+	return;
+    }
 
-		case CLI:
-			if (*param_start == 0)
-				goto need_param;
-			ps.case_indent = atof(param_start);
-			break;
+    char *end;
+    long num = strtol(arg_arg, &end, 10);
+    if (*end != '\0')
+	errx(1, "%s: argument \"%s\" to option \"-%s\" must be an integer",
+	    option_source, arg_arg, p->p_name);
 
-		case STDIN:
-			if (input == 0)
-				input = stdin;
-			if (output == 0)
-				output = stdout;
-			break;
+    if (!(ch_isdigit(*arg_arg) && p->i_min <= num && num <= p->i_max))
+	errx(1,
+	    "%s: argument \"%s\" to option \"-%s\" must be between %d and %d",
+	    option_source, arg_arg, p->p_name, p->i_min, p->i_max);
 
-		case KEY:
-			if (*param_start == 0)
-				goto need_param;
-			{
-				char   *str;
+    *(int *)p->p_var = (int)num;
+}
 
-				str = strdup(param_start);
-				addkey(str, 4);
-			}
-			break;
+static void
+load_profile(const char *fname, bool must_exist)
+{
+    FILE *f;
 
-		default:
-			fprintf(stderr, "\
-indent: set_option: internal error: p_special %d\n", p->p_special);
-			exit(1);
-		}
+    if ((f = fopen(fname, "r")) == NULL) {
+	if (must_exist)
+	    err(EXIT_FAILURE, "profile %s", fname);
+	return;
+    }
+
+    for (;;) {
+	char buf[BUFSIZ];
+	size_t n = 0;
+	int ch, comment_ch = -1;
+
+	while ((ch = getc(f)) != EOF) {
+	    if (ch == '*' && comment_ch == -1 && n > 0 && buf[n - 1] == '/') {
+		n--;
+		comment_ch = '*';
+	    } else if (comment_ch != -1) {
+		comment_ch = ch == '/' && comment_ch == '*' ? -1 : ch;
+	    } else if (ch_isspace((char)ch)) {
 		break;
-
-	case PRO_BOOL:
-		if (p->p_special == OFF)
-			*p->p_obj = false;
-		else
-			*p->p_obj = true;
-		break;
-
-	case PRO_INT:
-		if (!isdigit((unsigned char)*param_start)) {
-	need_param:
-			fprintf(stderr, "indent: %s: ``%s'' requires a parameter\n",
-			    option_source, arg - 1);
-			exit(1);
-		}
-		*p->p_obj = atoi(param_start);
-		break;
-
-	case PRO_FONT:
-		parsefont((struct fstate *) p->p_obj, param_start);
-		break;
-
-	default:
-		fprintf(stderr, "indent: set_option: internal error: p_type %d\n",
-		    p->p_type);
-		exit(1);
+	    } else if (n >= array_length(buf) - 5) {
+		errx(1, "buffer overflow in %s, starting with '%.10s'",
+		    fname, buf);
+	    } else
+		buf[n++] = (char)ch;
 	}
+
+	if (n > 0) {
+	    buf[n] = '\0';
+	    if (opt.verbose)
+		printf("profile: %s\n", buf);
+	    set_option(buf, fname);
+	} else if (ch == EOF)
+	    break;
+    }
+    (void)fclose(f);
+}
+
+void
+load_profiles(const char *profile_name)
+{
+    char fname[PATH_MAX];
+
+    if (profile_name != NULL)
+	load_profile(profile_name, true);
+    else {
+	snprintf(fname, sizeof(fname), "%s/.indent.pro", getenv("HOME"));
+	load_profile(fname, false);
+    }
+    load_profile(".indent.pro", false);
 }

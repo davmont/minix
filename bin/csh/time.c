@@ -1,4 +1,4 @@
-/* $NetBSD: time.c,v 1.20 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: time.c,v 1.23 2020/10/17 08:46:02 mlelstv Exp $ */
 
 /*-
  * Copyright (c) 1980, 1991, 1993
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)time.c	8.1 (Berkeley) 5/31/93";
 #else
-__RCSID("$NetBSD: time.c,v 1.20 2013/07/16 17:47:43 christos Exp $");
+__RCSID("$NetBSD: time.c,v 1.23 2020/10/17 08:46:02 mlelstv Exp $");
 #endif
 #endif /* not lint */
 
@@ -49,7 +49,7 @@ __RCSID("$NetBSD: time.c,v 1.20 2013/07/16 17:47:43 christos Exp $");
 /*
  * C Shell - routines handling process timing and niceing
  */
-static void pdeltat(FILE *, struct timeval *, struct timeval *);
+static void pdeltat(FILE *, int, struct timeval *, struct timeval *);
 static void pcsecs(FILE *, long);
 
 #ifndef NOT_CSH
@@ -124,32 +124,38 @@ ruadd(struct rusage *ru, struct rusage *ru2)
     ru->ru_nvcsw += ru2->ru_nvcsw;
     ru->ru_nivcsw += ru2->ru_nivcsw;
 }
-#endif /* NOT_CSH */
 
 void
 prusage(FILE *fp, struct rusage *r0, struct rusage *r1, struct timespec *e,
         struct timespec *b)
 {
-#ifndef NOT_CSH
     struct varent *vp;
-#endif
     const char *cp;
+
+    vp = adrof(STRtime);
+
+    if (vp && vp->vec[0] && vp->vec[1])
+	cp = short2str(vp->vec[1]);
+    else
+	cp = "%Uu %Ss %E %P %X+%Dk %I+%Oio %Fpf+%Ww";
+    prusage1(fp, cp, 1, r0, r1, e, b);
+}
+#endif
+
+void
+prusage1(FILE *fp, const char *cp, int prec,
+    struct rusage *r0, struct rusage *r1,
+    struct timespec *e, struct timespec *b)
+{
     long i;
     time_t t;
     time_t ms;
 
-    cp = "%Uu %Ss %E %P %X+%Dk %I+%Oio %Fpf+%Ww";
     ms = (e->tv_sec - b->tv_sec) * 100 + (e->tv_nsec - b->tv_nsec) / 10000000;
     t = (r1->ru_utime.tv_sec - r0->ru_utime.tv_sec) * 100 +
         (r1->ru_utime.tv_usec - r0->ru_utime.tv_usec) / 10000 +
         (r1->ru_stime.tv_sec - r0->ru_stime.tv_sec) * 100 +
         (r1->ru_stime.tv_usec - r0->ru_stime.tv_usec) / 10000;
-#ifndef NOT_CSH
-    vp = adrof(STRtime);
-
-    if (vp && vp->vec[0] && vp->vec[1])
-	cp = short2str(vp->vec[1]);
-#endif
 
     for (; *cp; cp++)
 	if (*cp != '%')
@@ -176,7 +182,7 @@ prusage(FILE *fp, struct rusage *r0, struct rusage *r1, struct timespec *e,
 			 (r0->ru_ixrss + r0->ru_idrss + r0->ru_isrss)) / t));
 		break;
 	    case 'M':		/* max. Resident Set Size */
-		(void)fprintf(fp, "%ld", r1->ru_maxrss / 2L);
+		(void)fprintf(fp, "%ld", r1->ru_maxrss);
 		break;
 	    case 'O':		/* FS blocks out */
 		(void)fprintf(fp, "%ld", r1->ru_oublock - r0->ru_oublock);
@@ -196,10 +202,10 @@ prusage(FILE *fp, struct rusage *r0, struct rusage *r1, struct timespec *e,
 		(void)fprintf(fp, "%ld", r1->ru_minflt - r0->ru_minflt);
 		break;
 	    case 'S':		/* system CPU time used */
-		pdeltat(fp, &r1->ru_stime, &r0->ru_stime);
+		pdeltat(fp, prec, &r1->ru_stime, &r0->ru_stime);
 		break;
 	    case 'U':		/* user CPU time used */
-		pdeltat(fp, &r1->ru_utime, &r0->ru_utime);
+		pdeltat(fp, prec, &r1->ru_utime, &r0->ru_utime);
 		break;
 	    case 'W':		/* number of swaps */
 		i = r1->ru_nswap - r0->ru_nswap;
@@ -229,13 +235,13 @@ prusage(FILE *fp, struct rusage *r0, struct rusage *r1, struct timespec *e,
 }
 
 static void
-pdeltat(FILE *fp, struct timeval *t1, struct timeval *t0)
+pdeltat(FILE *fp, int prec, struct timeval *t1, struct timeval *t0)
 {
     struct timeval td;
 
     timersub(t1, t0, &td);
-    (void)fprintf(fp, "%ld.%01ld", (long)td.tv_sec,
-	(long)(td.tv_usec / 100000));
+    (void)fprintf(fp, "%ld.%0*ld", (long)td.tv_sec,
+	prec, (long)(td.tv_usec / 100000));
 }
 
 #define  P2DIG(fp, i) (void)fprintf(fp, "%ld%ld", (i) / 10, (i) % 10)

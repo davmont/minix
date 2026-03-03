@@ -1,4 +1,4 @@
-/* $NetBSD: proc.c,v 1.36 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: proc.c,v 1.42 2021/09/16 19:34:21 christos Exp $ */
 
 /*-
  * Copyright (c) 1980, 1991, 1993
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)proc.c	8.1 (Berkeley) 5/31/93";
 #else
-__RCSID("$NetBSD: proc.c,v 1.36 2013/07/16 17:47:43 christos Exp $");
+__RCSID("$NetBSD: proc.c,v 1.42 2021/09/16 19:34:21 christos Exp $");
 #endif
 #endif /* not lint */
 
@@ -55,6 +55,17 @@ __RCSID("$NetBSD: proc.c,v 1.36 2013/07/16 17:47:43 christos Exp $");
 #define BIGINDEX 9 /* largest desirable job index */
 
 extern int insource;
+
+struct process proclist;
+int pnoprocesses;
+
+struct process *pholdjob;
+
+struct process *pcurrjob;
+struct process *pcurrent;
+struct process *pprevious;
+
+int pmaxindex;
 
 static void pflushall(void);
 static void pflush(struct process *);
@@ -231,11 +242,11 @@ pwait(void)
     for (pp = (fp = &proclist)->p_next; pp != NULL; pp = (fp = pp)->p_next)
 	if (pp->p_pid == 0) {
 	    fp->p_next = pp->p_next;
-	    xfree((ptr_t) pp->p_command);
+	    free(pp->p_command);
 	    if (pp->p_cwd && --pp->p_cwd->di_count == 0)
 		if (pp->p_cwd->di_next == 0)
 		    dfree(pp->p_cwd);
-	    xfree((ptr_t) pp);
+	    free(pp);
 	    pp = fp;
 	}
     (void)sigprocmask(SIG_SETMASK, &osigset, NULL);
@@ -444,7 +455,7 @@ palloc(int pid, struct command *t)
     struct process *pp;
     int i;
 
-    pp = (struct process *)xcalloc(1, (size_t)sizeof(struct process));
+    pp = xcalloc(1, sizeof(*pp));
     pp->p_pid = pid;
     pp->p_flags = t->t_dflg & F_AMPERSAND ? PRUNNING : PRUNNING | PFOREGND;
     if (t->t_dflg & F_TIME)
@@ -831,9 +842,20 @@ dojobs(Char **v, struct command *t)
     if (chkstop)
 	chkstop = 2;
     if (*++v) {
-	if (v[1] || !eq(*v, STRml))
-	    stderror(ERR_JOBS);
-	flag |= FANCY | JOBDIR;
+	if (v[1]) {
+	    if (eq(*v, STRml)) {
+		flag |= FANCY | JOBDIR;
+	    } else if (eq(*v, STRmZ)) {
+		if (v[1] && v[1][0]) {
+		    setproctitle("%s", short2str(v[1]));
+		} else {
+		    setproctitle(NULL);
+		}
+		return;
+	    } else {
+		stderror(ERR_JOBS);
+	    }
+	}
     }
     for (i = 1; i <= pmaxindex; i++)
 	for (pp = proclist.p_next; pp; pp = pp->p_next)

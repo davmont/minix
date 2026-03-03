@@ -1,4 +1,4 @@
-/*	$NetBSD: ldd.c,v 1.22 2014/03/02 03:55:19 matt Exp $	*/
+/*	$NetBSD: ldd.c,v 1.27.2.1 2023/01/12 12:05:20 martin Exp $	*/
 
 /*-
  * Copyright (c) 1998, 2000 The NetBSD Foundation, Inc.
@@ -62,7 +62,7 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: ldd.c,v 1.22 2014/03/02 03:55:19 matt Exp $");
+__RCSID("$NetBSD: ldd.c,v 1.27.2.1 2023/01/12 12:05:20 martin Exp $");
 #endif /* not lint */
 
 #include <sys/types.h>
@@ -122,12 +122,14 @@ int
 main(int argc, char **argv)
 {
 	const char *fmt1 = NULL, *fmt2 = NULL;
-	int c;
+	int c, exit_status = EXIT_SUCCESS;
+	char cwd[MAXPATHLEN], path[MAXPATHLEN];
+	bool verbose = false;
 
 #ifdef DEBUG
 	debug = 1;
 #endif
-	while ((c = getopt(argc, argv, "f:o")) != -1) {
+	while ((c = getopt(argc, argv, "f:ov")) != -1) {
 		switch (c) {
 		case 'f':
 			if (fmt1) {
@@ -142,6 +144,9 @@ main(int argc, char **argv)
 				errx(1, "Cannot use -o and -f together");
 			fmt1 = "%a:-l%o.%m => %p\n";
 			break;
+		case 'v':
+			verbose = true;
+			break;
 		default:
 			usage();
 			/*NOTREACHED*/
@@ -154,29 +159,60 @@ main(int argc, char **argv)
 		usage();
 		/*NOTREACHED*/
 	}
+	if (getcwd(cwd, sizeof(cwd)) == NULL)
+		err(EXIT_FAILURE, "Can't get working directory");
 
 	for (; argc != 0; argc--, argv++) {
 		int fd;
+		bool failed = false;
 
+		if (**argv != '/') {
+			strcpy(path, cwd);
+			strlcat(path, "/", sizeof(path));
+			strlcat(path, *argv, sizeof(path));
+		} else {
+			strlcpy(path, *argv, sizeof(path));
+		}
 		fd = open(*argv, O_RDONLY);
 		if (fd == -1) {
+			exit_status = EXIT_FAILURE;
 			warn("%s", *argv);
 			continue;
 		}
-		if (elf_ldd(fd, *argv, fmt1, fmt2) == -1
-		    /* Alpha never had 32 bit support. */
+		if (elf_ldd(fd, *argv, path, fmt1, fmt2) == -1) {
+			if (verbose)
+				warnx("%s", error_message);
+			failed = true;
+		}
+		/* Alpha never had 32 bit support. */
 #if (defined(_LP64) && !defined(ELF64_ONLY)) || defined(MIPS_N32)
-		    && elf32_ldd(fd, *argv, fmt1, fmt2) == -1
+		if (failed) {
+			if (elf32_ldd(fd, *argv, path, fmt1, fmt2) == -1) {
+				if (verbose)
+					warnx("%s", error_message);
+			} else
+				failed = false;
+		}
 #if defined(__mips__) && 0 /* XXX this is still hosed for some reason */
-		    && elf32_ldd_compat(fd, *argv, fmt1, fmt2) == -1
+		if (failed) {
+			if (elf32_ldd_compat(fd, *argv, path, fmt1, fmt2) == -1) {
+				if (verbose)
+					warnx("%s", error_message);
+			} else
+				failed = false;
+		}
 #endif
 #endif
-		    )
-			warnx("%s", error_message);
+
+		if (failed) {
+			exit_status = EXIT_FAILURE;
+			if (!verbose)
+				warnx("%s", error_message);
+		}
 		close(fd);
 	}
 
-	return 0;
+	return exit_status;
 }
 
 /*

@@ -1,25 +1,29 @@
-#	$NetBSD: Makefile,v 1.76 2015/09/17 14:25:43 christos Exp $
+#	$NetBSD: Makefile,v 1.90.2.2 2025/10/19 09:48:29 martin Exp $
 
 HOSTLIB=	nbcompat
 
-.include <bsd.own.mk>
+.include <bsd.hostinit.mk>
 
 SRCS=		atoll.c basename.c cdbr.c cdbw.c dirname.c \
 		dprintf.c fgetln.c flock.c fparseln.c fpurge.c \
 		getcap.c getline.c getmode.c getopt_long.c gettemp.c \
-		heapsort.c \
+		heapsort.c getsubopt.c \
 		issetugid.c lchflags.c lchmod.c lchown.c libyywrap.c \
 		md2.c md2hl.c md4c.c md4hl.c md5c.c md5hl.c \
-		mi_vector_hash.c mkdtemp.c \
+		mi_vector_hash.c mkdtemp.c mkstemps.c \
 		mkstemp.c pread.c putc_unlocked.c pwcache.c pwrite.c \
 		pw_scan.c \
-		raise_default_signal.c reallocarr.c rmd160.c rmd160hl.c \
+		raise_default_signal.c rb.c reallocarr.c reallocarray.c \
+		rmd160.c rmd160hl.c \
+		regcomp.c regerror.c regexec.c regfree.c \
 		setenv.c setgroupent.c \
 		setpassent.c setprogname.c sha1.c sha1hl.c sha2.c \
-		sha256hl.c sha384hl.c sha512hl.c snprintb.c snprintf.c \
+		sha256hl.c sha384hl.c sha512hl.c \
+		shquote.c \
+		snprintb.c snprintf.c \
 		stat_flags.c strlcat.c strlcpy.c strmode.c \
-		strndup.c strnlen.c \
-		strsep.c strsuftoll.c strtoll.c \
+		strcasecmp.c strncasecmp.c strcasestr.c strndup.c strnlen.c \
+		strsep.c strsuftoll.c strtonum.c strtoll.c \
 		strtoi.c strtou.c \
 		unvis.c vis.c err.c errx.c errc.c verr.c verrx.c verrc.c \
 		vwarn.c vwarnx.c vwarnc.c warn.c warnx.c warnc.c \
@@ -29,13 +33,13 @@ BUILD_OSTYPE!=  uname -s
 
 # Disable use of pre-compiled headers on Darwin.
 .if ${BUILD_OSTYPE} == "Darwin"
-CPPFLAGS+=	-no-cpp-precomp
+HOST_CPPFLAGS+=	-no-cpp-precomp
 .endif
 
 # -D_FILE_OFFSET_BITS=64 produces a much more amenable `struct stat', and
 # other file ops, on many systems, without changing function names.
 
-CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
+HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64
 
 .PATH:		${.CURDIR}/../../lib/libc/cdb \
@@ -47,11 +51,13 @@ CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		${.CURDIR}/../../lib/libc/hash/sha1 \
 		${.CURDIR}/../../lib/libc/hash/sha2 \
 		${.CURDIR}/../../lib/libc/md \
+		${.CURDIR}/../../lib/libc/regex \
 		${.CURDIR}/../../lib/libc/stdio \
 		${.CURDIR}/../../lib/libc/stdlib \
 		${.CURDIR}/../../lib/libc/string \
 		${.CURDIR}/../../lib/libutil \
 		${.CURDIR}/../../common/lib/libc/cdb \
+		${.CURDIR}/../../common/lib/libc/gen \
 		${.CURDIR}/../../common/lib/libc/string \
 		${.CURDIR}/../../common/lib/libc/hash/rmd160 \
 		${.CURDIR}/../../common/lib/libc/hash/sha1 \
@@ -59,7 +65,7 @@ CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		${.CURDIR}/../../common/lib/libc/md \
 		${.CURDIR}/../../common/lib/libc/stdlib \
 		${.CURDIR}/../../common/lib/libutil \
-		${.CURDIR}/../../external/bsd/flex/dist
+		${.CURDIR}/../../external/bsd/flex/dist/src
 
 DPSRCS+=	defs.mk
 CLEANFILES+=	config.log config.status configure.lineno *.stamp
@@ -73,10 +79,16 @@ _CURDIR:=	${.CURDIR}
 
 SRCS:=		${SRCS:M*.c}
 
+CONFIGURE_ARGS=	--cache-file=config.cache
+.if ${MAKEVERBOSE} == 0
+CONFIGURE_ARGS+=--silent
+.endif
+
 config.cache: include/.stamp configure nbtool_config.h.in defs.mk.in
 	rm -f ${.TARGET}
-	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} LDFLAGS=${HOST_LDFLAGS:Q} \
-		${HOST_SH} ${.CURDIR}/configure --cache-file=config.cache
+	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} CPPFLAGS=${HOST_CPPFLAGS:Q} \
+		LDFLAGS=${HOST_LDFLAGS:Q} \
+		${HOST_SH} ${.CURDIR}/configure ${CONFIGURE_ARGS}
 
 defs.mk: config.cache
 	@touch ${.TARGET}
@@ -140,8 +152,7 @@ ${HOST_SHAREDIR}/compat/defs.mk: defs.mk
 
 # bsd.hostlib.mk wants HOST_CPPFLAGS, not CPPFLAGS
 
-HOST_CPPFLAGS:=	${CPPFLAGS}
-CPPFLAGS:=	# empty
+HOST_CPPFLAGS+=	${CPPFLAGS}
 
 .include <bsd.hostlib.mk>
 

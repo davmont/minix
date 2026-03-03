@@ -1,13 +1,13 @@
-/*	$NetBSD: path.c,v 1.8 2009/04/25 05:11:37 lukem Exp $	*/
+/*	$NetBSD: path.c,v 1.14 2022/10/31 21:22:05 andvar Exp $	*/
 #include <sys/cdefs.h>
 
 #ifndef lint
-__RCSID("$NetBSD: path.c,v 1.8 2009/04/25 05:11:37 lukem Exp $");
+__RCSID("$NetBSD: path.c,v 1.14 2022/10/31 21:22:05 andvar Exp $");
 #endif
 
+#include <sys/stat.h>
 
 #include "sh.h"
-#include "ksh_stat.h"
 
 /*
  *	Contains a routine to search a : separated list of
@@ -130,10 +130,6 @@ simplify_path(pathx)
 
 	if ((isrooted = ISROOTEDPATH(pathx)))
 		very_start++;
-#if defined (OS2) || defined (__CYGWIN__)
-	if (pathx[0] && pathx[1] == ':')	/* skip a: */
-		very_start += 2;
-#endif /* OS2 || __CYGWIN__ */
 
 	/* Before			After
 	 *  /foo/			/foo
@@ -143,18 +139,7 @@ simplify_path(pathx)
 	 *  ..				..
 	 *  ./foo			foo
 	 *  foo/../../../bar		../../bar
-	 * OS2 and CYGWIN:
-	 *  a:/foo/../..		a:/
-	 *  a:.				a:
-	 *  a:..			a:..
-	 *  a:foo/../../blah		a:../blah
 	 */
-
-#ifdef __CYGWIN__
-       /* preserve leading double-slash on pathnames (for UNC paths) */
-       if (pathx[0] && ISDIRSEP(pathx[0]) && pathx[1] && ISDIRSEP(pathx[1]))
-               very_start++;
-#endif /* __CYGWIN__ */
 
 	for (cur = t = start = very_start; ; ) {
 		/* treat multiple '/'s as one '/' */
@@ -311,7 +296,7 @@ main(argc, argv)
 			rv = make_path(pwd, file, &cp, result, sizeof(result));
 			printf("make_path returns (%d), \"%s\" ", rv, result);
 			simplify_path(result);
-			printf("(simpifies to \"%s\")\n", result);
+			printf("(simplifies to \"%s\")\n", result);
 		} while (cp);
 	}
 }

@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile,v 1.29 2015/09/14 05:12:52 ozaki-r Exp $
+#	$NetBSD: Makefile,v 1.32 2019/10/13 07:28:13 mrg Exp $
 #	@(#)Makefile	8.1 (Berkeley) 6/5/93
 
 .include <bsd.own.mk>
@@ -7,16 +7,18 @@ RUMPPRG=route
 MAN=	route.8
 SRCS=	route.c show.c keywords.c rtutil.c
 
-.PATH:		${.CURDIR}/../../lib/libc/net
-RUMPSRCS=	getaddrinfo.c getifaddrs.c getnameinfo.c
-RUMPSRCS+=	if_indextoname.c if_nametoindex.c
 .if (${MKRUMP} != "no")
 CPPFLAGS+= -DRUMP_ACTION
+LDADD.rump += -lrumpres
+DPADD.rump += ${LIBRUMPRES}
 .endif
 
 .if (${USE_INET6} != "no")
 CPPFLAGS+=-DINET6
 .endif
+
+LDADD+=-lutil
+DPADD+=${LIBUTIL}
 
 # The Makefile over in ../../distrib/utils/x_route
 # would like keywords.[ch] to always exist here, so
@@ -26,5 +28,7 @@ CPPFLAGS+=-DINET6
 # CLEANFILES+= keywords.c keywords.h
 # keywords.c keywords.h : keywords.sh
 # 	${HOST_SH} keywords.sh
+
+COPTS.rtutil.c+=	${GCC_NO_FORMAT_TRUNCATION}
 
 .include <bsd.prog.mk>

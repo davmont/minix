@@ -1,4 +1,4 @@
-/*	$NetBSD: bpf.c,v 1.11 2012/12/14 08:15:44 msaitoh Exp $	*/
+/*	$NetBSD: bpf.c,v 1.17 2022/11/19 08:56:20 yamt Exp $	*/
 
 /*
  * Copyright (c) 2005 The NetBSD Foundation, Inc.
@@ -53,19 +53,19 @@ bpf_stats(void)
 	size_t len = sizeof(bpf_s);
 
 	if (use_sysctl) {
-		if (sysctlbyname("net.bpf.stats", &bpf_s, &len, NULL, 0) == -1)
+		if (prog_sysctlbyname("net.bpf.stats", &bpf_s, &len, NULL, 0)
+		    == -1 && errno != ENOMEM)
 			err(1, "net.bpf.stats");
-	
+
 		printf("bpf:\n");
-		printf("\t%" PRIu64 " total packets received\n", 
+		printf("\t%" PRIu64 " total packets received\n",
 		    bpf_s.bs_recv);
-		printf("\t%" PRIu64 " total packets captured\n", 
+		printf("\t%" PRIu64 " total packets captured\n",
 		    bpf_s.bs_capt);
-		printf("\t%" PRIu64 " total packets dropped\n", 
+		printf("\t%" PRIu64 " total packets dropped\n",
 		    bpf_s.bs_drop);
-	} else {
+	} else
 		warnx("BPF stats not available via KVM.");
-	}
 }
 
 void
@@ -79,17 +79,17 @@ bpf_dump(const char *bpfif)
 		u_int	namelen;
 		void	*v;
 		struct kinfo_proc2 p;
-	
+
 		/* adapted from sockstat.c by Andrew Brown */
 
 		sz = CTL_MAXNAME;
-		if (sysctlnametomib("net.bpf.peers", &name[0], &sz) == -1)
+		if (prog_sysctlnametomib("net.bpf.peers", &name[0], &sz) == -1)
 			err(1, "sysctlnametomib: net.bpf.peers");
 		namelen = sz;
 
 		name[namelen++] = sizeof(*dpe);
 		name[namelen++] = INT_MAX;
-		
+
 		v = NULL;
 		sz = 0;
 		do {
@@ -117,19 +117,19 @@ bpf_dump(const char *bpfif)
 #define BPFEXT(entry) dpe->entry
 
 		for (i = 0; i < (sz / sizeof(*dpe)); i++, dpe++) {
-			if (bpfif && 
+			if (bpfif &&
 			    strncmp(BPFEXT(bde_ifname), bpfif, IFNAMSIZ))
 				continue;
-			
+
 			printf("%-7d ", BPFEXT(bde_pid));
 			printf("%-7s ",
-			       (BPFEXT(bde_ifname)[0] == '\0') ? "-" : 
+			       (BPFEXT(bde_ifname)[0] == '\0') ? "-" :
 			       BPFEXT(bde_ifname));
 
-			printf("%-8" PRIu64 " %-8" PRIu64 " %-8" PRIu64 " ", 
-				BPFEXT(bde_rcount), BPFEXT(bde_dcount), 
+			printf("%-8" PRIu64 " %-8" PRIu64 " %-8" PRIu64 " ",
+				BPFEXT(bde_rcount), BPFEXT(bde_dcount),
 				BPFEXT(bde_ccount));
-			
+
 			switch (BPFEXT(bde_state)) {
 			case BPF_IDLE:
 				printf("I");
@@ -144,10 +144,12 @@ bpf_dump(const char *bpfif)
 				printf("-");
 				break;
 			}
-			
+
 			printf("%c", BPFEXT(bde_promisc) ? 'P' : '-');
 			printf("%c", BPFEXT(bde_immediate) ? 'R' : '-');
-			printf("%c", BPFEXT(bde_seesent) ? 'S' : '-');
+			printf("%c", (BPFEXT(bde_direction) == BPF_D_IN) ?
+			    '-' : (BPFEXT(bde_direction) == BPF_D_OUT) ?
+			    'O' : 'S');
 			printf("%c", BPFEXT(bde_hdrcmplt) ? 'H' : '-');
 			printf("  %-8d ", BPFEXT(bde_bufsize));
 
@@ -160,8 +162,13 @@ bpf_dump(const char *bpfif)
 			name[namelen++] = szproc;
 			name[namelen++] = 1;
 
-			if (prog_sysctl(&name[0], namelen, &p, &szproc, 
-			    NULL, 0) == -1)
+			/*
+			 * Note: The sysctl succeeds (returns 0) even if it failed
+			 * to find the process. The szproc check below is to detect
+			 * that case.
+			 */
+			if (prog_sysctl(&name[0], namelen, &p, &szproc,
+			    NULL, 0) == -1 || szproc != sizeof(p))
 				printf("-\n");
 			else
 				printf("%s\n", p.p_comm);
@@ -169,7 +176,7 @@ bpf_dump(const char *bpfif)
 		}
 		free(v);
 	} else {
-                /* XXX */
-                errx(1, "bpf_dump not implemented using kvm");
-        }
+		/* XXX */
+		errx(1, "bpf_dump not implemented using kvm");
+	}
 }

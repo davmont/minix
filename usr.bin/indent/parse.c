@@ -1,37 +1,11 @@
-/*	$NetBSD: parse.c,v 1.7 2003/08/07 11:14:09 agc Exp $	*/
+/*	$NetBSD: parse.c,v 1.49 2022/04/22 21:21:20 rillig Exp $	*/
 
-/*
+/*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
+ * Copyright (c) 1985 Sun Microsystems, Inc.
  * Copyright (c) 1980, 1993
  *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
-
-/*
- * Copyright (c) 1976 Board of Trustees of the University of Illinois.
- * Copyright (c) 1985 Sun Microsystems, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,298 +37,287 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#ifndef lint
 #if 0
 static char sccsid[] = "@(#)parse.c	8.1 (Berkeley) 6/6/93";
-#else
-__RCSID("$NetBSD: parse.c,v 1.7 2003/08/07 11:14:09 agc Exp $");
 #endif
-#endif				/* not lint */
 
+#include <sys/cdefs.h>
+#if defined(__NetBSD__)
+__RCSID("$NetBSD: parse.c,v 1.49 2022/04/22 21:21:20 rillig Exp $");
+#else
+__FBSDID("$FreeBSD: head/usr.bin/indent/parse.c 337651 2018-08-11 19:20:06Z pstef $");
+#endif
+
+#include <assert.h>
+#include <err.h>
 #include <stdio.h>
-#include "indent_globs.h"
-#include "indent_codes.h"
 
-/* tk: the code for the construct scanned */
-void
-parse(int tk)
-{
-	int     i;
+#include "indent.h"
+
+static void reduce(void);
 
 #ifdef debug
-	printf("%2d - %s\n", tk, token);
+static const char *
+psym_name(parser_symbol psym)
+{
+    static const char *const name[] = {
+	"semicolon",
+	"lbrace",
+	"rbrace",
+	"decl",
+	"stmt",
+	"stmt_list",
+	"for_exprs",
+	"if_expr",
+	"if_expr_stmt",
+	"if_expr_stmt_else",
+	"else",
+	"switch_expr",
+	"do",
+	"do_stmt",
+	"while_expr",
+    };
+
+    assert(array_length(name) == (int)psym_while_expr + 1);
+
+    return name[psym];
+}
 #endif
 
-	while (ps.p_stack[ps.tos] == ifhead && tk != elselit) {
-		/* true if we have an if without an else */
-		ps.p_stack[ps.tos] = stmt;	/* apply the if(..) stmt ::=
-						 * stmt reduction */
-		reduce();	/* see if this allows any reduction */
+static int
+decl_level(void)
+{
+    int level = 0;
+    for (int i = ps.tos - 1; i > 0; i--)
+	if (ps.s_sym[i] == psym_decl)
+	    level++;
+    return level;
+}
+
+/*
+ * Shift the token onto the parser stack, or reduce it by combining it with
+ * previous tokens.
+ */
+void
+parse(parser_symbol psym)
+{
+    debug_println("parse token: %s", psym_name(psym));
+
+    if (psym != psym_else) {
+	while (ps.s_sym[ps.tos] == psym_if_expr_stmt) {
+	    ps.s_sym[ps.tos] = psym_stmt;
+	    reduce();
+	}
+    }
+
+    switch (psym) {
+
+    case psym_decl:
+	ps.search_stmt = opt.brace_same_line;
+	/* indicate that following brace should be on same line */
+
+	if (ps.s_sym[ps.tos] == psym_decl)
+	    break;		/* only put one declaration onto stack */
+
+	break_comma = true;	/* while in a declaration, force a newline
+				 * after comma */
+	ps.s_sym[++ps.tos] = psym_decl;
+	ps.s_ind_level[ps.tos] = ps.ind_level_follow;
+
+	if (opt.ljust_decl)
+	    ps.ind_level_follow = ps.ind_level = decl_level();
+	break;
+
+    case psym_if_expr:
+	if (ps.s_sym[ps.tos] == psym_if_expr_stmt_else && opt.else_if) {
+	    /*
+	     * Reduce "else if" to "if". This saves a lot of stack space in
+	     * case of a long "if-else-if ... else-if" sequence.
+	     */
+	    ps.ind_level_follow = ps.s_ind_level[ps.tos--];
+	}
+	/* FALLTHROUGH */
+    case psym_do:
+    case psym_for_exprs:
+	ps.s_sym[++ps.tos] = psym;
+	ps.s_ind_level[ps.tos] = ps.ind_level = ps.ind_level_follow;
+	++ps.ind_level_follow;	/* subsequent statements should be indented 1 */
+	ps.search_stmt = opt.brace_same_line;
+	break;
+
+    case psym_lbrace:
+	break_comma = false;	/* don't break comma in an initializer list */
+	if (ps.s_sym[ps.tos] == psym_stmt || ps.s_sym[ps.tos] == psym_decl
+		|| ps.s_sym[ps.tos] == psym_stmt_list)
+	    ++ps.ind_level_follow;	/* it is a random, isolated stmt group
+					 * or a declaration */
+	else {
+	    if (code.s == code.e) {
+		/* it is a group as part of a while, for, etc. */
+		--ps.ind_level;
+
+		/*
+		 * for a switch, brace should be two levels out from the code
+		 */
+		if (ps.s_sym[ps.tos] == psym_switch_expr &&
+			opt.case_indent >= 1.0F)
+		    --ps.ind_level;
+	    }
 	}
 
+	ps.s_sym[++ps.tos] = psym_lbrace;
+	ps.s_ind_level[ps.tos] = ps.ind_level;
+	ps.s_sym[++ps.tos] = psym_stmt;
+	ps.s_ind_level[ps.tos] = ps.ind_level_follow;
+	break;
 
-	switch (tk) {		/* go on and figure out what to do with the
-				 * input */
+    case psym_while_expr:
+	if (ps.s_sym[ps.tos] == psym_do_stmt) {
+	    /* it is matched with do stmt */
+	    ps.ind_level = ps.ind_level_follow = ps.s_ind_level[ps.tos];
+	    ps.s_sym[++ps.tos] = psym_while_expr;
+	    ps.s_ind_level[ps.tos] = ps.ind_level = ps.ind_level_follow;
 
-	case decl:		/* scanned a declaration word */
-		ps.search_brace = btype_2;
-		/* indicate that following brace should be on same line */
-		if (ps.p_stack[ps.tos] != decl) {	/* only put one
-							 * declaration onto
-							 * stack */
-			break_comma = true;	/* while in declaration,
-						 * newline should be forced
-						 * after comma */
-			ps.p_stack[++ps.tos] = decl;
-			ps.il[ps.tos] = ps.i_l_follow;
+	} else {		/* it is a while loop */
+	    ps.s_sym[++ps.tos] = psym_while_expr;
+	    ps.s_ind_level[ps.tos] = ps.ind_level_follow;
+	    ++ps.ind_level_follow;
+	    ps.search_stmt = opt.brace_same_line;
+	}
 
-			if (ps.ljust_decl) {	/* only do if we want left
-						 * justified declarations */
-				ps.ind_level = 0;
-				for (i = ps.tos - 1; i > 0; --i)
-					if (ps.p_stack[i] == decl)
-						++ps.ind_level;	/* indentation is number
-								 * of declaration levels
-								 * deep we are */
-				ps.i_l_follow = ps.ind_level;
-			}
-		}
-		break;
+	break;
 
-	case ifstmt:		/* scanned if (...) */
-		if (ps.p_stack[ps.tos] == elsehead && ps.else_if)	/* "else if ..." */
-			ps.i_l_follow = ps.il[ps.tos];
-	case dolit:		/* 'do' */
-	case forstmt:		/* for (...) */
-		ps.p_stack[++ps.tos] = tk;
-		ps.il[ps.tos] = ps.ind_level = ps.i_l_follow;
-		++ps.i_l_follow;/* subsequent statements should be indented 1 */
-		ps.search_brace = btype_2;
-		break;
+    case psym_else:
+	if (ps.s_sym[ps.tos] != psym_if_expr_stmt)
+	    diag(1, "Unmatched 'else'");
+	else {
+	    ps.ind_level = ps.s_ind_level[ps.tos];
+	    ps.ind_level_follow = ps.ind_level + 1;
+	    ps.s_sym[ps.tos] = psym_if_expr_stmt_else;
 
-	case lbrace:		/* scanned { */
-		break_comma = false;	/* don't break comma in an initial
-					 * list */
-		if (ps.p_stack[ps.tos] == stmt || ps.p_stack[ps.tos] == decl
-		    || ps.p_stack[ps.tos] == stmtl)
-			++ps.i_l_follow;	/* it is a random, isolated
-						 * stmt group or a declaration */
-		else {
-			if (s_code == e_code) {
-				/*
-				 * only do this if there is nothing on the line
-				 */
-				--ps.ind_level;
-				/*
-				 * it is a group as part of a while, for, etc.
-				 */
-				if (ps.p_stack[ps.tos] == swstmt && ps.case_indent >= 1)
-					--ps.ind_level;
-				/*
-				 * for a switch, brace should be two levels out from the code
-				 */
-			}
-		}
+	    ps.search_stmt = opt.brace_same_line || opt.else_if;
+	}
+	break;
 
-		ps.p_stack[++ps.tos] = lbrace;
-		ps.il[ps.tos] = ps.ind_level;
-		ps.p_stack[++ps.tos] = stmt;
-		/* allow null stmt between braces */
-		ps.il[ps.tos] = ps.i_l_follow;
-		break;
+    case psym_rbrace:
+	/* stack should have <lbrace> <stmt> or <lbrace> <stmt_list> */
+	if (ps.tos > 0 && ps.s_sym[ps.tos - 1] == psym_lbrace) {
+	    ps.ind_level = ps.ind_level_follow = ps.s_ind_level[--ps.tos];
+	    ps.s_sym[ps.tos] = psym_stmt;
+	} else
+	    diag(1, "Statement nesting error");
+	break;
 
-	case whilestmt:	/* scanned while (...) */
-		if (ps.p_stack[ps.tos] == dohead) {
-			/* it is matched with do stmt */
-			ps.ind_level = ps.i_l_follow = ps.il[ps.tos];
-			ps.p_stack[++ps.tos] = whilestmt;
-			ps.il[ps.tos] = ps.ind_level = ps.i_l_follow;
-		} else {	/* it is a while loop */
-			ps.p_stack[++ps.tos] = whilestmt;
-			ps.il[ps.tos] = ps.i_l_follow;
-			++ps.i_l_follow;
-			ps.search_brace = btype_2;
-		}
+    case psym_switch_expr:
+	ps.s_sym[++ps.tos] = psym_switch_expr;
+	ps.s_case_ind_level[ps.tos] = case_ind;
+	ps.s_ind_level[ps.tos] = ps.ind_level_follow;
+	case_ind = (float)ps.ind_level_follow + opt.case_indent;
+	ps.ind_level_follow += (int)opt.case_indent + 1;
+	ps.search_stmt = opt.brace_same_line;
+	break;
 
-		break;
+    case psym_semicolon:	/* a simple statement */
+	break_comma = false;	/* don't break after comma in a declaration */
+	ps.s_sym[++ps.tos] = psym_stmt;
+	ps.s_ind_level[ps.tos] = ps.ind_level;
+	break;
 
-	case elselit:		/* scanned an else */
+    default:
+	diag(1, "Unknown code to parser");
+	return;
+    }
 
-		if (ps.p_stack[ps.tos] != ifhead)
-			diag(1, "Unmatched 'else'");
-		else {
-			ps.ind_level = ps.il[ps.tos];	/* indentation for else
-							 * should be same as for
-							 * if */
-			ps.i_l_follow = ps.ind_level + 1;	/* everything following
-								 * should be in 1 level */
-			ps.p_stack[ps.tos] = elsehead;
-			/* remember if with else */
-			ps.search_brace = btype_2 | ps.else_if;
-		}
-		break;
+    if (ps.tos >= STACKSIZE - 1)
+	errx(1, "Parser stack overflow");
 
-	case rbrace:		/* scanned a } */
-		/* stack should have <lbrace> <stmt> or <lbrace> <stmtl> */
-		if (ps.p_stack[ps.tos - 1] == lbrace) {
-			ps.ind_level = ps.i_l_follow = ps.il[--ps.tos];
-			ps.p_stack[ps.tos] = stmt;
-		} else
-			diag(1, "Stmt nesting error.");
-		break;
-
-	case swstmt:		/* had switch (...) */
-		ps.p_stack[++ps.tos] = swstmt;
-		ps.cstk[ps.tos] = case_ind;
-		/* save current case indent level */
-		ps.il[ps.tos] = ps.i_l_follow;
-		case_ind = ps.i_l_follow + ps.case_indent;	/* cases should be one
-								 * level down from
-								 * switch */
-		ps.i_l_follow += ps.case_indent + 1;	/* statements should be
-							 * two levels in */
-		ps.search_brace = btype_2;
-		break;
-
-	case semicolon:	/* this indicates a simple stmt */
-		break_comma = false;	/* turn off flag to break after commas
-					 * in a declaration */
-		ps.p_stack[++ps.tos] = stmt;
-		ps.il[ps.tos] = ps.ind_level;
-		break;
-
-	default:		/* this is an error */
-		diag(1, "Unknown code to parser");
-		return;
-
-
-	}			/* end of switch */
-
-	reduce();		/* see if any reduction can be done */
+    reduce();			/* see if any reduction can be done */
 
 #ifdef debug
-	for (i = 1; i <= ps.tos; ++i)
-		printf("(%d %d)", ps.p_stack[i], ps.il[i]);
-	printf("\n");
+    printf("parse stack:");
+    for (int i = 1; i <= ps.tos; ++i)
+	printf(" %s %d", psym_name(ps.s_sym[i]), ps.s_ind_level[i]);
+    if (ps.tos == 0)
+	printf(" empty");
+    printf("\n");
 #endif
 }
-/*
- * NAME: reduce
- *
- * FUNCTION: Implements the reduce part of the parsing algorithm
- *
- * ALGORITHM: The following reductions are done.  Reductions are repeated
- *	until no more are possible.
- *
- * Old TOS		New TOS
- * <stmt> <stmt>	<stmtl>
- * <stmtl> <stmt>	<stmtl>
- * do <stmt>		"dostmt"
- * if <stmt>		"ifstmt"
- * switch <stmt>	<stmt>
- * decl <stmt>		<stmt>
- * "ifelse" <stmt>	<stmt>
- * for <stmt>		<stmt>
- * while <stmt>		<stmt>
- * "dostmt" while	<stmt>
- *
- * On each reduction, ps.i_l_follow (the indentation for the following line)
- * is set to the indentation level associated with the old TOS.
- *
- * PARAMETERS: None
- *
- * RETURNS: Nothing
- *
- * GLOBALS: ps.cstk ps.i_l_follow = ps.il ps.p_stack = ps.tos =
- *
- * CALLS: None
- *
- * CALLED BY: parse
- *
- * HISTORY: initial coding 	November 1976	D A Willcox of CAC
- *
- */
-/*----------------------------------------------*\
-|   REDUCTION PHASE				    |
-\*----------------------------------------------*/
+
 void
+parse_stmt_head(stmt_head hd)
+{
+    static const parser_symbol psym[] = {
+	[hd_for] = psym_for_exprs,
+	[hd_if] = psym_if_expr,
+	[hd_switch] = psym_switch_expr,
+	[hd_while] = psym_while_expr
+    };
+    parse(psym[hd]);
+}
+
+/*
+ * Try to combine the statement on the top of the parse stack with the symbol
+ * directly below it, replacing these two symbols with a single symbol.
+ */
+static bool
+reduce_stmt(void)
+{
+    switch (ps.s_sym[ps.tos - 1]) {
+
+    case psym_stmt:
+    case psym_stmt_list:
+	ps.s_sym[--ps.tos] = psym_stmt_list;
+	return true;
+
+    case psym_do:
+	ps.s_sym[--ps.tos] = psym_do_stmt;
+	ps.ind_level_follow = ps.s_ind_level[ps.tos];
+	return true;
+
+    case psym_if_expr:
+	ps.s_sym[--ps.tos] = psym_if_expr_stmt;
+	int i = ps.tos - 1;
+	while (ps.s_sym[i] != psym_stmt &&
+		ps.s_sym[i] != psym_stmt_list &&
+		ps.s_sym[i] != psym_lbrace)
+	    --i;
+	ps.ind_level_follow = ps.s_ind_level[i];
+	/*
+	 * For the time being, assume that there is no 'else' on this 'if',
+	 * and set the indentation level accordingly. If an 'else' is scanned,
+	 * it will be fixed up later.
+	 */
+	return true;
+
+    case psym_switch_expr:
+	case_ind = ps.s_case_ind_level[ps.tos - 1];
+	/* FALLTHROUGH */
+    case psym_decl:		/* finish of a declaration */
+    case psym_if_expr_stmt_else:
+    case psym_for_exprs:
+    case psym_while_expr:
+	ps.s_sym[--ps.tos] = psym_stmt;
+	ps.ind_level_follow = ps.s_ind_level[ps.tos];
+	return true;
+
+    default:
+	return false;
+    }
+}
+
+/*
+ * Repeatedly try to reduce the top two symbols on the parse stack to a
+ * single symbol, until no more reductions are possible.
+ */
+static void
 reduce(void)
 {
-
-	int     i;
-
-	for (;;) {		/* keep looping until there is nothing left to
-				 * reduce */
-
-		switch (ps.p_stack[ps.tos]) {
-
-		case stmt:
-			switch (ps.p_stack[ps.tos - 1]) {
-
-			case stmt:
-			case stmtl:
-				/* stmtl stmt or stmt stmt */
-				ps.p_stack[--ps.tos] = stmtl;
-				break;
-
-			case dolit:	/* <do> <stmt> */
-				ps.p_stack[--ps.tos] = dohead;
-				ps.i_l_follow = ps.il[ps.tos];
-				break;
-
-			case ifstmt:
-				/* <if> <stmt> */
-				ps.p_stack[--ps.tos] = ifhead;
-				for (i = ps.tos - 1;
-				    (
-					ps.p_stack[i] != stmt
-					&&
-					ps.p_stack[i] != stmtl
-					&&
-					ps.p_stack[i] != lbrace
-				    );
-				    --i);
-				ps.i_l_follow = ps.il[i];
-				/*
-				 * for the time being, we will assume that there is no else on
-				 * this if, and set the indentation level accordingly. If an
-				 * else is scanned, it will be fixed up later
-				 */
-				break;
-
-			case swstmt:
-				/* <switch> <stmt> */
-				case_ind = ps.cstk[ps.tos - 1];
-
-			case decl:	/* finish of a declaration */
-			case elsehead:
-				/* <<if> <stmt> else> <stmt> */
-			case forstmt:
-				/* <for> <stmt> */
-			case whilestmt:
-				/* <while> <stmt> */
-				ps.p_stack[--ps.tos] = stmt;
-				ps.i_l_follow = ps.il[ps.tos];
-				break;
-
-			default:	/* <anything else> <stmt> */
-				return;
-
-			}	/* end of section for <stmt> on top of stack */
-			break;
-
-		case whilestmt:/* while (...) on top */
-			if (ps.p_stack[ps.tos - 1] == dohead) {
-				/* it is termination of a do while */
-				ps.p_stack[--ps.tos] = stmt;
-				break;
-			} else
-				return;
-
-		default:	/* anything else on top */
-			return;
-
-		}
-	}
+again:
+    if (ps.s_sym[ps.tos] == psym_stmt && reduce_stmt())
+	goto again;
+    if (ps.s_sym[ps.tos] == psym_while_expr &&
+	    ps.s_sym[ps.tos - 1] == psym_do_stmt) {
+	ps.tos -= 2;
+	goto again;
+    }
 }

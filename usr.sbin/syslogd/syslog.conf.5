@@ -1,4 +1,4 @@
-.\"	$NetBSD: syslog.conf.5,v 1.21 2013/11/10 00:13:50 wiz Exp $
+.\"	$NetBSD: syslog.conf.5,v 1.26 2021/09/01 13:44:02 andvar Exp $
 .\"
 .\" Copyright (c) 1990, 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -70,7 +70,7 @@ are encoded as a
 a period
 .Pq Sq \&. ,
 an optional set of comparison flags
-.Pq Bo ! Bc Bq \*[Lt]=\*[Gt] ,
+.Pq Bo ! Bc Bq <=> ,
 and a
 .Em level ,
 with no intervening white-space.
@@ -98,7 +98,7 @@ The
 .Em comparison flags
 may be used to specify exactly what levels are logged.
 If unspecified, the default comparison is
-.Sq \*[Gt]=
+.Sq >=
 .Pq greater than or equal to ,
 or, if the
 .Fl U
@@ -114,7 +114,7 @@ Thus,
 means all levels except info and
 .Sq !notice
 has the same meaning as
-.Sq \*[Lt]notice .
+.Sq <notice .
 .Pp
 The
 .Em level
@@ -297,7 +297,7 @@ To ensure that kernel messages are written to disk promptly,
 calls
 .Xr fsync 2
 after writing messages from the kernel.
-Other messages are not synced explcitly.
+Other messages are not synced explicitly.
 You may disable syncing of files specified to receive kernel messages
 by prefixing the pathname with a minus sign
 .Ql - .
@@ -330,7 +330,7 @@ program on the named host.
 After the closing bracket a colon
 .Pq Sq \&:
 and a port or service name may be appended.
-Additional options are configured in parantheses in the form of key="value".
+Additional options are configured in parentheses in the form of key="value".
 Recognized keywords are
 .Ar subject ,
 .Ar fingerprint ,
@@ -476,8 +476,8 @@ and the hashes of the certificates given in
 On any match the client is authenticated.
 .Sh BUFFERING
 .Xr syslogd 8
-is able to buffer temporary not writeable messages in memory.
-To limit the memory consumed for this buffering the following optons may be
+is able to buffer temporary not writable messages in memory.
+To limit the memory consumed for this buffering the following options may be
 given:
 .Bl -ohang
 .It Em file_queue_length
@@ -511,7 +511,7 @@ message containing hashes of previous messages.
 .Pp
 To detect later manipulation one has to keep a copy of the key used for
 signing (otherwise an attacker could alter the logs and sign them with his
-his own key).
+own key).
 If TLS is used with a DSA key then the same key will be used for signing.
 This is the recommended setup because it makes it easy to have copies of
 the certificate (with the public key) in backups.
@@ -590,7 +590,7 @@ mail.*					/var/log/maillog
 
 # Log all messages of level info or higher to another
 # machine using TLS with an alternative portname and a
-# fingerprint for athentication
+# fingerprint for authentication
 *.info			@[logserver]:1234(fingerprint="SHA1:01:02:...")
 
 # Root and Eric get alert and higher messages.

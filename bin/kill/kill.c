@@ -1,4 +1,4 @@
-/* $NetBSD: kill.c,v 1.27 2011/08/29 14:51:18 joerg Exp $ */
+/* $NetBSD: kill.c,v 1.33 2022/05/16 10:53:14 kre Exp $ */
 
 /*
  * Copyright (c) 1988, 1993, 1994
@@ -39,7 +39,7 @@ __COPYRIGHT("@(#) Copyright (c) 1988, 1993, 1994\
 #if 0
 static char sccsid[] = "@(#)kill.c	8.4 (Berkeley) 4/28/95";
 #else
-__RCSID("$NetBSD: kill.c,v 1.27 2011/08/29 14:51:18 joerg Exp $");
+__RCSID("$NetBSD: kill.c,v 1.33 2022/05/16 10:53:14 kre Exp $");
 #endif
 #endif /* not lint */
 
@@ -63,17 +63,19 @@ int killcmd(int, char *argv[]);
 #include "../../bin/sh/bltin/bltin.h"
 #endif /* SHELL */ 
 
-__dead static void nosig(char *);
-static void printsignals(FILE *);
-static int signame_to_signum(char *);
+__dead static void nosig(const char *);
+void printsignals(FILE *, int);
+static int signum(const char *);
+static int processnum(const char *, pid_t *);
 __dead static void usage(void);
 
 int
 main(int argc, char *argv[])
 {
 	int errors;
-	intmax_t numsig, pid;
-	char *ep;
+	int numsig;
+	pid_t pid;
+	const char *sn;
 
 	setprogname(argv[0]);
 	setlocale(LC_ALL, "");
@@ -83,64 +85,91 @@ main(int argc, char *argv[])
 	numsig = SIGTERM;
 
 	argc--, argv++;
-	if (strcmp(*argv, "-l") == 0) {
-		argc--, argv++;
-		if (argc > 1)
-			usage();
-		if (argc == 1) {
-			if (isdigit((unsigned char)**argv) == 0)
-				usage();
-			numsig = strtoimax(*argv, &ep, 10);
-			/* check for correctly parsed number */
-			if (*ep != '\0' || numsig == INTMAX_MIN || numsig == INTMAX_MAX) {
-				errx(EXIT_FAILURE, "illegal signal number: %s",
-						*argv);
-				/* NOTREACHED */
+
+	/*
+	 * Process exactly 1 option, if there is one.
+	 */
+	if (argv[0][0] == '-') {
+		switch (argv[0][1]) {
+		case 'l':
+			if (argv[0][2] != '\0')
+				sn = argv[0] + 2;
+			else {
+				argc--; argv++;
+				sn = argv[0];
 			}
-			if (numsig >= 128)
-				numsig -= 128;
-			/* and whether it fits into signals range */
-			if (numsig <= 0 || numsig >= NSIG)
-				nosig(*argv);
-			printf("%s\n", sys_signame[(int) numsig]);
+			if (argc > 1)
+				usage();
+			if (argc == 1) {
+				if (isdigit((unsigned char)*sn) == 0)
+					usage();
+				numsig = signum(sn);
+				if (numsig >= 128)
+					numsig -= 128;
+				if (numsig == 0 || signalnext(numsig) == -1)
+					nosig(sn);
+				sn = signalname(numsig);
+				if (sn == NULL)
+					errx(EXIT_FAILURE,
+					   "unknown signal number: %d", numsig);
+				printf("%s\n", sn);
+				exit(0);
+			}
+			printsignals(stdout, 0);
 			exit(0);
+
+		case 's':
+			if (argv[0][2] != '\0')
+				sn = argv[0] + 2;
+			else {
+				argc--, argv++;
+				if (argc < 1) {
+					warnx(
+					    "option requires an argument -- s");
+					usage();
+				}
+				sn = argv[0];
+			}
+			if (strcmp(sn, "0") == 0)
+				numsig = 0;
+			else if ((numsig = signalnumber(sn)) == 0) {
+				if (sn != argv[0])
+					goto trysignal;
+				nosig(sn);
+			}
+			argc--, argv++;
+			break;
+
+		case '-':
+			if (argv[0][2] == '\0') {
+				/* process this one again later */
+				break;
+			}
+			/* FALL THROUGH */
+		case '\0':
+			usage();
+			break;
+
+		default:
+ trysignal:
+			sn = *argv + 1;
+			if (((numsig = signalnumber(sn)) == 0)) {
+				if (isdigit((unsigned char)*sn))
+					numsig = signum(sn);
+				else
+					nosig(sn);
+			}
+
+			if (numsig != 0 && signalnext(numsig) == -1)
+				nosig(sn);
+			argc--, argv++;
+			break;
 		}
-		printsignals(stdout);
-		exit(0);
 	}
 
-	if (!strcmp(*argv, "-s")) {
+	/* deal with the optional '--' end of options option */
+	if (argc > 0 && strcmp(*argv, "--") == 0)
 		argc--, argv++;
-		if (argc < 1) {
-			warnx("option requires an argument -- s");
-			usage();
-		}
-		if (strcmp(*argv, "0")) {
-			if ((numsig = signame_to_signum(*argv)) < 0)
-				nosig(*argv);
-		} else
-			numsig = 0;
-		argc--, argv++;
-	} else if (**argv == '-') {
-		char *sn = *argv + 1;
-		if (isalpha((unsigned char)*sn)) {
-			if ((numsig = signame_to_signum(sn)) < 0)
-				nosig(sn);
-		} else if (isdigit((unsigned char)*sn)) {
-			numsig = strtoimax(sn, &ep, 10);
-			/* check for correctly parsed number */
-			if (*ep || numsig == INTMAX_MIN || numsig == INTMAX_MAX ) {
-				errx(EXIT_FAILURE, "illegal signal number: %s",
-						sn);
-				/* NOTREACHED */
-			}
-			/* and whether it fits into signals range */
-			if (numsig < 0 || numsig >= NSIG)
-				nosig(sn);
-		} else
-			nosig(sn);
-		argc--, argv++;
-	}
 
 	if (argc == 0)
 		usage();
@@ -148,35 +177,33 @@ main(int argc, char *argv[])
 	for (errors = 0; argc; argc--, argv++) {
 #ifdef SHELL
 		extern int getjobpgrp(const char *);
+
 		if (*argv[0] == '%') {
 			pid = getjobpgrp(*argv);
 			if (pid == 0) {
-				warnx("illegal job id: %s", *argv);
+				warnx("bad job id: %s", *argv);
 				errors = 1;
 				continue;
 			}
 		} else 
 #endif
-		{
-			pid = strtoimax(*argv, &ep, 10);
-			/* make sure the pid is a number and fits into pid_t */
-			if (!**argv || *ep || pid == INTMAX_MIN ||
-				pid == INTMAX_MAX || pid != (pid_t) pid) {
-
-				warnx("illegal process id: %s", *argv);
+			if (processnum(*argv, &pid) != 0) {
 				errors = 1;
 				continue;
 			}
-		}
-		if (kill((pid_t) pid, (int) numsig) == -1) {
-			warn("%s", *argv);
+
+		if (kill(pid, numsig) == -1) {
+			warn("%s %s", pid < -1 ? "pgrp" : "pid", *argv);
 			errors = 1;
 		}
 #ifdef SHELL
-		/* Wakeup the process if it was suspended, so it can
-		   exit without an explicit 'fg'. */
+		/*
+		 * Wakeup the process if it was suspended, so it can
+		 * exit without an explicit 'fg'.
+		 *	(kernel handles this for SIGKILL)
+		 */
 		if (numsig == SIGTERM || numsig == SIGHUP)
-			kill((pid_t) pid, SIGCONT);
+			kill(pid, SIGCONT);
 #endif
 	}
 
@@ -185,69 +212,118 @@ main(int argc, char *argv[])
 }
 
 static int
-signame_to_signum(char *sig)
+signum(const char *sn)
 {
-	int n;
+	intmax_t n;
+	char *ep;
 
-	if (strncasecmp(sig, "sig", 3) == 0)
-		sig += 3;
-	for (n = 1; n < NSIG; n++) {
-		if (!strcasecmp(sys_signame[n], sig))
-			return (n);
+	n = strtoimax(sn, &ep, 10);
+
+	/* check for correctly parsed number */
+	if (*ep || n <= INT_MIN || n >= INT_MAX )
+		errx(EXIT_FAILURE, "bad signal number: %s", sn);
+		/* NOTREACHED */
+
+	return (int)n;
+}
+
+static int
+processnum(const char *s, pid_t *pid)
+{
+	intmax_t n;
+	char *ep;
+
+	errno = 0;
+	n = strtoimax(s, &ep, 10);
+
+	/* check for correctly parsed number */
+	if (ep == s || *ep || n == INTMAX_MIN || n == INTMAX_MAX ||
+	    (pid_t)n != n || errno != 0) {
+		warnx("bad process%s id: '%s'", (n < 0 ? " group" : ""), s);
+		return -1;
 	}
-	return (-1);
+
+	*pid = (pid_t)n;
+	return 0;
 }
 
 static void
-nosig(char *name)
+nosig(const char *name)
 {
 
 	warnx("unknown signal %s; valid signals:", name);
-	printsignals(stderr);
+	printsignals(stderr, 0);
 	exit(1);
 	/* NOTREACHED */
 }
 
-static void
-printsignals(FILE *fp)
+#ifndef SHELL
+/*
+ * Print the names of all the signals (neatly) to fp
+ * "len" gives the number of chars already printed to
+ * the current output line (in kill.c, always 0)
+ */
+void
+printsignals(FILE *fp, int len)
 {
 	int sig;
-	int len, nl;
+	int nl, pad;
 	const char *name;
 	int termwidth = 80;
+	int posix;
 
-	if (isatty(fileno(fp))) {
+	posix = getenv("POSIXLY_CORRECT") != 0;
+	if ((name = getenv("COLUMNS")) != 0)
+		termwidth = atoi(name);
+	else if (isatty(fileno(fp))) {
 		struct winsize win;
+
 		if (ioctl(fileno(fp), TIOCGWINSZ, &win) == 0 && win.ws_col > 0)
 			termwidth = win.ws_col;
 	}
 
-	for (len = 0, sig = 1; sig < NSIG; sig++) {
-		name = sys_signame[sig];
-		nl = 1 + strlen(name);
+	pad = (len | 7) + 1 - len;
+	if (posix && pad)
+		pad = 1;
 
-		if (len + nl >= termwidth) {
+	for (sig = 0; (sig = signalnext(sig)) != 0; ) {
+		name = signalname(sig);
+		if (name == NULL)
+			continue;
+
+		nl = strlen(name);
+
+		if (len > 0 && nl + len + pad >= termwidth) {
 			fprintf(fp, "\n");
 			len = 0;
-		} else
-			if (len != 0)
-				fprintf(fp, " ");
-		len += nl;
+			pad = 0;
+		} else if (pad > 0 && len != 0)
+			fprintf(fp, "%*s", pad, "");
+		else
+			pad = 0;
+
+		len += nl + pad;
+		pad = (nl | 7) + 1 - nl;
+		if (posix && pad)
+			pad = 1;
+
 		fprintf(fp, "%s", name);
 	}
 	if (len != 0)
 		fprintf(fp, "\n");
 }
+#endif
 
 static void
 usage(void)
 {
+	const char *pn = getprogname();
 
 	fprintf(stderr, "usage: %s [-s signal_name] pid ...\n"
-	    "       %s -l [exit_status]\n"
-	    "       %s -signal_name pid ...\n"
-	    "       %s -signal_number pid ...\n",
-	    getprogname(), getprogname(), getprogname(), getprogname());
+			"       %s -l [exit_status]\n"
+			"       %s -signal_name pid ...\n"
+			"       %s -signal_number pid ...\n",
+	    pn, pn, pn, pn);
 	exit(1);
 	/* NOTREACHED */
 }

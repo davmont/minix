@@ -1,9 +1,9 @@
-/*	$NetBSD: ipsec.h,v 1.1 2000/01/31 14:28:20 itojun Exp $	*/
+/*	$NetBSD: ipsec.h,v 1.3 2021/08/30 17:32:23 rillig Exp $	*/
 
 /*
  * Copyright (C) 1999 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -15,7 +15,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -29,6 +29,6 @@
  * SUCH DAMAGE.
  */
 
-extern int ipsecsetup __P((int, int, const char *));
-extern int ipsecsetup_test __P((const char *));
-extern int ipsecsetup0 __P((int, int, const char *, int));
+extern int ipsecsetup(int, int, const char *);
+extern int ipsecsetup_test(const char *);
+extern int ipsecsetup0(int, int, const char *, int);

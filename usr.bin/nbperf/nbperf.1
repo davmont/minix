@@ -1,4 +1,4 @@
-.\"	$NetBSD: nbperf.1,v 1.6 2013/01/31 16:32:02 joerg Exp $
+.\"	$NetBSD: nbperf.1,v 1.8 2021/01/07 16:03:08 joerg Exp $
 .\"
 .\" Copyright (c) 2009 The NetBSD Foundation, Inc.
 .\" All rights reserved.
@@ -27,7 +27,7 @@
 .\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 .\" POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd September 25, 2012
+.Dd January 5, 2021
 .Dt NBPERF 1
 .Os
 .Sh NAME
@@ -35,7 +35,7 @@
 .Nd compute a perfect hash function
 .Sh SYNOPSIS
 .Nm
-.Op Fl ps
+.Op Fl fps
 .Op Fl a Ar algorithm
 .Op Fl c Ar utilisation
 .Op Fl h Ar hash
@@ -86,7 +86,7 @@ The
 must be at least 1.24, the default.
 This makes the output for
 .Ar chm3
-noticable smaller than the output for
+noticeably smaller than the output for
 .Ar chm .
 .It Sy bpz
 This results in a non-order preserving minimal perfect hash function.

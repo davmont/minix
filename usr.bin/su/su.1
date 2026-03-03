@@ -26,9 +26,9 @@
 .\" SUCH DAMAGE.
 .\"
 .\"	from: @(#)su.1	8.2 (Berkeley) 4/18/94
-.\"	$NetBSD: su.1,v 1.51 2014/09/19 16:02:58 wiz Exp $
+.\"	$NetBSD: su.1,v 1.54 2019/09/01 19:12:16 wiz Exp $
 .\"
-.Dd November 20, 2012
+.Dd September 1, 2019
 .Dt SU 1
 .Os
 .Sh NAME
@@ -45,8 +45,7 @@
 .Nm
 .Op Fl dfKlm
 .Op Fl c Ar login-class
-.Oo
-.Ns : Ns Ar group
+.Oo : Ns Ar group
 .Op Ar "shell arguments"
 .Oc
 .Sh DESCRIPTION
@@ -190,7 +189,7 @@ The
 .Xr utmp 5 ,
 .Xr wtmp 5 ,
 and
-.Xr lastlogin 5
+.Xr lastlog 5
 databases are not updated.
 .It Fl
 Same as
@@ -385,8 +384,7 @@ su username -c "command args"
 .Xr environ 7 ,
 .Xr kerberos 8
 .Sh HISTORY
-A
+An
 .Nm
-command existed in
-.At v5
-(and probably earlier).
+utility appeared in
+.At v1

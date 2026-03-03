@@ -1,3 +1,5 @@
+/*	$NetBSD: util.h,v 1.13 2019/06/30 11:38:16 sevan Exp $	*/
+
 #ifndef _IFCONFIG_UTIL_H
 #define _IFCONFIG_UTIL_H
 
@@ -14,6 +16,7 @@ struct afswtch {
 	void (*af_status)(prop_dictionary_t, prop_dictionary_t, bool);
 	void (*af_addr_commit)(prop_dictionary_t, prop_dictionary_t);
 	bool (*af_addr_tentative)(struct ifaddrs *);
+	bool (*af_addr_tentative_or_detached)(struct ifaddrs *);
 	SIMPLEQ_ENTRY(afswtch)	af_next;
 };
 

@@ -1,9 +1,10 @@
-# $NetBSD: Makefile,v 1.2 2011/08/18 11:29:27 christos Exp $
+# $NetBSD: Makefile,v 1.7 2019/07/28 12:44:36 joerg Exp $
 
+.include <bsd.own.mk>
 PROG=	unzip
 
-DPADD+=		${LIBARCHIVE} ${LIBZ} ${LIBBZ2}
-LDADD+=		-larchive -lz -lbz2
+DPADD+=		${LIBARCHIVE} ${LIBZ} ${LIBBZ2} ${LIBLZMA} ${LIBCRYPTO} ${LIBPTHREAD}
+LDADD+=		-larchive -lz -lbz2 -llzma -lcrypto -lpthread
 
 COPTS.unzip.c += -Wno-format-y2k
 

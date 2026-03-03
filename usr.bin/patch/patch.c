@@ -1,7 +1,7 @@
 /*
  * $OpenBSD: patch.c,v 1.45 2007/04/18 21:52:24 sobrado Exp $
  * $DragonFly: src/usr.bin/patch/patch.c,v 1.10 2008/08/10 23:39:56 joerg Exp $
- * $NetBSD: patch.c,v 1.29 2011/09/06 18:25:14 joerg Exp $
+ * $NetBSD: patch.c,v 1.33 2021/09/20 23:22:36 dholland Exp $
  */
 
 /*
@@ -31,7 +31,7 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: patch.c,v 1.29 2011/09/06 18:25:14 joerg Exp $");
+__RCSID("$NetBSD: patch.c,v 1.33 2021/09/20 23:22:36 dholland Exp $");
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -53,8 +53,8 @@ __RCSID("$NetBSD: patch.c,v 1.29 2011/09/06 18:25:14 joerg Exp $");
 
 mode_t		filemode = 0644;
 
-char		buf[MAXLINELEN];	/* general purpose buffer */
-size_t		buf_len = sizeof(buf);
+char		*buf;			/* general purpose buffer */
+size_t		bufsz;			/* general purpose buffer size */
 
 bool		using_plan_a = true;	/* try to keep everything in memory */
 bool		out_of_mem = false;	/* ran out of memory in plan a */
@@ -115,7 +115,7 @@ static bool	remove_empty_files = false;
 static bool	reverse_flag_specified = false;
 
 /* buffer holding the name of the rejected patch file. */
-static char	rejname[NAME_MAX + 1];
+static char	rejname[PATH_MAX];
 
 /* buffer for stderr */
 static char	serrbuf[BUFSIZ];
@@ -157,6 +157,11 @@ main(int argc, char *argv[])
 	const	char *tmpdir;
 	char	*v;
 
+	bufsz = INITLINELEN;
+	if ((buf = malloc(bufsz)) == NULL)
+		pfatal("allocating input buffer");
+	buf[0] = '\0';
+
 	setbuf(stderr, serrbuf);
 	for (i = 0; i < MAXFILEC; i++)
 		filearg[i] = NULL;
@@ -197,17 +202,18 @@ main(int argc, char *argv[])
 	else
 		simple_backup_suffix = ORIGEXT;
 
+	if ((v = getenv("PATCH_VERSION_CONTROL")) == NULL)
+		v = getenv("VERSION_CONTROL");
+	if (v != NULL)
+		backup_type = get_version(v);
+
 	/* parse switches */
 	Argc = argc;
 	Argv = argv;
 	get_some_switches();
 
-	if (backup_type == none) {
-		if ((v = getenv("PATCH_VERSION_CONTROL")) == NULL)
-			v = getenv("VERSION_CONTROL");
-		if (v != NULL || !posix)
-			backup_type = get_version(v);	/* OK to pass NULL. */
-	}
+	if (backup_type == undefined)
+		backup_type = posix ? none : numbered_existing;
 
 	/* make sure we clean up /tmp in case of disaster */
 	set_signals(0);
@@ -278,12 +284,14 @@ main(int argc, char *argv[])
 							skip_rest_of_patch = true;
 						} else if (batch) {
 							if (verbose)
-								say("%seversed (or previously applied) patch detected!  %s -R.",
+								say("%seversed (or %spreviously applied) patch detected!  %s -R.",
 								    reverse ? "R" : "Unr",
+								    reverse ? "" : "not ",
 								    reverse ? "Assuming" : "Ignoring");
 						} else {
-							ask("%seversed (or previously applied) patch detected!  %s -R? [y] ",
+							ask("%seversed (or %spreviously applied) patch detected!  %s -R? [y] ",
 							    reverse ? "R" : "Unr",
+							    reverse ? "" : "not ",
 							    reverse ? "Assume" : "Ignore");
 							if (*buf == 'n') {
 								ask("Apply anyway? [n] ");
@@ -493,7 +501,7 @@ get_some_switches(void)
 	while ((ch = getopt_long(Argc, Argv, options, longopts, NULL)) != -1) {
 		switch (ch) {
 		case 'b':
-			if (backup_type == none)
+			if (backup_type == undefined)
 				backup_type = numbered_existing;
 			if (optarg == NULL)
 				break;

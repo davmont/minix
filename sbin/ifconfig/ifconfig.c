@@ -1,4 +1,4 @@
-/*	$NetBSD: ifconfig.c,v 1.235 2015/07/29 07:42:27 ozaki-r Exp $	*/
+/*	$NetBSD: ifconfig.c,v 1.249.2.1 2024/08/24 16:42:26 martin Exp $	*/
 
 /*-
  * Copyright (c) 1997, 1998, 2000 The NetBSD Foundation, Inc.
@@ -63,7 +63,7 @@
 #ifndef lint
 __COPYRIGHT("@(#) Copyright (c) 1983, 1993\
  The Regents of the University of California.  All rights reserved.");
-__RCSID("$NetBSD: ifconfig.c,v 1.235 2015/07/29 07:42:27 ozaki-r Exp $");
+__RCSID("$NetBSD: ifconfig.c,v 1.249.2.1 2024/08/24 16:42:26 martin Exp $");
 #endif /* not lint */
 
 #include <sys/param.h>
@@ -104,13 +104,15 @@ __RCSID("$NetBSD: ifconfig.c,v 1.235 2015/07/29 07:42:27 ozaki-r Exp $");
 
 #define WAIT_DAD	10000000 /* nanoseconds between each poll, 10ms */
 
-static bool bflag, dflag, hflag, sflag, uflag, wflag;
+static bool bflag, dflag, hflag, sflag, uflag, Wflag, wflag;
 bool lflag, Nflag, vflag, zflag;
-static long wflag_secs;
+static long wflag_secs, Wflag_secs;
 
-static char gflags[10 + 26 * 2 + 1] = "AabCdhlNsuvw:z";
+static char gflags[10 + 26 * 2 + 1] = "AabCdhlNsuvW:w:z";
 bool gflagset[10 + 26 * 2];
 
+static int link_state(prop_dictionary_t);
+static const char *link_state_str(int);
 static int carrier(prop_dictionary_t);
 static int clone_command(prop_dictionary_t, prop_dictionary_t);
 static void do_setifpreference(prop_dictionary_t);
@@ -133,13 +135,15 @@ static int setifnetmask(prop_dictionary_t, prop_dictionary_t);
 static int setifprefixlen(prop_dictionary_t, prop_dictionary_t);
 static int setlinkstr(prop_dictionary_t, prop_dictionary_t);
 static int unsetlinkstr(prop_dictionary_t, prop_dictionary_t);
-static void status(const struct sockaddr *, prop_dictionary_t,
-    prop_dictionary_t);
+static int setifdescr(prop_dictionary_t, prop_dictionary_t);
+static int unsetifdescr(prop_dictionary_t, prop_dictionary_t);
+static void status(prop_dictionary_t, prop_dictionary_t);
 __dead static void usage(void);
 
 static const struct kwinst ifflagskw[] = {
 	  IFKW("arp", -IFF_NOARP)
 	, IFKW("debug", IFF_DEBUG)
+	, IFKW("unnumbered", IFF_UNNUMBERED)
 	, IFKW("link0", IFF_LINK0)
 	, IFKW("link1", IFF_LINK1)
 	, IFKW("link2", IFF_LINK2)
@@ -193,6 +197,9 @@ struct paddr parse_broadcast = PADDR_INITIALIZER(&parse_broadcast,
     "broadcast address",
     setifbroadaddr, "broadcast", NULL, NULL, NULL, &command_root.pb_parser);
 
+struct pstr parse_descr = PSTR_INITIALIZER1(&parse_descr, "descr",
+    setifdescr, "descr", false, &command_root.pb_parser);
+
 static const struct kwinst misckw[] = {
 	  {.k_word = "alias", .k_key = "alias", .k_deact = "alias",
 	   .k_type = KW_T_BOOL, .k_neg = true,
@@ -213,6 +220,12 @@ static const struct kwinst misckw[] = {
 	, {.k_word = "linkstr", .k_nextparser = &parse_linkstr.ps_parser }
 	, {.k_word = "-linkstr", .k_exec = unsetlinkstr,
 	   .k_nextparser = &command_root.pb_parser }
+	, {.k_word = "descr", .k_nextparser = &parse_descr.ps_parser}
+	, {.k_word = "description", .k_nextparser = &parse_descr.ps_parser}
+	, {.k_word = "-descr", .k_exec = unsetifdescr,
+	   .k_nextparser = &command_root.pb_parser}
+	, {.k_word = "-description", .k_exec = unsetifdescr,
+	   .k_nextparser = &command_root.pb_parser}
 };
 
 /* key: clonecmd */
@@ -518,14 +531,25 @@ wait_dad_exec(prop_dictionary_t env, prop_dictionary_t oenv)
 	bool waiting;
 	struct ifaddrs *ifaddrs, *ifa;
 	const struct timespec ts = { .tv_sec = 0, .tv_nsec = WAIT_DAD };
-	const struct timespec add = { .tv_sec = wflag_secs, .tv_nsec = 0};
-	struct timespec now, end = { .tv_sec = wflag_secs, .tv_nsec = 0};
+	struct timespec now, end_det, end;
 	const struct afswtch *afp;
 
 	if (wflag_secs) {
+		const struct timespec tent =
+		    { .tv_sec = wflag_secs, .tv_nsec = 0};
+		const struct timespec det =
+		    { .tv_sec = Wflag_secs, .tv_nsec = 0};
+
 		if (clock_gettime(CLOCK_MONOTONIC, &now) == -1)
 			err(EXIT_FAILURE, "clock_gettime");
-		timespecadd(&now, &add, &end);
+		timespecadd(&now, &tent, &end);
+		if (Wflag_secs)
+			timespecadd(&now, &det, &end_det);
+		else
+			timespecclear(&end_det);
+	} else {
+		timespecclear(&end_det);
+		timespecclear(&end);
 	}
 
 	if (getifaddrs(&ifaddrs) == -1)
@@ -537,8 +561,14 @@ wait_dad_exec(prop_dictionary_t env, prop_dictionary_t oenv)
 			if (ifa->ifa_addr == NULL)
 				continue;
 			afp = lookup_af_bynum(ifa->ifa_addr->sa_family);
-			if (afp && afp->af_addr_tentative &&
-			    afp->af_addr_tentative(ifa))
+			if (afp &&
+			    ((afp->af_addr_tentative_or_detached &&
+			    ifa->ifa_flags & IFF_UP &&
+			    timespecisset(&end_det) &&
+			    timespeccmp(&now, &end_det, <) &&
+			    afp->af_addr_tentative_or_detached(ifa)) ||
+			    (afp->af_addr_tentative &&
+			    afp->af_addr_tentative(ifa))))
 			{
 				waiting = true;
 				break;
@@ -586,7 +616,7 @@ do_setifcaps(prop_dictionary_t env)
 
 	assert(sizeof(ifcr) == prop_data_size(d));
 
-	memcpy(&ifcr, prop_data_data_nocopy(d), sizeof(ifcr));
+	memcpy(&ifcr, prop_data_value(d), sizeof(ifcr));
 	if (direct_ioctl(env, SIOCSIFCAP, &ifcr) == -1)
 		err(EXIT_FAILURE, "SIOCSIFCAP");
 }
@@ -595,7 +625,7 @@ int
 main(int argc, char **argv)
 {
 	const struct afswtch *afp;
-	int af, s;
+	int af, s, e;
 	bool aflag = false, Cflag = false;
 	struct match match[32];
 	size_t nmatch;
@@ -603,7 +633,6 @@ main(int argc, char **argv)
 	int ch, narg = 0, rc;
 	prop_dictionary_t env, oenv;
 	const char *ifname;
-	char *end;
 
 	memset(match, 0, sizeof(match));
 
@@ -662,9 +691,15 @@ main(int argc, char **argv)
 
 		case 'w':
 			wflag = true;
-			wflag_secs = strtol(optarg, &end, 10);
-			if ((end != NULL && *end != '\0') ||
-			    wflag_secs < 0 || wflag_secs >= INT32_MAX)
+			wflag_secs = strtoi(optarg, NULL, 10, 0, INT32_MAX, &e);
+			if (e)
+				errx(EXIT_FAILURE, "%s: not a number", optarg);
+			break;
+
+		case 'W':
+			Wflag = true;
+			Wflag_secs = strtoi(optarg, NULL, 10, 0, INT32_MAX, &e);
+			if (e)
 				errx(EXIT_FAILURE, "%s: not a number", optarg);
 			break;
 
@@ -777,6 +812,7 @@ main(int argc, char **argv)
 
 	do_setifpreference(env);
 	do_setifcaps(env);
+	do_setethercaps(env);
 
 	exit(EXIT_SUCCESS);
 }
@@ -816,8 +852,6 @@ void
 printall(const char *ifname, prop_dictionary_t env0)
 {
 	struct ifaddrs *ifap, *ifa;
-	struct ifreq ifr;
-	const struct sockaddr *sdl = NULL;
 	prop_dictionary_t env, oenv;
 	int idx;
 	char *p;
@@ -837,20 +871,11 @@ printall(const char *ifname, prop_dictionary_t env0)
 	p = NULL;
 	idx = 0;
 	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
-		memset(&ifr, 0, sizeof(ifr));
-		estrlcpy(ifr.ifr_name, ifa->ifa_name, sizeof(ifr.ifr_name));
-		if (sizeof(ifr.ifr_addr) >= ifa->ifa_addr->sa_len) {
-			memcpy(&ifr.ifr_addr, ifa->ifa_addr,
-			    ifa->ifa_addr->sa_len);
-		}
-
 		if (ifname != NULL && strcmp(ifname, ifa->ifa_name) != 0)
 			continue;
-		if (ifa->ifa_addr->sa_family == AF_LINK)
-			sdl = ifa->ifa_addr;
 		if (p && strcmp(p, ifa->ifa_name) == 0)
 			continue;
-		if (!prop_dictionary_set_cstring(env, "if", ifa->ifa_name))
+		if (!prop_dictionary_set_string(env, "if", ifa->ifa_name))
 			continue;
 		p = ifa->ifa_name;
 
@@ -861,7 +886,7 @@ printall(const char *ifname, prop_dictionary_t env0)
 		if (uflag && (ifa->ifa_flags & IFF_UP) == 0)
 			continue;
 
-		if (sflag && carrier(env))
+		if (sflag && link_state(env) == LINK_STATE_DOWN)
 			continue;
 		idx++;
 		/*
@@ -874,8 +899,7 @@ printall(const char *ifname, prop_dictionary_t env0)
 			continue;
 		}
 
-		status(sdl, env, oenv);
-		sdl = NULL;
+		status(env, oenv);
 	}
 	if (lflag)
 		printf("\n");
@@ -956,7 +980,7 @@ setifaddr(prop_dictionary_t env, prop_dictionary_t oenv)
 
 	d = (prop_data_t)prop_dictionary_get(env, "address");
 	assert(d != NULL);
-	pfx0 = prop_data_data_nocopy(d);
+	pfx0 = prop_data_value(d);
 
 	if (pfx0->pfx_len >= 0) {
 		pfx = prefixlen_to_mask(af, pfx0->pfx_len);
@@ -1047,7 +1071,7 @@ setifflags(prop_dictionary_t env, prop_dictionary_t oenv)
 	rc = prop_dictionary_get_int64(env, "ifflag", &ifflag);
 	assert(rc);
 
- 	if (direct_ioctl(env, SIOCGIFFLAGS, &ifr) == -1)
+	if (direct_ioctl(env, SIOCGIFFLAGS, &ifr) == -1)
 		return -1;
 
 	if (ifflag < 0) {
@@ -1073,7 +1097,7 @@ getifcaps(prop_dictionary_t env, prop_dictionary_t oenv, struct ifcapreq *oifcr)
 	capdata = (prop_data_t)prop_dictionary_get(env, "ifcaps");
 
 	if (capdata != NULL) {
-		tmpifcr = prop_data_data_nocopy(capdata);
+		tmpifcr = prop_data_value(capdata);
 		*oifcr = *tmpifcr;
 		return 0;
 	}
@@ -1081,7 +1105,7 @@ getifcaps(prop_dictionary_t env, prop_dictionary_t oenv, struct ifcapreq *oifcr)
 	(void)direct_ioctl(env, SIOCGIFCAP, &ifcr);
 	*oifcr = ifcr;
 
-	capdata = prop_data_create_data(&ifcr, sizeof(ifcr));
+	capdata = prop_data_create_copy(&ifcr, sizeof(ifcr));
 
 	rc = prop_dictionary_set(oenv, "ifcaps", capdata);
 
@@ -1110,7 +1134,7 @@ setifcaps(prop_dictionary_t env, prop_dictionary_t oenv)
 	} else
 		ifcr.ifcr_capenable |= ifcap;
 
-	if ((capdata = prop_data_create_data(&ifcr, sizeof(ifcr))) == NULL)
+	if ((capdata = prop_data_create_copy(&ifcr, sizeof(ifcr))) == NULL)
 		return -1;
 
 	rc = prop_dictionary_set(oenv, "ifcaps", capdata);
@@ -1151,7 +1175,7 @@ do_setifpreference(prop_dictionary_t env)
 	d = (prop_data_t)prop_dictionary_get(env, "address");
 	assert(d != NULL);
 
-	pfx = prop_data_data_nocopy(d);
+	pfx = prop_data_value(d);
 
 	memcpy(&ifap.ifap_addr, &pfx->pfx_addr,
 	    MIN(sizeof(ifap.ifap_addr), pfx->pfx_addr.sa_len));
@@ -1177,31 +1201,43 @@ setifmtu(prop_dictionary_t env, prop_dictionary_t oenv)
 }
 
 static int
+link_state(prop_dictionary_t env)
+{
+	struct ifdatareq ifdr = { .ifdr_data.ifi_link_state = 0 };
+
+	if (direct_ioctl(env, SIOCGIFDATA, &ifdr) == -1)
+		return -1;
+
+	return ifdr.ifdr_data.ifi_link_state;
+}
+
+static const char *
+link_state_str(int state)
+{
+
+	switch (state) {
+	case LINK_STATE_UNKNOWN:
+		return "unknown";
+	case LINK_STATE_DOWN:
+		return "down";
+	case LINK_STATE_UP:
+		return "up";
+	default: /* Assume -1 */
+		return "error";
+	}
+}
+
+static int
 carrier(prop_dictionary_t env)
 {
-	struct ifmediareq ifmr;
-
-	memset(&ifmr, 0, sizeof(ifmr));
-
-	if (direct_ioctl(env, SIOCGIFMEDIA, &ifmr) == -1) {
-		/*
-		 * Interface doesn't support SIOC{G,S}IFMEDIA;
-		 * assume ok.
-		 */
-		return EXIT_SUCCESS;
-	}
-	if ((ifmr.ifm_status & IFM_AVALID) == 0) {
-		/*
-		 * Interface doesn't report media-valid status.
-		 * assume ok.
-		 */
-		return EXIT_SUCCESS;
-	}
-	/* otherwise, return ok for active, not-ok if not active. */
-	if (ifmr.ifm_status & IFM_ACTIVE)
-		return EXIT_SUCCESS;
-	else
+	switch (link_state(env)) {
+	case -1:
+	case LINK_STATE_DOWN:
 		return EXIT_FAILURE;
+	default:
+		/* Assume UP if UNKNOWN */
+		return EXIT_SUCCESS;
+	}
 }
 
 static void
@@ -1231,13 +1267,12 @@ print_human_bytes(bool humanize, uint64_t n)
 #define MAX_PRINT_LEN 58	/* XXX need a better way to determine this! */
 
 void
-status(const struct sockaddr *sdl, prop_dictionary_t env,
-    prop_dictionary_t oenv)
+status(prop_dictionary_t env, prop_dictionary_t oenv)
 {
-	const struct if_data *ifi;
 	status_func_t *status_f;
 	statistics_func_t *statistics_f;
 	struct ifdatareq ifdr;
+	struct if_data *ifi;
 	struct ifreq ifr;
 	struct ifdrv ifdrv;
 	char fbuf[BUFSIZ];
@@ -1247,6 +1282,7 @@ status(const struct sockaddr *sdl, prop_dictionary_t env,
 	struct ifcapreq ifcr;
 	unsigned short flags;
 	const struct afswtch *afp;
+	char ifdescr[IFDESCRSIZE];
 
 	if ((af = getaf(env)) == -1) {
 		afp = NULL;
@@ -1283,20 +1319,26 @@ status(const struct sockaddr *sdl, prop_dictionary_t env,
 		    ifcr.ifcr_capabilities, MAX_PRINT_LEN);
 		bp = fbuf;
 		while (*bp != '\0') {
-			printf("\tcapabilities=%s\n", &bp[2]);
+			printf("\tcapabilities=%s\n", bp);
 			bp += strlen(bp) + 1;
 		}
 		(void)snprintb_m(fbuf, sizeof(fbuf), IFCAPBITS,
 		    ifcr.ifcr_capenable, MAX_PRINT_LEN);
 		bp = fbuf;
 		while (*bp != '\0') {
-			printf("\tenabled=%s\n", &bp[2]);
+			printf("\tenabled=%s\n", bp);
 			bp += strlen(bp) + 1;
 		}
 	}
 
 	SIMPLEQ_FOREACH(status_f, &status_funcs, f_next)
 		(*status_f->f_func)(env, oenv);
+
+	estrlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	ifr.ifr_buf = &ifdescr;
+	ifr.ifr_buflen = sizeof(ifdescr);
+	if (prog_ioctl(s, SIOCGIFDESCR, &ifr) == 0)
+		printf("\tdescription: \"%s\"\n", (char *)ifr.ifr_buf);
 
 	print_link_addresses(env, true);
 
@@ -1319,16 +1361,18 @@ status(const struct sockaddr *sdl, prop_dictionary_t env,
 		free(p);
 	}
 
+	if (vflag)
+		printf("\tlinkstate: %s\n", link_state_str(link_state(env)));
+
 	media_status(env, oenv);
 
 	if (!vflag && !zflag)
 		goto proto_status;
 
+	/* We already have if_data from SIOCGIFDATA in ifa_data. */
 	estrlcpy(ifdr.ifdr_name, ifname, sizeof(ifdr.ifdr_name));
-
 	if (prog_ioctl(s, zflag ? SIOCZIFDATA : SIOCGIFDATA, &ifdr) == -1)
 		err(EXIT_FAILURE, zflag ? "SIOCZIFDATA" : "SIOCGIFDATA");
-
 	ifi = &ifdr.ifdr_data;
 
 	print_plural("\tinput: ", ifi->ifi_ipackets, "packet");
@@ -1381,9 +1425,9 @@ setifprefixlen(prop_dictionary_t env, prop_dictionary_t oenv)
 	if (pfx == NULL)
 		err(EXIT_FAILURE, "prefixlen_to_mask");
 
-	d = prop_data_create_data(pfx, paddr_prefix_size(pfx));
+	d = prop_data_create_copy(pfx, paddr_prefix_size(pfx));
 	if (d == NULL)
-		err(EXIT_FAILURE, "%s: prop_data_create_data", __func__);
+		err(EXIT_FAILURE, "%s: prop_data_create_copy", __func__);
 
 	if (!prop_dictionary_set(oenv, "netmask", (prop_object_t)d))
 		err(EXIT_FAILURE, "%s: prop_dictionary_set", __func__);
@@ -1438,6 +1482,55 @@ unsetlinkstr(prop_dictionary_t env, prop_dictionary_t oenv)
 	return 0;
 }
 
+static int
+setifdescr(prop_dictionary_t env, prop_dictionary_t oenv)
+{
+	struct ifreq ifr;
+	size_t len;
+	prop_data_t data;
+	char *descr;
+
+	data = (prop_data_t)prop_dictionary_get(env, "descr");
+	if (data == NULL) {
+		errno = ENOENT;
+		return -1;
+	}
+	len = prop_data_size(data) + 1;
+
+	if (len > IFDESCRSIZE)
+		err(EXIT_FAILURE, "description too long");
+
+	descr = malloc(len);
+	if (descr == NULL)
+		err(EXIT_FAILURE, "malloc description space");
+	if (getargstr(env, "descr", descr, len) == -1)
+		errx(EXIT_FAILURE, "getargstr descr failed");
+
+
+	ifr.ifr_buf = descr;
+	ifr.ifr_buflen = len;
+	if (direct_ioctl(env, SIOCSIFDESCR, &ifr) != 0)
+		err(EXIT_FAILURE, "SIOCSIFDESCR");
+
+	free(descr);
+
+	return 0;
+}
+
+static int
+unsetifdescr(prop_dictionary_t env, prop_dictionary_t oenv)
+{
+	struct ifreq ifr;
+	ifr.ifr_buf = NULL;
+	ifr.ifr_buflen = 0;
+
+	if (direct_ioctl(env, SIOCSIFDESCR, &ifr) != 0)
+		err(EXIT_FAILURE, "SIOCSIFDESCR");
+
+	return 0;
+}
+
+
 static void
 usage(void)
 {
@@ -1462,6 +1555,9 @@ usage(void)
 		"\t[ arp | -arp ]\n"
 		"\t[ preference n ]\n"
 		"\t[ link0 | -link0 ] [ link1 | -link1 ] [ link2 | -link2 ]\n"
+		"\t[ linkstr str | -linkstr ]\n"
+		"\t[ unnumbered | -unnumbered ]\n"
+		"\t[ description str | descr str | -description | -descr ]\n"
 		"       %s -a [-b] [-d] [-h] %s[-u] [-v] [-z] [ af ]\n"
 		"       %s -l [-b] [-d] [-s] [-u]\n"
 		"       %s -C\n"

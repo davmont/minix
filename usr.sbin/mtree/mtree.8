@@ -1,4 +1,4 @@
-.\"	$NetBSD: mtree.8,v 1.71 2015/01/23 03:31:58 wiz Exp $
+.\"	$NetBSD: mtree.8,v 1.76 2020/06/16 14:26:39 wiz Exp $
 .\"
 .\" Copyright (c) 1989, 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -56,7 +56,7 @@
 .\"
 .\"     @(#)mtree.8	8.2 (Berkeley) 12/11/93
 .\"
-.Dd January 22, 2015
+.Dd June 16, 2020
 .Dt MTREE 8
 .Os
 .Sh NAME
@@ -161,7 +161,7 @@ The
 .Sy freebsd9
 and
 .Sy netbsd6
-flavors attempt to preserve output compatiblity and command line option
+flavors attempt to preserve output compatibility and command line option
 backward compatibility with
 .Fx 9.0
 and
@@ -235,7 +235,7 @@ will match less stringent ones.
 For example, a file marked mode 0444
 will pass a check for mode 0644.
 .Dq Loose
-checks apply only to read, write and execute permissions -- in
+checks apply only to read, write and execute permissions \(em in
 particular, if other bits like the sticky bit or suid/sgid bits are
 set either in the specification or the file, exact checking will be
 performed.
@@ -374,7 +374,7 @@ the starting directory); otherwise,
 it will be matched against basenames only.
 Comments are permitted in
 the
-.Ar exclude-list
+.Ar exclude-file
 file.
 .It Fl x
 Don't descend below mount points in the file hierarchy.
@@ -618,9 +618,24 @@ they match.
 .Nm
 uses
 .Xr strsvis 3
-(in VIS_CSTYLE format) to encode path names containing
+(in
+.Dv VIS_OCTAL
+format) to encode path names containing
 non-printable characters.
 Whitespace characters are encoded as
+.Ql \e040
+(space),
+.Ql \e011
+(tab), and
+.Ql \e012
+(new line).
+When flavor
+.Sy netbsd6
+is selected,
+.Xr strsvis 3
+(in
+.Dv VIS_CSTYLE
+format) is used and whitespace characters are encoded as
 .Ql \es
 (space),
 .Ql \et

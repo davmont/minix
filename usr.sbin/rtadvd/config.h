@@ -1,10 +1,10 @@
-/*	$NetBSD: config.h,v 1.9 2012/12/13 15:36:36 roy Exp $	*/
+/*	$NetBSD: config.h,v 1.12 2021/03/22 18:41:11 christos Exp $	*/
 /*	$KAME: config.h,v 1.9 2003/08/06 04:19:40 ono Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -35,7 +35,7 @@ extern void getconfig(const char *, int);
 extern void delete_prefix(struct prefix *);
 extern void invalidate_prefix(struct prefix *);
 extern void update_prefix(struct prefix *);
-extern void make_prefix(struct rainfo *, int, struct in6_addr *, int);
+extern void add_prefix(struct rainfo *, int, const struct in6_addr *, int);
 extern void make_packet(struct rainfo *);
 extern void get_prefix(struct rainfo *);
 

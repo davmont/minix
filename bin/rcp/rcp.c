@@ -1,4 +1,4 @@
-/*	$NetBSD: rcp.c,v 1.49 2012/05/07 15:22:54 chs Exp $	*/
+/*	$NetBSD: rcp.c,v 1.52 2022/07/18 13:01:59 rin Exp $	*/
 
 /*
  * Copyright (c) 1983, 1990, 1992, 1993
@@ -39,7 +39,7 @@ __COPYRIGHT("@(#) Copyright (c) 1983, 1990, 1992, 1993\
 #if 0
 static char sccsid[] = "@(#)rcp.c	8.2 (Berkeley) 4/2/94";
 #else
-__RCSID("$NetBSD: rcp.c,v 1.49 2012/05/07 15:22:54 chs Exp $");
+__RCSID("$NetBSD: rcp.c,v 1.52 2022/07/18 13:01:59 rin Exp $");
 #endif
 #endif /* not lint */
 
@@ -58,6 +58,7 @@ __RCSID("$NetBSD: rcp.c,v 1.49 2012/05/07 15:22:54 chs Exp $");
 #include <fcntl.h>
 #include <locale.h>
 #include <netdb.h>
+#include <paths.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -79,6 +80,8 @@ int pflag, iamremote, iamrecursive, targetshouldbedirectory;
 int family = AF_UNSPEC;
 static char dot[] = ".";
 
+static sig_atomic_t print_info = 0;
+
 #define	CMDNEEDS	64
 char cmd[CMDNEEDS];		/* must hold "rcp -r -p -d\0" */
 
@@ -89,6 +92,8 @@ void	 source(int, char *[]);
 void	 tolocal(int, char *[]);
 void	 toremote(char *, int, char *[]);
 void	 usage(void);
+static void	got_siginfo(int);
+static void	progress(const char *, uintmax_t, uintmax_t);
 
 int
 main(int argc, char *argv[])
@@ -173,6 +178,7 @@ main(int argc, char *argv[])
 	    targetshouldbedirectory ? " -d" : "");
 
 	(void)signal(SIGPIPE, lostconn);
+	(void)signal(SIGINFO, got_siginfo);
 
 	if ((targ = colon(argv[argc - 1])) != NULL)/* Dest is remote host. */
 		toremote(targ, argc, argv);
@@ -329,8 +335,10 @@ source(int argc, char *argv[])
 	BUF *bp;
 	off_t i;
 	off_t amt;
-	int fd, haderr, indx, result;
-	char *last, *name, buf[BUFSIZ];
+	size_t resid;
+	ssize_t result;
+	int fd, haderr, indx;
+	char *last, *name, *cp, buf[BUFSIZ];
 
 	for (indx = 0; indx < argc; ++indx) {
 		name = argv[indx];
@@ -385,22 +393,29 @@ next:			(void)close(fd);
 		/* Keep writing after an error so that we stay sync'd up. */
 		haderr = 0;
 		for (i = 0; i < stb.st_size; i += bp->cnt) {
+			if (print_info)
+				progress(name, i, stb.st_size);
 			amt = bp->cnt;
 			if (i + amt > stb.st_size)
 				amt = stb.st_size - i;
-			if (!haderr) {
-				result = read(fd, bp->buf, (size_t)amt);
-				if (result != amt)
-					haderr = result >= 0 ? EIO : errno;
+			for (resid = (size_t)amt, cp = bp->buf; resid > 0;
+			    resid -= result, cp += result) {
+				result = read(fd, cp, resid);
+				if (result == -1) {
+					haderr = errno;
+					goto error;
+				}
 			}
-			if (haderr)
-				(void)write(rem, bp->buf, (size_t)amt);
-			else {
-				result = write(rem, bp->buf, (size_t)amt);
-				if (result != amt)
-					haderr = result >= 0 ? EIO : errno;
+			for (resid = (size_t)amt, cp = bp->buf; resid > 0;
+			    resid -= result, cp += result) {
+				result = write(rem, cp, resid);
+				if (result == -1) {
+					haderr = errno;
+					goto error;
+				}
 			}
 		}
+ error:
 		if (close(fd) && !haderr)
 			haderr = errno;
 		if (!haderr)
@@ -470,18 +485,18 @@ sink(int argc, char *argv[])
 	static BUF buffer;
 	struct stat stb;
 	struct timeval tv[2];
-	enum { YES, NO, DISPLAYED } wrerr;
 	BUF *bp;
-	ssize_t j;
+	size_t resid;
+	ssize_t result;
 	off_t i;
 	off_t amt;
-	off_t count;
 	int exists, first, ofd;
 	mode_t mask;
 	mode_t mode;
 	mode_t omode;
-	int setimes, targisdir;
+	int setimes, targisdir, wrerr;
 	int wrerrno = 0;	/* pacify gcc */
+	const char *wrcontext = NULL;
 	char ch, *cp, *np, *targ, *vect[1], buf[BUFSIZ];
 	const char *why;
 	off_t size;
@@ -624,9 +639,7 @@ sink(int argc, char *argv[])
 			sink(1, vect);
 			if (setimes) {
 				setimes = 0;
-				if (utimes(np, tv) < 0)
-				    run_err("%s: set times: %s",
-					np, strerror(errno));
+				(void) utimes(np, tv);
 			}
 			if (mod_flag)
 				(void)chmod(np, mode);
@@ -643,89 +656,79 @@ bad:			run_err("%s: %s", np, strerror(errno));
 			(void)close(ofd);
 			continue;
 		}
-		cp = bp->buf;
-		wrerr = NO;
-		count = 0;
-		for (i = 0; i < size; i += BUFSIZ) {
-			amt = BUFSIZ;
+		wrerr = 0;
+
+/*
+ * Like run_err(), but don't send any message to the remote end.
+ * Instead, record the first error and send that in the end.
+ */
+#define RUN_ERR(w_context) do { \
+	if (!wrerr) {							\
+		wrerrno = errno;					\
+		wrcontext = w_context;					\
+		wrerr = 1;						\
+	}								\
+} while(0)
+
+		for (i = 0; i < size; i += bp->cnt) {
+			if (print_info)
+				progress(np, i, size);
+			amt = bp->cnt;
 			if (i + amt > size)
 				amt = size - i;
-			count += amt;
-			do {
-				j = read(rem, cp, (size_t)amt);
-				if (j == -1) {
-					run_err("%s", j ? strerror(errno) :
-					    "dropped connection");
+			for (resid = (size_t)amt, cp = bp->buf; resid > 0;
+			    resid -= result, cp += result) {
+				result = read(rem, cp, resid);
+				if (result == -1) {
+					run_err("%s", strerror(errno));
 					exit(1);
 				}
-				amt -= j;
-				cp += j;
-			} while (amt > 0);
-			if (count == bp->cnt) {
+			}
+			for (resid = (size_t)amt, cp = bp->buf; resid > 0;
+			    resid -= result, cp += result) {
 				/* Keep reading so we stay sync'd up. */
-				if (wrerr == NO) {
-					j = write(ofd, bp->buf, (size_t)count);
-					if (j != count) {
-						wrerr = YES;
-						wrerrno = j >= 0 ? EIO : errno; 
+				if (!wrerr) {
+					result = write(ofd, cp, resid);
+					if (result == -1) {
+						RUN_ERR("write");
+						goto error;
 					}
 				}
-				count = 0;
-				cp = bp->buf;
 			}
 		}
-		if (count != 0 && wrerr == NO &&
-		    (j = write(ofd, bp->buf, (size_t)count)) != count) {
-			wrerr = YES;
-			wrerrno = j >= 0 ? EIO : errno; 
-		}
-		if (ftruncate(ofd, size)) {
-			run_err("%s: truncate: %s", np, strerror(errno));
-			wrerr = DISPLAYED;
-		}
+ error:
+		if (ftruncate(ofd, size))
+			RUN_ERR("truncate");
+
 		if (pflag) {
 			if (exists || omode != mode)
 				if (fchmod(ofd, omode))
-					run_err("%s: set mode: %s",
-					    np, strerror(errno));
+					RUN_ERR("set mode");
 		} else {
 			if (!exists && omode != mode)
 				if (fchmod(ofd, omode & ~mask))
-					run_err("%s: set mode: %s",
-					    np, strerror(errno));
+					RUN_ERR("set mode");
 		}
 #ifndef __SVR4
-		if (setimes && wrerr == NO) {
+		if (setimes && !wrerr) {
 			setimes = 0;
-			if (futimes(ofd, tv) < 0) {
-				run_err("%s: set times: %s",
-				    np, strerror(errno));
-				wrerr = DISPLAYED;
-			}
+			if (futimes(ofd, tv) < 0)
+				RUN_ERR("set times");
 		}
 #endif
 		(void)close(ofd);
 #ifdef __SVR4
-		if (setimes && wrerr == NO) {
+		if (setimes && !wrerr) {
 			setimes = 0;
-			if (utimes(np, tv) < 0) {
-				run_err("%s: set times: %s",
-				    np, strerror(errno));
-				wrerr = DISPLAYED;
-			}
+			if (utimes(np, tv) < 0)
+				RUN_ERR("set times");
 		}
 #endif
 		(void)response();
-		switch(wrerr) {
-		case YES:
-			run_err("%s: write: %s", np, strerror(wrerrno));
-			break;
-		case NO:
+		if (wrerr)
+			run_err("%s: %s: %s", np, wrcontext, strerror(wrerrno));
+		else
 			(void)write(rem, "", 1);
-			break;
-		case DISPLAYED:
-			break;
-		}
 	}
 
 out:
@@ -810,4 +813,37 @@ run_err(const char *fmt, ...)
 		vwarnx(fmt, ap);
 		va_end(ap);
 	}
+}
+
+static void
+got_siginfo(int signo)
+{
+
+	print_info = 1;
+}
+
+static void
+progress(const char *file, uintmax_t done, uintmax_t total)
+{
+	static int ttyfd = -2;
+	const double pcent = (100.0 * done) / total;
+	char buf[2048];
+	int n;
+
+	if (ttyfd == -2)
+		ttyfd = open(_PATH_TTY, O_RDWR | O_CLOEXEC);
+
+	if (ttyfd == -1)
+		return;
+
+	n = snprintf(buf, sizeof(buf),
+	    "%s: %s: %ju/%ju bytes %3.2f%% written\n",
+	    getprogname(), file, done, total, pcent);
+
+	if (n < 0)
+		return;
+
+	write(ttyfd, buf, (size_t)n);
+
+	print_info = 0;
 }

@@ -1,4 +1,4 @@
-/* $NetBSD: file.c,v 1.30 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: file.c,v 1.33 2020/09/29 02:58:51 msaitoh Exp $ */
 
 /*-
  * Copyright (c) 1980, 1991, 1993
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)file.c	8.2 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: file.c,v 1.30 2013/07/16 17:47:43 christos Exp $");
+__RCSID("$NetBSD: file.c,v 1.33 2020/09/29 02:58:51 msaitoh Exp $");
 #endif
 #endif /* not lint */
 
@@ -459,8 +459,8 @@ free_items(Char **items, size_t numitems)
     size_t i;
 
     for (i = 0; i < numitems; i++)
-	xfree((ptr_t) items[i]);
-    xfree((ptr_t) items);
+	free(items[i]);
+    free(items);
 }
 
 #define FREE_ITEMS(items, numitems) { \
@@ -522,8 +522,7 @@ again:				/* search for matches */
 		if (items == NULL)
 			items = xmalloc(sizeof(*items) * maxitems);
 		else
-			items = xrealloc((ptr_t) items,
-			    sizeof(*items) * maxitems);
+			items = xrealloc(items, sizeof(*items) * maxitems);
  	    }
 	    items[numitems] = xmalloc((size_t) (Strlen(entry) + 1) *
 	        sizeof(Char));
@@ -565,7 +564,7 @@ again:				/* search for matches */
 	return (numitems);
     }
     else {			/* LIST */
-	qsort((ptr_t) items, numitems, sizeof(items[0]), 
+	qsort(items, numitems, sizeof(items[0]),
 		(int (*) (const void *, const void *)) sortscmp);
 	print_by_column(looking_for_lognames ? NULL : tilded_dir,
 			items, numitems);
@@ -671,7 +670,7 @@ tenex(Char *inputline, size_t inputline_size)
 	    --str_end;		/* wipeout trailing cmd Char */
 	*str_end = '\0';
 	/*
-	 * Find LAST occurence of a delimiter in the inputline. The word start
+	 * Find LAST occurrence of a delimiter in the inputline. The word start
 	 * is one Character past it.
 	 */
 	for (word_start = str_end; word_start > inputline; --word_start)
