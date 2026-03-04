@@ -102,12 +102,10 @@ complete_ambiguous(char *word, int list, StringList *words)
 		lastmatch = words->sl_str[0];
 		matchlen = strlen(lastmatch);
 		for (i = 1 ; i < words->sl_cur ; i++) {
-			size_t slen = strlen(words->sl_str[i]);
-			for (j = wordlen ; j < slen; j++)
+			for (j = wordlen ; j < matchlen; j++)
 				if (lastmatch[j] != words->sl_str[i][j])
 					break;
-			if (j < matchlen)
-				matchlen = j;
+			matchlen = j;
 		}
 		if (matchlen > wordlen) {
 			ftpvis(insertstr, sizeof(insertstr),
