@@ -1154,7 +1154,8 @@ cd9660_rename_filename(iso9660_disk *diskStructure, cd9660node *iter, int num,
 		while (digits > 0) {
 			digit = (int)(temp / powers);
 			temp = temp - digit * powers;
-			sprintf(&tmp[numbts] , "%d", digit);
+			if (numbts < ISO_FILENAME_MAXLENGTH_WITH_PADDING)
+				snprintf(&tmp[numbts], ISO_FILENAME_MAXLENGTH_WITH_PADDING - numbts, "%d", digit);
 			digits--;
 			numbts++;
 			powers = powers / 10;
@@ -1629,6 +1630,7 @@ static int
 cd9660_level1_convert_filename(iso9660_disk *diskStructure, const char *oldname,
     char *newname, int is_file)
 {
+	char *orig_newname = newname;
 	/*
 	 * ISO 9660 : 10.1
 	 * File Name shall not contain more than 8 d or d1 characters
@@ -1679,7 +1681,8 @@ cd9660_level1_convert_filename(iso9660_disk *diskStructure, const char *oldname,
 		if (!found_ext && !diskStructure->omit_trailing_period)
 			*newname++ = '.';
 		/* Add version */
-		sprintf(newname, ";%i", 1);
+		if (newname - orig_newname < ISO_FILENAME_MAXLENGTH_WITH_PADDING)
+			snprintf(newname, ISO_FILENAME_MAXLENGTH_WITH_PADDING - (newname - orig_newname), ";%i", 1);
 	}
 	return namelen + extlen + found_ext;
 }
@@ -1689,6 +1692,7 @@ static int
 cd9660_level2_convert_filename(iso9660_disk *diskStructure, const char *oldname,
     char *newname, int is_file)
 {
+	char *orig_newname = newname;
 	/*
 	 * ISO 9660 : 7.5.1
 	 * File name : 0+ d or d1 characters
@@ -1746,7 +1750,8 @@ cd9660_level2_convert_filename(iso9660_disk *diskStructure, const char *oldname,
 		if (!found_ext && !diskStructure->omit_trailing_period)
 			*newname++ = '.';
 		/* Add version */
-		sprintf(newname, ";%i", 1);
+		if (newname - orig_newname < ISO_FILENAME_MAXLENGTH_WITH_PADDING)
+			snprintf(newname, ISO_FILENAME_MAXLENGTH_WITH_PADDING - (newname - orig_newname), ";%i", 1);
 	}
 	return namelen + extlen + found_ext;
 }
