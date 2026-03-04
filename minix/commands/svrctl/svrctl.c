@@ -24,7 +24,7 @@ int main (int argc, char *argv[])
   endpoint_t proc_e = NONE;
   struct sysgetenv sysgetenv;
   char *to_whom, *operation, *what, *value;
-  unsigned i;
+  size_t i, len;
 
   bin_name = argv[0];
   if (argc < 4 || argc > 5) usage();
@@ -37,9 +37,9 @@ int main (int argc, char *argv[])
   to_whom = argv[1];
   operation = argv[2];
   what = argv[3];
-  for (i = 0; i < strlen(to_whom); ++i)   to_whom[i] = tolower(to_whom[i]);
-  for (i = 0; i < strlen(operation); ++i) operation[i] = tolower(operation[i]);
-  for (i = 0; i < strlen(what); ++i)      what[i] = tolower(what[i]);
+  for (i = 0, len = strlen(to_whom); i < len; ++i)   to_whom[i] = tolower(to_whom[i]);
+  for (i = 0, len = strlen(operation); i < len; ++i) operation[i] = tolower(operation[i]);
+  for (i = 0, len = strlen(what); i < len; ++i)      what[i] = tolower(what[i]);
 
   if (!strncmp(to_whom, VFS, strlen(VFS)+1)) proc_e = VFS_PROC_NR;
   else if (!strncmp(to_whom, PM, strlen(PM)+1)) proc_e = PM_PROC_NR;
