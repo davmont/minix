@@ -223,7 +223,7 @@ doboottypemenu(void)
 				    bootcfg_info.def + 1);
 
 #if !defined(__minix)
-			gets(input);
+			kgets(input, sizeof(input));
 #else
 			editline(input, sizeof(input), NULL);
 #endif /* !defined(__minix) */
