@@ -1,4 +1,4 @@
-/*	$NetBSD: syslogd.c,v 1.122 2015/09/05 20:19:43 dholland Exp $	*/
+/*	$NetBSD: syslogd.c,v 1.140 2022/11/08 01:43:09 uwe Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -39,7 +39,7 @@ __COPYRIGHT("@(#) Copyright (c) 1983, 1988, 1993, 1994\
 #if 0
 static char sccsid[] = "@(#)syslogd.c	8.3 (Berkeley) 4/4/94";
 #else
-__RCSID("$NetBSD: syslogd.c,v 1.122 2015/09/05 20:19:43 dholland Exp $");
+__RCSID("$NetBSD: syslogd.c,v 1.140 2022/11/08 01:43:09 uwe Exp $");
 #endif
 #endif /* not lint */
 
@@ -113,6 +113,8 @@ typedef struct deadq_entry {
  */
 #define DQ_TIMO_INIT	2
 
+#define	RCVBUFLEN	16384
+int	buflen = RCVBUFLEN;
 /*
  * Intervals at which we flush out "message repeated" messages,
  * in seconds after previous message is logged.	 After each flush,
@@ -191,6 +193,7 @@ int	SyncKernel = 0;		/* write kernel messages synchronously */
 int	UniquePriority = 0;	/* only log specified priority */
 int	LogFacPri = 0;		/* put facility and priority in log messages: */
 				/* 0=no, 1=numeric, 2=names */
+int	LogOverflow = 1;	/* 0=no, any other value = yes */
 bool	BSDOutputFormat = true;	/* if true emit traditional BSD Syslog lines,
 				 * otherwise new syslog-protocol lines
 				 *
@@ -203,11 +206,13 @@ bool	BSDOutputFormat = true;	/* if true emit traditional BSD Syslog lines,
 				 * configurations (e.g. with SG="0").
 				 */
 char	appname[]   = "syslogd";/* the APPNAME for own messages */
-char   *include_pid = NULL;	/* include PID in own messages */
+char   *include_pid;		/* include PID in own messages */
+char	include_pid_buf[11];
 
 
 /* init and setup */
 void		usage(void) __attribute__((__noreturn__));
+void		set_debug(const char *);
 void		logpath_add(char ***, int *, int *, const char *);
 void		logpath_fileadd(char ***, int *, int *, const char *);
 void		init(int fd, short event, void *ev);  /* SIGHUP kevent dispatch routine */
@@ -272,6 +277,8 @@ static inline void
 #endif /* !DISABLE_TLS */
 static int writev1(int, struct iovec *, size_t);
 
+static void setsockbuf(int, const char *);
+
 /* for make_timestamp() */
 char	timestamp[MAX_TIMESTAMPLEN + 1];
 /*
@@ -312,15 +319,38 @@ main(int argc, char *argv[])
 	/* should we set LC_TIME="C" to ensure correct timestamps&parsing? */
 	(void)setlocale(LC_ALL, "");
 
-	while ((ch = getopt(argc, argv, "b:dnsSf:m:o:p:P:ru:g:t:TUv")) != -1)
+	while ((ch = getopt(argc, argv, "b:B:d::nsSf:m:o:p:P:ru:g:t:TUvX")) != -1)
 		switch(ch) {
 		case 'b':
 			bindhostname = optarg;
 			break;
+		case 'B':
+			buflen = atoi(optarg);
+			if (buflen < RCVBUFLEN)
+				buflen = RCVBUFLEN;
+			break;
 		case 'd':		/* debug */
-			Debug = D_DEFAULT;
-			/* is there a way to read the integer value
-			 * for Debug as an optional argument? */
+			if (optarg != NULL) {
+				/*
+				 * getopt passes as optarg everything
+				 * after 'd' in -darg, manually accept
+				 * -d=arg too.
+				 */
+				if (optarg[0] == '=')
+					++optarg;
+			} else if (optind < argc) {
+				/*
+				 * :: treats "-d ..." as missing
+				 * optarg, so look ahead manually and
+				 * pick up the next arg if it looks
+				 * like one.
+				 */
+				if (argv[optind][0] != '-') {
+					optarg = argv[optind];
+					++optind;
+				}
+			}
+			set_debug(optarg);
 			break;
 		case 'f':		/* configuration file */
 			ConfFile = optarg;
@@ -385,6 +415,9 @@ main(int argc, char *argv[])
 		case 'v':		/* log facility and priority */
 			if (LogFacPri < 2)
 				LogFacPri++;
+			break;
+		case 'X':
+			LogOverflow = 0;
 			break;
 		default:
 			usage();
@@ -492,6 +525,7 @@ getgroup:
 			logerror("Cannot create `%s'", *pp);
 			die(0, 0, NULL);
 		}
+		setsockbuf(funix[j], *pp);
 		DPRINTF(D_NET, "Listening on unix dgram socket `%s'\n", *pp);
 	}
 
@@ -559,14 +593,13 @@ getgroup:
 #endif /* __NetBSD_Version__ */
 	}
 
-#define MAX_PID_LEN 5
-	include_pid = malloc(MAX_PID_LEN+1);
-	snprintf(include_pid, MAX_PID_LEN+1, "%d", getpid());
+	include_pid = include_pid_buf;
+	snprintf(include_pid_buf, sizeof(include_pid_buf), "%d", getpid());
 
 	/*
 	 * Create the global kernel event descriptor.
 	 *
-	 * NOTE: We MUST do this after daemon(), bacause the kqueue()
+	 * NOTE: We MUST do this after daemon(), because the kqueue()
 	 * API dictates that kqueue descriptors are not inherited
 	 * across forks (lame!).
 	 */
@@ -653,11 +686,30 @@ usage(void)
 {
 
 	(void)fprintf(stderr,
-	    "usage: %s [-dnrSsTUv] [-b bind_address] [-f config_file] [-g group]\n"
+	    "usage: %s [-dnrSsTUvX] [-B buffer_length] [-b bind_address]\n"
+	    "\t[-f config_file] [-g group]\n"
 	    "\t[-m mark_interval] [-P file_list] [-p log_socket\n"
 	    "\t[-p log_socket2 ...]] [-t chroot_dir] [-u user]\n",
 	    getprogname());
 	exit(1);
+}
+
+static void
+setsockbuf(int fd, const char *name)
+{
+	int curbuflen;
+	socklen_t socklen = sizeof(buflen);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &curbuflen, &socklen) == -1) {
+		logerror("getsockopt: SO_RCVBUF: `%s'", name);
+		return;
+	}
+	if (curbuflen >= buflen)
+		return;
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buflen, socklen) == -1) {
+		logerror("setsockopt: SO_RCVBUF: `%s'", name);
+		return;
+	}
 }
 
 /*
@@ -683,7 +735,10 @@ dispatch_read_klog(int fd, short event, void *ev)
 	if (rv > 0) {
 		klog_linebuf[klog_linebufoff + rv] = '\0';
 		printsys(klog_linebuf);
-	} else if (rv < 0 && errno != EINTR) {
+	} else if (rv < 0 &&
+	    errno != EINTR &&
+	    (errno != ENOBUFS || LogOverflow))
+	{
 		/*
 		 * /dev/klog has croaked.  Disable the event
 		 * so it won't bother us again.
@@ -727,7 +782,10 @@ dispatch_read_funix(int fd, short event, void *ev)
 	if (rv > 0) {
 		linebuf[rv] = '\0';
 		printline(LocalFQDN, linebuf, 0);
-	} else if (rv < 0 && errno != EINTR) {
+	} else if (rv < 0 &&
+	    errno != EINTR &&
+	    (errno != ENOBUFS || LogOverflow))
+	{
 		logerror("recvfrom() unix `%.*s'",
 			(int)SUN_PATHLEN(&myname), myname.sun_path);
 	}
@@ -762,7 +820,9 @@ dispatch_read_finet(int fd, short event, void *ev)
 	len = sizeof(frominet);
 	rv = recvfrom(fd, linebuf, linebufsize-1, 0,
 	    (struct sockaddr *)&frominet, &len);
-	if (rv == 0 || (rv < 0 && errno == EINTR))
+	if (rv == 0 ||
+	    (rv < 0 && (errno == EINTR ||
+			(errno == ENOBUFS && LogOverflow == 0))))
 		return;
 	else if (rv < 0) {
 		logerror("recvfrom inet");
@@ -1277,7 +1337,7 @@ printline_bsdsyslog(const char *hname, char *msg,
 		} else if (*p == '[' || (*p == ':'
 			&& (*(p+1) == ' ' || *(p+1) == '\0'))) {
 			/* no host in message */
-			buffer->host = LocalFQDN;
+			buffer->host = strdup(hname);
 			buffer->prog = strndup(start, p - start);
 			break;
 		} else {
@@ -1745,27 +1805,28 @@ check_timestamp(unsigned char *from_buf, char **to_buf,
 		struct tm parsed;
 		time_t timeval;
 		char tsbuf[MAX_TIMESTAMPLEN];
-		int i = 0;
+		int i = 0, j;
 
 		DPRINTF(D_CALL, "check_timestamp(): convert ISO->BSD\n");
 		for(i = 0; i < MAX_TIMESTAMPLEN && from_buf[i] != '\0'
 		    && from_buf[i] != '.' && from_buf[i] != ' '; i++)
 			tsbuf[i] = from_buf[i]; /* copy date & time */
+		j = i;
 		for(; i < MAX_TIMESTAMPLEN && from_buf[i] != '\0'
 		    && from_buf[i] != '+' && from_buf[i] != '-'
 		    && from_buf[i] != 'Z' && from_buf[i] != ' '; i++)
 			;			   /* skip fraction digits */
 		for(; i < MAX_TIMESTAMPLEN && from_buf[i] != '\0'
-		    && from_buf[i] != ':' && from_buf[i] != ' ' ; i++)
-			tsbuf[i] = from_buf[i]; /* copy TZ */
+		    && from_buf[i] != ':' && from_buf[i] != ' ' ; i++, j++)
+			tsbuf[j] = from_buf[i]; /* copy TZ */
 		if (from_buf[i] == ':') i++;	/* skip colon */
 		for(; i < MAX_TIMESTAMPLEN && from_buf[i] != '\0'
-		    && from_buf[i] != ' ' ; i++)
-			tsbuf[i] = from_buf[i]; /* copy TZ */
+		    && from_buf[i] != ' ' ; i++, j++)
+			tsbuf[j] = from_buf[i]; /* copy TZ */
 
 		(void)memset(&parsed, 0, sizeof(parsed));
-		parsed.tm_isdst = -1;
 		(void)strptime(tsbuf, "%FT%T%z", &parsed);
+		parsed.tm_isdst = -1;
 		timeval = mktime(&parsed);
 
 		*to_buf = make_timestamp(&timeval, false, BSD_TIMESTAMPLEN);
@@ -1959,7 +2020,7 @@ logmsg(struct buf_msg *buffer)
  * format one buffer into output format given by flag BSDOutputFormat
  * line is allocated and has to be free()d by caller
  * size_t pointers are optional, if not NULL then they will return
- *   different lenghts used for formatting and output
+ *   different lengths used for formatting and output
  */
 #define OUT(x) ((x)?(x):"-")
 bool
@@ -2291,6 +2352,7 @@ fprintlog(struct filed *f, struct buf_msg *passedbuffer, struct buf_queue *qentr
 		    (buffer->host ? buffer->host : buffer->recvhost),
 		    buffer->timestamp);
 		ADDEV();
+		/* FALLTHROUGH */
 	case F_USERS: /* fallthrough */
 		/* filter non-ASCII */
 		p = line;
@@ -2838,7 +2900,7 @@ logerror(const char *fmt, ...)
 	if (!daemonized && Debug)
 		DPRINTF(D_MISC, "%s\n", outbuf);
 	if (!daemonized && !Debug)
-		printf("%s\n", outbuf);
+		printf("%s: %s\n", getprogname(), outbuf);
 
 	logerror_running = 0;
 }
@@ -2969,10 +3031,7 @@ die(int fd, short event, void *ev)
 	 */
 	if (finet) {
 		for (i = 0; i < finet->fd; i++) {
-			if (close(finet[i+1].fd) < 0) {
-				logerror("close() failed");
-				die(0, 0, NULL);
-			}
+			(void)close(finet[i+1].fd);
 			DEL_EVENT(finet[i+1].ev);
 			FREEPTR(finet[i+1].ev);
 		}
@@ -3478,7 +3537,7 @@ init(int fd, short event, void *ev)
 	}							\
 	src->f_qsize = 0;					\
 	src->f_qelements = 0;					\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 	/*
 	 *  Free old log files.
@@ -4032,9 +4091,7 @@ socksetup(int af, const char *hostname)
 {
 	struct addrinfo hints, *res, *r;
 	int error, maxs;
-#ifdef IPV6_V6ONLY
 	int on = 1;
-#endif /* IPV6_V6ONLY */
 	struct socketEvent *s, *socks;
 
 	if(SecureMode && !NumForwards)
@@ -4069,14 +4126,12 @@ socksetup(int af, const char *hostname)
 			continue;
 		}
 		s->af = r->ai_family;
-#ifdef IPV6_V6ONLY
 		if (r->ai_family == AF_INET6 && setsockopt(s->fd, IPPROTO_IPV6,
 		    IPV6_V6ONLY, &on, sizeof(on)) < 0) {
 			logerror("setsockopt(IPV6_V6ONLY) failed");
 			close(s->fd);
 			continue;
 		}
-#endif /* IPV6_V6ONLY */
 
 		if (!SecureMode) {
 			if (bind(s->fd, r->ai_addr, r->ai_addrlen) < 0) {
@@ -4720,7 +4775,7 @@ make_timestamp(time_t *in_now, bool iso, size_t tlen)
 	}
 }
 
-/* auxillary code to allocate memory and copy a string */
+/* auxiliary code to allocate memory and copy a string */
 bool
 copy_string(char **mem, const char *p, const char *q)
 {
@@ -4838,6 +4893,67 @@ writev1(int fd, struct iovec *iov, size_t count)
 	}
 	return tot == 0 ? nw : tot;
 }
+
+
+#ifdef NDEBUG
+/*
+ * -d also controls daemoniziation, so it makes sense even with
+ * NDEBUG, but if the user also tries to specify the logging details
+ * with an argument, warn them it's not compiled into this binary.
+ */
+void
+set_debug(const char *level)
+{
+	Debug = D_DEFAULT;
+	if (level == NULL)
+		return;
+
+	/* don't bother parsing the argument */
+	fprintf(stderr,
+		"%s: debug logging is not compiled\n",
+		getprogname());
+}
+
+#else  /* !NDEBUG */
+void
+set_debug(const char *level)
+{
+	if (level == NULL) {
+		Debug = D_DEFAULT; /* compat */
+		return;
+	}
+
+	/* skip initial whitespace for consistency with strto*l */
+	while (isspace((unsigned char)*level))
+		++level;
+
+	/* accept ~num to mean "all except num" */
+	bool invert = level[0] == '~';
+	if (invert)
+		++level;
+
+	errno = 0;
+	char *endp = NULL;
+	unsigned long bits = strtoul(level, &endp, 0);
+	if (errno || endp == level || *endp != '\0') {
+		fprintf(stderr, "%s: bad argument to -d\n", getprogname());
+		usage();
+	}
+	if (invert)
+		bits = ~bits;
+
+	Debug = bits & D_ALL;
+
+	/*
+	 * make it possible to use -d to stay in the foreground but
+	 * suppress all dbprintf output (there better be free bits in
+	 * typeof(Debug) that are not in D_ALL).
+	 */
+	if (Debug == 0)
+		Debug = ~D_ALL;
+}
+#endif	/* !NDEBUG */
+
 
 #ifndef NDEBUG
 void

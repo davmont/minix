@@ -1,7 +1,7 @@
 /*
  * $OpenBSD: util.c,v 1.32 2006/03/11 19:41:30 otto Exp $
  * $DragonFly: src/usr.bin/patch/util.c,v 1.9 2007/09/29 23:11:10 swildner Exp $
- * $NetBSD: util.c,v 1.26 2010/10/02 19:31:14 wiz Exp $
+ * $NetBSD: util.c,v 1.30 2021/05/25 11:25:59 cjep Exp $
  */
 
 /*
@@ -31,7 +31,7 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: util.c,v 1.26 2010/10/02 19:31:14 wiz Exp $");
+__RCSID("$NetBSD: util.c,v 1.30 2021/05/25 11:25:59 cjep Exp $");
 
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -40,7 +40,6 @@ __RCSID("$NetBSD: util.c,v 1.26 2010/10/02 19:31:14 wiz Exp $");
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
-#include <paths.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -71,7 +70,7 @@ move_file(const char *from, const char *to)
 		fromfd = open(from, O_RDONLY);
 		if (fromfd < 0)
 			pfatal("internal error, can't reopen %s", from);
-		while ((i = read(fromfd, buf, buf_len)) > 0)
+		while ((i = read(fromfd, buf, bufsz)) > 0)
 			if (write(STDOUT_FILENO, buf, i) != i)
 				pfatal("write failed");
 		close(fromfd);
@@ -179,7 +178,7 @@ copy_file(const char *from, const char *to)
 	fromfd = open(from, O_RDONLY, 0);
 	if (fromfd < 0)
 		pfatal("internal error, can't reopen %s", from);
-	while ((i = read(fromfd, buf, buf_len)) > 0)
+	while ((i = read(fromfd, buf, bufsz)) > 0)
 		if (write(tofd, buf, i) != i)
 			pfatal("write to %s failed", to);
 	close(fromfd);
@@ -270,7 +269,7 @@ ask(const char *fmt, ...)
 	if (ttyfd < 0)
 		ttyfd = open(_PATH_TTY, O_RDONLY);
 	if (ttyfd >= 0) {
-		if ((nr = read(ttyfd, buf, buf_len)) > 0 &&
+		if ((nr = read(ttyfd, buf, bufsz)) > 0 &&
 		    buf[nr - 1] == '\n')
 			buf[nr - 1] = '\0';
 	}
@@ -418,7 +417,7 @@ checked_in(char *file)
 void
 version(void)
 {
-	printf("Patch version 2.0-12u8-NetBSD\n");
+	printf("Patch version 2.0-12u9-NetBSD\n");
 	my_exit(EXIT_SUCCESS);
 }
 
@@ -435,4 +434,14 @@ my_exit(int status)
 		unlink(TMPREJNAME);
 	unlink(TMPPATNAME);
 	exit(status);
+}
+
+void *
+pch_realloc(void *ptr, size_t number, size_t size)
+{
+	if (number > SIZE_MAX / size) {
+		errno = EOVERFLOW;
+		return NULL;
+	}
+	return realloc(ptr, number * size);
 }

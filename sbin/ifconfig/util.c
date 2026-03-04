@@ -1,4 +1,4 @@
-/*	$NetBSD: util.c,v 1.17 2013/10/19 00:35:30 christos Exp $	*/
+/*	$NetBSD: util.c,v 1.20 2020/10/11 21:32:37 roy Exp $	*/
 
 /*-
  * Copyright (c) 2008 David Young.  All rights reserved.
@@ -27,7 +27,7 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: util.c,v 1.17 2013/10/19 00:35:30 christos Exp $");
+__RCSID("$NetBSD: util.c,v 1.20 2020/10/11 21:32:37 roy Exp $");
 #endif /* not lint */
 
 #include <ctype.h>
@@ -160,9 +160,9 @@ struct paddr_prefix *
 prefixlen_to_mask(int af, int plen)
 {
 	union {
-		struct sockaddr sa; 
-		struct sockaddr_in sin; 
-		struct sockaddr_in6 sin6; 
+		struct sockaddr sa;
+		struct sockaddr_in sin;
+		struct sockaddr_in6 sin6;
 	} u;
 	struct paddr_prefix *pfx;
 	size_t addrlen;
@@ -275,8 +275,10 @@ print_link_addresses(prop_dictionary_t env, bool print_active_only)
 		iflr.flags = IFLR_PREFIX;
 		iflr.prefixlen = sdl->sdl_alen * NBBY;
 
-		if (prog_ioctl(s, SIOCGLIFADDR, &iflr) == -1)
-			err(EXIT_FAILURE, "%s: ioctl", __func__);
+		if (prog_ioctl(s, SIOCGLIFADDR, &iflr) == -1) {
+			warn("%s: ioctl SIOCGLIFADDR", __func__);
+			continue;
+		}
 
 		if (((iflr.flags & IFLR_ACTIVE) != 0) != print_active_only)
 			continue;

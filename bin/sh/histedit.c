@@ -1,4 +1,4 @@
-/*	$NetBSD: histedit.c,v 1.47 2014/06/18 18:17:30 christos Exp $	*/
+/*	$NetBSD: histedit.c,v 1.65.2.2 2024/08/07 10:41:11 martin Exp $	*/
 
 /*-
  * Copyright (c) 1993
@@ -37,11 +37,13 @@
 #if 0
 static char sccsid[] = "@(#)histedit.c	8.2 (Berkeley) 5/4/95";
 #else
-__RCSID("$NetBSD: histedit.c,v 1.47 2014/06/18 18:17:30 christos Exp $");
+__RCSID("$NetBSD: histedit.c,v 1.65.2.2 2024/08/07 10:41:11 martin Exp $");
 #endif
 #endif /* not lint */
 
 #include <sys/param.h>
+#include <sys/stat.h>
+#include <dirent.h>
 #include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +65,7 @@ __RCSID("$NetBSD: histedit.c,v 1.47 2014/06/18 18:17:30 christos Exp $");
 #ifndef SMALL
 #include "eval.h"
 #include "memalloc.h"
+#include "show.h"
 
 #define MAXHISTLOOPS	4	/* max recursions through fc */
 #define DEFEDITOR	"ed"	/* default editor *should* be $EDITOR */
@@ -71,13 +74,18 @@ History *hist;	/* history cookie */
 EditLine *el;	/* editline cookie */
 int displayhist;
 static FILE *el_in, *el_out;
-unsigned char _el_fn_complete(EditLine *, int);
-
-STATIC const char *fc_replace(const char *, char *, char *);
+static int curpos;
 
 #ifdef DEBUG
 extern FILE *tracefile;
 #endif
+
+static const char *fc_replace(const char *, char *, char *);
+static int not_fcnumber(const char *);
+static int str_to_event(const char *, int);
+static int comparator(const void *, const void *);
+static char **sh_matches(const char *, int, int);
+static unsigned char sh_complete(EditLine *, int);
 
 /*
  * Set history and editing status.  Called whenever the status may
@@ -89,6 +97,9 @@ histedit(void)
 	FILE *el_err;
 
 #define editing (Eflag || Vflag)
+
+	CTRACE(DBG_HISTORY, ("histedit: %cE%cV %sinteractive\n",
+	    Eflag ? '-' : '+',  Vflag ? '-' : '+', iflag ? "" : "not "));
 
 	if (iflag == 1) {
 		if (!hist) {
@@ -108,7 +119,7 @@ histedit(void)
 			/*
 			 * turn editing on
 			 */
-			char *term, *shname;
+			char *term;
 
 			INTOFF;
 			if (el_in == NULL)
@@ -122,24 +133,42 @@ histedit(void)
 			if (tracefile)
 				el_err = tracefile;
 #endif
+			/*
+			 * This odd piece of code doesn't affect the shell
+			 * at all, the environment modified here is the
+			 * stuff accessed via "environ" (the incoming
+			 * environment to the shell) which is only ever
+			 * touched at sh startup time (long before we get
+			 * here) and ignored thereafter.
+			 *
+			 * But libedit calls getenv() to discover TERM
+			 * and that searches the "environ" environment,
+			 * not the shell's internal variable data struct,
+			 * so we need to make sure that TERM in there is
+			 * correct.
+			 *
+			 * This sequence copies TERM from the shell into
+			 * the old "environ" environment.
+			 */
 			term = lookupvar("TERM");
 			if (term)
 				setenv("TERM", term, 1);
 			else
 				unsetenv("TERM");
-			shname = arg0;
-			if (shname[0] == '-')
-				shname++;
-			el = el_init(shname, el_in, el_out, el_err);
+			el = el_init("sh", el_in, el_out, el_err);
+			VTRACE(DBG_HISTORY, ("el_init() %sed\n",
+			    el != NULL ? "succeed" : "fail"));
 			if (el != NULL) {
 				if (hist)
 					el_set(el, EL_HIST, history, hist);
-				el_set(el, EL_PROMPT, getprompt);
+
+				set_prompt_lit(lookupvar("PSlit"));
 				el_set(el, EL_SIGNAL, 1);
+				el_set(el, EL_SAFEREAD, 1);
 				el_set(el, EL_ALIAS_TEXT, alias_text, NULL);
 				el_set(el, EL_ADDFN, "rl-complete",
 				    "ReadLine compatible completion function",
-				    _el_fn_complete);
+				    sh_complete);
 			} else {
 bad:
 				out2str("sh: can't initialize editing\n");
@@ -149,16 +178,20 @@ bad:
 			INTOFF;
 			el_end(el);
 			el = NULL;
+			VTRACE(DBG_HISTORY, ("line editing disabled\n"));
 			INTON;
 		}
 		if (el) {
-			el_source(el, NULL);
+			INTOFF;
 			if (Vflag)
 				el_set(el, EL_EDITOR, "vi");
 			else if (Eflag)
 				el_set(el, EL_EDITOR, "emacs");
+			VTRACE(DBG_HISTORY, ("reading $EDITRC\n"));
+			el_source(el, lookupvar("EDITRC"));
 			el_set(el, EL_BIND, "^I", 
 			    tabcomplete ? "rl-complete" : "ed-insert", NULL);
+			INTON;
 		}
 	} else {
 		INTOFF;
@@ -171,9 +204,41 @@ bad:
 			hist = NULL;
 		}
 		INTON;
+		VTRACE(DBG_HISTORY, ("line editing & history disabled\n"));
 	}
 }
 
+void
+set_prompt_lit(const char *lit_ch)
+{
+	wchar_t wc;
+
+	if (!(iflag && editing && el))
+		return;
+
+	if (lit_ch == NULL) {
+		el_set(el, EL_PROMPT, getprompt);
+		return;
+	}
+
+	mbtowc(&wc, NULL, 1);		/* state init */
+
+	INTOFF;
+	if (mbtowc(&wc, lit_ch, strlen(lit_ch)) <= 0)
+		el_set(el, EL_PROMPT, getprompt);
+	else
+		el_set(el, EL_PROMPT_ESC, getprompt, (int)wc);
+	INTON;
+}
+
+void
+set_editrc(const char *fname)
+{
+	INTOFF;
+	if (iflag && editing && el)
+		el_source(el, fname);
+	INTON;
+}
 
 void
 sethistsize(const char *hs)
@@ -182,37 +247,47 @@ sethistsize(const char *hs)
 	HistEvent he;
 
 	if (hist != NULL) {
-		if (hs == NULL || *hs == '\0' ||
-		   (histsize = atoi(hs)) < 0)
+		if (hs == NULL || *hs == '\0' || !is_number(hs) ||
+		   (histsize = number(hs)) < 0)
 			histsize = 100;
+		INTOFF;
 		history(hist, &he, H_SETSIZE, histsize);
 		history(hist, &he, H_SETUNIQUE, 1);
+		INTON;
 	}
 }
 
 void
 setterm(const char *term)
 {
+	INTOFF;
 	if (el != NULL && term != NULL)
 		if (el_set(el, EL_TERMINAL, term) != 0) {
 			outfmt(out2, "sh: Can't set terminal type %s\n", term);
 			outfmt(out2, "sh: Using dumb terminal settings.\n");
 		}
+	INTON;
 }
 
 int
 inputrc(int argc, char **argv)
 {
+	CTRACE(DBG_HISTORY, ("inputrc (%d arg%s)", argc-1, argc==2?"":"s"));
 	if (argc != 2) {
+		CTRACE(DBG_HISTORY, (" -- bad\n"));
 		out2str("usage: inputrc file\n");
 		return 1;
 	}
+	CTRACE(DBG_HISTORY, (" file: \"%s\"\n", argv[1]));
 	if (el != NULL) {
+		INTOFF;
 		if (el_source(el, argv[1])) {
+			INTON;
 			out2str("inputrc: failed\n");
 			return 1;
-		} else
-			return 0;
+		}
+		INTON;
+		return 0;
 	} else {
 		out2str("sh: inputrc ignored, not editing\n");
 		return 1;
@@ -224,22 +299,21 @@ inputrc(int argc, char **argv)
  *  the Korn shell fc command.  Oh well...
  */
 int
-histcmd(int argc, char **argv)
+histcmd(volatile int argc, char ** volatile argv)
 {
 	int ch;
 	const char * volatile editor = NULL;
 	HistEvent he;
-	int lflg = 0;
-	volatile int nflg = 0, rflg = 0, sflg = 0;
+	volatile int lflg = 0, nflg = 0, rflg = 0, sflg = 0;
 	int i, retval;
 	const char *firststr, *laststr;
 	int first, last, direction;
-	char *pat = NULL, *repl;	/* ksh "fc old=new" crap */
+	char * volatile pat = NULL, * volatile repl;	/* ksh "fc old=new" crap */
 	static int active = 0;
 	struct jmploc jmploc;
 	struct jmploc *volatile savehandler;
 	char editfile[MAXPATHLEN + 1];
-	FILE *efp;
+	FILE * volatile efp;
 #ifdef __GNUC__
 	repl = NULL;	/* XXX gcc4 */
 	efp = NULL;	/* XXX gcc4 */
@@ -248,6 +322,7 @@ histcmd(int argc, char **argv)
 	if (hist == NULL)
 		error("history not active");
 
+	CTRACE(DBG_HISTORY, ("histcmd (fc) %d arg%s\n", argc, argc==1?"":"s"));
 	if (argc == 1)
 		error("missing history argument");
 
@@ -256,19 +331,24 @@ histcmd(int argc, char **argv)
 	      (ch = getopt(argc, argv, ":e:lnrs")) != -1)
 		switch ((char)ch) {
 		case 'e':
-			editor = optionarg;
+			editor = optarg;
+			VTRACE(DBG_HISTORY, ("histcmd -e %s\n", editor));
 			break;
 		case 'l':
 			lflg = 1;
+			VTRACE(DBG_HISTORY, ("histcmd -l\n"));
 			break;
 		case 'n':
 			nflg = 1;
+			VTRACE(DBG_HISTORY, ("histcmd -n\n"));
 			break;
 		case 'r':
 			rflg = 1;
+			VTRACE(DBG_HISTORY, ("histcmd -r\n"));
 			break;
 		case 's':
 			sflg = 1;
+			VTRACE(DBG_HISTORY, ("histcmd -s\n"));
 			break;
 		case ':':
 			error("option -%c expects argument", optopt);
@@ -293,12 +373,17 @@ histcmd(int argc, char **argv)
 		savehandler = handler;
 		if (setjmp(jmploc.loc)) {
 			active = 0;
-			if (*editfile)
+			if (*editfile) {
+				VTRACE(DBG_HISTORY,
+				    ("histcmd err jump unlink temp \"%s\"\n",
+				    *editfile));
 				unlink(editfile);
+			}
 			handler = savehandler;
 			longjmp(handler->loc, 1);
 		}
 		handler = &jmploc;
+		VTRACE(DBG_HISTORY, ("histcmd was active %d (++)\n", active));
 		if (++active > MAXHISTLOOPS) {
 			active = 0;
 			displayhist = 0;
@@ -316,6 +401,8 @@ histcmd(int argc, char **argv)
 				sflg = 1;	/* no edit */
 				editor = NULL;
 			}
+			VTRACE(DBG_HISTORY, ("histcmd using %s as editor\n",
+			    editor == NULL ? "-nothing-" : editor));
 		}
 	}
 
@@ -327,6 +414,8 @@ histcmd(int argc, char **argv)
 		pat = argv[0];
 		*repl++ = '\0';
 		argc--, argv++;
+		VTRACE(DBG_HISTORY, ("histcmd replace old=\"%s\" new=\"%s\""
+		    " (%d args)\n", pat, repl, argc));
 	}
 
 	/*
@@ -366,6 +455,10 @@ histcmd(int argc, char **argv)
 		last = first;
 		first = i;
 	}
+	VTRACE(DBG_HISTORY, ("histcmd%s first=\"%s\" (#%d) last=\"%s\" (#%d)\n",
+	    rflg ? " reversed" : "", rflg ? laststr : firststr, first,
+	    rflg ? firststr : laststr, last));
+
 	/*
 	 * XXX - this should not depend on the event numbers
 	 * always increasing.  Add sequence numbers or offset
@@ -386,6 +479,8 @@ histcmd(int argc, char **argv)
 			close(fd);
 			error("can't allocate stdio buffer for temp");
 		}
+		VTRACE(DBG_HISTORY, ("histcmd created \"%s\" for edit buffer"
+		    " fd=%d\n", editfile, fd));
 	}
 
 	/*
@@ -408,6 +503,7 @@ histcmd(int argc, char **argv)
 			   fc_replace(he.str, pat, repl) : he.str;
 
 			if (sflg) {
+				VTRACE(DBG_HISTORY, ("histcmd -s \"%s\"\n", s));
 				if (displayhist) {
 					out2str(s);
 				}
@@ -440,10 +536,14 @@ histcmd(int argc, char **argv)
 		cmdlen = strlen(editor) + strlen(editfile) + 2;
 		editcmd = stalloc(cmdlen);
 		snprintf(editcmd, cmdlen, "%s %s", editor, editfile);
+		VTRACE(DBG_HISTORY, ("histcmd editing: \"%s\"\n", editcmd));
 		evalstring(editcmd, 0);	/* XXX - should use no JC command */
-		INTON;
+		stunalloc(editcmd);
+		VTRACE(DBG_HISTORY, ("histcmd read cmds from %s\n", editfile));
 		readcmdfile(editfile);	/* XXX - should read back - quick tst */
+		VTRACE(DBG_HISTORY, ("histcmd unlink %s\n", editfile));
 		unlink(editfile);
+		INTON;
 	}
 
 	if (lflg == 0 && active > 0)
@@ -453,12 +553,13 @@ histcmd(int argc, char **argv)
 	return 0;
 }
 
-STATIC const char *
+static const char *
 fc_replace(const char *s, char *p, char *r)
 {
 	char *dest;
 	int plen = strlen(p);
 
+	VTRACE(DBG_HISTORY, ("histcmd s/%s/%s/ in \"%s\" -> ", p, r, s));
 	STARTSTACKSTR(dest);
 	while (*s) {
 		if (*s == *p && strncmp(s, p, plen) == 0) {
@@ -469,23 +570,127 @@ fc_replace(const char *s, char *p, char *r)
 		} else
 			STPUTC(*s++, dest);
 	}
-	STACKSTRNUL(dest);
+	STPUTC('\0', dest);
 	dest = grabstackstr(dest);
+	VTRACE(DBG_HISTORY, ("\"%s\"\n", dest));
 
-	return (dest);
+	return dest;
 }
 
-int
-not_fcnumber(char *s)
+
+/*
+ * Comparator function for qsort(). The use of curpos here is to skip
+ * characters that we already know to compare equal (common prefix).
+ */
+static int
+comparator(const void *a, const void *b)
+{
+	return strcmp(*(char *const *)a + curpos,
+		*(char *const *)b + curpos);
+}
+
+/*
+ * This function is passed to libedit's fn_complete(). The library will
+ * use it instead of its standard function to find matches, which
+ * searches for files in current directory. If we're at the start of the
+ * line, we want to look for available commands from all paths in $PATH.
+ */
+static char
+**sh_matches(const char *text, int start, int end)
+{
+	char *free_path = NULL, *dirname, *path;
+	char **matches = NULL;
+	size_t i = 0, size = 16;
+
+	if (start > 0)
+		return NULL;
+	curpos = end - start;
+	if ((free_path = path = strdup(pathval())) == NULL)
+		goto out;
+	if ((matches = malloc(size * sizeof(matches[0]))) == NULL)
+		goto out;
+	while ((dirname = strsep(&path, ":")) != NULL) {
+		struct dirent *entry;
+		DIR *dir;
+		int dfd;
+
+		if ((dir = opendir(dirname)) == NULL)
+			continue;
+		if ((dfd = dirfd(dir)) == -1)
+			continue;
+		while ((entry = readdir(dir)) != NULL) {
+			struct stat statb;
+
+			if (strncmp(entry->d_name, text, curpos) != 0)
+				continue;
+			if (entry->d_type == DT_UNKNOWN || entry->d_type == DT_LNK) {
+				if (fstatat(dfd, entry->d_name, &statb, 0) == -1)
+					continue;
+				if (!S_ISREG(statb.st_mode))
+					continue;
+			} else if (entry->d_type != DT_REG)
+				continue;
+			if (++i >= size - 1) {
+				size *= 2;
+				if (reallocarr(&matches, size,
+				    sizeof(*matches)))
+				{
+					closedir(dir);
+					goto out;
+				}
+			}
+			matches[i] = strdup(entry->d_name);
+		}
+		closedir(dir);
+	}
+out:
+	free(free_path);
+	if (i == 0) {
+		free(matches);
+		return NULL;
+	}
+	if (i == 1) {
+		matches[0] = strdup(matches[1]);
+		matches[i + 1] = NULL;
+	} else {
+		size_t j, k;
+
+		qsort(matches + 1, i, sizeof(matches[0]), comparator);
+		for (j = 1, k = 2; k <= i; k++)
+			if (strcmp(matches[j] + curpos, matches[k] + curpos)
+			    == 0)
+				free(matches[k]);
+			else
+				matches[++j] = matches[k];
+		matches[0] = strdup(text);
+		matches[j + 1] = NULL;
+	}
+	return matches;
+}
+
+/*
+ * This is passed to el_set(el, EL_ADDFN, ...) so that it's possible to
+ * bind a key (tab by default) to execute the function.
+ */
+unsigned char
+sh_complete(EditLine *sel, int ch __unused)
+{
+	return (unsigned char)fn_complete2(sel, NULL, sh_matches,
+		L" \t\n\"\\'`@$><=;|&{(", NULL, NULL, (size_t)100,
+		NULL, &((int) {0}), NULL, NULL, FN_QUOTE_MATCH);
+}
+
+static int
+not_fcnumber(const char *s)
 {
 	if (s == NULL)
 		return 0;
         if (*s == '-')
                 s++;
-	return (!is_number(s));
+	return !is_number(s);
 }
 
-int
+static int
 str_to_event(const char *str, int last)
 {
 	HistEvent he;
@@ -502,7 +707,7 @@ str_to_event(const char *str, int last)
 		s++;
 	}
 	if (is_number(s)) {
-		i = atoi(s);
+		i = number(s);
 		if (relative) {
 			while (retval != -1 && i--) {
 				retval = history(hist, &he, H_NEXT);
@@ -531,7 +736,7 @@ str_to_event(const char *str, int last)
 		if (retval == -1)
 			error("history pattern not found: %s", str);
 	}
-	return (he.num);
+	return he.num;
 }
 #else
 int

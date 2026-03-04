@@ -1,4 +1,4 @@
-/*	$NetBSD: media.h,v 1.1 2008/07/02 07:44:15 dyoung Exp $	*/
+/*	$NetBSD: media.h,v 1.3 2020/10/14 13:37:14 roy Exp $	*/
 
 #ifndef	_IFCONFIG_MEDIA_H
 #define	_IFCONFIG_MEDIA_H

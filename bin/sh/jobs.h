@@ -1,4 +1,4 @@
-/*	$NetBSD: jobs.h,v 1.20 2011/06/18 21:18:46 christos Exp $	*/
+/*	$NetBSD: jobs.h,v 1.25 2021/09/11 20:43:32 christos Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993
@@ -49,6 +49,7 @@
 #define	SHOW_SIGNALLED	0x10	/* only if stopped/exited on signal */
 #define	SHOW_ISSIG	0x20	/* job was signalled */
 #define	SHOW_NO_FREE	0x40	/* do not free job */
+#define	SHOW_PROCTITLE	0x80	/* set the process title */
 
 
 /*
@@ -68,6 +69,7 @@ struct procstat {
 struct job {
 	struct procstat ps0;	/* status of process */
 	struct procstat *ps;	/* status or processes when more than one */
+	void	*ref;		/* temporary reference, used variously */
 	int	nprocs;		/* number of processes */
 	pid_t	pgrp;		/* process group of this job */
 	char	state;
@@ -75,7 +77,10 @@ struct job {
 #define	JOBSTOPPED	1	/* all procs are stopped */
 #define	JOBDONE		2	/* all procs are completed */
 	char	used;		/* true if this entry is in used */
-	char	changed;	/* true if status has changed */
+	char	flags;
+#define	JOBCHANGED	1	/* set if status has changed */
+#define	JOBWANTED	2	/* set if this is a job being sought */
+#define	JPIPEFAIL	4	/* set if -o pipefail when job created */
 #if JOBS
 	char 	jobctl;		/* job running under job control */
 	int	prev_job;	/* previous job index */
@@ -95,6 +100,7 @@ int waitforjob(struct job *);
 int stoppedjobs(void);
 void commandtext(struct procstat *, union node *);
 int getjobpgrp(const char *);
+int anyjobs(void);
 
 #if ! JOBS
 #define setjobctl(on)	/* do nothing */

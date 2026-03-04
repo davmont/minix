@@ -1,4 +1,4 @@
-/*	$NetBSD: finger.c,v 1.29 2009/04/12 06:18:54 lukem Exp $	*/
+/*	$NetBSD: finger.c,v 1.31 2021/10/30 09:12:09 nia Exp $	*/
 
 /*
  * Copyright (c) 1989, 1993
@@ -52,7 +52,7 @@ __COPYRIGHT("@(#) Copyright (c) 1989, 1993\
 #if 0
 static char sccsid[] = "@(#)finger.c	8.5 (Berkeley) 5/4/95";
 #else
-__RCSID("$NetBSD: finger.c,v 1.29 2009/04/12 06:18:54 lukem Exp $");
+__RCSID("$NetBSD: finger.c,v 1.31 2021/10/30 09:12:09 nia Exp $");
 #endif
 #endif /* not lint */
 
@@ -99,7 +99,6 @@ struct utmpentry *ehead;
 
 static void loginlist(void);
 static void userlist(int, char **);
-int main(int, char **);
 
 int
 main(int argc, char **argv)
@@ -227,8 +226,10 @@ userlist(int argc, char **argv)
 	char **ap, **nargv, **np, **p;
 	struct utmpentry *ep;
 
-	if ((nargv = malloc((argc+1) * sizeof(char *))) == NULL ||
-	    (used = calloc(argc, sizeof(int))) == NULL)
+	nargv = NULL;
+	if (reallocarr(&nargv, argc + 1, sizeof(char *)) != 0)
+		err(1, NULL);
+	if ((used = calloc(argc, sizeof(int))) == NULL)
 		err(1, NULL);
 
 	/* Pull out all network requests. */

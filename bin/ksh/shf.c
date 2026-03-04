@@ -1,4 +1,4 @@
-/*	$NetBSD: shf.c,v 1.7 2005/06/26 19:09:00 christos Exp $	*/
+/*	$NetBSD: shf.c,v 1.15 2021/11/06 06:40:33 msaitoh Exp $	*/
 
 /*
  *  Shell file I/O routines
@@ -6,12 +6,12 @@
 #include <sys/cdefs.h>
 
 #ifndef lint
-__RCSID("$NetBSD: shf.c,v 1.7 2005/06/26 19:09:00 christos Exp $");
+__RCSID("$NetBSD: shf.c,v 1.15 2021/11/06 06:40:33 msaitoh Exp $");
 #endif
 
+#include <sys/stat.h>
 
 #include "sh.h"
-#include "ksh_stat.h"
 #include "ksh_limval.h"
 
 
@@ -577,13 +577,6 @@ shf_getse(buf, bsize, shf)
 		shf->rnleft -= ncopy;
 		buf += ncopy;
 		bsize -= ncopy;
-#ifdef OS2
-		if (end && buf > orig_buf + 1 && buf[-2] == '\r') {
-			buf--;
-			bsize++;
-			buf[-1] = '\n';
-		}
-#endif
 
 	} while (!end && bsize);
 	*buf = '\0';
@@ -716,7 +709,7 @@ shf_write(buf, nbytes, shf)
 	if (nbytes < 0)
 		internal_errorf(1, "shf_write: nbytes %d", nbytes);
 
-	/* Don't buffer if buffer is empty and we're writting a large amount. */
+	/* Don't buffer if buffer is empty and we're writing a large amount. */
 	if ((ncopy = shf->wnleft)
 	    && (shf->wp != shf->buf || nbytes < shf->wnleft))
 	{
@@ -765,19 +758,12 @@ shf_write(buf, nbytes, shf)
 }
 
 int
-#ifdef HAVE_PROTOTYPES
 shf_fprintf(struct shf *shf, const char *fmt, ...)
-#else
-shf_fprintf(shf, fmt, va_alist)
-	struct shf *shf;
-	const char *fmt;
-	va_dcl
-#endif
 {
 	va_list args;
 	int n;
 
-	SH_VA_START(args, fmt);
+	va_start(args, fmt);
 	n = shf_vfprintf(shf, fmt, args);
 	va_end(args);
 
@@ -785,15 +771,7 @@ shf_fprintf(shf, fmt, va_alist)
 }
 
 int
-#ifdef HAVE_PROTOTYPES
 shf_snprintf(char *buf, int bsize, const char *fmt, ...)
-#else
-shf_snprintf(buf, bsize, fmt, va_alist)
-	char *buf;
-	int bsize;
-	const char *fmt;
-	va_dcl
-#endif
 {
 	struct shf shf;
 	va_list args;
@@ -804,7 +782,7 @@ shf_snprintf(buf, bsize, fmt, va_alist)
 			(long) buf, bsize);
 
 	shf_sopen(buf, bsize, SHF_WR, &shf);
-	SH_VA_START(args, fmt);
+	va_start(args, fmt);
 	n = shf_vfprintf(&shf, fmt, args);
 	va_end(args);
 	shf_sclose(&shf); /* null terminates */
@@ -812,19 +790,13 @@ shf_snprintf(buf, bsize, fmt, va_alist)
 }
 
 char *
-#ifdef HAVE_PROTOTYPES
 shf_smprintf(const char *fmt, ...)
-#else
-shf_smprintf(fmt, va_alist)
-	char *fmt;
-	va_dcl
-#endif
 {
 	struct shf shf;
 	va_list args;
 
 	shf_sopen((char *) 0, 0, SHF_WR|SHF_DYNAMIC, &shf);
-	SH_VA_START(args, fmt);
+	va_start(args, fmt);
 	shf_vfprintf(&shf, fmt, args);
 	va_end(args);
 	return shf_sclose(&shf); /* null terminates */
@@ -1012,6 +984,7 @@ shf_vfprintf(shf, fmt, args)
 			if (sizeof(char *) > sizeof(int))
 				flags |= FL_LONG; /* hope it fits.. */
 			/* aaahhh... */
+			/*FALLTHROUGH*/
 		case 'd':
 		case 'i':
 		case 'o':
@@ -1028,7 +1001,7 @@ shf_vfprintf(shf, fmt, args)
 				else
 					tmp = 0;
 				/* aaahhhh..... */
-
+				/*FALLTHROUGH*/
 			case 'u':
 				do {
 					*--s = lnum % 10 + '0';

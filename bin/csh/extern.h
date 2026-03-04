@@ -1,4 +1,4 @@
-/* $NetBSD: extern.h,v 1.29 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: extern.h,v 1.34 2022/09/15 11:35:06 martin Exp $ */
 
 /*-
  * Copyright (c) 1991, 1993
@@ -167,7 +167,7 @@ void rscan(Char **, void (*)(int));
 void tglob(Char **);
 void trim(Char **);
 #ifdef FILEC
-int sortscmp(const ptr_t, const ptr_t);
+int sortscmp(const void *, const void *);
 #endif /* FILEC */
 
 /*
@@ -291,12 +291,17 @@ void unsetv(Char *);
 void setNS(Char *);
 void shift(Char **, struct command *);
 void plist(struct varent *);
+#ifdef EDIT
+void updateediting(void);
+#endif
 
 /*
  * time.c
  */
 void donice(Char **, struct command *);
 void dotime(Char **, struct command *);
+void prusage1(FILE *, const char *, int, struct rusage *, struct rusage *,
+	     struct timespec *, struct timespec *);
 void prusage(FILE *, struct rusage *, struct rusage *, struct timespec *,
              struct timespec *);
 void ruadd(struct rusage *, struct rusage *);
@@ -306,10 +311,10 @@ void psecs(long);
 /*
  * alloc.c
  */
-void Free(ptr_t);
-ptr_t Malloc(size_t);
-ptr_t Realloc(ptr_t, size_t);
-ptr_t Calloc(size_t, size_t);
+void Free(void *);
+void * Malloc(size_t);
+void *Realloc(void *, size_t);
+void *Calloc(size_t, size_t);
 
 /*
  * str.c:

@@ -1,4 +1,4 @@
-/*	$NetBSD: bltin.h,v 1.13 2008/10/12 01:40:37 dholland Exp $	*/
+/*	$NetBSD: bltin.h,v 1.16 2021/05/18 21:39:06 kre Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993
@@ -51,16 +51,22 @@
 #ifdef SHELL
 #include "../output.h"
 #include "../error.h"
+#include "../var.h"
 #undef stdout
 #undef stderr
 #undef putc
 #undef putchar
 #undef fileno
 #undef ferror
+#undef clearerr
 #define FILE struct output
 #define stdout out1
 #define stderr out2
+#ifdef __GNUC__
+#define _RETURN_INT(x)	({(x); 0;}) /* map from void foo() to int bar() */
+#else
 #define _RETURN_INT(x)	((x), 0) /* map from void foo() to int bar() */
+#endif
 #define fprintf(...)	_RETURN_INT(outfmt(__VA_ARGS__))
 #define printf(...)	_RETURN_INT(out1fmt(__VA_ARGS__))
 #define putc(c, file)	_RETURN_INT(outc(c, file))
@@ -69,6 +75,7 @@
 #define fflush(f)	_RETURN_INT(flushout(f))
 #define fileno(f) ((f)->fd)
 #define ferror(f) ((f)->flags & OUTPUT_ERR)
+#define clearerr(f) ((f)->flags &= ~OUTPUT_ERR)
 #define INITARGS(argv)
 #define	err sh_err
 #define	verr sh_verr

@@ -1,4 +1,4 @@
-/*	$NetBSD: ldd.h,v 1.7 2012/07/08 00:53:44 matt Exp $	*/
+/*	$NetBSD: ldd.h,v 1.9 2021/12/11 19:24:22 mrg Exp $	*/
 
 /*
  * Copyright (c) 2008 Matthew R. Green
@@ -12,8 +12,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -28,14 +26,14 @@
  * SUCH DAMAGE.
  */
 
-int elf32_ldd(int, char *, const char *, const char *);
+int elf32_ldd(int, char *, char *, const char *, const char *);
 
 #ifdef _LP64
 #define LDD_ELF64
 #endif
 
 #ifdef LDD_ELF64
-int elf64_ldd(int, char *, const char *, const char *);
+int elf64_ldd(int, char *, char *, const char *, const char *);
 #define elf_ldd elf64_ldd
 #elif defined(ELF32_COMPAT)
 #define elf_ldd elf32_compat_ldd

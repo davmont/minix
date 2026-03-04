@@ -1,4 +1,4 @@
-/*	$NetBSD: pax.c,v 1.47 2011/08/29 14:47:48 joerg Exp $	*/
+/*	$NetBSD: pax.c,v 1.49.10.1 2024/08/07 10:52:49 martin Exp $	*/
 
 /*-
  * Copyright (c) 1992 Keith Muller.
@@ -44,23 +44,23 @@ __COPYRIGHT("@(#) Copyright (c) 1992, 1993\
 #if 0
 static char sccsid[] = "@(#)pax.c	8.2 (Berkeley) 4/18/94";
 #else
-__RCSID("$NetBSD: pax.c,v 1.47 2011/08/29 14:47:48 joerg Exp $");
+__RCSID("$NetBSD: pax.c,v 1.49.10.1 2024/08/07 10:52:49 martin Exp $");
 #endif
 #endif /* not lint */
 
-#include <sys/types.h>
 #include <sys/param.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <sys/resource.h>
-#include <stdio.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <signal.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <paths.h>
+#include <time.h>
+#include <unistd.h>
 #include <util.h>
 #include "pax.h"
 #include "extern.h"
@@ -260,15 +260,24 @@ main(int argc, char **argv)
 		return exit_val;
 
 	/*
-	 * Keep a reference to cwd, so we can always come back home.
+	 * For any actions other than LIST, keep a reference to cwd, so
+	 * we can always come back home.
+	 *
+	 * For EXTRACT (pax -r) without --insecure, also save the path
+	 * to cwd to check for escape attempts.
 	 */
-	cwdfd = open(".", O_RDONLY);
-	if (cwdfd < 0) {
-		syswarn(1, errno, "Can't open current working directory.");
-		return exit_val;
+	if (act != LIST) {
+		cwdfd = open(".", O_RDONLY);
+		if (cwdfd < 0) {
+			syswarn(1, errno,
+			    "Can't open current working directory.");
+			return exit_val;
+		}
+		if (act == EXTRACT && secure) {
+			if (updatepath() == -1)
+				return exit_val;
+		}
 	}
-	if (updatepath() == -1)
-		return exit_val;
 
 	/*
 	 * Where should we put temporary files?
@@ -453,28 +462,28 @@ gen_init(void)
 
 	if ((sigaction(SIGHUP, &n_hand, &o_hand) < 0) &&
 	    (o_hand.sa_handler == SIG_IGN) &&
-	    (sigaction(SIGHUP, &o_hand, &o_hand) < 0))
+	    (sigaction(SIGHUP, &o_hand, NULL) < 0))
 		goto out;
 
 	if ((sigaction(SIGTERM, &n_hand, &o_hand) < 0) &&
 	    (o_hand.sa_handler == SIG_IGN) &&
-	    (sigaction(SIGTERM, &o_hand, &o_hand) < 0))
+	    (sigaction(SIGTERM, &o_hand, NULL) < 0))
 		goto out;
 
 	if ((sigaction(SIGINT, &n_hand, &o_hand) < 0) &&
 	    (o_hand.sa_handler == SIG_IGN) &&
-	    (sigaction(SIGINT, &o_hand, &o_hand) < 0))
+	    (sigaction(SIGINT, &o_hand, NULL) < 0))
 		goto out;
 
 	if ((sigaction(SIGQUIT, &n_hand, &o_hand) < 0) &&
 	    (o_hand.sa_handler == SIG_IGN) &&
-	    (sigaction(SIGQUIT, &o_hand, &o_hand) < 0))
+	    (sigaction(SIGQUIT, &o_hand, NULL) < 0))
 		goto out;
 
 #ifdef SIGXCPU
 	if ((sigaction(SIGXCPU, &n_hand, &o_hand) < 0) &&
 	    (o_hand.sa_handler == SIG_IGN) &&
-	    (sigaction(SIGXCPU, &o_hand, &o_hand) < 0))
+	    (sigaction(SIGXCPU, &o_hand, NULL) < 0))
 		goto out;
 #endif
 	n_hand.sa_handler = SIG_IGN;

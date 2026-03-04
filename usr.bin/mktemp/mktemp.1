@@ -1,4 +1,4 @@
-.\" $NetBSD: mktemp.1,v 1.22 2014/11/10 07:33:31 snj Exp $
+.\" $NetBSD: mktemp.1,v 1.24 2021/07/25 08:52:03 simonb Exp $
 .\" From: $FreeBSD: src/usr.bin/mktemp/mktemp.1,v 1.5 1999/08/28 01:04:13 peter Exp $
 .\" From: $OpenBSD: mktemp.1,v 1.8 1998/03/19 06:13:37 millert Exp $
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\" $FreeBSD: src/usr.bin/mktemp/mktemp.1,v 1.5 1999/08/28 01:04:13 peter Exp $
 .\"
-.Dd November 4, 2012
+.Dd July 25, 2021
 .Dt MKTEMP 1
 .Os
 .Sh NAME
@@ -61,8 +61,8 @@ characters, such as
 .Pa /tmp/prefix.XXXX .
 The trailing
 .Ql X
-characters in the template are replaced by unique values derived from
-the current process number and additional letters or numbers.
+characters in the template are replaced with a unique letter and number
+combination.
 Any
 .Ql X
 characters other than at the end of the template are taken literally.
@@ -74,7 +74,7 @@ in the template; six
 .Ql X Ns s
 will result in
 .Nm
-testing roughly 26 ** 6 combinations.
+testing roughly 62 ** 6 (56800235584) combinations.
 .Pp
 The templates used to create the unique names are derived from the
 .Fl t Ar prefix
@@ -225,13 +225,13 @@ where the script should quit if it cannot get a safe
 temporary file.
 .Bd -literal -offset indent
 TMPFILE=`mktemp /tmp/${0##*/}.XXXXXX` || exit 1
-echo "program output" \*[Gt]\*[Gt] $TMPFILE
+echo "program output" >> $TMPFILE
 .Ed
 .Pp
 To allow the use of $TMPDIR:
 .Bd -literal -offset indent
 TMPFILE=`mktemp -t ${0##*/}` || exit 1
-echo "program output" \*[Gt]\*[Gt] $TMPFILE
+echo "program output" >> $TMPFILE
 .Ed
 .Pp
 In this case, we want the script to catch the error itself.

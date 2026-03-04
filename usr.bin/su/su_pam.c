@@ -1,4 +1,4 @@
-/*	$NetBSD: su_pam.c,v 1.20 2015/08/09 09:39:21 shm Exp $	*/
+/*	$NetBSD: su_pam.c,v 1.23 2021/11/27 22:16:42 rillig Exp $	*/
 
 /*
  * Copyright (c) 1988 The Regents of the University of California.
@@ -39,7 +39,7 @@ __COPYRIGHT("@(#) Copyright (c) 1988\
 #if 0
 static char sccsid[] = "@(#)su.c	8.3 (Berkeley) 4/2/94";*/
 #else
-__RCSID("$NetBSD: su_pam.c,v 1.20 2015/08/09 09:39:21 shm Exp $");
+__RCSID("$NetBSD: su_pam.c,v 1.23 2021/11/27 22:16:42 rillig Exp $");
 #endif
 #endif /* not lint */
 
@@ -220,7 +220,7 @@ main(int argc, char **argv)
 	/*
 	 * PAM initialization
 	 */
-#define PAM_END(msg) do { func = msg; goto done;} /* NOTREACHED */ while (/*CONSTCOND*/0)
+#define PAM_END(msg) do { func = msg; goto done;} /* NOTREACHED */ while (0)
 
 	if ((pam_err = pam_start("su", user, &pamc, &pamh)) != PAM_SUCCESS) {
 		if (pamh != NULL)
@@ -293,12 +293,12 @@ main(int argc, char **argv)
 #define ERRX_PAM_END(args) do {			\
 	(void)pam_end(pamh, pam_err);		\
 	errx args;				\
-} while (/* CONSTCOND */0)
+} while (0)
 
 #define ERR_PAM_END(args) do {			\
 	(void)pam_end(pamh, pam_err);		\
 	err args;				\
-} while (/* CONSTCOND */0)
+} while (0)
 
 	/* force the usage of specified class */
 	if (class) {
@@ -337,7 +337,7 @@ main(int argc, char **argv)
 	/*
 	 * Initialize the supplemental groups before pam gets to them,
 	 * so that other pam modules get a chance to add more when
-	 * we do setcred. Note, we don't relinguish our set-userid yet
+	 * we do setcred. Note, we don't relinquish our set-userid yet
 	 */
 	/* if we aren't changing users, keep the current group members */
 	if (ruid != pwd->pw_uid &&

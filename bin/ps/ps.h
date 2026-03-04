@@ -1,4 +1,4 @@
-/*	$NetBSD: ps.h,v 1.27 2014/04/20 22:48:59 dholland Exp $	*/
+/*	$NetBSD: ps.h,v 1.32 2021/09/14 22:01:17 christos Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -44,7 +44,8 @@ enum type {
 	UNSPECIFIED,
 	CHAR, UCHAR, SHORT, USHORT, INT, UINT, LONG, ULONG,
 	KPTR, KPTR24, INT32, UINT32, SIGLIST, INT64, UINT64,
-	TIMEVAL, CPUTIME, PCPU, VSIZE
+	TIMEVAL, CPUTIME, PCPU, VSIZE, PROCFLAG, PROCACFLAG,
+	KTRACEFLAG
 };
 
 /* Variables. */
@@ -54,6 +55,14 @@ typedef struct varent {
 	SIMPLEQ_ENTRY(varent) next;
 	struct var *var;
 } VARENT;
+
+struct pinfo {
+	struct kinfo_proc2 *ki;
+	struct kinfo_lwp *li;
+	char *prefix;
+	int level;
+	double pcpu;
+};
 
 typedef struct var {
 	const char *name;	/* name(s) of variable */
@@ -65,9 +74,10 @@ typedef struct var {
 #define	LWP	0x10		/* dispatch to kinfo_lwp routine */
 #define	UAREA	0x20		/* need to check p_uvalid */
 #define	ALIAS	0x40		/* entry is alias for 'header' */
+#define	ALTPR	0x80		/* use alternate printing method */
 	u_int	flag;
 				/* output routine */
-	void	(*oproc)(void *, struct varent *, enum mode);
+	void	(*oproc)(struct pinfo *pi, struct varent *, enum mode);
 	/*
 	 * The following (optional) elements are hooks for passing information
 	 * to the generic output routine: pvar (that which prints simple
@@ -86,11 +96,11 @@ typedef struct var {
 	double	longestnd;	/* longest negative double */
 } VAR;
 
-#define	OUTPUT(vent, ki, kl, mode) do {					\
-	if ((vent)->var->flag & LWP)					\
-		((vent)->var->oproc)((void *)(kl), (vent), (mode));	\
-	else								\
-		((vent)->var->oproc)((void *)(ki), (vent), (mode));	\
-	} while (/*CONSTCOND*/ 0)
+
+#define	OUTPUT(vent, kl, pi, ki, mode) do {		\
+	if ((vent)->var->flag & LWP)			\
+	    pi->li = kl;				\
+	((vent)->var->oproc)(pi, (vent), (mode));	\
+	} while (0)
 
 #include "extern.h"

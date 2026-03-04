@@ -1,4 +1,4 @@
-/*	$NetBSD: cksum.c,v 1.48 2015/06/16 22:54:10 christos Exp $	*/
+/*	$NetBSD: cksum.c,v 1.52 2022/06/25 02:22:42 gutteridge Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993
@@ -81,7 +81,7 @@ __COPYRIGHT("@(#) Copyright (c) 1991, 1993\
 #if 0
 static char sccsid[] = "@(#)cksum.c	8.2 (Berkeley) 4/28/95";
 #endif
-__RCSID("$NetBSD: cksum.c,v 1.48 2015/06/16 22:54:10 christos Exp $");
+__RCSID("$NetBSD: cksum.c,v 1.52 2022/06/25 02:22:42 gutteridge Exp $");
 #endif /* not lint */
 
 #include <sys/types.h>
@@ -153,12 +153,12 @@ int
 main(int argc, char **argv)
 {
 	int ch, fd, rval, pflag, nohashstdin;
-	u_int32_t val;
+	uint32_t val;
 	off_t len;
 	char *fn;
 	const char *progname;
-	int (*cfncn) (int, u_int32_t *, off_t *);
-	void (*pfncn) (char *, u_int32_t, off_t);
+	int (*cfncn) (int, uint32_t *, off_t *);
+	void (*pfncn) (char *, uint32_t, off_t);
 	const struct hash *hash;
 	int i, check_warn, do_check;
 	int print_flags;
@@ -303,7 +303,7 @@ main(int argc, char **argv)
 		if (f == NULL)
 			err(1, "Cannot read %s",
 			    argc>0?argv[0]:"stdin");
-		
+
 		while(fgets(buf, sizeof(buf), f) != NULL) {
 			s = strrchr(buf, '\n');
 			if (s)
@@ -332,7 +332,7 @@ main(int argc, char **argv)
 
 				l_cksum = strlen(p_cksum);
 				l_filename = p_cksum - p_filename - 4;
-					
+
 				/* Sanity check, and find proper hash if
 				 * it's not the same as the current program
 				 */
@@ -343,7 +343,7 @@ main(int argc, char **argv)
 					 * Search proper hash
 					 */
 					const struct hash *nhash;
-					
+
 					for (nhash = hashes ;
 					     nhash->hashname != NULL;
 					     nhash++)
@@ -351,8 +351,8 @@ main(int argc, char **argv)
 							    nhash->hashname,
 							    strlen(nhash->hashname)) == 0)
 							break;
-					
-					
+
+
 					if (nhash->hashname == NULL) {
 						if (check_warn)
 							warnx("unknown hash: %s",
@@ -373,7 +373,7 @@ main(int argc, char **argv)
 					 */
 					print_flags |= PRINT_NORMAL;
 					nspaces = 1;
-					
+
 					p_cksum = buf;
 					p_filename = strchr(buf, ' ');
 					if (p_filename == NULL) {
@@ -383,7 +383,7 @@ main(int argc, char **argv)
 						rval = 1;
 						continue;
 					}
-					while (isspace((int)*++p_filename))
+					while (isspace((unsigned char)*++p_filename))
 						nspaces++;
 					l_filename = strlen(p_filename);
 					l_cksum = p_filename - buf - nspaces;
@@ -421,8 +421,11 @@ main(int argc, char **argv)
 			strlcpy(cksum, p_cksum, l_cksum+1);
 
 			if (hash) {
+				char *h;
+
 				if (access(filename, R_OK) == 0
-				    && strcmp(cksum, hash->filefunc(filename, NULL)) == 0)
+				    && (h = hash->filefunc(filename, NULL)) != NULL
+				    && strcmp(cksum, h) == 0)
 					ok = 1;
 				else
 					ok = 0;
@@ -433,11 +436,11 @@ main(int argc, char **argv)
 					rval = 1;
 					ok = 0;
 				} else {
-					if (cfncn(fd, &val, &len)) 
+					if (cfncn(fd, &val, &len))
 						ok = 0;
 					else {
-						u_int32_t should_val;
-						
+						uint32_t should_val;
+
 						should_val =
 						  strtoul(cksum, NULL, 10);
 						if (val == should_val)
@@ -460,9 +463,9 @@ main(int argc, char **argv)
 		}
 		fclose(f);
 
-		if (badcnt > 0) 
+		if (badcnt > 0)
 			rval = 1;
-		
+
 	} else {
 		/*
 		 * Calculate checksums
@@ -489,7 +492,7 @@ main(int argc, char **argv)
 			} else if (hash && !nohashstdin) {
 				hash->filterfunc(pflag);
 			}
-			
+
 			if (hash == NULL) {
 				if (cfncn(fd, &val, &len)) {
 					warn("%s", fn ? fn : "stdin");

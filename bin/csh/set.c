@@ -1,4 +1,4 @@
-/* $NetBSD: set.c,v 1.33 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: set.c,v 1.40 2022/09/15 11:35:06 martin Exp $ */
 
 /*-
  * Copyright (c) 1980, 1991, 1993
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)set.c	8.1 (Berkeley) 5/31/93";
 #else
-__RCSID("$NetBSD: set.c,v 1.33 2013/07/16 17:47:43 christos Exp $");
+__RCSID("$NetBSD: set.c,v 1.40 2022/09/15 11:35:06 martin Exp $");
 #endif
 #endif /* not lint */
 
@@ -43,9 +43,7 @@ __RCSID("$NetBSD: set.c,v 1.33 2013/07/16 17:47:43 christos Exp $");
 #include <stdarg.h>
 #include <stdlib.h>
 
-#ifndef SHORT_STRINGS
 #include <string.h>
-#endif /* SHORT_STRINGS */
 
 #include "csh.h"
 #include "extern.h"
@@ -60,6 +58,43 @@ static struct varent *madrof(Char *, struct varent *);
 static void unsetv1(struct varent *);
 static void exportpath(Char **);
 static void balance(struct varent *, int, int);
+
+#ifdef EDIT
+static int wantediting;
+
+static const char *
+alias_text(void *dummy __unused, const char *name)
+{
+	static char *buf;
+	struct varent *vp;
+	Char **av;
+	char *p;
+	size_t len;
+
+	vp = adrof1(str2short(name), &aliases);
+	if (vp == NULL)
+	    return NULL;
+
+	len = 0;
+	for (av = vp->vec; *av; av++) {
+	    len += strlen(vis_str(*av));
+	    if (av[1])
+		len++;
+	}
+	len++;
+	free(buf);
+	p = buf = xmalloc(len);
+	for (av = vp->vec; *av; av++) {
+	    const char *s = vis_str(*av);
+	    while ((*p++ = *s++) != '\0')
+		continue;
+	    if (av[1])
+		*p++ = ' ';
+	}
+	*p = '\0';
+	return buf;
+}
+#endif
 
 /*
  * C Shell
@@ -108,25 +143,15 @@ update_vars(Char *vp)
 	Setenv(STRHOME, cp);
 	/* fix directory stack for new tilde home */
 	dtilde();
-	xfree((ptr_t)cp);
+	free(cp);
     }
 #ifdef FILEC
     else if (eq(vp, STRfilec))
 	filec = 1;
 #endif
 #ifdef EDIT
-    else if (eq(vp, STRedit)) {
-	HistEvent ev;
-	editing = 1;
-	el = el_init_fd(getprogname(), cshin, cshout, csherr,
-	    SHIN, SHOUT, SHERR);
-	el_set(el, EL_EDITOR, "emacs");
-	el_set(el, EL_PROMPT, printpromptstr);
-	hi = history_init();
-	history(hi, &ev, H_SETSIZE, getn(value(STRhistory)));
-	loadhist(Histlist.Hnext);
-	el_set(el, EL_HIST, history, hi);
-    }
+    else if (eq(vp, STRedit))
+	wantediting = 1;
 #endif
 }
 
@@ -215,7 +240,7 @@ asx(Char *vp, int subscr, Char *p)
     struct varent *v;
 
     v = getvx(vp, subscr);
-    xfree((ptr_t) v->vec[subscr - 1]);
+    free(v->vec[subscr - 1]);
     v->vec[subscr - 1] = globone(p, G_APPEND);
 }
 
@@ -315,9 +340,9 @@ dolet(Char **v, struct command *t)
 		dohash(NULL, NULL);
 	    }
 	}
-	xfree((ptr_t) vp);
+	free(vp);
 	if (c != '=')
-	    xfree((ptr_t) p);
+	    free(p);
     } while ((p = *v++) != NULL);
 }
 
@@ -329,7 +354,7 @@ xset(Char *cp, Char ***vp)
     if (*cp) {
 	dp = Strsave(cp);
 	--(*vp);
-	xfree((ptr_t) ** vp);
+	free(** vp);
 	**vp = dp;
     }
     return (putn(expr(vp)));
@@ -518,22 +543,55 @@ unset(Char **v, struct command *t)
 	HIST = '!';
 	HISTSUB = '^';
     }
-    else if (adrof(STRwordchars) == 0)
+    if (adrof(STRwordchars) == 0)
 	word_chars = STR_WORD_CHARS;
 #ifdef FILEC
-    else if (adrof(STRfilec) == 0)
+    if (adrof(STRfilec) == 0)
 	filec = 0;
 #endif
 #ifdef EDIT
-    else if (adrof(STRedit) == 0) {
-	el_end(el);
-	history_end(hi);
-	el = NULL;
-	hi = NULL;
-	editing = 0;
-    }
+    if (adrof(STRedit) == 0)
+	wantediting = 0;
 #endif
 }
+
+#ifdef EDIT
+extern int insource;
+void
+updateediting(void)
+{
+    if (insource || wantediting == editing)
+	return;
+
+    if (wantediting) {
+	HistEvent ev;
+	Char *vn = value(STRhistchars);
+
+	el = el_init_fd(getprogname(), cshin, cshout, csherr,
+	    SHIN, SHOUT, SHERR);
+	el_set(el, EL_EDITOR, *vn ? short2str(vn) : "emacs");
+	el_set(el, EL_PROMPT, printpromptstr);
+	el_set(el, EL_ALIAS_TEXT, alias_text, NULL);
+	el_set(el, EL_SAFEREAD, 1);
+	el_set(el, EL_ADDFN, "rl-complete",
+	    "ReadLine compatible completion function", _el_fn_complete);
+	el_set(el, EL_BIND, "^I", adrof(STRfilec) ? "rl-complete" : "ed-insert",
+	    NULL);
+	hi = history_init();
+	history(hi, &ev, H_SETSIZE, getn(value(STRhistory)));
+	loadhist(Histlist.Hnext);
+	el_set(el, EL_HIST, history, hi);
+    } else {
+	if (el)
+	    el_end(el);
+	if (hi)
+	    history_end(hi);
+	el = NULL;
+	hi = NULL;
+    }
+    editing = wantediting;
+}
+#endif
 
 void
 unset1(Char *v[], struct varent *head)
@@ -570,7 +628,7 @@ unsetv1(struct varent *p)
      * Free associated memory first to avoid complications.
      */
     blkfree(p->vec);
-    xfree((ptr_t) p->v_name);
+    free(p->v_name);
     /*
      * If p is missing one child, then we can move the other into where p is.
      * Otherwise, we find the predecessor of p, which is guaranteed to have no
@@ -598,7 +656,7 @@ unsetv1(struct varent *p)
     /*
      * Free the deleted node, and rebalance.
      */
-    xfree((ptr_t) p);
+    free(p);
     balance(pp, f, 1);
 }
 

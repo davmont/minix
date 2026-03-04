@@ -1,4 +1,4 @@
-.\"	$NetBSD: find.1,v 1.81 2014/05/17 11:31:40 apb Exp $
+.\"	$NetBSD: find.1,v 1.93 2020/11/02 07:03:48 uwe Exp $
 .\"
 .\" Copyright (c) 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -32,7 +32,7 @@
 .\"
 .\"	from: @(#)find.1	8.7 (Berkeley) 5/9/95
 .\"
-.Dd May 17, 2014
+.Dd November 1, 2020
 .Dt FIND 1
 .Os
 .Sh NAME
@@ -96,7 +96,7 @@ By default,
 .Nm
 visits directories in pre-order, i.e., before their contents.
 Note, the default is
-.Ar not
+.Em not
 a breadth-first traversal.
 .It Fl E
 Causes
@@ -141,7 +141,7 @@ is skipped.
 The delimiting characters include single
 .Pq Dq \&'
 and double
-.Pq Dq \&"
+.Pq Dq \&\*q
 quotes, backslash
 .Pq Dq \e ,
 space, tab, and newline characters.
@@ -170,6 +170,19 @@ a preceding minus sign means
 .Dq less than Ar n ,
 and neither means
 .Dq exactly Ar n .
+(The argument specified for the
+.Ic -user
+and
+.Ic -group
+primaries
+are similarly treated if the value is numeric and does not correspond to a
+valid user or group name.)
+.Pp
+For primaries which take a
+.Ar timestamp
+argument, the argument must be valid input to
+.Xr parsedate 3 .
+If the argument contains multiple words, enclose the argument in quotes.
 .Pp
 .Bl -tag -width Ds -compact
 .It Ic -amin Ar n
@@ -182,6 +195,10 @@ minutes.
 .It Ic -anewer Ar file
 True if the current file has a more recent last access time than
 .Ar file .
+.Pp
+.It Ic -asince Ar timestamp
+True if the file last access time is greater than the specified
+.Ar timestamp .
 .Pp
 .It Ic -atime Ar n
 True if the difference between the file last access time and the time
@@ -201,6 +218,10 @@ minutes.
 .It Ic -cnewer Ar file
 True if the current file has a more recent last change time than
 .Ar file .
+.Pp
+.It Ic -csince Ar timestamp
+True if the file last status change time is greater than the specified
+.Ar timestamp .
 .Pp
 .It Ic -ctime Ar n
 True if the difference between the time of last change of file status
@@ -406,7 +427,7 @@ If
 .Ar gname
 is numeric and there is no such group name, then
 .Ar gname
-is treated as a group id.
+is treated as a group id (and considered a numeric argument).
 .Pp
 .It Ic -iname Ar pattern
 True if the last component of the pathname being examined matches
@@ -456,17 +477,17 @@ If the file is a block or character special file, the major and minor numbers
 will be displayed instead of the size in bytes.
 If the file is a symbolic link, the pathname of the linked-to file will be
 displayed preceded by
-.Dq -\*[Gt] .
+.Dq -> .
 The format is identical to that produced by
 .Dq ls -dgils .
 .Pp
-.It Ic -maxdepth Ar n
+.It Ic -maxdepth Ar depth
 True if the current search depth is less than or equal to what is specified in
-.Ar n .
+.Ar depth .
 .Pp
-.It Ic -mindepth Ar n
+.It Ic -mindepth Ar depth
 True if the current search depth is at least what is specified in
-.Ar n .
+.Ar depth .
 .Pp
 .It Ic -mmin Ar n
 True if the difference between the file last modification time and the time
@@ -524,6 +545,21 @@ backslash
 .It Ic -newer Ar file
 True if the current file has a more recent last modification time than
 .Ar file .
+.Pp
+.It Ic -newerXY Ar reference
+For compatibility with Gnu findutils.
+.Bl -column -offset indent ".Sy findutils" ".Sy equivalent"
+.It Sy findutils Ta Sy find
+.It Sy option Ta Sy equivalent
+.It -neweraa Ta -anewer
+.It -newerat Ta -asince
+.It -newercc Ta -cnewer
+.It -newerct Ta -csince
+.It -newermm Ta -newer
+.It -newermt Ta -since
+.El
+.Pp
+Other option variants from findutils are not implemented.
 .Pp
 .It Ic -nouser
 True if the file belongs to an unknown user.
@@ -637,6 +673,10 @@ basic regular expression
 This is a match on the whole path, not a search for the regular expression
 within the path.
 .Pp
+.It Ic -since Ar timestamp
+True if the file last modification time is more recent than
+.Ar timestamp .
+.Pp
 .It Ic -size Ar n Ns Op Cm c
 True if the file's size, rounded up, in 512-byte blocks is
 .Ar n .
@@ -673,13 +713,13 @@ whiteout
 whiteout
 .El
 .Pp
-.It Ic -user Ar uname
+.It Ic -user Ar username
 True if the file belongs to the user
-.Ar uname .
+.Ar username .
 If
-.Ar uname
-is numeric and there is no such user name, then
-.Ar uname
+.Ar username
+is numeric and there is no such user on the system, then
+.Ar username
 is treated as a user id (and considered a numeric argument).
 .Pp
 .It Ic -xdev
@@ -699,6 +739,7 @@ The operators are listed in order of decreasing precedence.
 This evaluates to true if the parenthesized expression evaluates to
 true.
 .It Cm \&! Ar expression
+.It Cm -not Ar expression
 This is the unary
 .Tn NOT
 operator.
@@ -783,7 +824,7 @@ but do not print them.
 .It Li "find / \e( \-newer ttt \-or \-user wnj \e) \-ls \-exit 1"
 Same as above, but list the first file matching the criteria before exiting
 with a value of 1.
-.It Li "find . \-type f \-exec sh \-c 'file=\*[q]$1\*[q]; ...;' - {} \;"
+.It Li "find . \-type f \-exec sh \-c 'file=\*[q]$1\*[q]; ...;' - {} \e;"
 Perform an arbitrarily complex shell command for every file.
 .El
 .Sh SEE ALSO
@@ -806,11 +847,13 @@ utility syntax is a superset of the syntax specified by the
 .St -p1003.2
 standard.
 .Pp
-The options and the
+The options, the
 .Ic -amin ,
 .Ic -anewer ,
+.Ic -asince ,
 .Ic -cmin ,
 .Ic -cnewer ,
+.Ic -csince ,
 .Ic -delete ,
 .Ic -empty ,
 .Ic -execdir ,
@@ -828,9 +871,12 @@ The options and the
 .Ic -print0 ,
 .Ic -printx ,
 .Ic -regex ,
+.Ic -rm ,
 and
-.Ic -rm
-primaries are extensions to
+.Ic -since
+primaries, and the
+.Ic -not
+operator are extensions to
 .St -p1003.2 .
 .Pp
 Historically, the
@@ -896,7 +942,7 @@ tree traversal options to be changed.
 .Sh HISTORY
 A much simpler
 .Nm
-command appeared in First Edition AT\*[Am]T Unix.
+command appeared in First Edition AT&T Unix.
 The syntax had become similar to the present version by
 the time of the Fifth Edition.
 .Sh BUGS

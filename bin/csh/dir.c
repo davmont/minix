@@ -1,4 +1,4 @@
-/* $NetBSD: dir.c,v 1.30 2013/07/16 17:47:43 christos Exp $ */
+/* $NetBSD: dir.c,v 1.35 2020/08/09 00:34:21 dholland Exp $ */
 
 /*-
  * Copyright (c) 1980, 1991, 1993
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)dir.c	8.1 (Berkeley) 5/31/93";
 #else
-__RCSID("$NetBSD: dir.c,v 1.30 2013/07/16 17:47:43 christos Exp $");
+__RCSID("$NetBSD: dir.c,v 1.35 2020/08/09 00:34:21 dholland Exp $");
 #endif
 #endif /* not lint */
 
@@ -65,6 +65,8 @@ struct directory dhead;		/* "head" of loop */
 int printd;			/* force name to be printed */
 
 static int dirflag = 0;
+
+struct directory *dcwd;
 
 /*
  * dinit - initialize current working directory
@@ -126,7 +128,7 @@ dinit(Char *hp)
 	}
     }
 
-    dp = (struct directory *)xcalloc(1, sizeof(struct directory));
+    dp = xcalloc(1, sizeof(*dp));
     dp->di_name = cp;
     dp->di_count = 0;
     dhead.di_next = dhead.di_prev = dp;
@@ -145,7 +147,7 @@ dset(Char *dp)
      * other junk characters glob will fail.
      */
 
-    vec = xmalloc((size_t)(2 * sizeof(Char **)));
+    vec = xmalloc(2 * sizeof(*vec));
     vec[0] = Strsave(dp);
     vec[1] = 0;
     setq(STRcwd, vec, &shvhed);
@@ -312,7 +314,7 @@ dnormalize(Char *cp)
 	    cwd[dotdot = Strlen(cwd)] = '/';
 	    cwd[dotdot + 1] = '\0';
 	    dp = Strspl(cwd, cp);
-	    xfree((ptr_t) cwd);
+	    free(cwd);
 	    return dp;
 	}
 	else {
@@ -361,7 +363,7 @@ dochngd(Char **v, struct command *t)
     }
     else
 	cp = dfollow(*v);
-    dp = (struct directory *)xcalloc(1, sizeof(struct directory));
+    dp = xcalloc(1, sizeof(*dp));
     dp->di_name = cp;
     dp->di_count = 0;
     dp->di_next = dcwd->di_next;
@@ -396,7 +398,7 @@ dgoto(Char *cp)
 	    p--;		/* don't add a / after root */
 	for (q = cp; (*p++ = *q++) != '\0';)
 	    continue;
-	xfree((ptr_t) cp);
+	free(cp);
 	cp = dp;
 	dp += cwdlen;
     }
@@ -424,11 +426,11 @@ dfollow(Char *cp)
      */
     dp = dnormalize(cp);
     if (chdir(short2str(dp)) >= 0) {
-	xfree((ptr_t) cp);
+	free(cp);
 	return dgoto(dp);
     }
     else {
-	xfree((ptr_t) dp);
+	free(dp);
 	if (chdir(short2str(cp)) >= 0)
 	    return dgoto(cp);
 	serrno = errno;
@@ -448,7 +450,7 @@ dfollow(Char *cp)
 		continue;
 	    if (chdir(short2str(buf)) >= 0) {
 		printd = 1;
-		xfree((ptr_t) cp);
+		free(cp);
 		cp = Strsave(buf);
 		return dgoto(cp);
 	    }
@@ -456,13 +458,13 @@ dfollow(Char *cp)
     }
     dp = value(cp);
     if ((dp[0] == '/' || dp[0] == '.') && chdir(short2str(dp)) >= 0) {
-	xfree((ptr_t) cp);
+	free(cp);
 	cp = Strsave(dp);
 	printd = 1;
 	return dgoto(cp);
     }
     (void)strcpy(ebuf, short2str(cp));
-    xfree((ptr_t) cp);
+    free(cp);
     stderror(ERR_SYSTEM, ebuf, strerror(serrno));
     /* NOTREACHED */
 }
@@ -508,7 +510,7 @@ dopushd(Char **v, struct command *t)
 	Char *ccp;
 
 	ccp = dfollow(*v);
-	dp = (struct directory *)xcalloc(1, sizeof(struct directory));
+	dp = xcalloc(1, sizeof(*dp));
 	dp->di_name = ccp;
 	dp->di_count = 0;
 	dp->di_prev = dcwd;
@@ -596,8 +598,8 @@ dfree(struct directory *dp)
 	dp->di_next = dp->di_prev = 0;
     }
     else {
-	xfree((char *) dp->di_name);
-	xfree((ptr_t) dp);
+	free(dp->di_name);
+	free(dp);
     }
 }
 
@@ -632,7 +634,7 @@ dcanon(Char *cp, Char *p)
 	(void)Strcpy(tmpdir, p1);
 	(void)Strcat(tmpdir, STRslash);
 	(void)Strcat(tmpdir, cp);
-	xfree((ptr_t) cp);
+	free(cp);
 	cp = p = Strsave(tmpdir);
     }
 
@@ -737,7 +739,7 @@ dcanon(Char *cp, Char *p)
 		     */
 		    p = newcp;
 		}
-		xfree((ptr_t) cp);
+		free(cp);
 		cp = newcp;
 		continue;	/* canonicalize the link */
 	    }
@@ -826,7 +828,7 @@ dcanon(Char *cp, Char *p)
 		     */
 		    p = newcp;
 		}
-		xfree((ptr_t) cp);
+		free(cp);
 		cp = newcp;
 		continue;	/* canonicalize the link */
 	    }
@@ -880,7 +882,7 @@ dcanon(Char *cp, Char *p)
 	     * Use STRhome to make '~' work
 	     */
 	    newcp = Strspl(p1, cp + Strlen(p2));
-	    xfree((ptr_t) cp);
+	    free(cp);
 	    cp = newcp;
 	}
     }

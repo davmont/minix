@@ -1,4 +1,4 @@
-/*     $NetBSD: login_pam.c,v 1.24 2014/11/12 22:23:38 aymeric Exp $       */
+/*     $NetBSD: login_pam.c,v 1.28 2022/01/24 09:14:37 andvar Exp $       */
 
 /*-
  * Copyright (c) 1980, 1987, 1988, 1991, 1993, 1994
@@ -39,7 +39,7 @@ __COPYRIGHT("@(#) Copyright (c) 1980, 1987, 1988, 1991, 1993, 1994\
 #if 0
 static char sccsid[] = "@(#)login.c	8.4 (Berkeley) 4/2/94";
 #endif
-__RCSID("$NetBSD: login_pam.c,v 1.24 2014/11/12 22:23:38 aymeric Exp $");
+__RCSID("$NetBSD: login_pam.c,v 1.28 2022/01/24 09:14:37 andvar Exp $");
 #endif /* not lint */
 
 /*
@@ -258,7 +258,7 @@ main(int argc, char *argv[])
 	warnx("%s: %s", msg, pam_strerror(pamh, pam_err));		\
 	pam_end(pamh, pam_err);						\
 	sleepexit(EXIT_FAILURE);					\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 		pam_err = pam_start("login", username, &pamc, &pamh);
 		if (pam_err != PAM_SUCCESS) {
@@ -274,7 +274,7 @@ main(int argc, char *argv[])
 	pam_err = pam_set_item(pamh, (item), (var));			\
 	if (pam_err != PAM_SUCCESS)					\
 		PAM_END("pam_set_item(" # item ")");			\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 		/* 
 		 * Fill hostname tty, and nested user
@@ -420,7 +420,11 @@ skip_auth:
 	nsaved_gids = getgroups(NGROUPS_MAX, saved_gids);
 	
 	(void)setegid(pwd->pw_gid);
-	initgroups(username, pwd->pw_gid);
+	if (initgroups(username, pwd->pw_gid) == -1) {
+		syslog(LOG_ERR, "initgroups failed");
+		pam_end(pamh, PAM_SUCCESS);
+		exit(EXIT_FAILURE);
+	}
 	(void)seteuid(pwd->pw_uid);
 	
 	if (chdir(pwd->pw_dir) != 0) {
@@ -446,9 +450,13 @@ skip_auth:
 	}
 
 	/* regain special privileges */
-	setegid(saved_gid);
-	setgroups(nsaved_gids, saved_gids);
-	seteuid(saved_uid);
+	(void)setegid(saved_gid);
+	(void)seteuid(saved_uid);
+	if (setgroups(nsaved_gids, saved_gids) == -1) {
+		syslog(LOG_ERR, "setgroups failed: %m");
+		pam_end(pamh, PAM_SUCCESS);
+		exit(EXIT_FAILURE);
+	}
 
 	(void)getgrnam_r(TTYGRPNAME, &grs, grbuf, sizeof(grbuf), &grp);
 	(void)chown(ttyn, pwd->pw_uid,
@@ -487,7 +495,7 @@ skip_auth:
 	/*
 	 * Fork because we need to call pam_closesession as root.
 	 * Make sure signals cannot kill the parent.
-	 * This has been handled in the begining of main.
+	 * This has been handled in the beginning of main.
 	 */
 
 	switch(pid = fork()) {
@@ -594,8 +602,8 @@ skip_auth:
 		char **envitem;
 
 		for (envitem = pamenv; *envitem; envitem++) {
-			putenv(*envitem);
-			free(*envitem);
+			if (putenv(*envitem) == -1)
+				free(*envitem);
 		}
 
 		free(pamenv);

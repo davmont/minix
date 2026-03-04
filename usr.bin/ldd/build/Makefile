@@ -1,4 +1,6 @@
-#	$NetBSD: Makefile,v 1.2 2014/03/02 03:55:19 matt Exp $
+#	$NetBSD: Makefile,v 1.7 2021/04/25 23:52:59 christos Exp $
+
+NOSANITIZER=		# defined
 
 .include <bsd.own.mk>		# for MKDYNAMICROOT definition
 
@@ -15,9 +17,11 @@ EXTRA_LIBS+=	${LIB_ELF32DIR}/libldd_elf32.a
 CPPFLAGS.ldd.c+= -DELF64_ONLY
 .endif
 
-.if (${MACHINE_ARCH} == "mips64el") || (${MACHINE_ARCH} == "mips64eb")
+.if ${MKCOMPAT} != "no"
+. if ${MACHINE_MIPS64}
 LIB_ELF32COMPATDIR!=	cd ${.CURDIR}/../elf32_compat && ${PRINTOBJDIR}
 EXTRA_LIBS+=		${LIB_ELF32COMPATDIR}/libldd_elf32_compat.a
+. endif
 .endif
 
 .if ${OBJECT_FMTS:Melf64} != ""

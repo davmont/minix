@@ -1,5 +1,5 @@
 '\" t
-.\" $NetBSD: ksh.Man,v 1.24 2015/04/12 17:05:03 jmcneill Exp $
+.\" $NetBSD: ksh.Man,v 1.29 2022/08/21 20:12:37 uwe Exp $
 .\"{{{}}}
 .\"{{{  Notes about man page
 .\"     - use the pseudo-macros .sh( and .sh) to begin and end sh-specific
@@ -19,10 +19,10 @@
 .\"}}}
 .\"{{{  Title
 .ksh(
-.TH KSH 1 "April 12, 2015" "" "User commands"
+.TH KSH 1 "August 26, 2018" "" "User commands"
 .ksh)
 .sh(
-.TH SH 1 "April 12, 2015" "" "User commands"
+.TH SH 1 "August 26, 2018" "" "User commands"
 .sh)
 .\"}}}
 .\"{{{  Name
@@ -43,7 +43,7 @@ sh \- Public domain Bourne shell
 .sh(
 \fBsh\fP
 .sh)
-[\fB\(+-abCefhikmnprsuvxX\fP] [\fB\(+-o\fP \fIoption\fP] [ [ \fB\-c\fP \fIcommand-string\fP [\fIcommand-name\fP] | \fB\-s\fP | \fIfile\fP ] [\fIargument\fP ...] ]
+[\fB\(+-abCefhiklmnprsuvxX\fP] [\fB\(+-o\fP \fIoption\fP] [ [ \fB\-c\fP \fIcommand-string\fP [\fIcommand-name\fP] | \fB\-s\fP | \fIfile\fP ] [\fIargument\fP ...] ]
 .ad b
 .\"}}}
 .\"{{{  Description
@@ -66,7 +66,6 @@ the shell executes the command(s) contained in \fIcommand-string\fP
 interactive mode \(em see below
 .IP \fB\-l\fP
 login shell \(em see below
-interactive mode \(em see below
 .IP \fB\-s\fP
 the shell reads commands from standard input; all non-option arguments
 are positional parameters
@@ -1699,7 +1698,7 @@ is prefixed with the string "\fBalias\fP\ ".
 .sp
 The \fB\-x\fP option sets (\fB+x\fP clears) the export attribute of an alias,
 or, if no names are given, lists the aliases with the export attribute
-(exporting an alias has no affect).
+(exporting an alias has no effect).
 .sp
 The \fB\-t\fP option indicates that tracked aliases are to be listed/set
 (values specified on the command line are ignored for tracked aliases).
@@ -2653,6 +2652,7 @@ on some systems this is the maximum allowable virtual address (in bytes,
 not kbytes).
 .IP \fB\-w\fP
 Impose a limit of \fIn\fP kbytes on the amount of swap space used.
+(Not supported on NetBSD)
 .PP
 As far as \fBulimit\fP is concerned, a block is 512 bytes.
 .RE
@@ -3003,7 +3003,7 @@ If the entire remaining command
 or file name is unique a space is printed after its completion, unless
 it is a directory name in which case \fB/\fP is appended.
 If there is no command or file name with the current partial word as its
-prefix, a bell character is output (usually causing a audio beep).
+prefix, a bell character is output (usually causing an audio beep).
 .\"}}}
 .\"{{{  complete-command ^X^[
 .IP "\fBcomplete-command ^X^[\fP"

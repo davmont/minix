@@ -1,4 +1,4 @@
-.\"	$NetBSD: mv.1,v 1.28 2016/08/10 18:08:14 sevan Exp $
+.\"	$NetBSD: mv.1,v 1.32 2020/06/24 17:00:58 riastradh Exp $
 .\"
 .\" Copyright (c) 1989, 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -32,7 +32,7 @@
 .\"
 .\"	@(#)mv.1	8.1 (Berkeley) 5/31/93
 .\"
-.Dd August 10, 2016
+.Dd June 24, 2020
 .Dt MV 1
 .Os
 .Sh NAME
@@ -40,7 +40,7 @@
 .Nd move files
 .Sh SYNOPSIS
 .Nm
-.Op Fl fiv
+.Op Fl fhiv
 .Ar source target
 .Nm
 .Op Fl fiv
@@ -54,7 +54,9 @@ operand to the destination path named by the
 .Ar target
 operand.
 This form is assumed when the last operand does not name an already
-existing directory.
+existing directory or when the
+.Fl h
+flag is specified.
 .Pp
 In its second form,
 .Nm
@@ -72,6 +74,11 @@ The following options are available:
 .It Fl f
 Do not prompt for confirmation before overwriting the destination
 path.
+.It Fl h
+Try to rename the source to the target irrespective of whether the
+target may resolve to a directory.
+This option allows atomically replacing a symbolic link to a
+directory.
 .It Fl i
 Causes
 .Nm
@@ -121,14 +128,12 @@ will remove the destination file, copy the source file to the
 destination, and then remove the source.
 The effect is roughly equivalent to:
 .Bd -literal -offset indent
-rm -f destination_path \*[Am]\*[Am] \e
-cp -PRp source_file destination_path \*[Am]\*[Am] \e
+rm -f destination_path && \e
+cp -PRp source_file destination_path && \e
 rm -rf source_file
 .Ed
 .Sh EXIT STATUS
-The
-.Nm
-utility exits 0 on success, and \*[Gt]0 if an error occurs.
+.Ex -std mv
 .Sh SEE ALSO
 .Xr cp 1 ,
 .Xr rename 2 ,
@@ -141,8 +146,10 @@ utility is expected to be
 compatible.
 .Pp
 The
+.Fl h
+and
 .Fl v
-option is an extension to
+options are extensions to
 .St -p1003.2 .
 .Sh HISTORY
 An

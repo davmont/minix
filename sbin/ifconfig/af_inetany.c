@@ -1,4 +1,4 @@
-/*	$NetBSD: af_inetany.c,v 1.17 2012/12/30 22:52:35 christos Exp $	*/
+/*	$NetBSD: af_inetany.c,v 1.23 2022/08/17 23:36:48 nat Exp $	*/
 
 /*-
  * Copyright (c) 2008 David Young.  All rights reserved.
@@ -27,14 +27,14 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: af_inetany.c,v 1.17 2012/12/30 22:52:35 christos Exp $");
+__RCSID("$NetBSD: af_inetany.c,v 1.23 2022/08/17 23:36:48 nat Exp $");
 #endif /* not lint */
 
-#include <sys/param.h> 
-#include <sys/ioctl.h> 
+#include <sys/param.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 
-#include <net/if.h> 
+#include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
 #include <netinet6/nd6.h>
@@ -87,7 +87,7 @@ commit_address(prop_dictionary_t env, prop_dictionary_t oenv,
 	strlcpy(param->name[1].buf, ifname, param->name[1].buflen);
 
 	if ((d = (prop_data_t)prop_dictionary_get(env, "address")) != NULL)
-		addr = prop_data_data_nocopy(d);
+		addr = prop_data_value(d);
 	else if (!prop_dictionary_get_bool(env, "alias", &alias) || alias ||
 	    param->gifaddr.cmd == 0)
 		return;
@@ -99,17 +99,17 @@ commit_address(prop_dictionary_t env, prop_dictionary_t oenv,
 		return;
 
 	if ((d = (prop_data_t)prop_dictionary_get(env, "dst")) != NULL)
-		dst = prop_data_data_nocopy(d);
+		dst = prop_data_value(d);
 	else
 		dst = NULL;
 
 	if ((d = (prop_data_t)prop_dictionary_get(env, "netmask")) != NULL)
-		mask = prop_data_data_nocopy(d);
+		mask = prop_data_value(d);
 	else
 		mask = NULL;
 
 	if ((d = (prop_data_t)prop_dictionary_get(env, "broadcast")) != NULL)
-		brd = prop_data_data_nocopy(d);
+		brd = prop_data_value(d);
 	else
 		brd = NULL;
 

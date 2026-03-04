@@ -1,10 +1,10 @@
-/*	$NetBSD: if.h,v 1.10 2012/12/13 15:36:36 roy Exp $	*/
+/*	$NetBSD: if.h,v 1.13 2021/03/23 18:16:21 christos Exp $	*/
 /*	$KAME: if.h,v 1.12 2003/09/21 07:17:03 itojun Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -35,20 +35,21 @@
 struct nd_opt_hdr;
 struct sockaddr_dl *if_nametosdl(const char *);
 int if_getmtu(const char *);
-int if_getflags(int, int);
+int if_getflags(unsigned int, int);
 int lladdropt_length(struct sockaddr_dl *);
 void lladdropt_fill(struct sockaddr_dl *, struct nd_opt_hdr *);
-char *get_next_msg(char *, char *, int, size_t *, int);
-struct in6_addr *get_addr(char *);
-int get_rtm_ifindex(char *);
-int get_ifm_ifindex(char *);
-int get_ifam_ifindex(char *);
-int get_ifm_flags(char *);
+char *get_next_msg(char *, char *, unsigned int, size_t *, int);
+const struct in6_addr *get_addr(const void *);
+unsigned int get_rtm_ifindex(const void *);
+unsigned int get_ifm_ifindex(const void *);
+unsigned int get_ifam_ifindex(const void *);
+int get_ifm_flags(const void *);
 #ifdef RTM_IFANNOUNCE
-int get_ifan_ifindex(char *);
-int get_ifan_what(char *);
+unsigned int get_ifan_ifindex(const void *);
+int get_ifan_what(const void *);
 #endif
-int get_prefixlen(char *);
+int get_prefixlen(const void *);
 int prefixlen(const unsigned char *, const unsigned char *);
-int rtmsg_type(char *);
-int rtmsg_len(char *);
+const char *rtmsg_typestr(const void *);
+int rtmsg_type(const void *);
+int rtmsg_len(const void *);

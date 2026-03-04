@@ -1,4 +1,4 @@
-/*	$NetBSD: what.c,v 1.11 2011/09/06 18:45:49 joerg Exp $	*/
+/*	$NetBSD: what.c,v 1.15.2.1 2025/04/14 09:58:17 martin Exp $	*/
 
 /*
  * Copyright (c) 1980, 1988, 1993
@@ -29,6 +29,10 @@
  * SUCH DAMAGE.
  */
 
+#if HAVE_NBTOOL_CONFIG_H
+#include "nbtool_config.h"
+#endif
+
 #include <sys/cdefs.h>
 #ifndef lint
 __COPYRIGHT("@(#) Copyright (c) 1980, 1988, 1993\
@@ -39,10 +43,11 @@ __COPYRIGHT("@(#) Copyright (c) 1980, 1988, 1993\
 #if 0
 static char sccsid[] = "@(#)what.c	8.1 (Berkeley) 6/6/93";
 #endif
-__RCSID("$NetBSD: what.c,v 1.11 2011/09/06 18:45:49 joerg Exp $");
+__RCSID("$NetBSD: what.c,v 1.15.2.1 2025/04/14 09:58:17 martin Exp $");
 #endif /* not lint */
 
 #include <locale.h>
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -56,7 +61,6 @@ static int sflag;
 /*
  * what
  */
-/* ARGSUSED */
 int
 main(int argc, char **argv)
 {
@@ -82,16 +86,15 @@ main(int argc, char **argv)
 		usage();
 	} else do {
 		if (freopen(*argv, "r", stdin) == NULL) {
-			perror(*argv);
-			exit(matches ? EXIT_SUCCESS : 1);
+			warn("Cannot open `%s'", *argv);
+			break;
 		}
-		printf("%s\n", *argv);
+		printf("%s:\n", *argv);
 		search();
 	} while (*++argv != NULL);
 
-	/* Note: the standard explicitly specifies an exit status of 1. */
-	exit(matches ? EXIT_SUCCESS : 1);
-	/* NOTREACHED */
+	/* Note: the standard explicitly specifies an exit status of 0/1. */
+	return matches ? 0 : 1;
 }
 
 static void
@@ -123,6 +126,6 @@ static void
 usage(void)
 {
 
-	(void)fprintf(stderr, "usage: what [-s] file ...\n");
+	(void)fprintf(stderr, "Usage: %s [-s] file ...\n", getprogname());
 	exit(1);
 }

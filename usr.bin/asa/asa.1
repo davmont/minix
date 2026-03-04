@@ -1,4 +1,4 @@
-.\"	$NetBSD: asa.1,v 1.12 2014/04/13 01:45:34 snj Exp $
+.\"	$NetBSD: asa.1,v 1.15 2020/01/31 00:15:38 sevan Exp $
 .\"
 .\" Copyright (c) 1993 Winning Strategies, Inc.
 .\" All rights reserved.
@@ -28,7 +28,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd September 23, 1993
+.Dd January 31, 2020
 .Dt ASA 1
 .Os
 .Sh NAME
@@ -46,21 +46,22 @@ carriage-control characters to line-printer control sequences,
 and writes them to the standard output.
 .Pp
 The first character of each line is interpreted as a carriage-control
-character.  The following characters are interpreted as follows:
-.Bl -tag -width "\*[Lt]space\*[Gt]"
-.It \*[Lt]space\*[Gt]
+character.
+The following characters are interpreted as follows:
+.Bl -tag -width "<space>"
+.It <space>
 Output the rest of the line without change.
 .It 0
-Output a \*[Lt]newline\*[Gt] character before printing the rest of the line.
+Output a <newline> character before printing the rest of the line.
 .It 1
-Output a \*[Lt]formfeed\*[Gt] character before printing the rest of the line.
+Output a <formfeed> character before printing the rest of the line.
 .It +
-The trailing \*[Lt]newline\*[Gt] of the previous line is replaced by a \*[Lt]carriage-return\*[Gt]
+The trailing <newline> of the previous line is replaced by a <carriage-return>
 before printing the rest of the line.
 .El
 .Pp
 Lines beginning with characters other than the above are treated as if they
-begin with \*[Lt]space\*[Gt].
+begin with <space>.
 .Sh EXIT STATUS
 .Ex -std
 .Sh EXAMPLES
@@ -73,8 +74,6 @@ To format the output of a
 .Tn FORTRAN
 program and redirect it to a line-printer:
 .Dl a.out | asa | lpr
-.Sh SEE ALSO
-.Xr f77 1
 .Sh STANDARDS
 The
 .Nm
@@ -83,4 +82,5 @@ utility conforms to
 and to
 .St -xcu5 .
 .Sh AUTHORS
-J.T. Conklin, Winning Strategies, Inc.
+.An J.T. Conklin ,
+Winning Strategies, Inc.
