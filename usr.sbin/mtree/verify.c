@@ -185,7 +185,9 @@ miss(NODE *p, char *tail)
 			continue;
 		if (p->type != F_DIR && (dflag || p->flags & F_VISIT))
 			continue;
-		strcpy(tail, p->name);
+		if (snprintf(tail, sizeof(path) - (tail - path), "%s", p->name) >=
+		    sizeof(path) - (tail - path))
+			mtree_err("Pathname too long.");
 		if (!(p->flags & F_VISIT)) {
 			/* Don't print missing message if file exists as a 
 			   symbolic link and the -q flag is set. */
