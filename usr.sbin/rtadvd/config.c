@@ -649,19 +649,20 @@ getconfig(const char *intface, int exithard)
 	/* RDNSS */
 	for (i = -1; i < MAXRDNSS; i++) {
 		struct rdnss_addr *rdnsa;
-		size_t addr_len;
+		ssize_t addr_len;
 
 		makeentry(entbuf, sizeof(entbuf), i, "rdnss");
 		addr = (char *)agetstr(entbuf, &bp);
 		if (addr == NULL)
 			continue;
 
+		addr_len = strlen(addr);
+
 		ELM_MALLOC(rdnss);
 		TAILQ_INSERT_TAIL(&tmp->rdnss, rdnss, next);
 		TAILQ_INIT(&rdnss->list);
 
-		addr_len = strlen(addr);
-		for (ap = addr; ap - addr < (ssize_t)addr_len; ap += c+1) {
+		for (ap = addr; ap - addr < addr_len; ap += c+1) {
 			c = strcspn(ap, ",");
 			strncpy(abuf, ap, c);
 			abuf[c] = '\0';
@@ -689,19 +690,20 @@ getconfig(const char *intface, int exithard)
 	TAILQ_INIT(&tmp->dnssl);
 	for (i = -1; i < MAXDNSSL; i++) {
 		struct dnssl_domain *dnsd;
-		size_t addr_len;
+		ssize_t addr_len;
 
 		makeentry(entbuf, sizeof(entbuf), i, "dnssl");
 		addr = (char *)agetstr(entbuf, &bp);
 		if (addr == NULL)
 			continue;
 
+		addr_len = strlen(addr);
+
 		ELM_MALLOC(dnssl);
 		TAILQ_INSERT_TAIL(&tmp->dnssl, dnssl, next);
 		TAILQ_INIT(&dnssl->list);
 
-		addr_len = strlen(addr);
-		for (ap = addr; ap - addr < (ssize_t)addr_len; ap += c+1) {
+		for (ap = addr; ap - addr < addr_len; ap += c+1) {
 			c = strcspn(ap, ",");
 			strncpy(abuf, ap, c);
 			abuf[c] = '\0';
