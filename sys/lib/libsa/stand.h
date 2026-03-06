@@ -288,6 +288,7 @@ int	vsnprintf(char *, size_t, const char *, va_list)
     __attribute__((__format__(__printf__, 3, 0)));
 void	twiddle(void);
 void	gets(char *);
+void	kgets(char *, size_t);
 int	getfile(char *prompt, int mode);
 char	*strerror(int);
 __dead void	exit(int);
