@@ -993,13 +993,15 @@ readtag(sup su, const char *s)
 {
 	char *p, *n, *norig;
 	int mplssize = 0;
+	size_t len;
 	sup retsu = su;
 
 	n = strdup(s);
 	if (n == NULL)
 		errx(EXIT_FAILURE, "%s: Cannot allocate memory", s);
 	norig = n;
-	for (uint i = 0; i < strlen(n); i++)
+	len = strlen(n);
+	for (uint i = 0; i < len; i++)
 		if(n[i] == ',')
 			mplssize++;
 
