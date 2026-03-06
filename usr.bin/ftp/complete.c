@@ -332,12 +332,15 @@ complete_remote(char *word, int list)
 	}
 
 	words = ftp_sl_init();
-	for (i = 0; i < dirlist->sl_cur; i++) {
-		cp = dirlist->sl_str[i];
-		if (strlen(file) > strlen(cp))
-			continue;
-		if (strncmp(file, cp, strlen(file)) == 0)
-			ftp_sl_add(words, cp);
+	{
+		size_t filelen = strlen(file);
+		for (i = 0; i < dirlist->sl_cur; i++) {
+			cp = dirlist->sl_str[i];
+			if (filelen > strlen(cp))
+				continue;
+			if (strncmp(file, cp, filelen) == 0)
+				ftp_sl_add(words, cp);
+		}
 	}
 	rv = complete_ambiguous(file, list, words);
 	sl_free(words, 0);
