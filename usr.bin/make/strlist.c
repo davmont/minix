@@ -41,10 +41,8 @@ __RCSID("$NetBSD: strlist.c,v 1.4 2009/01/24 11:59:39 dsl Exp $");
 #endif /* not lint */
 #endif
 
-#include <stddef.h>
-#include <stdlib.h>
+#include "make.h"
 #include "strlist.h"
-#include "make_malloc.h"
 
 void
 strlist_init(strlist_t *sl)
