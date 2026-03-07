@@ -13,6 +13,15 @@ struct segdesc_s {
   u8_t access;
   u8_t granularity;
   u8_t base_high;
+} __attribute__((packed));
+
+struct sys_segdesc_s {
+  u16_t limit_low;
+  u16_t base_low;
+  u8_t base_middle;
+  u8_t access;
+  u8_t granularity;
+  u8_t base_high;
   u32_t base_highest;
   u32_t reserved;
 } __attribute__((packed));
