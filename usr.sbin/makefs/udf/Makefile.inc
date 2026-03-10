@@ -9,7 +9,7 @@ FSCK=	${NETBSDSRCDIR}/sbin/fsck	# use progress meter.
 
 CPPFLAGS+= -I${UDF} -I${UDF_NEWFS} -I${FSCK}
 
-SRCS += udf_core.c udf_osta.c
+SRCS += udf_create.c udf_write.c udf_osta.c
 
 .if !defined(HOSTPROG)
 DPADD+=${LIBUTIL}

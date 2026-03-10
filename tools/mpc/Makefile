@@ -7,6 +7,7 @@ CONFIGURE_ARGS+=	--with-gmp=${TOOLDIR:Q} \
 			--with-mpfr=${TOOLDIR:Q}
 
 CONFIGURE_ARGS+=--disable-shared
+CONFIGURE_ARGS+=--libdir=${TOOLDIR}/lib
 
 .include "${.CURDIR}/../Makefile.gnuhost"
 

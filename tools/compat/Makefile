@@ -40,7 +40,14 @@ HOST_CPPFLAGS+=	-no-cpp-precomp
 # other file ops, on many systems, without changing function names.
 
 HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
-		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64
+		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64 \
+		-include ${.CURDIR}/compat_defs.h
+
+HOST_CFLAGS+=	-Wno-error=implicit-function-declaration \
+		-Wno-error=int-conversion \
+		-Wno-error=implicit-int \
+		-Wno-error=return-mismatch \
+		-Wno-error=incompatible-pointer-types
 
 .PATH:		${.CURDIR}/../../lib/libc/cdb \
 		${.CURDIR}/../../lib/libc/gen \
@@ -65,7 +72,7 @@ HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		${.CURDIR}/../../common/lib/libc/md \
 		${.CURDIR}/../../common/lib/libc/stdlib \
 		${.CURDIR}/../../common/lib/libutil \
-		${.CURDIR}/../../external/bsd/flex/dist/src
+		${.CURDIR}/../../external/bsd/flex/dist
 
 DPSRCS+=	defs.mk
 CLEANFILES+=	config.log config.status configure.lineno *.stamp
@@ -86,7 +93,7 @@ CONFIGURE_ARGS+=--silent
 
 config.cache: include/.stamp configure nbtool_config.h.in defs.mk.in
 	rm -f ${.TARGET}
-	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} CPPFLAGS=${HOST_CPPFLAGS:Q} \
+	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} \
 		LDFLAGS=${HOST_LDFLAGS:Q} \
 		${HOST_SH} ${.CURDIR}/configure ${CONFIGURE_ARGS}
 

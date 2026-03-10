@@ -30,6 +30,25 @@
 #define _FS_UDF_NEWFS_UDF_H_
 
 /* general settings */
-#define UDF_512_TRACK	0	/* NOT recommended */
+#define UDF_512_TRACK 0 /* NOT recommended */
+
+#define IMPL_NAME "*NetBSD UDF"
+#define APP_VERSION_MAIN 0
+#define APP_VERSION_SUB 5
+#define UDF_META_PERC 20
+
+#ifdef MAKEFS
+extern struct mmc_discinfo mmc_discinfo;
+extern int format_flags;
+extern int media_accesstype;
+extern int check_surface;
+extern int wrtrack_skew;
+extern float meta_fract;
+
+int udf_write_sector(void *sector, uint64_t location);
+int udf_surface_check(void);
+struct mmc_trackinfo;
+int udf_update_trackinfo(struct mmc_discinfo *di, struct mmc_trackinfo *ti);
+#endif
 
 #endif /* _FS_UDF_NEWFS_UDF_H_ */

@@ -22,8 +22,9 @@ MANDIR?=	/usr/man
 MKKYUA?=	yes
 MKMCLINKER?=	no
 MKCLANGRT?=	no
-MKGCC?=		no
-MKGCCCMDS?=	no
+MKLLVM?=	no
+MKGCC?=		yes
+MKGCCCMDS?=	yes
 MKPROFILE?=	no
 MKSLJIT?=	no
 

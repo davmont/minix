@@ -52,7 +52,7 @@ UFSSRC=		${NETBSDSRCDIR}/sys/ufs
 CPPFLAGS+=	-I${.CURDIR} -I.
 .PATH:		${.CURDIR}/arch ${UFSSRC}/ffs ${UFSSRC}/ext2fs
 .else
-CPPFLAGS	+= -DNO_STAGE2
+CPPFLAGS	+= -DNO_STAGE2 -DSINGLE_ARCH=ib_mach_i386
 SRCS+= minixfs3.c
 .PATH:		${.CURDIR}/arch
 CPPFLAGS+=	-I${.CURDIR} -I.

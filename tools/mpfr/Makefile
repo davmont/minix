@@ -6,6 +6,7 @@ GNUHOSTDIST=	${.CURDIR}/../../external/lgpl3/mpfr/dist
 CONFIGURE_ARGS+=	--with-gmp=${TOOLDIR:Q}
 
 CONFIGURE_ARGS+=--disable-shared
+CONFIGURE_ARGS+=--libdir=${TOOLDIR}/lib
 
 .include "${.CURDIR}/../Makefile.gnuhost"
 
