@@ -2648,7 +2648,7 @@ if test `eval echo '${'$as_ac_Header'}'` = yes; then
 EOF
 
 else
-  test -f include/$ac_header || touch include/$ac_header
+  mkdir -p include/`dirname $ac_header` && test -f include/$ac_header || touch include/$ac_header
 fi
 done
 

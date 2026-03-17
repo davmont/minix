@@ -117,7 +117,7 @@ int	sumrusage;		/* -S */
 int	termwidth;		/* width of screen (0 == infinity) */
 int	totwidth;		/* calculated width of requested variables */
 
-int	needcomm, needenv, commandonly;
+int	needcomm, needenv, commandonly, rawcpu;
 uid_t	myuid;
 
 static struct kinfo_lwp
@@ -208,7 +208,7 @@ main(int argc, char *argv[])
 	struct kinfo_lwp *kl, *l;
 	int ch, i, j, fmt, lineno, descendancy, nentries, nlwps;
 	long long flag;
-	int calc_pcpu, prtheader, wflag, what, xflg, rawcpu, showlwps;
+	int calc_pcpu, prtheader, wflag, what, xflg, showlwps;
 	char *nlistf, *memf, *swapf, errbuf[_POSIX2_LINE_MAX];
 	char *ttname;
 
@@ -615,7 +615,7 @@ getkinfo_kvm(kvm_t *kdp, int what, int flag, int *nentriesp)
 }
 
 static struct pinfo *
-setpinfo(struct kinfo_proc2 *ki, int nentries, int calc_pcpu, int rawcpu)
+setpinfo(struct kinfo_proc2 *ki, int nentries, int calc_pcpu, int rawcpu_arg)
 {
 	struct pinfo *pi;
 	int i;
@@ -633,7 +633,7 @@ setpinfo(struct kinfo_proc2 *ki, int nentries, int calc_pcpu, int rawcpu)
 			continue;
 		}
 		pi[i].pcpu = 100.0 * (double)ki[i].p_pctcpu / fscale;
-		if (!rawcpu)
+		if (!rawcpu_arg)
 			pi[i].pcpu /= 1.0 - exp(ki[i].p_swtime * log_ccpu);
 	}
 

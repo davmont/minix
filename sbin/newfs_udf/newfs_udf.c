@@ -1,4 +1,5 @@
-/* $NetBSD: newfs_udf.c,v 1.24 2022/04/09 09:58:11 riastradh Exp $ */
+#define _EXPOSE_MMC
+#include <sys/cdefs.h>
 
 /*
  * Copyright (c) 2006, 2008, 2013, 2021, 2022 Reinoud Zandijk
@@ -25,17 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-
-/*
- * TODO
- * - implement metadata formatting for BD-R
- * - implement support for a read-only companion partition?
- */
-
-#define _EXPOSE_MMC
-#if 0
-#define DEBUG
-#endif
 
 #include <assert.h>
 #include <dirent.h>
@@ -64,13 +54,111 @@
 #include "mountprog.h"
 #include "newfs_udf.h"
 #include "udf_create.h"
-
-/* prototypes */
-int newfs_udf(int argc, char **argv);
-static void usage(void) __attribute__((__noreturn__));
+#include "udf_write.h"
 
 /* global variables describing disc and format requests */
-char *format_str; /* format: string representation */
+struct mmc_discinfo mmc_discinfo;
+int	 format_flags = 0;
+int	 media_accesstype = 0;
+int	 check_surface = 0;
+int	 wrtrack_skew = 0;
+float	 meta_fract = 0.0;
+
+char *format_str = NULL;
+int   dev_fd = -1;
+char *dev_name = NULL;
+
+int emul_mmc_profile = -1;
+int emul_packetsize = 1;
+int emul_sectorsize = 512;
+off_t emul_size = 0;
+
+/* --------------------------------------------------------------------- */
+
+int
+udf_write_sector(void *sector, uint64_t location)
+{
+	uint64_t wpos;
+	ssize_t ret;
+
+	if (dev_fd == -1)
+		return EBADF;
+
+	wpos = (uint64_t) location * context.sector_size;
+	ret = pwrite(dev_fd, sector, context.sector_size, wpos);
+	if (ret == -1)
+		return errno;
+	if (ret < (int) context.sector_size)
+		return EIO;
+	return 0;
+}
+
+int
+udf_surface_check(void)
+{
+	return 0;
+}
+
+int
+udf_update_trackinfo(struct mmc_discinfo *di, struct mmc_trackinfo *ti)
+{
+	int error;
+
+	if (dev_fd != -1) {
+		error = ioctl(dev_fd, MMCGETTRACKINFO, ti);
+		if (error == 0)
+			return 0;
+	}
+
+	/* FALLBACK or for files */
+	if (ti->tracknr != 1)
+		return EIO;
+
+	/* create fake ti */
+	ti->sessionnr  = 1;
+	ti->track_mode = 0;
+	ti->data_mode  = 0;
+	ti->flags = MMC_TRACKINFO_LRA_VALID | MMC_TRACKINFO_NWA_VALID;
+	ti->track_start    = 0;
+	ti->packet_size    = 32;
+	ti->track_size    = di->last_possible_lba;
+	ti->next_writable = di->last_possible_lba;
+	ti->last_recorded = ti->next_writable;
+	ti->free_blocks   = 0;
+
+	return 0;
+}
+
+/* --------------------------------------------------------------------- */
+
+static void udf_dump_discinfo(struct mmc_discinfo *di) {
+  /* No-op for now */
+}
+
+static int udf_opendisc(const char *name, int flags) {
+  dev_fd = open(name, flags);
+  return (dev_fd == -1);
+}
+
+static void udf_closedisc(void) {
+  if (dev_fd != -1) {
+    close(dev_fd);
+    dev_fd = -1;
+  }
+}
+
+static int udf_update_discinfo(void) {
+  if (dev_fd == -1)
+    return EBADF;
+  return ioctl(dev_fd, MMCGETDISCINFO, &mmc_discinfo);
+}
+
+static int udf_prepare_disc(void) {
+  return 0;
+}
+
+static void udf_allow_writing(void) {
+}
 
 /* --------------------------------------------------------------------- */
 
@@ -79,12 +167,12 @@ static int udf_prepare_format_track512(void) {
   struct mmc_op op;
   int error;
 
-  if (!(context.format_flags & FORMAT_TRACK512))
+  if (!(format_flags & FORMAT_TRACK512))
     return 0;
 
   /* get last track (again) */
   ti.tracknr = mmc_discinfo.last_track_last_session;
-  error = udf_update_trackinfo(&ti);
+  error = udf_update_trackinfo(&mmc_discinfo, &ti);
   if (error)
     return error;
 
@@ -145,6 +233,8 @@ int main(int argc, char **argv) {
   emul_sectorsize = 512; /* minimum allowed sector size	*/
   emul_size = 0;         /* empty			*/
 
+  meta_fract = (float) UDF_META_PERC / 100.0;
+
   srandom((unsigned long)time(NULL));
   udf_init_create_context();
   context.app_name = "*NetBSD UDF";
@@ -165,10 +255,10 @@ int main(int argc, char **argv) {
   while ((ch = getopt(argc, argv, "cFL:Mp:P:s:S:B:t:v:V:")) != -1) {
     switch (ch) {
     case 'c':
-      context.check_surface = 1;
+      check_surface = 1;
       break;
     case 'F':
-      context.create_new_session = 1;
+      /* create_new_session = 1; */
       break;
     case 'L':
       if (context.logvol_name)
@@ -179,10 +269,10 @@ int main(int argc, char **argv) {
       req_disable |= FORMAT_META;
       break;
     case 'p':
-      context.meta_perc = a_num(optarg, "meta_perc");
+      meta_fract = (float) a_num(optarg, "meta_perc") / 100.0;
       /* limit to `sensible` values */
-      context.meta_perc = MIN(context.meta_perc, 99);
-      context.meta_perc = MAX(context.meta_perc, 1);
+      meta_fract = MIN(meta_fract, 0.99f);
+      meta_fract = MAX(meta_fract, 0.01f);
       break;
     case 'v':
       context.min_udf = a_udf_version(optarg, "min_udf");
@@ -192,14 +282,14 @@ int main(int argc, char **argv) {
     case 'V':
       context.max_udf = a_udf_version(optarg, "max_udf");
       if (context.min_udf > context.max_udf)
-        context.min_udf = context.max_udf;
+        context.max_udf = context.max_udf;
       break;
     case 'P':
       /* check if there is a ':' in the name */
       if ((colon = strstr(optarg, ":"))) {
         if (context.volset_name)
           free(context.volset_name);
-        *colon = 0;
+        *colon = '\0';
         context.volset_name = strdup(optarg);
         optarg = colon + 1;
       }
@@ -210,8 +300,6 @@ int main(int argc, char **argv) {
       context.primary_name = strdup(optarg);
       break;
     case 's':
-      /* support for files, set file size */
-      /* XXX support for formatting recordables on vnd/file? */
       if (dehumanize_number(optarg, &setsize) < 0)
         errx(1, "can't parse size argument");
       setsize = MAX(0, setsize);
@@ -238,7 +326,7 @@ int main(int argc, char **argv) {
   if (optind + 1 != argc)
     usage();
 
-  /* get device and directory specifier */
+  /* get device specifier */
   dev_name = argv[optind];
 
   emul_size = setsize;
@@ -264,7 +352,7 @@ int main(int argc, char **argv) {
   }
 
   /* derive newfs disc format from disc profile */
-  error = udf_derive_format(req_enable, req_disable);
+  error = udf_derive_format(req_enable, req_disable, 0);
   if (error) {
     /* error message has been printed */
     udf_closedisc();
@@ -274,14 +362,18 @@ int main(int argc, char **argv) {
   udf_dump_discinfo(&mmc_discinfo);
   printf("Formatting disc compatible with UDF version %x to %x\n\n",
          context.min_udf, context.max_udf);
+
+  /* sync context flags with global flags */
+  context.format_flags = format_flags;
+
   (void)snprintb(scrap, sizeof(scrap), FORMAT_FLAGBITS,
-                 (uint64_t)context.format_flags);
+                 (uint64_t)format_flags);
   printf("UDF properties       %s\n", scrap);
   printf("Volume set          `%s'\n", context.volset_name);
   printf("Primary volume      `%s`\n", context.primary_name);
   printf("Logical volume      `%s`\n", context.logvol_name);
-  if (context.format_flags & FORMAT_META)
-    printf("Metadata percentage  %d %%\n", context.meta_perc);
+  if (format_flags & FORMAT_META)
+    printf("Metadata percentage  %d %%\n", (int) (meta_fract * 100.0f));
   printf("\n");
 
   /* prepare disc if necessary (recordables mainly) */
@@ -306,5 +398,3 @@ int main(int argc, char **argv) {
 
   return EXIT_SUCCESS;
 }
-
-/* --------------------------------------------------------------------- */

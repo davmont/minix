@@ -1,0 +1,5 @@
+#!/bin/sh
+# postinstall - post-installation script for MINIX
+# This script performs any necessary post-installation tasks.
+
+exit 0

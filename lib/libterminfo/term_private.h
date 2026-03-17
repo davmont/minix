@@ -77,6 +77,7 @@
 #define VALID_BOOLEAN(s) ((unsigned char)(s) <= 1)	/* reject "-1" */
 #define VALID_NUMERIC(s) ((s) >= 0)
 #define VALID_STRING(s)  ((s) != CANCELLED_STRING && (s) != ABSENT_STRING)
+#define TERMINFO_VDELIM	'\x1f'	/* version delimiter in terminal names */
 
 typedef struct {
 	const char *id;

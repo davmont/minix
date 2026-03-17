@@ -3,8 +3,13 @@
 .include <bsd.own.mk>
 PROG=	unzip
 
-DPADD+=		${LIBARCHIVE} ${LIBZ} ${LIBBZ2} ${LIBLZMA} ${LIBCRYPTO} ${LIBPTHREAD}
-LDADD+=		-larchive -lz -lbz2 -llzma -lcrypto -lpthread
+DPADD+=		${LIBARCHIVE} ${LIBZ} ${LIBBZ2} ${LIBLZMA} ${LIBCRYPTO}
+LDADD+=		-larchive -lz -lbz2 -llzma -lcrypto
+
+.if !defined(__MINIX)
+DPADD+=		${LIBPTHREAD}
+LDADD+=		-lpthread
+.endif
 
 COPTS.unzip.c += -Wno-format-y2k
 

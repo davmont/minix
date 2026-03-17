@@ -4,7 +4,7 @@
 
 PROG=	newfs_udf
 MAN=	newfs_udf.8
-SRCS=	newfs_udf.c udf_core.c \
+SRCS=	newfs_udf.c udf_create.c udf_write.c \
 	udf_osta.c fattr.c
 
 MOUNT=  ${NETBSDSRCDIR}/sbin/mount

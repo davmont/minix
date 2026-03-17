@@ -6,6 +6,7 @@ SRCS=	forward.c misc.c read.c reverse.c tail.c
 
 LINKS=	${BINDIR}/tail ${BINDIR}/tac
 
-MAN=	tail.1 tac.1
+MAN=	tail.1
+MLINKS=	tail.1 tac.1
 
 .include <bsd.prog.mk>

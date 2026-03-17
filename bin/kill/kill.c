@@ -69,6 +69,31 @@ static int signum(const char *);
 static int processnum(const char *, pid_t *);
 __dead static void usage(void);
 
+int main(int argc, char *argv[]);
+
+#ifndef __NetBSD__
+static int signalnumber(const char *name) {
+	int i;
+	if (strncasecmp(name, "sig", 3) == 0) name += 3;
+	for (i = 1; i < NSIG; i++)
+		if (sys_signame[i] != NULL && strcasecmp(name, sys_signame[i]) == 0)
+			return i;
+	return 0;
+}
+static const char *signalname(int sig) {
+	if (sig > 0 && sig < NSIG)
+		return sys_signame[sig];
+	return NULL;
+}
+static int signalnext(int sig) {
+	for (sig++; sig < NSIG; sig++) {
+		if (sys_signame[sig] != NULL)
+			return sig;
+	}
+	return 0;
+}
+#endif
+
 int
 main(int argc, char *argv[])
 {

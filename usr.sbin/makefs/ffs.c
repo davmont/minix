@@ -1123,7 +1123,7 @@ ffs_write_inode(union dinode *dp, uint32_t ino, const fsinfo_t *fsopts)
 	    initediblk < ufs_rw32(cgp->cg_niblk, fsopts->needswap)) {
 		memset(buf, 0, fs->fs_bsize);
 		dip = (struct ufs2_dinode *)buf;
-		for (i = 0; i < FFS_INOPB(fs); i++) {
+		for (i = 0; i < (uint32_t)FFS_INOPB(fs); i++) {
 			dip->di_gen = random() / 2 + 1;
 			dip++;
 		}

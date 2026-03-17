@@ -290,7 +290,7 @@ in6_alias(struct ifaddrs *ifa, prop_dictionary_t env, prop_dictionary_t oenv)
 		printf(" -> %s", hbuf);
 	}
 
-	(void)snprintb(fbuf, sizeof(fbuf), IN6_IFFBITS, ifa->ifa_addrflags);
+	(void)snprintb(fbuf, sizeof(fbuf), IN6_IFFBITS, get_ifa_addrflags(ifa));
 	printf(" flags %s", fbuf);
 
 	if (scopeid)

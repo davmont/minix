@@ -244,10 +244,12 @@ main(int argc, char *argv[])
 	maxwidth = 0;
 	for (i = 0; i < mntcount; i++) {
 		width = 0;
+#ifndef __minix
 		if (Wflag && mntbuf[i].f_mntfromlabel[0]) {
 			/* +5 is for "NAME=" added later */
 			width = (int)strlen(mntbuf[i].f_mntfromlabel) + 5;
 		}
+#endif
 		if (width == 0)
 			width = (int)strlen(mntbuf[i].f_mntfromname);
 		if (width > maxwidth)
@@ -441,10 +443,13 @@ prtstat(const struct statvfs *sfsp, int maxwidth)
 	char pb[64];
 	char mntfromname[sizeof(sfsp->f_mntfromname) + 10];
 
+#ifndef __minix
 	if (Wflag && sfsp->f_mntfromlabel[0]) {
 		snprintf(mntfromname, sizeof(mntfromname), "NAME=%s",
 		    sfsp->f_mntfromlabel);
-	} else {
+	} else
+#endif
+	{
 		strlcpy(mntfromname, sfsp->f_mntfromname, sizeof(mntfromname));
 	}
 

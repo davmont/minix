@@ -32,6 +32,8 @@
 #ifndef _V7FS_FILE_H_
 #define	_V7FS_FILE_H_
 
+#include <stdbool.h>
+
 struct v7fs_lookup_arg {
 	const char *name;
 	char *buf;

@@ -38,8 +38,8 @@ extern const char *RemoteHostName;
 extern int ConnectedCount;
 extern int ReservedPort;
 
-int isprefix(char *, const char *);
-char **genget(char *, char **, int);
+int isprefix(const char *, const char *);
+char **genget(const char *, char **, int);
 int Ambiguous(void *);
 __END_DECLS
 

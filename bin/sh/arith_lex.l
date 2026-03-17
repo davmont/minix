@@ -53,6 +53,8 @@ extern const char *arith_buf, *arith_startbuf;
 #undef YY_INPUT
 #define YY_INPUT(buf,result,max) \
 	result = (*buf = *arith_buf++) ? 1 : YY_NULL;
+
+void arith_lex_reset(void);
 %}
 
 %option nounput noinput

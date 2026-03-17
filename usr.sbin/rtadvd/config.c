@@ -772,7 +772,7 @@ getconfig(const char *intface, int exithard)
 		return;
 	tmp->timer = rtadvd_add_timer(ra_timeout, ra_timer_update,
 				      tmp, tmp);
-	ra_timer_set_short_delay(tmp, tmp->timer);
+	ra_timer_set_short_delay(tmp);
 	tmp->timer_sol = rtadvd_add_timer(ra_timeout_sol, NULL, tmp, NULL);
 
 	return;

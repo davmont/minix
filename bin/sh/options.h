@@ -57,12 +57,15 @@ struct optent {
 
 #include "optinit.h"
 
+#include <stdbool.h>
+
 extern char *minusc;		/* argument to -c option */
 extern char *arg0;		/* $0 */
 extern struct shparam shellparam;  /* $@ */
 extern char **argptr;		/* argument list for builtin commands */
 extern char *optionarg;		/* set by nextopt */
 extern char *optptr;		/* used by nextopt */
+extern bool privileged;
 
 void procargs(int, char **);
 void optschanged(void);

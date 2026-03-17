@@ -1498,7 +1498,7 @@ ${var}?= yes
 .for var in \
 	USE_WATCHDOG USE_ACPI USE_PAE USE_APIC USE_DEBUGREG USE_SYSDEBUG \
 	USE_LIVEUPDATE USE_PCI USE_BITCODE USE_MAGIC USE_ASR
-.if (${${var:S/USE_/MK/}} == "no")
+.if ("${${var:S/USE_/MK/}:U}" == "no")
 ${var}:= no
 .else
 ${var}?= yes

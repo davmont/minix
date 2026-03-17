@@ -1,7 +1,12 @@
 #ifndef __SPINLOCK_H__
 #define __SPINLOCK_H__
 
-#include "kernel/kernel.h"
+#include <sys/types.h>
+#include <archtypes.h>
+
+#ifdef __kernel__
+#include "config.h"
+#endif
 
 typedef struct spinlock {
 	atomic_t val;

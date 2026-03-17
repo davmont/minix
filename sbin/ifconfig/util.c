@@ -50,6 +50,7 @@ __RCSID("$NetBSD: util.c,v 1.20 2020/10/11 21:32:37 roy Exp $");
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <netinet/in.h>		/* XXX */
+#include <netinet6/in6_var.h>
 
 #include "env.h"
 #include "extern.h"
@@ -345,4 +346,46 @@ ifa_any_preferences(const char *ifname, struct ifaddrs *ifap, int family)
 			return true;
 	}
 	return false;
+}
+
+int
+get_in_addrflags(const char *ifname, const struct sockaddr *sa)
+{
+	struct ifreq ifr;
+	int s;
+
+	if (sa->sa_family != AF_INET)
+		return 0;
+
+	if ((s = getsock(AF_INET)) == -1)
+		return 0;
+
+	memset(&ifr, 0, sizeof(ifr));
+	estrlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	memcpy(&ifr.ifr_addr, sa, MIN(sizeof(ifr.ifr_addr), sa->sa_len));
+	if (prog_ioctl(s, SIOCGIFAFLAG_IN, &ifr) == -1)
+		return 0;
+
+	return ifr.ifr_addrflags;
+}
+
+int
+get_in6_addrflags(const char *ifname, const struct sockaddr *sa)
+{
+	struct in6_ifreq ifr;
+	int s;
+
+	if (sa->sa_family != AF_INET6)
+		return 0;
+
+	if ((s = getsock(AF_INET6)) == -1)
+		return 0;
+
+	memset(&ifr, 0, sizeof(ifr));
+	estrlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	memcpy(&ifr.ifr_addr, sa, MIN(sizeof(ifr.ifr_addr), sa->sa_len));
+	if (prog_ioctl(s, SIOCGIFAFLAG_IN6, &ifr) == -1)
+		return 0;
+
+	return ifr.ifr_ifru.ifru_flags6;
 }

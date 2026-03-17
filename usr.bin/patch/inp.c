@@ -55,6 +55,7 @@ __RCSID("$NetBSD: inp.c,v 1.24 2015/07/24 18:56:00 christos Exp $");
 #include "pch.h"
 #include "inp.h"
 
+#define MAXLINELEN 1024
 
 /* Input-file-with-indexable-lines abstract type */
 
@@ -195,7 +196,7 @@ plan_a(const char *filename)
  		filedir = dirname(tmp_filename2);
  
 #define try(f, a1, a2, a3) \
-	(snprintf(lbuf, sizeof lbuf, f, a1, a2, a3), stat(lbuf, &cstat) == 0)
+	((void)snprintf(lbuf, sizeof lbuf, f, a1, a2, a3), stat(lbuf, &cstat) == 0)
 
 		/*
 		 * else we can't write to it but it's not under a version
@@ -393,7 +394,7 @@ plan_b(const char *filename)
 	unlink(TMPINNAME);
 	if ((tifd = open(TMPINNAME, O_EXCL | O_CREAT | O_WRONLY, 0666)) < 0)
 		pfatal("can't open file %s", TMPINNAME);
-	while (fgets(buf, buf_len, ifp) != NULL) {
+	while (fgets(buf, bufsz, ifp) != NULL) {
 		if (revision != NULL && !found_revision && rev_in_string(buf))
 			found_revision = true;
 		if ((i = strlen(buf)) > maxlen)

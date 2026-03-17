@@ -204,7 +204,7 @@ auth_init(const char *name, int server)
 }
 
 void
-auth_disable_name(char *name)
+auth_disable_name(const char *name)
 {
 	int x;
 	for (x = 0; x < AUTHTYPE_CNT; ++x) {
@@ -216,7 +216,7 @@ auth_disable_name(char *name)
 }
 
 int
-getauthmask(char *type, int *maskp)
+getauthmask(const char *type, int *maskp)
 {
 	register int x;
 
@@ -235,19 +235,19 @@ getauthmask(char *type, int *maskp)
 }
 
 int
-auth_enable(char *type)
+auth_enable(const char *type)
 {
 	return(auth_onoff(type, 1));
 }
 
 int
-auth_disable(char *type)
+auth_disable(const char *type)
 {
 	return(auth_onoff(type, 0));
 }
 
 int
-auth_onoff(char *type, int on)
+auth_onoff(const char *type, int on)
 {
 	int i, mask = -1;
 	Authenticator *ap;
@@ -289,7 +289,7 @@ auth_togdebug(int on)
 }
 
 int
-auth_status(char *s)
+auth_status(const char *s)
 {
 	Authenticator *ap;
 	int i, mask;

@@ -1091,8 +1091,8 @@ static void run(const char *command, const char *flags, const char *to_name,
   char *args[4];
   char *cmd;
   int status;
-  int rv;
-  size_t i;
+  int volatile rv;
+  size_t volatile i;
 
   i = 1;
   status = 0;

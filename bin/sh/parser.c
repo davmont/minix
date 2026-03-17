@@ -2683,7 +2683,7 @@ getprompt(void *unused)
  * behaviour.
  */
 static const char *
-expandonstack(char *ps, int cmdsub, int lineno)
+expandonstack(char * volatile ps, int cmdsub, int lineno)
 {
 	union node n;
 	struct jmploc jmploc;

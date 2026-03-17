@@ -63,7 +63,7 @@ __RCSID("$NetBSD: af_atalk.c,v 1.21 2020/06/07 06:02:58 thorpej Exp $");
 #endif
 
 static void at_status(prop_dictionary_t, prop_dictionary_t, bool);
-static void at_commit_address(prop_dictionary_t, prop_dictionary_t);
+void at_commit_address(prop_dictionary_t, prop_dictionary_t);
 
 static void at_constructor(void) __attribute__((constructor));
 
@@ -105,7 +105,7 @@ setatrange_impl(prop_dictionary_t env, prop_dictionary_t oenv,
 	nr->nr_lastnet = htons(last);
 }
 
-static void
+void
 at_commit_address(prop_dictionary_t env, prop_dictionary_t oenv)
 {
 	struct ifreq ifr;

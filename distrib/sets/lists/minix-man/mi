@@ -159,7 +159,7 @@
 ./usr/man/man1/isodir.1                                 minix-man
 ./usr/man/man1/isoinfo.1                                minix-man
 ./usr/man/man1/isoread.1                                minix-man
-./usr/man/man1/jobs.1                                   minix-man       obsolete
+./usr/man/man1/jobs.1                                   minix-man
 ./usr/man/man1/join.1                                   minix-man
 ./usr/man/man1/jot.1                                    minix-man
 ./usr/man/man1/kill.1                                   minix-man
@@ -344,6 +344,9 @@
 ./usr/man/man1/setvar.1                                 minix-man       obsolete
 ./usr/man/man1/sh.1                                     minix-man
 ./usr/man/man1/sha1.1                                   minix-man
+./usr/man/man1/sha256.1                                 minix-man
+./usr/man/man1/sha384.1                                 minix-man
+./usr/man/man1/sha512.1                                 minix-man
 ./usr/man/man1/shar.1                                   minix-man
 ./usr/man/man1/shift.1                                  minix-man       obsolete
 ./usr/man/man1/shlock.1                                 minix-man
@@ -370,6 +373,7 @@
 ./usr/man/man1/sysenv.1                                 minix-man
 ./usr/man/man1/sz.1                                     minix-man
 ./usr/man/man1/tail.1                                   minix-man
+./usr/man/man1/tac.1                                    minix-man
 ./usr/man/man1/tar.1                                    minix-man
 ./usr/man/man1/tee.1                                    minix-man
 ./usr/man/man1/telnet.1                                 minix-man

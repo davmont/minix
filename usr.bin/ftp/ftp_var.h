@@ -333,7 +333,7 @@ extern	struct cmd		cmdtab[];
 extern	struct option		optiontab[];
 extern	struct http_headers	custom_headers;
 
-extern	size_t ftp_buflen;
+GLOBAL	size_t ftp_buflen;
 
 #define	EMPTYSTRING(x)	((x) == NULL || (*(x) == '\0'))
 #define	FREEPTR(x)	if ((x) != NULL) { free(x); (x) = NULL; }

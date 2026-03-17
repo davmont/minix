@@ -76,6 +76,11 @@ __RCSID("$NetBSD: inode.c,v 1.37 2016/08/04 17:43:47 jdolecek Exp $");
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+
+#ifndef e2di_size_high
+#define e2di_size_high e2di_dacl
+#endif
 
 #include "fsck.h"
 #include "fsutil.h"

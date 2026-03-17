@@ -1530,3 +1530,19 @@ cmdputs(const char *s)
 	cmdnleft = nleft;
 	cmdnextc = nextc;
 }
+
+int
+anyjobs(void)
+{
+	int jobno;
+	struct job *jp;
+
+	if (jobs_invalid)
+		return (0);
+	for (jobno = 1, jp = jobtab; jobno <= njobs; jobno++, jp++) {
+		if (jp->used)
+			return (1);
+	}
+
+	return (0);
+}

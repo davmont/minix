@@ -147,9 +147,13 @@ bpf_dump(const char *bpfif)
 
 			printf("%c", BPFEXT(bde_promisc) ? 'P' : '-');
 			printf("%c", BPFEXT(bde_immediate) ? 'R' : '-');
+#ifdef BPF_D_IN
 			printf("%c", (BPFEXT(bde_direction) == BPF_D_IN) ?
 			    '-' : (BPFEXT(bde_direction) == BPF_D_OUT) ?
 			    'O' : 'S');
+#else
+			printf("-");
+#endif
 			printf("%c", BPFEXT(bde_hdrcmplt) ? 'H' : '-');
 			printf("  %-8d ", BPFEXT(bde_bufsize));
 

@@ -50,9 +50,9 @@ __RCSID("$NetBSD: genget.c,v 1.13 2012/03/21 05:33:27 matt Exp $");
  * the length of *s1 is returned.
  */
 int
-isprefix(char *s1, const char *s2)
+isprefix(const char *s1, const char *s2)
 {
-	char *os1;
+	const char *os1;
 	char c1, c2;
 
 	if (*s1 == '\0')
@@ -72,7 +72,7 @@ isprefix(char *s1, const char *s2)
 static char *ambiguous;		/* special return value for command routines */
 
 char **
-genget( char	*name,		/* name to match */
+genget( const char	*name,		/* name to match */
 	char	**table,	/* name entry in table */
 	int	stlen)
 {

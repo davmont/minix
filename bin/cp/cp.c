@@ -511,7 +511,7 @@ copy(char *argv[], enum op type, int fts_options)
 				if (pflag) {
 					if (setfile(curr->fts_statp, 0))
 						this_failed = any_failed = 1;
-#ifndef SMALL
+#if !defined(SMALL) && !defined(__minix)
 					if (preserve_dir_acls(curr->fts_statp,
 					    curr->fts_accpath, to.p_path) != 0)
 						this_failed = any_failed = 1;

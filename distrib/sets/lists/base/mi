@@ -885,6 +885,9 @@
 ./usr/bin/setextattr				base-util-bin
 ./usr/bin/sftp					base-secsh-bin		crypto
 ./usr/bin/sha1					base-util-bin
+./usr/bin/sha256					base-util-bin
+./usr/bin/sha384					base-util-bin
+./usr/bin/sha512					base-util-bin
 ./usr/bin/shar					base-util-bin
 ./usr/bin/shlock				base-util-bin
 ./usr/bin/shmif_dumpbus				base-util-bin		rump
@@ -914,6 +917,7 @@
 ./usr/bin/systat				base-util-bin
 ./usr/bin/tabs					base-util-bin
 ./usr/bin/tail					base-util-bin
+./usr/bin/tac					base-util-bin
 ./usr/bin/talk					base-netutil-bin
 ./usr/bin/tar					base-util-bin
 ./usr/bin/tcopy					base-util-bin
@@ -1017,7 +1021,6 @@
 ./usr/include/cdk				base-obsolete		obsolete
 ./usr/include/clang-3.4				base-obsolete		obsolete
 ./usr/include/clang-3.5				base-obsolete		obsolete
-./usr/include/clang-3.6				base-c-usr
 ./usr/include/compat				base-obsolete		obsolete
 ./usr/include/crypto				base-c-usr
 ./usr/include/dev				base-c-usr

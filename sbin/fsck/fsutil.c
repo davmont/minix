@@ -64,11 +64,12 @@ __RCSID("$NetBSD: fsutil.c,v 1.26 2015/06/21 04:01:40 dholland Exp $");
 #include "fsutil.h"
 #include "exitvalues.h"
 
-volatile sig_atomic_t returntosingle;
+volatile sig_atomic_t returntosingle = 0;
+void (*ckfinish)(int) = NULL;
 
-static const char *dev = NULL;
-static int hot = 0;
-static int preen = 0;
+const char *dev = NULL;
+int hot = 0;
+int preen = 0;
 int quiet;
 #define F_ERROR	0x80000000
 

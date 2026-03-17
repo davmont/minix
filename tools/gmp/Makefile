@@ -19,3 +19,6 @@ CONFIGURE_ENV:=	${CONFIGURE_ENV:NPATH=*:NCFLAGS=*:NCXXFLAGS=*:NCC=*} \
 # Force avoiding possibly non-executable install-sh.
 CONFIGURE_ENV+=	ac_cv_path_mkdir="${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-install -d"
 .endif
+
+# Disable parallel make to avoid build directory race conditions
+GMAKE_J_ARGS=

@@ -86,6 +86,7 @@ int sock;
 int rtsock = -1;
 int accept_rr = 0;
 int dflag = 0, sflag = 0;
+int Cflag = 0;
 
 static char **if_argv;
 static int if_argc;
@@ -441,7 +442,7 @@ rtmsg_input(void)
 	char ifname[IF_NAMESIZE];
 	struct prefix *prefix;
 	struct rainfo *rai;
-	struct in6_addr *addr;
+	const struct in6_addr *addr;
 	char addrbuf[INET6_ADDRSTRLEN];
 	int prefixchange = 0, argc;
 
@@ -590,7 +591,7 @@ rtmsg_input(void)
 				}
 				break;
 			}
-			make_prefix(rai, ifindex, addr, plen);
+			add_prefix(rai, ifindex, addr, plen);
 			prefixchange = 1;
 			break;
 		case RTM_DELETE:
@@ -1320,7 +1321,7 @@ prefix_check(struct nd_opt_prefix_info *pinfo,
 }
 
 struct prefix *
-find_prefix(struct rainfo *rai, struct in6_addr *prefix, int plen)
+find_prefix(struct rainfo *rai, const struct in6_addr *prefix, int plen)
 {
 	struct prefix *pp;
 	int bytelen, bitlen;
@@ -1332,7 +1333,7 @@ find_prefix(struct rainfo *rai, struct in6_addr *prefix, int plen)
 		bytelen = plen / 8;
 		bitlen = plen % 8;
 		bitmask = 0xff << (8 - bitlen);
-		if (memcmp((void *)prefix, (void *)&pp->prefix, bytelen))
+		if (memcmp(prefix, &pp->prefix, bytelen))
 			continue;
 		if (bitlen == 0 ||
 		    ((prefix->s6_addr[bytelen] & bitmask) == 
@@ -1777,6 +1778,21 @@ ra_timeout(void *data)
 
 	if (ra_output(rai))
 		return(rai->timer);
+	return NULL;
+}
+
+/* process solicited RA timer */
+struct rtadvd_timer *
+ra_timeout_sol(void *data)
+{
+	struct rainfo *rai = (struct rainfo *)data;
+
+	syslog(LOG_DEBUG,
+	       "<%s> RA timer on %s is expired (solicited)",
+	       __func__, rai->ifname);
+
+	ra_output(rai);
+
 	return NULL;
 }
 

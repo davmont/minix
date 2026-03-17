@@ -672,9 +672,7 @@ EXTERN struct coproc coproc;
 #endif /* KSH */
 
 /* Used in jobs.c and by coprocess stuff in exec.c */
-#ifdef JOB_SIGS
 EXTERN sigset_t		sm_default, sm_sigchld;
-#endif /* JOB_SIGS */
 
 extern char ksh_version[];
 

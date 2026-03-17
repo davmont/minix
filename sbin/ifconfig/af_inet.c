@@ -142,7 +142,7 @@ in_alias(struct ifaddrs *ifa, prop_dictionary_t env, prop_dictionary_t oenv)
 		printf(" broadcast %s", hbuf);
 	}
 
-	(void)snprintb(fbuf, sizeof(fbuf), IN_IFFBITS, ifa->ifa_addrflags);
+	(void)snprintb(fbuf, sizeof(fbuf), IN_IFFBITS, get_ifa_addrflags(ifa));
 	printf(" flags %s", fbuf);
 }
 

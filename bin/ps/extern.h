@@ -39,7 +39,7 @@
 extern double log_ccpu;
 extern int eval, fscale, mempages, nlistread, maxslp, uspace;
 extern int sumrusage, termwidth, totwidth;
-extern int needenv, needcomm, commandonly;
+extern int needenv, needcomm, commandonly, rawcpu;
 extern uid_t myuid;
 extern kvm_t *kd;
 extern VAR var[];
@@ -49,7 +49,7 @@ extern VARLIST sortlist;
 void	 command(struct pinfo *, VARENT *, enum mode);
 void	 cpuid(struct pinfo *, VARENT *, enum mode);
 void	 cputime(struct pinfo *, VARENT *, enum mode);
-void	 donlist(void);
+int	 donlist(void);
 void	 donlist_sysctl(void);
 void	 fmt_puts(char *, int *);
 void	 fmt_putc(int, int *);

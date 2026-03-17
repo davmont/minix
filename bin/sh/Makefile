@@ -8,7 +8,7 @@ PROG=	sh
 SHSRCS=	alias.c cd.c echo.c error.c eval.c exec.c expand.c \
 	histedit.c input.c jobs.c mail.c main.c memalloc.c miscbltin.c \
 	mystring.c options.c parser.c redir.c show.c trap.c output.c var.c \
-	test.c kill.c syntax.c
+	test.c kill.c syntax.c signames.c compat.c
 GENSRCS=arith.c arith_lex.c builtins.c init.c nodes.c
 GENHDRS=arith.h builtins.h nodes.h token.h
 SRCS=	${SHSRCS} ${GENSRCS}
@@ -86,6 +86,7 @@ SUBDIR+=USD.doc
 
 COPTS.printf.c = -Wno-format-nonliteral
 COPTS.jobs.c = -Wno-format-nonliteral
+COPTS.var.c = -Wno-format-nonliteral
 
 .include <bsd.prog.mk>
 .include <bsd.subdir.mk>

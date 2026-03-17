@@ -221,7 +221,7 @@ encrypt_list_types(void)
 }
 
 int
-EncryptEnable(char *type, char *mode)
+EncryptEnable(const char *type, const char *mode)
 {
 	if (isprefix(type, "help") || isprefix(type, "?")) {
 		printf("Usage: encrypt enable <type> [input|output]\n");
@@ -234,7 +234,7 @@ EncryptEnable(char *type, char *mode)
 }
 
 int
-EncryptDisable(char *type, char *mode)
+EncryptDisable(const char *type, const char *mode)
 {
 	register Encryptions *ep;
 	int ret = 0;
@@ -267,7 +267,7 @@ EncryptDisable(char *type, char *mode)
 }
 
 int
-EncryptType(char *type, char *mode)
+EncryptType(const char *type, const char *mode)
 {
 	register Encryptions *ep;
 	int ret = 0;
@@ -298,7 +298,7 @@ EncryptType(char *type, char *mode)
 }
 
 int
-EncryptStart(char *mode)
+EncryptStart(const char *mode)
 {
 	register int ret = 0;
 	if (mode) {
@@ -341,7 +341,7 @@ EncryptStartOutput(void)
 }
 
 int
-EncryptStop(char *mode)
+EncryptStop(const char *mode)
 {
 	int ret = 0;
 	if (mode) {

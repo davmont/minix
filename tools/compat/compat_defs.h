@@ -28,19 +28,38 @@
 /*
  * Linux: <features.h> turns on _POSIX_SOURCE by default, even though the
  * program (not the OS) should do that.  Preload <features.h> and
- * then override some of the feature test macros.
+ * then override some of the feature test macros. Must be included very early
+ * for sys/cdefs.h and other headers to work correctly.
  */
 
-#if defined(__linux__) && HAVE_FEATURES_H
+#ifdef __linux__
 #include <features.h>
+#endif
+
+#if defined(__linux__) && HAVE_FEATURES_H
 #undef _POSIX_SOURCE
 #undef _POSIX_C_SOURCE
 #define __USE_ISOC99 1
 #endif /* __linux__ && HAVE_FEATURES_H */
 
+/* Include sys/cdefs.h early to define C declaration macros (__BEGIN_DECLS, etc.)
+ * needed by other system headers like sys/mman.h. Must be before sys/mman.h.
+ */
+#include <sys/cdefs.h>
+
+/* Ensure __THROW is defined for glibc headers */
+#ifndef __THROW
+#define __THROW
+#endif
+#ifndef __THROWNL
+#define __THROWNL
+#endif
+
 /* System headers needed for (re)definitions below. */
 
-#include <sys/mman.h>
+/* Don't include sys/mman.h here - it will be included by sys/param.h or other headers
+ * and including it unconditionally causes issues with __THROW not being properly defined.
+ */
 #include <sys/param.h>
 #include <sys/types.h>
 /* time.h needs to be pulled in first at least on netbsd w/o _NETBSD_SOURCE */
@@ -56,9 +75,6 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-#if HAVE_SYS_CDEFS_H
-#include <sys/cdefs.h>
-#endif
 #if HAVE_SYS_SYSLIMITS_H
 #include <sys/syslimits.h>
 #endif
@@ -1055,60 +1071,61 @@ void mi_vector_hash(const void *restrict, size_t, uint32_t, uint32_t[3]);
 /* <sys/endian.h> */
 
 #if WORDS_BIGENDIAN
-#if !HAVE_DECL_HTOBE16
-#define htobe16(x) (x)
+#ifndef htobe16
+#define htobe16(x) (uint16_t)(x)
 #endif
-#if !HAVE_DECL_HTOBE32
-#define htobe32(x) (x)
+#ifndef htobe32
+#define htobe32(x) (uint32_t)(x)
 #endif
-#if !HAVE_DECL_HTOBE64
-#define htobe64(x) (x)
+#ifndef htobe64
+#define htobe64(x) (uint64_t)(x)
 #endif
-#if !HAVE_DECL_HTOLE16
-#define htole16(x) bswap16((u_int16_t)(x))
+#ifndef htole16
+#define htole16(x) bswap16((uint16_t)(x))
 #endif
-#if !HAVE_DECL_HTOLE32
-#define htole32(x) bswap32((u_int32_t)(x))
+#ifndef htole32
+#define htole32(x) bswap32((uint32_t)(x))
 #endif
-#if !HAVE_DECL_HTOLE64
-#define htole64(x) bswap64((u_int64_t)(x))
+#ifndef htole64
+#define htole64(x) bswap64((uint64_t)(x))
 #endif
 #else
-#if !HAVE_DECL_HTOBE16
-#define htobe16(x) bswap16((u_int16_t)(x))
+#ifndef htobe16
+#define htobe16(x) bswap16((uint16_t)(x))
 #endif
-#if !HAVE_DECL_HTOBE32
-#define htobe32(x) bswap32((u_int32_t)(x))
+#ifndef htobe32
+#define htobe32(x) bswap32((uint32_t)(x))
 #endif
-#if !HAVE_DECL_HTOBE64
-#define htobe64(x) bswap64((u_int64_t)(x))
+#ifndef htobe64
+#define htobe64(x) bswap64((uint64_t)(x))
 #endif
-#if !HAVE_DECL_HTOLE16
-#define htole16(x) (x)
+#ifndef htole16
+#define htole16(x) (uint16_t)(x)
 #endif
-#if !HAVE_DECL_HTOLE32
-#define htole32(x) (x)
+#ifndef htole32
+#define htole32(x) (uint32_t)(x)
 #endif
-#if !HAVE_DECL_HTOLE64
-#define htole64(x) (x)
+#ifndef htole64
+#define htole64(x) (uint64_t)(x)
 #endif
 #endif
-#if !HAVE_DECL_BE16TOH
+
+#ifndef be16toh
 #define be16toh(x) htobe16(x)
 #endif
-#if !HAVE_DECL_BE32TOH
+#ifndef be32toh
 #define be32toh(x) htobe32(x)
 #endif
-#if !HAVE_DECL_BE64TOH
+#ifndef be64toh
 #define be64toh(x) htobe64(x)
 #endif
-#if !HAVE_DECL_LE16TOH
+#ifndef le16toh
 #define le16toh(x) htole16(x)
 #endif
-#if !HAVE_DECL_LE32TOH
+#ifndef le32toh
 #define le32toh(x) htole32(x)
 #endif
-#if !HAVE_DECL_LE64TOH
+#ifndef le64toh
 #define le64toh(x) htole64(x)
 #endif
 

@@ -43,7 +43,7 @@ __RCSID("$NetBSD: print.c,v 1.57 2020/05/17 23:34:11 christos Exp $");
 
 #include <sys/param.h>
 #include <sys/stat.h>
-#ifndef SMALL
+#if !defined(SMALL) && !defined(__minix)
 #include <sys/acl.h>
 #endif
 
@@ -71,7 +71,7 @@ static void	printlink(FTSENT *);
 static void	printtime(time_t);
 static void	printtotal(DISPLAY *dp);
 static int	printtype(u_int);
-#ifndef SMALL
+#if !defined(SMALL) && !defined(__minix)
 static void	aclmode(char *, const FTSENT *);
 #endif
 
@@ -160,7 +160,7 @@ printlong(DISPLAY *dp)
 			}
 		}
 		(void)strmode(sp->st_mode, buf);
-#ifndef SMALL
+#if !defined(SMALL) && !defined(__minix)
 		aclmode(buf, p);
 #endif
 		np = p->fts_pointer;
@@ -505,7 +505,7 @@ printlink(FTSENT *p)
 		(void)printf("%s", path);
 }
 
-#ifndef SMALL
+#if !defined(SMALL) && !defined(__minix)
 /*
  * Add a + after the standard rwxrwxrwx mode if the file has an
  * ACL. strmode() reserves space at the end of the string.

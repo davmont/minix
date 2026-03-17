@@ -44,7 +44,7 @@ static char sccsid[] = "@(#)parse.c	8.1 (Berkeley) 6/6/93";
 #include <sys/cdefs.h>
 #if defined(__NetBSD__)
 __RCSID("$NetBSD: parse.c,v 1.49 2022/04/22 21:21:20 rillig Exp $");
-#else
+#elif defined(__FreeBSD__)
 __FBSDID("$FreeBSD: head/usr.bin/indent/parse.c 337651 2018-08-11 19:20:06Z pstef $");
 #endif
 

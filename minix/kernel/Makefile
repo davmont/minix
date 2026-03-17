@@ -1,4 +1,6 @@
 # Makefile for kernel
+CONFIG_SMP=	yes
+CONFIG_MAX_CPUS= 8
 .include <bsd.own.mk>
 
 PROG=		kernel
@@ -47,9 +49,8 @@ CPPFLAGS+= -I${NETBSDSRCDIR}/minix/include/arch/${MACHINE_ARCH}/include
 CPPFLAGS+= -DPAE=1
 .endif
 
-.ifdef CONFIG_SMP
 SRCS+= smp.c
-.endif
+# OBJS.kernel += smp.o
 
 .if ${USE_WATCHDOG} != "no"
 SRCS+= watchdog.c

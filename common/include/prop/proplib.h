@@ -47,4 +47,59 @@
 void	prop_kern_init(void);
 #endif
 
+/*
+ * Compatibility macros for proplib renames/additions.
+ */
+#ifndef prop_data_value
+#define prop_data_value(x)		prop_data_data_nocopy(x)
+#endif
+
+#ifndef prop_data_create_copy
+#define prop_data_create_copy(x, y)	prop_data_create_data(x, y)
+#endif
+
+#ifndef prop_string_value
+#define prop_string_value(x)		prop_string_cstring_nocopy(x)
+#endif
+
+#ifndef prop_string_create_copy
+#define prop_string_create_copy(x)	prop_string_create_cstring(x)
+#endif
+
+#ifndef prop_string_create_nocopy
+#define prop_string_create_nocopy(x)	prop_string_create_cstring_nocopy(x)
+#endif
+
+#ifndef prop_number_create_signed
+#define prop_number_create_signed(x)	prop_number_create_integer(x)
+#endif
+
+#ifndef prop_number_create_unsigned
+#define prop_number_create_unsigned(x)	prop_number_create_unsigned_integer(x)
+#endif
+
+#ifndef prop_dictionary_get_string
+#define prop_dictionary_get_string(d, k, v)	prop_dictionary_get_cstring_nocopy(d, k, v)
+#endif
+
+#ifndef prop_dictionary_set_string
+#define prop_dictionary_set_string(d, k, v)	prop_dictionary_set_cstring(d, k, v)
+#endif
+
+#ifndef prop_dictionary_keysym_value
+#define prop_dictionary_keysym_value(x)	prop_dictionary_keysym_cstring_nocopy(x)
+#endif
+
+#include <string.h>
+#ifndef prop_data_copy_value
+static inline bool
+prop_data_copy_value(prop_data_t d, void *buf, size_t size)
+{
+	if (prop_data_size(d) != size)
+		return (false);
+	memcpy(buf, prop_data_data_nocopy(d), size);
+	return (true);
+}
+#endif
+
 #endif /* _PROPLIB_PROPLIB_H_ */

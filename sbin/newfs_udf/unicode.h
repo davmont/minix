@@ -66,6 +66,7 @@
  * Routines for handling Unicode encoded in UTF-8 form, code derived from
  * src/lib/libc/locale/utf2.c.
  */
+#include <sys/types.h>
 #include <assert.h>
 static u_int16_t wget_utf8(const char **, size_t *) __unused;
 static int wput_utf8(char *, size_t, u_int16_t) __unused;

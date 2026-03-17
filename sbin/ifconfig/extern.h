@@ -31,6 +31,7 @@
 #ifndef	_IFCONFIG_EXTERN_H
 #define	_IFCONFIG_EXTERN_H
 
+#include <string.h>
 #include <prop/proplib.h>
 #include "util.h"
 
@@ -39,6 +40,7 @@
 #define	MASK    2
 #define	DSTADDR 3
 
+void	at_commit_address(prop_dictionary_t, prop_dictionary_t);
 typedef void (*usage_cb_t)(prop_dictionary_t);
 typedef void (*status_cb_t)(prop_dictionary_t, prop_dictionary_t);
 typedef void (*statistics_cb_t)(prop_dictionary_t);

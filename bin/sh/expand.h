@@ -69,3 +69,4 @@ char *expandhere(union node *);
 void expandarg(union node *, struct arglist *, int);
 int rmescapes(char *);
 int casematch(union node *, char *);
+intmax_t arith(const char *, int);

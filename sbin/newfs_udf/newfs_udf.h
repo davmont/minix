@@ -29,6 +29,8 @@
 #ifndef _FS_UDF_NEWFS_UDF_H_
 #define _FS_UDF_NEWFS_UDF_H_
 
+#include <sys/types.h>
+
 /* general settings */
 #define UDF_512_TRACK 0 /* NOT recommended */
 
@@ -37,7 +39,10 @@
 #define APP_VERSION_SUB 5
 #define UDF_META_PERC 20
 
-#ifdef MAKEFS
+/* Forward declarations */
+struct mmc_discinfo;
+struct mmc_trackinfo;
+
 extern struct mmc_discinfo mmc_discinfo;
 extern int format_flags;
 extern int media_accesstype;
@@ -47,8 +52,9 @@ extern float meta_fract;
 
 int udf_write_sector(void *sector, uint64_t location);
 int udf_surface_check(void);
-struct mmc_trackinfo;
 int udf_update_trackinfo(struct mmc_discinfo *di, struct mmc_trackinfo *ti);
-#endif
+
+int udf_proces_names(void);
+int udf_derive_format(int req_enable, int req_disable, int force);
 
 #endif /* _FS_UDF_NEWFS_UDF_H_ */

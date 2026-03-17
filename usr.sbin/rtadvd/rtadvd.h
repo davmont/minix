@@ -192,7 +192,7 @@ extern TAILQ_HEAD(ralist_head_t, rainfo) ralist;
 struct rtadvd_timer *ra_timeout(void *);
 struct rtadvd_timer *ra_timeout_sol(void *);
 void ra_timer_update(void *, struct timespec *);
-void ra_timer_set_short_delay(struct rainfo *, struct rtadvd_timer *);
+void ra_timer_set_short_delay(struct rainfo *);
 
 int prefix_match(struct in6_addr *, int, struct in6_addr *, int);
 struct rainfo *if_indextorainfo(unsigned int);

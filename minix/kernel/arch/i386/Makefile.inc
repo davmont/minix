@@ -82,9 +82,7 @@ SRCS+=	do_iopenable.c do_readbios.c do_sdevio.c exception.c i8259.c oxpcie.c \
 
 OBJS.kernel+=	${UNPAGED_OBJS}
 
-.ifdef CONFIG_SMP
 SRCS += arch_smp.c trampoline.S
-.endif
 
 .if ${USE_ACPI} != "no"
 SRCS+= acpi.c
