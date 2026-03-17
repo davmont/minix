@@ -64,3 +64,4 @@ lib/libc/compat__*
 build.log
 build_tail.txt
 makefs.log
+minix_x86.iso
