@@ -809,7 +809,7 @@ int MAIN(int argc, char **argv)
             if (--argc < 1)
                 goto bad;
             psk_key = *(++argv);
-            for (j = 0; j < strlen(psk_key); j++) {
+            for (j = 0; psk_key[j] != '\0'; j++) {
                 if (isxdigit((unsigned char)psk_key[j]))
                     continue;
                 BIO_printf(bio_err, "Not a hex number '%s'\n", *argv);
