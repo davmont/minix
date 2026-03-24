@@ -32,9 +32,13 @@
  * for sys/cdefs.h and other headers to work correctly.
  */
 
-#ifdef __linux__
+#if defined(__linux__) && HAVE_FEATURES_H
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <features.h>
 #endif
+
 
 #if defined(__linux__) && HAVE_FEATURES_H
 #undef _POSIX_SOURCE
@@ -74,6 +78,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#if HAVE_ERR_H
+#include <err.h>
+#endif
+
 
 #if HAVE_SYS_SYSLIMITS_H
 #include <sys/syslimits.h>
@@ -348,6 +356,7 @@ int flock(int, int);
 
 #if !HAVE_DECL_FPURGE
 int fpurge(FILE *);
+
 #endif
 
 #if !HAVE_FPARSELN || BROKEN_FPARSELN || defined(__NetBSD__) || defined(__minix)
