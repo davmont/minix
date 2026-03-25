@@ -57,16 +57,19 @@ __RCSID("$NetBSD: ar_io.c,v 1.59 2019/02/04 04:36:41 mrg Exp $");
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
 #ifdef SUPPORT_RMT
 #define __RMTLIB_PRIVATE
 #include <rmt.h>
 #endif /* SUPPORT_RMT */
+#include "pax.h"
 #include "extern.h"
 #include "options.h"
-#include "pax.h"
 
 /*
  * Routines which deal directly with the archive I/O device/file.

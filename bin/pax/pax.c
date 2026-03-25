@@ -108,7 +108,6 @@ int	to_stdout;		/* extract to stdout */
 char	*dirptr;		/* destination dir in a copy */
 char	*ltmfrmt;		/* -v locale time format (if any) */
 const char *argv0;		/* root of argv[0] */
-char	*chdname;		/* the dir to change to if not NULL. */
 sigset_t s_mask;		/* signal mask for cleanup critical sect */
 FILE	*listf;			/* file pointer to print file list to */
 char	*tempfile;		/* tempfile to use for mkstemp(3) */

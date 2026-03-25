@@ -185,7 +185,7 @@ miss(NODE *p, char *tail)
 			continue;
 		if (p->type != F_DIR && (dflag || p->flags & F_VISIT))
 			continue;
-		if (snprintf(tail, sizeof(path) - (tail - path), "%s", p->name) >=
+		if ((size_t)snprintf(tail, sizeof(path) - (tail - path), "%s", p->name) >=
 		    sizeof(path) - (tail - path))
 			mtree_err("Pathname too long.");
 		if (!(p->flags & F_VISIT)) {
