@@ -204,7 +204,7 @@ static int udf_do_newfs(void) {
 
 /* --------------------------------------------------------------------- */
 
-static void usage(void) {
+static void __attribute__ ((noreturn)) usage(void) {
   (void)fprintf(stderr,
                 "Usage: %s [-cFM] [-L loglabel] "
                 "[-P discid] [-S sectorsize] [-s size] [-p perc] "
