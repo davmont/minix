@@ -383,13 +383,13 @@ char *path;
   while (!last_in_path)
   {
     /* Get next name in path */ 
-    for (i = name_index; i < strlen(path); i++)
+    for (i = name_index; path[i] != '\0'; i++)
     {
       if (path[i] == '/') break;
       name[i - name_index] = path[i];
     }
     last_in_path = 
-           (i == strlen(path) || (i == strlen(path) - 1 && path[i] == '/'));
+           (path[i] == '\0' || (path[i] == '/' && path[i + 1] == '\0'));
     name[i-name_index] = '\0';
     name_index = i + 1;
    
