@@ -3298,8 +3298,8 @@ read_config_file(FILE *cf, struct filed **f_ptr)
 	f = NULL;
 	nextp = &f;
 
-	strcpy(prog, "*");
-	strcpy(host, "*");
+	(void)strlcpy(prog, "*", sizeof(prog));
+	(void)strlcpy(host, "*", sizeof(host));
 	while (fgets(cline, sizeof(cline), cf) != NULL) {
 		linenum++;
 		found_keyword = false;
@@ -3335,7 +3335,7 @@ read_config_file(FILE *cf, struct filed **f_ptr)
 			while (isspace((unsigned char)*p))
 				p++;
 			if (*p == '\0' || *p == '*') {
-				strcpy(host, "*");
+				(void)strlcpy(host, "*", sizeof(host));
 				continue;
 			}
 			/* the +hostname expression will continue
@@ -3362,7 +3362,7 @@ read_config_file(FILE *cf, struct filed **f_ptr)
 			while (isspace((unsigned char)*p))
 				p++;
 			if (*p == '\0' || *p == '*') {
-				strcpy(prog, "*");
+				(void)strlcpy(prog, "*", sizeof(prog));
 				continue;
 			}
 			for (i = 0; i < NAME_MAX; i++) {
