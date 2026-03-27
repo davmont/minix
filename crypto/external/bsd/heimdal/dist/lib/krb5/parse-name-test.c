@@ -82,6 +82,7 @@ main(int argc, char **argv)
     for (t = tests; t->input_string; ++t) {
 	krb5_principal princ;
 	int i, j;
+	size_t len;
 	char name_buf[1024];
 	char *s;
 
@@ -117,7 +118,8 @@ main(int argc, char **argv)
 		}
 	    }
 	}
-	for (j = 0; j < strlen(t->output_string); ++j) {
+	len = strlen(t->output_string);
+	for (j = 0; j < len; ++j) {
 	    ret = krb5_unparse_name_fixed(context, princ,
 					  name_buf, j);
 	    if (ret != ERANGE) {
@@ -152,7 +154,8 @@ main(int argc, char **argv)
 	free(s);
 
 	if (!t->realmp) {
-	    for (j = 0; j < strlen(t->input_string); ++j) {
+	    len = strlen(t->input_string);
+	    for (j = 0; j < len; ++j) {
 		ret = krb5_unparse_name_fixed_short(context, princ,
 						    name_buf, j);
 		if (ret != ERANGE) {
