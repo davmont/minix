@@ -96,7 +96,7 @@ __parse_cap (char const *cap, ...)
 		int	i;
 		
 		__CTRACE(__CTRACE_MISC, "__parse_cap: cap = ");
-		for (i = 0; i < strlen(cap); i++)
+		for (i = 0; cap[i] != '\0'; i++)
 			__CTRACE(__CTRACE_MISC, "%s", unctrl(cap[i]));
 		__CTRACE(__CTRACE_MISC, "\n");
 	}
