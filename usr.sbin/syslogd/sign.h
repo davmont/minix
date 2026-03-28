@@ -60,6 +60,9 @@
  */
 #define SIGN_SG 3
 
+/* Base64 length calculation macro */
+#define B64_LEN(n) (((n) + 2) / 3 * 4 + 1)
+
 /* maximum value for several counters in -sign */
 #define SIGN_MAX_COUNT	9999999999
 
