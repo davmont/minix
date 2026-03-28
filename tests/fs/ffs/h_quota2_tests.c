@@ -36,7 +36,7 @@ quota_test0(const char *testopts)
 	int error;
 	unsigned int i;
 	int chowner = 1;
-	for (i =0; testopts && testopts[i] != '\0'; i++) {
+	for (i = 0; testopts && testopts[i] != '\0'; i++) {
 		switch(testopts[i]) {
 		case 'C':
 			chowner = 0;
@@ -223,7 +223,7 @@ quota_test4(const char *testopts)
 	rump_sys_chown(".", 0, 0);
 	rump_sys_chmod(".", 0777);
 
-	for (i =0; testopts && testopts[i] != '\0'; i++) {
+	for (i = 0; testopts && testopts[i] != '\0'; i++) {
 		switch(testopts[i]) {
 		case 'L':
 			unl++;
@@ -283,7 +283,7 @@ quota_test5(const char *testopts)
 	int log = 0;
 	unsigned int i;
 
-	for (i =0; testopts && testopts[i] != '\0'; i++) {
+	for (i = 0; testopts && testopts[i] != '\0'; i++) {
 		switch(testopts[i]) {
 		case 'L':
 			log++;
