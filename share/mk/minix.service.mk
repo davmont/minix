@@ -30,15 +30,9 @@ LDADD+= -lminc
 DPADD+= ${LIBMINC}
 .endif # empty(${LDADD:M-lc})
 
-.if ${MACHINE_ARCH} == "earm"
-
-# LSC: On ARM, when compiling statically, with gcc, lgcc_eh is required
-.if ${PROG:U} != "kernel" && !empty(CC:M*gcc)
-# gcc_eh uses abort(), which is provided by minc
-LDFLAGS+= ${${ACTIVE_CC} == "gcc":? -lgcc_eh:}
-.endif # ${PROG:U} != "kernel" && !empty(CC:M*gcc)
-
-.endif # ${MACHINE_ARCH} == "earm"
+.if ${PROG:U} != "kernel"
+LDADD+= -lgcc_eh
+.endif # ${PROG:U} != "kernel"
 
 # Get (more) internal minix definitions and declarations.
 CPPFLAGS += -D_MINIX_SYSTEM=1

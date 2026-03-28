@@ -15,7 +15,4 @@ CPPFLAGS+= -I${MOUNT} -I${KUDF} -I${NETBSDSRCDIR}/sys
 DPADD+=${LIBUTIL}
 LDADD+=-lutil -lprop
 
-CWARNFLAGS.clang+=	-Wno-error=address-of-packed-member
-CWARNFLAGS.gcc+=	${GCC_NO_ADDR_OF_PACKED_MEMBER}
-
 .include <bsd.prog.mk>

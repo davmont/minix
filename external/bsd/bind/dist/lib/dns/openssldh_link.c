@@ -610,10 +610,12 @@ BN_fromhex(BIGNUM *b, const char *str) {
 	static const char hexdigits[] = "0123456789abcdef";
 	unsigned char data[512];
 	unsigned int i;
+	unsigned int len;
 	BIGNUM *out;
 
-	RUNTIME_CHECK(strlen(str) < 1024U && strlen(str) % 2 == 0U);
-	for (i = 0; i < strlen(str); i += 2) {
+	len = strlen(str);
+	RUNTIME_CHECK(len < 1024U && len % 2 == 0U);
+	for (i = 0; i < len; i += 2) {
 		char *s;
 		unsigned int high, low;
 
@@ -627,7 +629,7 @@ BN_fromhex(BIGNUM *b, const char *str) {
 
 		data[i/2] = (unsigned char)((high << 4) + low);
 	}
-	out = BN_bin2bn(data, strlen(str)/2, b);
+	out = BN_bin2bn(data, len/2, b);
 	RUNTIME_CHECK(out != NULL);
 }
 

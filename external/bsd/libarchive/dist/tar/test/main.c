@@ -1915,9 +1915,11 @@ get_refdir(const char *d)
 
 	/* Get the current dir. */
 	pwd = getcwd(NULL, 0);
-	len = strlen(pwd);
-	while (len > 0 && pwd[len - 1] == '\n')
-		pwd[--len] = '\0';
+	if (pwd != NULL) {
+		size_t pwd_len = strlen(pwd);
+		while (pwd_len > 0 && pwd[pwd_len - 1] == '\n')
+			pwd[--pwd_len] = '\0';
+	}
 
 	/* Look for a known file. */
 	snprintf(buff, sizeof(buff), "%s", pwd);

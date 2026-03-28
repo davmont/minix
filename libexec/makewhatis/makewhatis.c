@@ -107,6 +107,7 @@ static void processmanpages(manpage **, whatis **);
 static void dumpwhatis(FILE *, whatis *);
 static int makewhatis(char *const *manpath);
 
+
 static char *const default_manpath[] = {
 #if defined(__minix)
     "/usr/man",
@@ -599,6 +600,7 @@ static char *parsecatpage(const char *name, gzFile in) {
   char *section, *ptr, *last;
   size_t size;
 
+
   do {
     if (GetS(in, buffer, sizeof(buffer)) == NULL)
       return NULL;
@@ -739,6 +741,7 @@ static char *nroff(const char *inname, gzFile in) {
   int tempfd, bytes, pipefd[2], status;
   static int devnull = -1;
   pid_t child;
+
 
   if (gzrewind(in) < 0)
     err(EXIT_FAILURE, "Cannot rewind pipe");

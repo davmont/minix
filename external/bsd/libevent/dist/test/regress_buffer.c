@@ -987,11 +987,13 @@ test_evbuffer_iterative(void *ptr)
 	struct evbuffer *buf = evbuffer_new();
 	const char *abc = "abcdefghijklmnopqrstvuwxyzabcdefghijklmnopqrstvuwxyzabcdefghijklmnopqrstvuwxyzabcdefghijklmnopqrstvuwxyz";
 	unsigned i, j, sum, n;
+	size_t abc_len;
 
 	sum = 0;
 	n = 0;
+	abc_len = strlen(abc);
 	for (i = 0; i < 1000; ++i) {
-		for (j = 1; j < strlen(abc); ++j) {
+		for (j = 1; j < abc_len; ++j) {
 			char format[32];
 			evutil_snprintf(format, sizeof(format), "%%%u.%us", j, j);
 			evbuffer_add_printf(buf, fmtcheck(format, "%s"), abc);

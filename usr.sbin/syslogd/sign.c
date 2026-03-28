@@ -206,7 +206,7 @@ sign_get_keys(void)
 			/* base64 certificate encoding */
 			der_len = i2d_X509(cert, NULL);
 			if (!(ptr_der_pubkey = der_pubkey = malloc(der_len))
-			    || !(pubkey_b64 = malloc(der_len*2))) {
+			    || !(pubkey_b64 = malloc(B64_LEN(der_len)))) {
 				free(der_pubkey);
 				logerror("malloc() failed");
 				return false;
@@ -215,7 +215,7 @@ sign_get_keys(void)
 				logerror("i2d_X509() failed");
 				return false;
 			}
-			b64_ntop(der_pubkey, der_len, pubkey_b64, der_len*2);
+			b64_ntop(der_pubkey, der_len, pubkey_b64, B64_LEN(der_len));
 			free(der_pubkey);
 			/* try to resize memory object as needed */
 			GlobalSign.pubkey_b64 = realloc(pubkey_b64,
@@ -251,7 +251,7 @@ sign_get_keys(void)
 		/* pubkey base64 encoding */
 		der_len = i2d_DSA_PUBKEY(dsa, NULL);
 		if (!(ptr_der_pubkey = der_pubkey = malloc(der_len))
-		 || !(pubkey_b64 = malloc(der_len*2))) {
+		 || !(pubkey_b64 = malloc(B64_LEN(der_len)))) {
 			free(der_pubkey);
 			logerror("malloc() failed");
 			return false;
@@ -262,7 +262,7 @@ sign_get_keys(void)
 			free(pubkey_b64);
 			return false;
 		}
-		b64_ntop(der_pubkey, der_len, pubkey_b64, der_len*2);
+		b64_ntop(der_pubkey, der_len, pubkey_b64, B64_LEN(der_len));
 		free(der_pubkey);
 		/* try to resize memory object as needed */
 		GlobalSign.pubkey_b64 = realloc(pubkey_b64,
@@ -739,8 +739,7 @@ bool
 sign_msg_hash(char *line, char **hash)
 {
 	unsigned char md_value[EVP_MAX_MD_SIZE];
-	unsigned char md_b64[EVP_MAX_MD_SIZE*2];
-	/* TODO: exact expression for b64 length? */
+	unsigned char md_b64[B64_LEN(EVP_MAX_MD_SIZE)];
 	unsigned md_len = 0;
 
 	DPRINTF((D_CALL|D_SIGN), "sign_msg_hash('%s')\n", line);
@@ -749,7 +748,7 @@ sign_msg_hash(char *line, char **hash)
 	SSL_CHECK_ONE(EVP_DigestUpdate(GlobalSign.mdctx, line, strlen(line)));
 	SSL_CHECK_ONE(EVP_DigestFinal_ex(GlobalSign.mdctx, md_value, &md_len));
 
-	b64_ntop(md_value, md_len, (char *)md_b64, EVP_MAX_MD_SIZE*2);
+	b64_ntop(md_value, md_len, (char *)md_b64, sizeof(md_b64));
 	*hash = strdup((char *)md_b64);
 
 	DPRINTF((D_CALL|D_SIGN), "sign_msg_hash() --> \"%s\"\n", *hash);

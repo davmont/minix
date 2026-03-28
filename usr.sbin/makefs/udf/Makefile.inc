@@ -15,6 +15,3 @@ SRCS += udf_create.c udf_write.c udf_osta.c
 DPADD+=${LIBUTIL}
 LDADD+=-lutil -lprop
 .endif
-
-CWARNFLAGS.clang+=	-Wno-error=address-of-packed-member -Wno-error=constant-conversion
-CWARNFLAGS.gcc+=	${GCC_NO_ADDR_OF_PACKED_MEMBER}

@@ -663,9 +663,7 @@ LDLIBC ?= -nodefaultlibs
 LDADD+= -lgcc
 .else
 LDADD+= ${${ACTIVE_CC} == "gcc":? -lgcc:}
-.if ${MACHINE_ARCH} == "earm"
-LDADD+= ${${ACTIVE_CC} == "gcc":? -lgcc_eh:}
-.endif # ${MACHINE_ARCH} == "earm"
+LDADD+= -lgcc_eh
 .endif # !defined(__MINIX)
 .endif
 .endif
