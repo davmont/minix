@@ -1794,6 +1794,7 @@ get_refdir(const char *d)
 	char tried[512] = { '\0' };
 	char buff[128];
 	char *pwd, *p;
+	size_t len;
 
 	/* If a dir was specified, try that */
 	if (d != NULL) {
@@ -1808,8 +1809,9 @@ get_refdir(const char *d)
 
 	/* Get the current dir. */
 	pwd = getcwd(NULL, 0);
-	while (pwd[strlen(pwd) - 1] == '\n')
-		pwd[strlen(pwd) - 1] = '\0';
+	len = strlen(pwd);
+	while (len > 0 && pwd[len - 1] == '\n')
+		pwd[--len] = '\0';
 
 	/* Look for a known file. */
 	snprintf(buff, sizeof(buff), "%s", pwd);
