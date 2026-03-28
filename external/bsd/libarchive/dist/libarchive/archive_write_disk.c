@@ -872,11 +872,13 @@ edit_deep_directories(struct archive_write_disk *a)
 {
 	int ret;
 	char *tail = a->name;
+	size_t tail_len;
 
 	a->restore_pwd = -1;
 
 	/* If path is short, avoid the open() below. */
-	if (strlen(tail) <= PATH_MAX)
+	tail_len = strlen(tail);
+	if (tail_len <= PATH_MAX)
 		return;
 
 	/* Try to record our starting dir. */
@@ -885,7 +887,7 @@ edit_deep_directories(struct archive_write_disk *a)
 		return;
 
 	/* As long as the path is too long... */
-	while (strlen(tail) > PATH_MAX) {
+	while (tail_len > PATH_MAX) {
 		/* Locate a dir prefix shorter than PATH_MAX. */
 		tail += PATH_MAX - 8;
 		while (tail > a->name && *tail != '/')
@@ -902,6 +904,7 @@ edit_deep_directories(struct archive_write_disk *a)
 		if (ret != ARCHIVE_OK)
 			return;
 		tail++;
+		tail_len -= tail - a->name;
 		/* The chdir() succeeded; we've now shortened the path. */
 		a->name = tail;
 	}
