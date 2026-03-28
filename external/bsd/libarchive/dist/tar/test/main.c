@@ -1900,6 +1900,7 @@ get_refdir(const char *d)
 	char tried[512] = { '\0' };
 	char buff[128];
 	char *pwd, *p;
+	size_t len;
 
 	/* If a dir was specified, try that */
 	if (d != NULL) {
