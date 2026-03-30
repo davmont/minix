@@ -47,7 +47,7 @@ HOST_CPPFLAGS+=	-I. -I./include -I./include/sys -I${.CURDIR} -I${.CURDIR}/sys \
 HOST_CFLAGS+=	-Wno-error=implicit-function-declaration \
 		-Wno-error=int-conversion \
 		-Wno-error=implicit-int \
-		-Wno-error=return-mismatch \
+		 \
 		-Wno-error=incompatible-pointer-types
 
 .PATH:		${.CURDIR}/../../lib/libc/cdb \
