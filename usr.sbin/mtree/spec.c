@@ -208,7 +208,7 @@ noparent:		mtree_err("no parent node");
 			mtree_err("%s", strerror(errno));
 		*centry = ginfo;
 		centry->lineno = mtree_lineno;
-		strcpy(centry->name, p);
+		(void)strlcpy(centry->name, p, strlen(p) + 1);
 #define	MAGIC	"?*["
 		if (strpbrk(p, MAGIC))
 			centry->flags |= F_MAGIC;
