@@ -638,7 +638,8 @@ static void device_disconnect_callback(struct ddekit_usb_dev * dev)
 	dudev = ddekit_usb_dev_get_data(dev);
 
 	if (dudev == NULL) {
-		/* TODO: error */
+		ddekit_printf("ddekit_usb_dev_get_data(dev) failed\n");
+		return;
 	}
 
 	devman_usb_device_remove(dudev);
