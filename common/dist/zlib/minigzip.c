@@ -200,8 +200,7 @@ void file_compress(file, mode)
     FILE  *in;
     gzFile out;
 
-    strcpy(outfile, file);
-    strcat(outfile, GZ_SUFFIX);
+    snprintf(outfile, sizeof(outfile), "%s%s", file, GZ_SUFFIX);
 
     in = fopen(file, "rb");
     if (in == NULL) {
@@ -231,7 +230,7 @@ void file_uncompress(file)
     gzFile in;
     uInt len = (uInt)strlen(file);
 
-    strcpy(buf, file);
+    snprintf(buf, sizeof(buf), "%s", file);
 
     if (len > SUFFIX_LEN && strcmp(file+len-SUFFIX_LEN, GZ_SUFFIX) == 0) {
         infile = file;
@@ -240,7 +239,7 @@ void file_uncompress(file)
     } else {
         outfile = file;
         infile = buf;
-        strcat(infile, GZ_SUFFIX);
+        snprintf(buf, sizeof(buf), "%s%s", file, GZ_SUFFIX);
     }
     in = gzopen(infile, "rb");
     if (in == NULL) {
@@ -276,7 +275,7 @@ int main(argc, argv)
     gzFile file;
     char outmode[20];
 
-    strcpy(outmode, "wb6 ");
+    snprintf(outmode, sizeof(outmode), "wb6 ");
 
     prog = argv[0];
     argc--, argv++;
