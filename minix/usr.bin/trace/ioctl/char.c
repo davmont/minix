@@ -22,7 +22,7 @@ char_ioctl_name(unsigned long req)
 	NAME(MINIX_I2C_IOCTL_EXEC);
 	NAME(FBIOGET_VSCREENINFO);
 	NAME(FBIOPUT_VSCREENINFO);
-	NAME(FBIOGET_FSCREENINFO);
+	NAME(FBIOGET_FSCREENINFO);	/* TODO: print argument */
 	NAME(FBIOPAN_DISPLAY);
 	NAME(DSPIORATE);
 	NAME(DSPIOSTEREO);
@@ -83,10 +83,10 @@ char_ioctl_name(unsigned long req)
 	NAME(TIOCDRAIN);		/* no argument */
 	NAME(TIOCGFLAGS);
 	NAME(TIOCSFLAGS);
-	NAME(TIOCDCDTIMESTAMP);
+	NAME(TIOCDCDTIMESTAMP);		/* TODO: print argument */
 	NAME(TIOCRCVFRAME);		/* TODO: print argument */
 	NAME(TIOCXMTFRAME);		/* TODO: print argument */
-	NAME(TIOCPTMGET);
+	NAME(TIOCPTMGET);		/* TODO: print argument */
 	NAME(TIOCGRANTPT);		/* no argument */
 	NAME(TIOCPTSNAME);
 	NAME(TIOCSQSIZE);
@@ -107,41 +107,6 @@ char_ioctl_name(unsigned long req)
 	}
 
 	return NULL;
-}
-
-static void
-put_fb_fix_screeninfo(struct trace_proc * proc, const char * name, int flags,
-	vir_bytes addr)
-{
-	struct fb_fix_screeninfo fbfs;
-
-	if (!put_open_struct(proc, name, flags, addr, &fbfs, sizeof(fbfs)))
-		return;
-
-	put_buf(proc, "id", PF_LOCADDR | PF_STRING, (vir_bytes)fbfs.id,
-	    sizeof(fbfs.id));
-	put_value(proc, "line_length", "%"PRIu32, fbfs.line_length);
-
-	put_close_struct(proc, TRUE);
-}
-
-static void
-put_ptmget(struct trace_proc * proc, const char * name, int flags,
-	vir_bytes addr)
-{
-	struct ptmget pm;
-
-	if (!put_open_struct(proc, name, flags, addr, &pm, sizeof(pm)))
-		return;
-
-	put_fd(proc, "cfd", pm.cfd);
-	put_fd(proc, "sfd", pm.sfd);
-	put_buf(proc, "cn", PF_LOCADDR | PF_STRING, (vir_bytes)pm.cn,
-	    sizeof(pm.cn));
-	put_buf(proc, "sn", PF_LOCADDR | PF_STRING, (vir_bytes)pm.sn,
-	    sizeof(pm.sn));
-
-	put_close_struct(proc, TRUE);
 }
 
 static void
@@ -306,9 +271,7 @@ static const struct flags modem_flags[] = {
 	FLAG(TIOCM_ST),
 	FLAG(TIOCM_SR),
 	FLAG(TIOCM_CTS),
-	FLAG(TIOCM_CAR),
 	FLAG(TIOCM_CD),
-	FLAG(TIOCM_RNG),
 	FLAG(TIOCM_RI),
 	FLAG(TIOCM_DSR),
 };
@@ -361,14 +324,7 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 		put_value(proc, "yoffset", "%"PRIu32, fbvs->yoffset);
 		put_value(proc, "bits_per_pixel", "%"PRIu32,
 		    fbvs->bits_per_pixel);
-		return IF_ALL;
-
-	case FBIOGET_FSCREENINFO:
-		if (ptr == NULL)
-			return IF_IN;
-
-		put_fb_fix_screeninfo(proc, NULL, PF_LOCADDR, (vir_bytes)ptr);
-		return IF_ALL;
+		return 0;
 
 	case FBIOPUT_VSCREENINFO:
 	case FBIOPAN_DISPLAY:
@@ -516,19 +472,12 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 		put_value(proc, NULL, "%d", *(int *)ptr);
 		return IF_ALL;
 
-	case TIOCPTMGET:
 	case TIOCPTSNAME:
-		if (ptr == NULL)
+		if ((pm = (struct ptmget *)ptr) == NULL)
 			return IF_IN;
 
-		put_ptmget(proc, NULL, PF_LOCADDR, (vir_bytes)ptr);
-		return IF_ALL;
-
-	case TIOCDCDTIMESTAMP:
-		if (ptr == NULL)
-			return IF_IN;
-
-		put_struct_timeval(proc, NULL, PF_LOCADDR, (vir_bytes)ptr);
+		put_buf(proc, "sn", PF_LOCADDR | PF_STRING, (vir_bytes)pm->sn,
+		    sizeof(pm->sn));
 		return IF_ALL;
 
 	case TIOCSTI:
