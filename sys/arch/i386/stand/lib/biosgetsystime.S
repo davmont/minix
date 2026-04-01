@@ -45,9 +45,9 @@ ENTRY(biosgetsystime)
 	calll	_C_LABEL(real_to_prot) # back to protected mode
 	.code32
 
-	mov	%ecx, %eax
-	shl	$16, %eax
-	movw	%dx, %ax
+	movzwl	%cx, %eax	# Zero-extend CX to EAX
+	shl	$16, %eax	# Shift left 16 bits
+	movw	%dx, %ax	# Combine with DX (lower 16 bits)
 	movl	%eax, 28(%esp)
 
 	popa
