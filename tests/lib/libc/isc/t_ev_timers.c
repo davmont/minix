@@ -145,6 +145,36 @@ ATF_TC_BODY(evConsTime_basic, tc)
 	ATF_CHECK_EQ(ts.tv_nsec, 456);
 }
 
+ATF_TC(evConsTime_zero);
+ATF_TC_HEAD(evConsTime_zero, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evConsTime(3) with zero values");
+}
+
+ATF_TC_BODY(evConsTime_zero, tc)
+{
+	struct timespec ts;
+
+	ts = evConsTime(0, 0);
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evConsTime_negative);
+ATF_TC_HEAD(evConsTime_negative, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evConsTime(3) with negative values");
+}
+
+ATF_TC_BODY(evConsTime_negative, tc)
+{
+	struct timespec ts;
+
+	ts = evConsTime(-1, -500000000);
+	ATF_CHECK_EQ(ts.tv_sec, -1);
+	ATF_CHECK_EQ(ts.tv_nsec, -500000000);
+}
+
 ATF_TC(evAddTime_basic);
 ATF_TC_HEAD(evAddTime_basic, tc)
 {
@@ -215,6 +245,8 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, evTimeVal_basic);
 	ATF_TP_ADD_TC(tp, evTimeVal_zero);
 	ATF_TP_ADD_TC(tp, evConsTime_basic);
+	ATF_TP_ADD_TC(tp, evConsTime_zero);
+	ATF_TP_ADD_TC(tp, evConsTime_negative);
 	ATF_TP_ADD_TC(tp, evAddTime_basic);
 	ATF_TP_ADD_TC(tp, evSubTime_basic);
 	ATF_TP_ADD_TC(tp, evCmpTime_basic);
