@@ -207,6 +207,24 @@ ATF_TC_BODY(evCmpTime_basic, tc)
 	ATF_CHECK(evCmpTime(t2, t1) < 0);
 }
 
+ATF_TC(evUTCTime_basic);
+ATF_TC_HEAD(evUTCTime_basic, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evUTCTime(3) returns a valid time");
+}
+
+ATF_TC_BODY(evUTCTime_basic, tc)
+{
+	struct timespec ts;
+
+	ts = evUTCTime();
+
+	/* UTC time should be greater than 0 */
+	ATF_CHECK(ts.tv_sec > 0);
+	/* Nanoseconds should be between 0 and 999999999 */
+	ATF_CHECK(ts.tv_nsec >= 0 && ts.tv_nsec < 1000000000);
+}
+
 ATF_TP_ADD_TCS(tp)
 {
 	ATF_TP_ADD_TC(tp, evTimeSpec_basic);
@@ -218,6 +236,7 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, evAddTime_basic);
 	ATF_TP_ADD_TC(tp, evSubTime_basic);
 	ATF_TP_ADD_TC(tp, evCmpTime_basic);
+	ATF_TP_ADD_TC(tp, evUTCTime_basic);
 
 	return atf_no_error();
 }
