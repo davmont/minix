@@ -66,10 +66,10 @@ char_ioctl_name(unsigned long req)
 	NAME(TIOCPKT);
 	NAME(TIOCSTOP);			/* no argument */
 	NAME(TIOCSTART);		/* no argument */
-	NAME(TIOCMSET);			/* TODO: print argument */
-	NAME(TIOCMBIS);			/* TODO: print argument */
-	NAME(TIOCMBIC);			/* TODO: print argument */
-	NAME(TIOCMGET);			/* TODO: print argument */
+	NAME(TIOCMSET);
+	NAME(TIOCMBIS);
+	NAME(TIOCMBIC);
+	NAME(TIOCMGET);
 	NAME(TIOCREMOTE);
 	NAME(TIOCGWINSZ);
 	NAME(TIOCSWINSZ);
@@ -81,14 +81,14 @@ char_ioctl_name(unsigned long req)
 	NAME(TIOCEXT);
 	NAME(TIOCSIG);			/* no argument */
 	NAME(TIOCDRAIN);		/* no argument */
-	NAME(TIOCGFLAGS);		/* TODO: print argument */
-	NAME(TIOCSFLAGS);		/* TODO: print argument */
+	NAME(TIOCGFLAGS);
+	NAME(TIOCSFLAGS);
 	NAME(TIOCDCDTIMESTAMP);		/* TODO: print argument */
 	NAME(TIOCRCVFRAME);		/* TODO: print argument */
 	NAME(TIOCXMTFRAME);		/* TODO: print argument */
 	NAME(TIOCPTMGET);		/* TODO: print argument */
 	NAME(TIOCGRANTPT);		/* no argument */
-	NAME(TIOCPTSNAME);		/* TODO: print argument */
+	NAME(TIOCPTSNAME);
 	NAME(TIOCSQSIZE);
 	NAME(TIOCGQSIZE);
 	NAME(TIOCSFON);			/* big IOCTL, not printing argument */
@@ -262,6 +262,26 @@ static const struct flags kbd_leds[] = {
 	FLAG(KBD_LEDS_NUM),
 	FLAG(KBD_LEDS_CAPS),
 	FLAG(KBD_LEDS_SCROLL),
+};
+
+static const struct flags modem_flags[] = {
+	FLAG(TIOCM_LE),
+	FLAG(TIOCM_DTR),
+	FLAG(TIOCM_RTS),
+	FLAG(TIOCM_ST),
+	FLAG(TIOCM_SR),
+	FLAG(TIOCM_CTS),
+	FLAG(TIOCM_CD),
+	FLAG(TIOCM_RI),
+	FLAG(TIOCM_DSR),
+};
+
+static const struct flags tty_flags[] = {
+	FLAG(TIOCFLAG_SOFTCAR),
+	FLAG(TIOCFLAG_CLOCAL),
+	FLAG(TIOCFLAG_CRTSCTS),
+	FLAG(TIOCFLAG_MDMBUF),
+	FLAG(TIOCFLAG_CDTRCTS),
 };
 
 int
@@ -469,6 +489,26 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 			    get_escape(*(char *)ptr));
 		else
 			put_value(proc, NULL, "%u", *(char *)ptr);
+		return IF_ALL;
+
+	case TIOCMSET:
+	case TIOCMBIS:
+	case TIOCMBIC:
+	case TIOCMGET:
+		if (ptr == NULL)
+			return (req == TIOCMGET) ? IF_IN : IF_OUT;
+
+		put_flags(proc, NULL, modem_flags, COUNT(modem_flags), "0x%x",
+		    *(int *)ptr);
+		return IF_ALL;
+
+	case TIOCGFLAGS:
+	case TIOCSFLAGS:
+		if (ptr == NULL)
+			return (req == TIOCGFLAGS) ? IF_IN : IF_OUT;
+
+		put_flags(proc, NULL, tty_flags, COUNT(tty_flags), "0x%x",
+		    *(int *)ptr);
 		return IF_ALL;
 
 	case TIOCGWINSZ:
