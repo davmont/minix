@@ -1,8 +1,0 @@
-{
-    "chat.tools.terminal.autoApprove": {
-        "/^sh build\\.sh -mi386 -O \\.\\./build -U distribution 2>&1 \\| head -100$/": {
-            "approve": true,
-            "matchCommandLine": true
-        }
-    }
-}
