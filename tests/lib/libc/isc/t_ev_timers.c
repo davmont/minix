@@ -255,6 +255,66 @@ ATF_TC_BODY(evSubTime_basic, tc)
 	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
 }
 
+ATF_TC(evSubTime_noborrow);
+ATF_TC_HEAD(evSubTime_noborrow, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with no borrow needed");
+}
+
+ATF_TC_BODY(evSubTime_noborrow, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 4;
+	t1.tv_nsec = 600000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 100000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 2);
+	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
+}
+
+ATF_TC(evSubTime_equal);
+ATF_TC_HEAD(evSubTime_equal, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with equal arguments");
+}
+
+ATF_TC_BODY(evSubTime_equal, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 4;
+	t1.tv_nsec = 100000000;
+	t2.tv_sec = 4;
+	t2.tv_nsec = 100000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evSubTime_negative);
+ATF_TC_HEAD(evSubTime_negative, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with negative result");
+}
+
+ATF_TC_BODY(evSubTime_negative, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 1;
+	t1.tv_nsec = 100000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 600000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, -2);
+	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
+}
+
 ATF_TC(evCmpTime_basic);
 ATF_TC_HEAD(evCmpTime_basic, tc)
 {
@@ -291,6 +351,9 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, evAddTime_zero);
 	ATF_TP_ADD_TC(tp, evAddTime_nsec_overflow);
 	ATF_TP_ADD_TC(tp, evSubTime_basic);
+	ATF_TP_ADD_TC(tp, evSubTime_noborrow);
+	ATF_TP_ADD_TC(tp, evSubTime_equal);
+	ATF_TP_ADD_TC(tp, evSubTime_negative);
 	ATF_TP_ADD_TC(tp, evCmpTime_basic);
 
 	return atf_no_error();
