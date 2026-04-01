@@ -67,11 +67,12 @@ int
 main(int argc, char ** volatile argv)
 {
 	int pid;
-	int ch, status, prec;
+	int ch, status;
+	int volatile prec;
 	int volatile portableflag;
 	int volatile lflag;
 	const char *decpt;
-	const char *fmt;
+	const char * volatile fmt;
 	const struct lconv *lconv;
 	struct timespec before, after;
 	struct rusage ru;

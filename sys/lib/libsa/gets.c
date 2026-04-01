@@ -85,3 +85,58 @@ gets(char *buf)
 	}
 	/*NOTREACHED*/
 }
+
+void
+kgets(char *buf, size_t size)
+{
+	int c;
+	char *lp;
+
+	for (lp = buf;;) {
+		switch (c = getchar() & 0177) {
+		case '\n':
+		case '\r':
+			*lp = '\0';
+			putchar('\n');
+			return;
+		case '\b':
+		case '\177':
+			if (lp > buf) {
+				lp--;
+				putchar('\b');
+				putchar(' ');
+				putchar('\b');
+			}
+			break;
+#if HASH_ERASE
+		case '#':
+			if (lp > buf)
+				--lp;
+			break;
+#endif
+		case 'r' & 037: {
+			char *p;
+
+			putchar('\n');
+			for (p = buf; p < lp; ++p)
+				putchar(*p);
+			break;
+		}
+#if AT_ERASE
+		case '@':
+#endif
+		case 'u' & 037:
+		case 'w' & 037:
+			lp = buf;
+			putchar('\n');
+			break;
+		default:
+			if ((size_t)(lp - buf) < size - 1) {
+				*lp++ = c;
+				putchar(c);
+			}
+			break;
+		}
+	}
+	/*NOTREACHED*/
+}

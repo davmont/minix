@@ -237,8 +237,8 @@ static int fxp_probe(fxp_t *fp, int skip)
 	u16_t vid, did, cr;
 	u32_t bar;
 	u8_t ilr, rev;
-	const char *str;
 #if VERBOSE
+	const char *str;
 	const char *dname;
 #endif
 
@@ -283,51 +283,108 @@ static int fxp_probe(fxp_t *fp, int skip)
 #endif
 
 	rev= pci_attr_r8(devind, PCI_REV);
+#if VERBOSE
 	str= NULL;
+#endif
 	fp->fxp_type= FT_UNKNOWN;
 	switch(rev)
 	{
-	case FXP_REV_82557A:	str= "82557A";			/* 0x01 */
+	case FXP_REV_82557A:	
+#if VERBOSE
+				str= "82557A";
+#endif
 				fp->fxp_type= FT_82557;
 				break;
-	case FXP_REV_82557B:	str= "82557B"; break;		/* 0x02 */
-	case FXP_REV_82557C:	str= "82557C"; break;		/* 0x03 */
-	case FXP_REV_82558A:	str= "82558A"; 			/* 0x04 */
+	case FXP_REV_82557B:	
+#if VERBOSE
+				str= "82557B";
+#endif
+				break;
+	case FXP_REV_82557C:	
+#if VERBOSE
+				str= "82557C";
+#endif
+				break;
+	case FXP_REV_82558A:	
+#if VERBOSE
+				str= "82558A";
+#endif
 				fp->fxp_type= FT_82558A;
 				break;
-	case FXP_REV_82558B:	str= "82558B"; 			/* 0x05 */
+	case FXP_REV_82558B:	
+#if VERBOSE
+				str= "82558B";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82559A:	str= "82559A"; break;		/* 0x06 */
-	case FXP_REV_82559B:	str= "82559B"; break;		/* 0x07 */
-	case FXP_REV_82559C:	str= "82559C";			/* 0x08 */
+	case FXP_REV_82559A:	
+#if VERBOSE
+				str= "82559A";
+#endif
+				break;
+	case FXP_REV_82559B:	
+#if VERBOSE
+				str= "82559B";
+#endif
+				break;
+	case FXP_REV_82559C:	
+#if VERBOSE
+				str= "82559C";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82559ERA:	str= "82559ER-A"; 		/* 0x09 */
+	case FXP_REV_82559ERA:	
+#if VERBOSE
+				str= "82559ER-A";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82550_1:	str= "82550(1)"; 		/* 0x0C */
+	case FXP_REV_82550_1:	
+#if VERBOSE
+				str= "82550(1)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82550_2:	str= "82550(2)"; 		/* 0x0D */
+	case FXP_REV_82550_2:	
+#if VERBOSE
+				str= "82550(2)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82550_3:	str= "82550(3)"; 		/* 0x0E */
+	case FXP_REV_82550_3:	
+#if VERBOSE
+				str= "82550(3)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82551_1:	str= "82551(1)"; 		/* 0x0F */
+	case FXP_REV_82551_1:	
+#if VERBOSE
+				str= "82551(1)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82551_2:	str= "82551(2)"; 		/* 0x10 */
+	case FXP_REV_82551_2:	
+#if VERBOSE
+				str= "82551(2)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
-	case FXP_REV_82801CAM:	str= "82801CAM"; 		/* 0x42 */
+	case FXP_REV_82801CAM:	
+#if VERBOSE
+				str= "82801CAM";
+#endif
 				fp->fxp_type= FT_82801;
 				break;
-	case FXP_REV_82801DB:	str= "82801DB"; 		/* 0x81 */
+	case FXP_REV_82801DB:	
+#if VERBOSE
+				str= "82801DB";
+#endif
 				fp->fxp_type= FT_82801;
 				break;
-	case FXP_REV_82550_4:	str= "82550(4)"; 		/* 0x83 */
+	case FXP_REV_82550_4:	
+#if VERBOSE
+				str= "82550(4)";
+#endif
 				fp->fxp_type= FT_82559;
 				break;
 	}
@@ -494,8 +551,7 @@ static void fxp_init_hw(fxp_t *fp, netdriver_addr_t *addr,
 /*===========================================================================*
  *				fxp_init_buf				     *
  *===========================================================================*/
-static void fxp_init_buf(fp)
-fxp_t *fp;
+static void fxp_init_buf(fxp_t *fp)
 {
 	size_t rx_totbufsize, tx_totbufsize, tot_bufsize, alloc_bufsize;
 	char *alloc_buf;
@@ -597,8 +653,7 @@ fxp_t *fp;
 /*===========================================================================*
  *				fxp_reset_hw				     *
  *===========================================================================*/
-static void fxp_reset_hw(fp)
-fxp_t *fp;
+static void fxp_reset_hw(fxp_t *fp)
 {
 /* Inline the function in init? */
 	port_t port;
@@ -820,7 +875,6 @@ static void fxp_check_restart(fxp_t *fp)
 static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 {
 	int fxp_rx_head, fxp_rx_nbuf;
-	port_t port;
 	unsigned packlen;
 	u16_t rfd_status;
 	u16_t rfd_res;
@@ -828,8 +882,6 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 	struct rfd *rfdp, *prev_rfdp;
 
 	fp= fxp_state;
-
-	port= fp->fxp_base_port;
 
 	fxp_rx_head= fp->fxp_rx_head;
 	rfdp= &fp->fxp_rx_buf[fxp_rx_head];
@@ -895,8 +947,7 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 /*===========================================================================*
  *				fxp_do_conf				     *
  *===========================================================================*/
-static void fxp_do_conf(fp)
-fxp_t *fp;
+static void fxp_do_conf(fxp_t *fp)
 {
 	int r;
 	phys_bytes bus_addr;
@@ -928,11 +979,8 @@ fxp_t *fp;
 /*===========================================================================*
  *				fxp_cu_ptr_cmd				     *
  *===========================================================================*/
-static void fxp_cu_ptr_cmd(fp, cmd, bus_addr, check_idle)
-fxp_t *fp;
-int cmd;
-phys_bytes bus_addr;
-int check_idle;
+static void fxp_cu_ptr_cmd(fxp_t *fp, int cmd, phys_bytes bus_addr,
+	int check_idle)
 {
 	spin_t spin;
 	port_t port;
@@ -968,11 +1016,8 @@ int check_idle;
 /*===========================================================================*
  *				fxp_ru_ptr_cmd				     *
  *===========================================================================*/
-static void fxp_ru_ptr_cmd(fp, cmd, bus_addr, check_idle)
-fxp_t *fp;
-int cmd;
-phys_bytes bus_addr;
-int check_idle;
+static void fxp_ru_ptr_cmd(fxp_t *fp, int cmd, phys_bytes bus_addr,
+	int check_idle)
 {
 	spin_t spin;
 	port_t port;
@@ -1005,8 +1050,7 @@ int check_idle;
 /*===========================================================================*
  *				fxp_restart_ru				     *
  *===========================================================================*/
-static void fxp_restart_ru(fp)
-fxp_t *fp;
+static void fxp_restart_ru(fxp_t *fp)
 {
 	int i, fxp_rx_nbuf;
 	port_t port;
@@ -1323,12 +1367,16 @@ static unsigned int fxp_get_link(uint32_t *media)
  *===========================================================================*/
 static void fxp_report_link(fxp_t *fp)
 {
-	u16_t mii_ctrl, mii_status, mii_id1, mii_id2,
+	u16_t mii_ctrl, mii_status, scr;
+	int link_up;
+#if VERBOSE
+	u16_t mii_id1, mii_id2,
 		mii_ana, mii_anlpa, mii_ane, mii_extstat,
-		mii_ms_ctrl, mii_ms_status, scr;
+		mii_ms_ctrl, mii_ms_status;
 	u32_t oui;
 	int model, rev;
-	int f, link_up;
+	int f;
+#endif
 
 	fp->fxp_report_link= FALSE;
 
@@ -1339,8 +1387,11 @@ static void fxp_report_link(fxp_t *fp)
 	mii_ctrl= mii_read(fp, MII_CTRL);
 	mii_read(fp, MII_STATUS); /* The status reg is latched, read twice */
 	mii_status= mii_read(fp, MII_STATUS);
+#if VERBOSE
 	mii_id1= mii_read(fp, MII_PHYID_H);
 	mii_id2= mii_read(fp, MII_PHYID_L);
+#endif
+#if VERBOSE
 	mii_ana= mii_read(fp, MII_ANA);
 	mii_anlpa= mii_read(fp, MII_ANLPA);
 	mii_ane= mii_read(fp, MII_ANE);
@@ -1358,6 +1409,7 @@ static void fxp_report_link(fxp_t *fp)
 		mii_ms_ctrl= 0;
 		mii_ms_status= 0;
 	}
+#endif
 
 	/* How do we know about the link status? */
 	link_up= !!(mii_status & MII_STATUS_LS);
@@ -1371,19 +1423,18 @@ static void fxp_report_link(fxp_t *fp)
 		return;
 	}
 
+#if VERBOSE
 	oui= (mii_id1 << MII_PH_OUI_H_C_SHIFT) |
 		((mii_id2 & MII_PL_OUI_L_MASK) >> MII_PL_OUI_L_SHIFT);
 	model= ((mii_id2 & MII_PL_MODEL_MASK) >> MII_PL_MODEL_SHIFT);
 	rev= (mii_id2 & MII_PL_REV_MASK);
 
-#if VERBOSE
 	printf("OUI 0x%06x, Model 0x%02x, Revision 0x%x\n", oui, model, rev);
 #endif
-
 	if (mii_ctrl & (MII_CTRL_LB|MII_CTRL_PD|MII_CTRL_ISO))
 	{
-		f= 1;
 #if VERBOSE
+		f= 1;
 		printf("%s: PHY: ", netdriver_name());
 		if (mii_ctrl & MII_CTRL_LB)
 		{

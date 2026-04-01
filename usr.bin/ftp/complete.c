@@ -102,12 +102,10 @@ complete_ambiguous(char *word, int list, StringList *words)
 		lastmatch = words->sl_str[0];
 		matchlen = strlen(lastmatch);
 		for (i = 1 ; i < words->sl_cur ; i++) {
-			size_t slen = strlen(words->sl_str[i]);
-			for (j = wordlen ; j < slen; j++)
+			for (j = wordlen ; j < matchlen; j++)
 				if (lastmatch[j] != words->sl_str[i][j])
 					break;
-			if (j < matchlen)
-				matchlen = j;
+			matchlen = j;
 		}
 		if (matchlen > wordlen) {
 			ftpvis(insertstr, sizeof(insertstr),
@@ -334,12 +332,15 @@ complete_remote(char *word, int list)
 	}
 
 	words = ftp_sl_init();
-	for (i = 0; i < dirlist->sl_cur; i++) {
-		cp = dirlist->sl_str[i];
-		if (strlen(file) > strlen(cp))
-			continue;
-		if (strncmp(file, cp, strlen(file)) == 0)
-			ftp_sl_add(words, cp);
+	{
+		size_t filelen = strlen(file);
+		for (i = 0; i < dirlist->sl_cur; i++) {
+			cp = dirlist->sl_str[i];
+			if (filelen > strlen(cp))
+				continue;
+			if (strncmp(file, cp, filelen) == 0)
+				ftp_sl_add(words, cp);
+		}
 	}
 	rv = complete_ambiguous(file, list, words);
 	sl_free(words, 0);

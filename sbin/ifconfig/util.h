@@ -29,6 +29,8 @@ int    getsock(int);
 struct paddr_prefix *prefixlen_to_mask(int, int);
 int direct_ioctl(prop_dictionary_t, unsigned long, void *);
 int indirect_ioctl(prop_dictionary_t, unsigned long, void *);
+int get_in_addrflags(const char *, const struct sockaddr *);
+int get_in6_addrflags(const char *, const struct sockaddr *);
 bool ifa_any_preferences(const char *, struct ifaddrs *, int);
 void ifa_print_preference(const char *, const struct sockaddr *);
 int16_t ifa_get_preference(const char *, const struct sockaddr *);

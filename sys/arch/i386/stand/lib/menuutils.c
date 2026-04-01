@@ -187,7 +187,7 @@ prompt(int allowreturn)
 		input[0] = '\0';
 		printf("> ");
 #if !defined(__minix)
-		gets(input);
+		kgets(input, sizeof(input));
 #else
 		editline(input, sizeof(input), NULL);
 #endif /* !defined(__minix) */

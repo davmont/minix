@@ -164,7 +164,7 @@ histedit(void)
 
 				set_prompt_lit(lookupvar("PSlit"));
 				el_set(el, EL_SIGNAL, 1);
-				el_set(el, EL_SAFEREAD, 1);
+//				el_set(el, EL_SAFEREAD, 1);
 				el_set(el, EL_ALIAS_TEXT, alias_text, NULL);
 				el_set(el, EL_ADDFN, "rl-complete",
 				    "ReadLine compatible completion function",
@@ -675,9 +675,9 @@ out:
 unsigned char
 sh_complete(EditLine *sel, int ch __unused)
 {
-	return (unsigned char)fn_complete2(sel, NULL, sh_matches,
-		L" \t\n\"\\'`@$><=;|&{(", NULL, NULL, (size_t)100,
-		NULL, &((int) {0}), NULL, NULL, FN_QUOTE_MATCH);
+	return (unsigned char)fn_complete(sel, NULL, sh_matches,
+		" \t\n\"\\'`@$><=;|&{(", NULL, NULL, (size_t)100,
+		NULL, NULL, NULL, NULL);
 }
 
 static int

@@ -87,7 +87,42 @@ __RCSID("$NetBSD: main.c,v 1.37 2011/06/09 19:57:51 christos Exp $");
 #include "fsutil.h"
 #include "exitvalues.h"
 
-volatile sig_atomic_t	returntosingle = 0;
+
+struct bufarea bufhead;
+struct bufarea sblk;
+struct bufarea asblk;
+struct bufarea *pdirbp;
+struct bufarea *pbp;
+struct m_ext2fs sblock;
+struct dups *duplist;
+struct dups *muldup;
+struct zlncnt *zlnhead;
+struct inoinfo **inphead, **inpsort;
+long numdirs, listmax, inplast;
+long dev_bsize;
+long secsize;
+char nflag;
+char yflag;
+int bflag;
+int Uflag;
+int debug;
+char havesb;
+char skipclean;
+int fsmodified;
+int fsreadfd;
+int fswritefd;
+int rerun;
+daddr_t maxfsblock;
+char *blockmap;
+ino_t maxino;
+ino_t lastino;
+char *statemap;
+u_char *typemap;
+int16_t *lncntp;
+ino_t lfdir;
+daddr_t n_blks;
+daddr_t n_files;
+struct ext2fs_dinode zino;
 
 
 static int	argtoi(int, const char *, const char *, int);

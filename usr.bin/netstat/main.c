@@ -67,6 +67,38 @@ __RCSID("$NetBSD: main.c,v 1.95 2014/11/12 03:34:59 christos Exp $");
 #include "rtutil.h"
 #include "prog_ops.h"
 
+int	Aflag;		/* show addresses of protocol control block */
+int	aflag;		/* show all sockets (including servers) */
+int	Bflag;		/* show Berkeley Packet Filter information */
+int	bflag;		/* show i/f byte stats */
+int	dflag;		/* show i/f dropped packets */
+#ifndef SMALL
+int	gflag;		/* show group (multicast) routing or stats */
+#endif
+int	hflag;		/* humanize byte counts */
+int	iflag;		/* show interfaces */
+int	Lflag;		/* don't show LLINFO entries */
+int	lflag;		/* show routing table with use and ref */
+int	mflag;		/* show memory stats */
+int	numeric_addr;	/* show addresses numerically */
+int	numeric_port;	/* show ports numerically */
+int	nflag;		/* same as above, for show.c compat */
+int	Pflag;		/* dump a PCB */
+int	pflag;		/* show given protocol */
+int	qflag;		/* show softintrq */
+int	rflag;		/* show routing tables (or routing stats) */
+int	sflag;		/* show protocol statistics */
+int	tagflag;	/* show route tags */
+int	tflag;		/* show i/f watchdog timers */
+int	Vflag;	       /* show Vestigial TIME_WAIT (VTW) information */
+int	vflag;	/* verbose route information or don't truncate names */
+
+char	*interface;   /* desired i/f for stats, or NULL for all i/fs */
+
+int	af;		/* address family */
+int	use_sysctl;	/* use sysctl instead of kmem */
+int	force_sysctl; /* force use of sysctl (or exit) - for testing */
+
 struct nlist nl[] = {
 #define	N_MBSTAT	0
 	{ "_mbstat", 0, 0, 0, 0 },

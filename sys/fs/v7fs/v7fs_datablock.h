@@ -32,6 +32,8 @@
 #ifndef _V7FS_DATABLOCK_H_
 #define	_V7FS_DATABLOCK_H_
 
+#include <stdbool.h>
+
 __BEGIN_DECLS
 bool datablock_number_sanity(const struct v7fs_self *, v7fs_daddr_t);
 int v7fs_datablock_allocate(struct v7fs_self *, v7fs_daddr_t *);

@@ -12,8 +12,8 @@ extern struct keytab {
 #define	K_ATALK	2
 #define	K_BLACKHOLE	3
 #define	K_CHANGE	4
-/* #define	K_CLONED	5 */
-/* #define	K_CLONING	6 */
+#define	K_CLONED	5
+#define	K_CLONING	6
 #define	K_CONNECTED	6
 #define	K_DELETE	7
 #define	K_DST	8
@@ -31,7 +31,7 @@ extern struct keytab {
 #define	K_INET	20
 #define	K_INET6	21
 #define	K_LINK	22
-/* #define	K_LLINFO	23 */
+#define	K_LLINFO	23
 #define	K_LOCK	24
 #define	K_LOCKREST	25
 #define	K_MASK	26
@@ -54,10 +54,10 @@ extern struct keytab {
 #define	K_STATIC	43
 #define	K_X25	44
 #define	K_XNS	45
-/* #define	K_XRESOLVE	46 */
+#define	K_XRESOLVE	46
 #define	K_FLUSHALL	47
-/* #define	K_NOCLONED	48 */
-/* #define	K_NOCLONING	49 */
+#define	K_NOCLONED	48
+#define	K_NOCLONING	49
 #define	K_NOCONNECTED	49
 #define	K_NOBLACKHOLE	50
 #define	K_NOREJECT	51

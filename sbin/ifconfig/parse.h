@@ -9,6 +9,61 @@
 #include <sys/queue.h>
 #include <prop/proplib.h>
 #include <sys/socket.h>
+#include <net/if.h>
+
+/* Compatibility for missing NetBSD features in MINIX */
+#ifndef IFF_UNNUMBERED
+#define IFF_UNNUMBERED	0x00010000
+#endif
+
+#ifndef IFDESCRSIZE
+#define IFDESCRSIZE	64
+#endif
+
+#ifndef SIOCGIFDESCR
+#define SIOCGIFDESCR	_IOWR('i', 120, struct ifreq)
+#endif
+
+#ifndef SIOCSIFDESCR
+#define SIOCSIFDESCR	_IOW('i', 121, struct ifreq)
+#endif
+
+#ifndef SIOCSETHERCAP
+#define SIOCSETHERCAP	_IOW('i', 141, struct eccapreq)
+#endif
+
+#ifndef ETHERCAP_VLAN_HWFILTER
+#define ETHERCAP_VLAN_HWFILTER	0x00000008
+#endif
+
+#ifndef ETHERCAP_EEE
+#define ETHERCAP_EEE		0x00000010
+#endif
+
+#ifndef LINK_STATE_DESCRIPTIONS
+struct if_status_description {
+	int ifs_type;
+	int ifs_state;
+	const char *ifs_string;
+};
+#define LINK_STATE_DESCRIPTIONS { { 0, 0, NULL } }
+#define LINK_STATE_DESC_MATCH(p, t, s) 0
+#endif
+
+#ifndef IN6_IFFBITS
+#define IN6_IFFBITS "\020\01ANYCAST\02TENTATIVE\03DUPLICATED\04DETACHED\05DEPRECATED\06NODAD\07AUTOCONF\010TEMPORARY"
+#endif
+
+#ifndef IN_IFFBITS
+#define IN_IFFBITS "\020\01TENTATIVE\02DUPLICATED\03DETACHED\04TRYTENTATIVE"
+#endif
+
+/* ifaddrs.h on MINIX does not have ifa_addrflags */
+#define get_ifa_addrflags(ifa) \
+    ((ifa)->ifa_addr->sa_family == AF_INET6 ? \
+     get_in6_addrflags((ifa)->ifa_name, (ifa)->ifa_addr) : \
+     ((ifa)->ifa_addr->sa_family == AF_INET ? \
+      get_in_addrflags((ifa)->ifa_name, (ifa)->ifa_addr) : 0))
 
 struct match;
 struct parser;

@@ -31,6 +31,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <stdint.h>
 #if !HAVE_NBTOOL_CONFIG_H
 #include <fs/udf/ecma167-udf.h>
 #else
@@ -206,6 +207,11 @@ struct udf_create_context {
 
 	struct space_bitmap_desc*part_unalloc_bits[UDF_PARTITIONS];
 	struct space_bitmap_desc*part_freed_bits  [UDF_PARTITIONS];
+
+	int	format_flags;
+	int	check_surface;
+	int	create_new_session;
+	int	meta_perc;
 };
 
 

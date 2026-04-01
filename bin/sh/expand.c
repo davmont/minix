@@ -65,7 +65,7 @@ __RCSID("$NetBSD: expand.c,v 1.141.2.1 2024/01/14 13:15:05 martin Exp $");
 #include "eval.h"
 #include "expand.h"
 #include "syntax.h"
-#include "arithmetic.h"
+#include "arith.h"
 #include "parser.h"
 #include "jobs.h"
 #include "options.h"

@@ -7,6 +7,10 @@ CONFIGURE_ARGS+=	--with-gmp=${TOOLDIR:Q} \
 			--with-mpfr=${TOOLDIR:Q}
 
 CONFIGURE_ARGS+=--disable-shared
+CONFIGURE_ARGS+=--libdir=${TOOLDIR}/lib
+
+# Force serial execution to avoid .deps directory race condition
+GMAKE_J_ARGS=
 
 .include "${.CURDIR}/../Makefile.gnuhost"
 

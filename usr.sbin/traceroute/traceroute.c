@@ -297,8 +297,21 @@ struct outdata {
 #endif
 #define ICMP_EXT_OFFSET    8 /* ICMP type, code, checksum, unused */ + \
                          128 /* original datagram */
+#define ICMP_EXT_VERSION 2
 #define MPLS_STACK_ENTRY_CLASS 1
 #define MPLS_STACK_ENTRY_C_TYPE 1
+
+struct icmp_ext_hdr {
+	uint8_t version;
+	uint8_t reserved;
+	uint16_t checksum;
+} __packed;
+
+struct icmp_ext_obj_hdr {
+	uint16_t length;
+	uint8_t class_num;
+	uint8_t c_type;
+} __packed;
 
 struct mpls_header {
 #if BYTE_ORDER == BIG_ENDIAN

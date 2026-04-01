@@ -572,7 +572,9 @@ updateediting(void)
 	el_set(el, EL_EDITOR, *vn ? short2str(vn) : "emacs");
 	el_set(el, EL_PROMPT, printpromptstr);
 	el_set(el, EL_ALIAS_TEXT, alias_text, NULL);
+#ifndef __minix
 	el_set(el, EL_SAFEREAD, 1);
+#endif
 	el_set(el, EL_ADDFN, "rl-complete",
 	    "ReadLine compatible completion function", _el_fn_complete);
 	el_set(el, EL_BIND, "^I", adrof(STRfilec) ? "rl-complete" : "ed-insert",

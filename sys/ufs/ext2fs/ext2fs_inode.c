@@ -269,7 +269,7 @@ ext2fs_update(struct vnode *vp, const struct timespec *acc,
 	ip->i_flag &= ~(IN_MODIFIED | IN_ACCESSED);
 	cp = (char *)bp->b_data +
 	    (ino_to_fsbo(fs, ip->i_number) * EXT2_DINODE_SIZE(fs));
-	e2fs_isave(ip->i_din.e2fs_din, (struct ext2fs_dinode *)cp);
+	e2fs_isave(ip->i_din.e2fs_din, (struct ext2fs_dinode *)cp, EXT2_DINODE_SIZE(fs));
 	if ((updflags & (UPDATE_WAIT|UPDATE_DIROP)) != 0 &&
 	    (flags & IN_MODIFIED) != 0 &&
 	    (vp->v_mount->mnt_flag & MNT_ASYNC) == 0)

@@ -180,7 +180,7 @@ ffs_blkpref_ufs1(struct inode *ip, daddr_t lbn, int indx, int32_t *bap)
 				ufs_rw32(bap[indx - 1], UFS_FSNEEDSWAP(fs)) + 1);
 		startcg %= fs->fs_ncg;
 		avgbfree = fs->fs_cstotal.cs_nbfree / fs->fs_ncg;
-		for (cg = startcg; cg < fs->fs_ncg; cg++)
+		for (cg = startcg; cg < (uint32_t)fs->fs_ncg; cg++)
 			if (fs->fs_cs(fs, cg).cs_nbfree >= avgbfree)
 				return (fs->fs_fpg * cg + fs->fs_frag);
 		for (cg = 0; cg <= startcg; cg++)
@@ -219,7 +219,7 @@ ffs_blkpref_ufs2(struct inode *ip, daddr_t lbn, int indx, int64_t *bap)
 				ufs_rw64(bap[indx - 1], UFS_FSNEEDSWAP(fs)) + 1);
 		startcg %= fs->fs_ncg;
 		avgbfree = fs->fs_cstotal.cs_nbfree / fs->fs_ncg;
-		for (cg = startcg; cg < fs->fs_ncg; cg++)
+		for (cg = startcg; cg < (uint32_t)fs->fs_ncg; cg++)
 			if (fs->fs_cs(fs, cg).cs_nbfree >= avgbfree) {
 				return (fs->fs_fpg * cg + fs->fs_frag);
 			}
@@ -264,9 +264,9 @@ ffs_hashalloc(struct inode *ip, uint32_t cg, daddr_t pref, int size,
 	/*
 	 * 2: quadratic rehash
 	 */
-	for (i = 1; i < fs->fs_ncg; i *= 2) {
+	for (i = 1; i < (uint32_t)fs->fs_ncg; i *= 2) {
 		cg += i;
-		if (cg >= fs->fs_ncg)
+		if (cg >= (uint32_t)fs->fs_ncg)
 			cg -= fs->fs_ncg;
 		result = (*allocator)(ip, cg, 0, size);
 		if (result)
@@ -278,12 +278,12 @@ ffs_hashalloc(struct inode *ip, uint32_t cg, daddr_t pref, int size,
 	 * and 1 is always checked in the quadratic rehash.
 	 */
 	cg = (icg + 2) % fs->fs_ncg;
-	for (i = 2; i < fs->fs_ncg; i++) {
+	for (i = 2; i < (uint32_t)fs->fs_ncg; i++) {
 		result = (*allocator)(ip, cg, 0, size);
 		if (result)
 			return (result);
 		cg++;
-		if (cg == fs->fs_ncg)
+		if (cg == (uint32_t)fs->fs_ncg)
 			cg = 0;
 	}
 	return (0);
@@ -479,7 +479,7 @@ ffs_blkfree(struct inode *ip, daddr_t bno, long size)
 		 * decrement the counts associated with the old frags
 		 */
 		blk = blkmap(fs, cg_blksfree(cgp, needswap), bbase);
-		ffs_fragacct(fs, blk, cgp->cg_frsum, -1, needswap);
+		ffs_fragacct(fs, blk, (uint32_t *)cgp->cg_frsum, -1, needswap);
 		/*
 		 * deallocate the fragment
 		 */
@@ -499,7 +499,7 @@ ffs_blkfree(struct inode *ip, daddr_t bno, long size)
 		 * add back in counts associated with the new frags
 		 */
 		blk = blkmap(fs, cg_blksfree(cgp, needswap), bbase);
-		ffs_fragacct(fs, blk, cgp->cg_frsum, 1, needswap);
+		ffs_fragacct(fs, blk, (uint32_t *)cgp->cg_frsum, 1, needswap);
 		/*
 		 * if a complete block has been reassembled, account for it
 		 */

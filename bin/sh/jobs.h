@@ -77,6 +77,7 @@ struct job {
 #define	JOBSTOPPED	1	/* all procs are stopped */
 #define	JOBDONE		2	/* all procs are completed */
 	char	used;		/* true if this entry is in used */
+	char	changed;	/* state has changed */
 	char	flags;
 #define	JOBCHANGED	1	/* set if status has changed */
 #define	JOBWANTED	2	/* set if this is a job being sought */

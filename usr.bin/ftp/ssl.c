@@ -603,7 +603,9 @@ fetch_start_ssl(int sock, const char *servername)
 {
 	SSL *ssl = NULL;
 	SSL_CTX *ctx = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 	X509_VERIFY_PARAM *param;
+#endif
 	int ret, ssl_err, flags, rv, timeout_secs;
 	int verify = !ftp_truthy("sslnoverify", getoptionvalue("sslnoverify"), 0);
 	struct timeval timeout, now, delta;
@@ -631,12 +633,14 @@ fetch_start_ssl(int sock, const char *servername)
 	}
 
 	if (verify) {
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 		param = SSL_get0_param(ssl);
 		if (!X509_VERIFY_PARAM_set1_host(param, servername,
 		    strlen(servername))) {
 			warnx("SSL verification setup failed");
 			goto cleanup_start_ssl;
 		}
+#endif
 
 		/* Enable peer verification, (using the default callback) */
 		SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL);

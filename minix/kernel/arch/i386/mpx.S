@@ -88,6 +88,7 @@ IMPORT(multiboot_init)
 	pusha								;\
 	call	_C_LABEL(context_stop_idle)				;\
 	PIC_IRQ_HANDLER(irq)						;\
+	call	_C_LABEL(bkl_unlock_after_intr)			;\
 	movb	$END_OF_INT, %al					;\
 	outb	$INT_CTL	/* reenable interrupts in master pic */	;\
 	CLEAR_IF(10*4(%esp))						;\
@@ -149,6 +150,7 @@ ENTRY(hwint07)
 	pusha								;\
 	call	_C_LABEL(context_stop_idle)				;\
 	PIC_IRQ_HANDLER(irq)						;\
+	call	_C_LABEL(bkl_unlock_after_intr)			;\
 	movb	$END_OF_INT, %al					;\
 	outb	$INT_CTL	/* reenable interrupts in master pic */	;\
 	outb	$INT2_CTL	/* reenable slave 8259		  */	;\

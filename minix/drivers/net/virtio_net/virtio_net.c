@@ -27,8 +27,8 @@
 	printf s;						\
 } while (0)
 #else
-#define dput(s)
-#define dprintf(s)
+#define dput(s)		((void)0)
+#define dprintf(s)	((void)0)
 #endif
 
 static struct virtio_device *net_dev;

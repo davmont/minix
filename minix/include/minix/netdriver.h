@@ -11,6 +11,13 @@
 
 #include <net/if_media.h>
 
+/* Network device driver constants. */
+#define NDEV_ETH_PACKET_MIN	60	/* min network packet size, in bytes */
+#define NDEV_ETH_PACKET_MAX	1514	/* max network packet size, in bytes */
+#define NDEV_ETH_PACKET_TAG	4	/* ethernet VLAN tag size, in bytes */
+#define NDEV_ETH_PACKET_CRC	4	/* ethernet CRC size, in bytes */
+#define NDEV_ETH_PACKET_MAX_TAGGED (NDEV_ETH_PACKET_MAX + NDEV_ETH_PACKET_TAG)
+
 /* Opaque data structure for copying in and out actual packet data. */
 struct netdriver_data;
 

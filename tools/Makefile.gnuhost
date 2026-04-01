@@ -125,8 +125,8 @@ configure_cleanup=configure_cleanup
 
 .build_done: .configure_done
 	@(cd build && ${BUILD_COMMAND} ${ALL_TARGET})
-	@if [ ! -f $@ ] || [ -n "$$(find build -type f -newer .build_done -print)" ]; \
-		then touch $@; fi
+	@if [ ! -f $@ ]; then touch $@; \
+	elif [ -n "$$(find build -type f -newer $@ -print)" ]; then touch $@; fi
 
 .install_done! ${BUILD:D.build_done}
 	@(cd ${.OBJDIR}/build && ${BUILD_COMMAND} ${INSTALL_TARGET})

@@ -42,7 +42,7 @@ getfile(char *prompt, int mode)
 
 	do {
 		printf("%s: ", prompt);
-		gets(buf);
+		kgets(buf, sizeof(buf));
 		if (buf[0] == CTRL('d') && buf[1] == 0)
 			return -1;
 	} while ((fd = open(buf, mode)) < 0);

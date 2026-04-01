@@ -185,17 +185,18 @@ struct ext2fs_dinode {
 
 #define e2di_rdev		e2di_blocks[0]
 #define e2di_shortlink		e2di_blocks
+#define e2di_size_high		e2di_dacl
 
 /* e2fs needs byte swapping on big-endian systems */
 #if BYTE_ORDER == LITTLE_ENDIAN
-#	define e2fs_iload(old, new)	\
-		memcpy((new),(old),sizeof(struct ext2fs_dinode))
-#	define e2fs_isave(old, new)	\
-		memcpy((new),(old),sizeof(struct ext2fs_dinode))
+#	define e2fs_iload(old, new, size)	\
+		memcpy((new),(old),(size))
+#	define e2fs_isave(old, new, size)	\
+		memcpy((new),(old),(size))
 #else
 void e2fs_i_bswap(struct ext2fs_dinode *, struct ext2fs_dinode *);
-#	define e2fs_iload(old, new) e2fs_i_bswap((old), (new))
-#	define e2fs_isave(old, new) e2fs_i_bswap((old), (new))
+#	define e2fs_iload(old, new, size) e2fs_i_bswap((old), (new))
+#	define e2fs_isave(old, new, size) e2fs_i_bswap((old), (new))
 #endif
 
 #endif /* !_UFS_EXT2FS_EXT2FS_DINODE_H_ */

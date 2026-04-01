@@ -4,14 +4,8 @@
 PROG=	make
 SRCS=	arch.c buf.c compat.c cond.c dir.c for.c hash.c job.c main.c \
 	make.c metachar.c parse.c str.c suff.c targ.c trace.c var.c util.c 
-SRCS+=  strlist.c
 SRCS+=  make_malloc.c
-SRCS+=	lstAppend.c lstAtEnd.c lstAtFront.c lstClose.c lstConcat.c \
-	lstDatum.c lstDeQueue.c lstDestroy.c lstDupl.c lstEnQueue.c \
-	lstFind.c lstFindFrom.c lstFirst.c lstForEach.c lstForEachFrom.c \
-	lstInit.c lstInsert.c lstIsAtEnd.c lstIsEmpty.c lstLast.c \
-	lstMember.c lstNext.c lstOpen.c lstRemove.c lstReplace.c lstSucc.c
-SRCS += lstPrev.c
+SRCS+=  lst.c
 
 # let people experiment for a bit
 USE_META ?= no
@@ -27,8 +21,6 @@ COPTS.meta.c += -DHAVE_FILEMON_H -I${FILEMON_H:H}
 .if defined(__MINIX)
 CPPFLAGS+= -DMAKE_MACHINE=\"${MACHINE}\" -DMAKE_MACHINE_ARCH=\"${MACHINE_ARCH}\"
 .endif #defined(__MINIX)
-
-.PATH:	${.CURDIR}/lst.lib
 .if !defined(__MINIX)
 SUBDIR=	PSD.doc
 .endif #!defined(__MINIX)

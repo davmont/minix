@@ -83,7 +83,34 @@ extern const char nullstr[1];		/* null string */
 #ifdef DEBUG
 #define TRACE(param)	trace param
 #define TRACEV(param)	tracev param
+#define CTRACE(n, param) do { if (debug && (n)) trace param; } while (0)
+#define VTRACE(n, param) do { if (debug && (n)) trace param; } while (0)
+#define CVTRACE(n, c, p) do { if (debug && (n) && (c)) trace p; } while (0)
+#define XTRACE(n, p, t)  do { if (debug && (n)) { trace p; t; } } while (0)
+#define VXTRACE(n, p, t) do { if (debug && (n)) { trace p; t; } } while (0)
 #else
-#define TRACE(param)
-#define TRACEV(param)
+#define TRACE(param)	((void)0)
+#define TRACEV(param)	((void)0)
+#define CTRACE(n, param) ((void)0)
+#define VTRACE(n, param) ((void)0)
+#define CVTRACE(n, c, p) ((void)0)
+#define XTRACE(n, p, t)  ((void)0)
+#define VXTRACE(n, p, t) ((void)0)
 #endif
+
+#define DBG_ALWAYS	0x0001
+#define DBG_ERRS	0x0002
+#define DBG_PROCS	0x0004
+#define DBG_CMDS	0x0008
+#define DBG_EXPAND	0x0010
+#define DBG_PARSE	0x0020
+#define DBG_LEXER	0x0040
+#define DBG_REDIR	0x0080
+#define DBG_TRAP	0x0100
+#define DBG_SIG		0x0200
+#define DBG_VARS	0x0400
+#define DBG_OUTPUT	0x0800
+#define DBG_HISTORY	0x1000
+#define DBG_MATCH	0x2000
+#define DBG_INPUT	0x4000
+#define DBG_EV		0x8000

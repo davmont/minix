@@ -79,6 +79,7 @@ typedef char Char;
 #define UNREGISTER(a)	(void) &a
 
 typedef void *ioctl_t;		/* Third arg of ioctl */
+typedef void *ptr_t;
 
 #include "const.h"
 #include "char.h"
@@ -87,7 +88,7 @@ typedef void *ioctl_t;		/* Third arg of ioctl */
 #define xmalloc(i) Malloc(i)
 #define xrealloc(p, i) Realloc(p, i)
 #define xcalloc(n, s) Calloc(n, s)
-
+#define xfree(p) free(p)
 #include <stdio.h>
 extern FILE *cshin, *cshout, *csherr;
 

@@ -65,6 +65,31 @@
 #define RT_ADVANCE(x, n) (x += RT_ROUNDUP((n)->sa_len))
 #endif
 
+static const char *rtm_names[] = {
+	NULL,
+	"RTM_ADD",
+	"RTM_DELETE",
+	"RTM_CHANGE",
+	"RTM_GET",
+	"RTM_LOSING",
+	"RTM_REDIRECT",
+	"RTM_MISS",
+	"RTM_LOCK",
+	"RTM_OLDADD",
+	"RTM_OLDDEL",
+	"RTM_RESOLVE",
+	"RTM_NEWADDR",
+	"RTM_DELADDR",
+	"RTM_OOIFINFO",
+	"RTM_OIFINFO",
+	"RTM_IFANNOUNCE",
+	"RTM_IEEE80211",
+	"RTM_SETGATE",
+	"RTM_LLINFO_UPD",
+	"RTM_IFINFO",
+	"RTM_CHGADDR",
+};
+
 static void
 get_rtaddrs(int addrs, const struct sockaddr *sa,
     const struct sockaddr **rti_info)

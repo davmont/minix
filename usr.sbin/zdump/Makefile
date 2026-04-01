@@ -14,7 +14,7 @@ TZVERSION!= ${TOOL_CAT} ${NETBSDSRCDIR}/lib/libc/time/version
 CPPFLAGS+=-DPKGVERSION='"(tzcode) "' -DTZVERSION='"${TZVERSION}"'
 
 COPTS.zdump.c += -Wno-format-nonliteral
-CWARNFLAGS.clang+= -Wno-error=bitwise-conditional-parentheses
+CWARNFLAGS.clang+= -Wno-error=bitwise-op-parentheses
 
 .PATH: ${NETBSDSRCDIR}/lib/libc/time
 .include <bsd.prog.mk>

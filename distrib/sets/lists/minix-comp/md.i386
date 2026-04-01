@@ -5,45 +5,6 @@
 # ../../../../releasetools/sort_set.pl < mi > out
 # mv out mi
 #
-./usr/include/clang-3.6/__wmmintrin_aes.h               minix-comp      llvmcmds
-./usr/include/clang-3.6/__wmmintrin_pclmul.h            minix-comp      llvmcmds
-./usr/include/clang-3.6/adxintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/ammintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/avx2intrin.h                    minix-comp      llvmcmds
-./usr/include/clang-3.6/avx512bwintrin.h                minix-comp      llvmcmds
-./usr/include/clang-3.6/avx512erintrin.h                minix-comp      llvmcmds
-./usr/include/clang-3.6/avx512fintrin.h                 minix-comp      llvmcmds
-./usr/include/clang-3.6/avx512vlbwintrin.h              minix-comp      llvmcmds
-./usr/include/clang-3.6/avx512vlintrin.h                minix-comp      llvmcmds
-./usr/include/clang-3.6/avxintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/bmi2intrin.h                    minix-comp      llvmcmds
-./usr/include/clang-3.6/bmiintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/cpuid.h                         minix-comp      llvmcmds
-./usr/include/clang-3.6/emmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/f16cintrin.h                    minix-comp      llvmcmds
-./usr/include/clang-3.6/fma4intrin.h                    minix-comp      llvmcmds
-./usr/include/clang-3.6/fmaintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/ia32intrin.h                    minix-comp      llvmcmds
-./usr/include/clang-3.6/immintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/lzcntintrin.h                   minix-comp      llvmcmds
-./usr/include/clang-3.6/mm3dnow.h                       minix-comp      llvmcmds
-./usr/include/clang-3.6/mm_malloc.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/mmintrin.h                      minix-comp      llvmcmds
-./usr/include/clang-3.6/nmmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/pmmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/popcntintrin.h                  minix-comp      llvmcmds
-./usr/include/clang-3.6/prfchwintrin.h                  minix-comp      llvmcmds
-./usr/include/clang-3.6/rdseedintrin.h                  minix-comp      llvmcmds
-./usr/include/clang-3.6/rtmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/shaintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/smmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/stdatomic.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/tbmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/tmmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/wmmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/x86intrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/xmmintrin.h                     minix-comp      llvmcmds
-./usr/include/clang-3.6/xopintrin.h                     minix-comp      llvmcmds
 ./usr/include/gcc-4.5/abmintrin.h                       minix-comp      gcccmds,gcc=45,obsolete
 ./usr/include/gcc-4.5/ammintrin.h                       minix-comp      gcccmds,gcc=45,obsolete
 ./usr/include/gcc-4.5/avxintrin.h                       minix-comp      gcccmds,gcc=45,obsolete

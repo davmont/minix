@@ -49,6 +49,11 @@ __RCSID("$NetBSD: arith.y,v 1.22 2012/03/20 18:42:29 matt Exp $");
 #include "error.h"
 #include "output.h"
 #include "memalloc.h"
+#include "var.h"
+
+int yylex(void);
+void arith_lex_reset(void);
+intmax_t arith(const char *, int);
 
 typedef intmax_t YYSTYPE;
 #define YYSTYPE YYSTYPE
@@ -123,10 +128,11 @@ expr:	ARITH_LPAREN expr ARITH_RPAREN { $$ = $2; }
 	;
 %%
 intmax_t
-arith(const char *s)
+arith(const char *s, int lineno)
 {
 	intmax_t result;
 
+	line_number = lineno;
 	arith_buf = arith_startbuf = s;
 
 	INTOFF;
@@ -171,7 +177,7 @@ expcmd(int argc, char **argv)
 	} else
 		p = "";
 
-	(void)arith(p);
+	(void)arith(p, 0);
 	i = arith_result;
 
 	out1fmt("%"PRIdMAX"\n", i);

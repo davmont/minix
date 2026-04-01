@@ -462,7 +462,7 @@ error:
 /*
  * Small wrapper to extract total length of a file
  */
-off_t
+__attribute__((unused)) static off_t
 unxz_len(int fd)
 {
 	xz_file_info xfi = XZ_FILE_INFO_INIT;

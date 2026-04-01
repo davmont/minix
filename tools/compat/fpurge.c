@@ -41,6 +41,9 @@
 #endif
 #include <stdio.h>
 #include <fcntl.h>
+#ifdef __linux__
+#include <stdio_ext.h>
+#endif
 
 int
 fpurge(FILE *fp)

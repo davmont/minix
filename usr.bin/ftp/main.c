@@ -199,6 +199,7 @@ main(int volatile argc, char **volatile argv)
 	src_addr = NULL;
 	upload_path = NULL;
 	isupload = 0;
+	ftp_buflen = FTPBUFLEN;
 	reply_callback = NULL;
 #ifdef INET6
 	family = AF_UNSPEC;

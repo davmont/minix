@@ -443,7 +443,7 @@ ffs_mkfs(const char *fsys, const fsinfo_t *fsopts, time_t tstamp)
 		int32_t *lp;
 
 		sblock.fs_maxcluster = lp = space;
-		for (i = 0; i < sblock.fs_ncg; i++)
+		for (i = 0; i < (uint32_t)sblock.fs_ncg; i++)
 			*lp++ = sblock.fs_contigsumsize;
 	}
 
@@ -533,7 +533,7 @@ ffs_mkfs(const char *fsys, const fsinfo_t *fsopts, time_t tstamp)
 	memcpy(iobuf, writebuf, SBLOCKSIZE);
 
 	printf("super-block backups (for fsck -b #) at:");
-	for (cylno = 0; cylno < sblock.fs_ncg; cylno++) {
+	for (cylno = 0; cylno < (uint32_t)sblock.fs_ncg; cylno++) {
 		initcg(cylno, tstamp, fsopts);
 		if (cylno % nprintcols == 0)
 			printf("\n");
@@ -579,7 +579,7 @@ ffs_write_superblock(struct fs *fs, const fsinfo_t *fsopts)
 	ffs_wtfs(fs->fs_sblockloc / sectorsize, sbsize, writebuf, fsopts);
 
 	/* Write out the duplicate super blocks */
-	for (cylno = 0; cylno < fs->fs_ncg; cylno++)
+	for (cylno = 0; cylno < (uint32_t)fs->fs_ncg; cylno++)
 		ffs_wtfs(FFS_FSBTODB(fs, cgsblock(fs, cylno)),
 		    sbsize, writebuf, fsopts);
 
@@ -643,7 +643,7 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 	if (Oflag == 2) {
 		acg.cg_iusedoff = start;
 	} else {
-		if (cylno == sblock.fs_ncg - 1)
+		if (cylno == (uint32_t)sblock.fs_ncg - 1)
 			acg.cg_old_ncyl = howmany(acg.cg_ndblk,
 			    sblock.fs_fpg / sblock.fs_old_cpg);
 		else
@@ -673,7 +673,7 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 		acg.cg_nextfreeoff = acg.cg_clusteroff +
 		    howmany(ffs_fragstoblks(&sblock, sblock.fs_fpg), CHAR_BIT);
 	}
-	if (acg.cg_nextfreeoff > (unsigned)sblock.fs_cgsize) {
+	if ((uint32_t)acg.cg_nextfreeoff > (uint32_t)sblock.fs_cgsize) {
 		printf("Panic: cylinder group too big\n");
 		exit(37);
 	}
@@ -708,7 +708,7 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 		}
 	}
 	for (d = dupper, blkno = dupper >> sblock.fs_fragshift;
-	     d + sblock.fs_frag <= acg.cg_ndblk; ) {
+	     d + (uint32_t)sblock.fs_frag <= (uint32_t)acg.cg_ndblk; ) {
 		ffs_setblock(&sblock, cg_blksfree(&acg, 0), blkno);
 		if (sblock.fs_contigsumsize > 0)
 			setbit(cg_clustersfree(&acg, 0), blkno);
@@ -716,9 +716,9 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 		d += sblock.fs_frag;
 		blkno++;
 	}
-	if (d < acg.cg_ndblk) {
-		acg.cg_frsum[acg.cg_ndblk - d]++;
-		for (; d < acg.cg_ndblk; d++) {
+	if (d < (uint32_t)acg.cg_ndblk) {
+		acg.cg_frsum[(uint32_t)acg.cg_ndblk - d]++;
+		for (; d < (uint32_t)acg.cg_ndblk; d++) {
 			setbit(cg_blksfree(&acg, 0), d);
 			acg.cg_cs.cs_nffree++;
 		}
@@ -730,7 +730,7 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 		int bit = 1;
 		int run = 0;
 
-		for (i = 0; i < acg.cg_nclusterblks; i++) {
+		for (i = 0; i < (uint32_t)acg.cg_nclusterblks; i++) {
 			if ((map & bit) != 0) {
 				run++;
 			} else if (run != 0) {
@@ -764,7 +764,7 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 	start += sblock.fs_bsize;
 	dp1 = (struct ufs1_dinode *)(&iobuf[start]);
 	dp2 = (struct ufs2_dinode *)(&iobuf[start]);
-	for (i = 0; i < acg.cg_initediblk; i++) {
+	for (i = 0; i < (uint32_t)acg.cg_initediblk; i++) {
 		if (sblock.fs_magic == FS_UFS1_MAGIC) {
 			/* No need to swap, it'll stay random */
 			dp1->di_gen = random();
@@ -780,11 +780,11 @@ initcg(uint32_t cylno, time_t utime, const fsinfo_t *fsopts)
 	 * For the old file system, we have to initialize all the inodes.
 	 */
 	if (Oflag <= 1) {
-		for (i = 2 * sblock.fs_frag;
-		     i < sblock.fs_ipg / FFS_INOPF(&sblock);
-		     i += sblock.fs_frag) {
+		for (i = 2 * (uint32_t)sblock.fs_frag;
+		     i < (uint32_t)sblock.fs_ipg / FFS_INOPF(&sblock);
+		     i += (uint32_t)sblock.fs_frag) {
 			dp1 = (struct ufs1_dinode *)(&iobuf[start]);
-			for (j = 0; j < FFS_INOPB(&sblock); j++) {
+			for (j = 0; j < (uint32_t)FFS_INOPB(&sblock); j++) {
 				dp1->di_gen = random();
 				dp1++;
 			}

@@ -22,7 +22,11 @@ HOST_SHAREDIR=	${TOOLDIR}/share
 BOARDDB_SRCDIR=	${SHARE_SRCDIR}/installboot
 BOARDDB_DSTDIR=	${HOST_SHAREDIR}/installboot
 
+.if !defined(__MINIX)
 BOARDDBS=	evbarm evbmips
+.else
+BOARDDBS=
+.endif
 
 .for _d in ${BOARDDBS}
 install: .PHONY install.${_d}.boards.plist

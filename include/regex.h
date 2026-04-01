@@ -101,6 +101,7 @@ typedef struct {
 #define	REG_NOSPEC	0020
 #define	REG_PEND	0040
 #define	REG_DUMP	0200
+#define	REG_GNU		0400
 
 /* regerror() flags */
 #define	REG_NOMATCH	 1

@@ -7,17 +7,8 @@ MAN=		postinstall.8
 
 FILESDIR=	/usr/sbin
 FILESMODE=	${BINMODE}
-FILESBUILD=	yes
 
-ARCHSUBDIRS	!= ${TOOL_SED} -n '/ARCHDIR_SUBDIR/s/[[:space:]]//gp' \
-	${NETBSDSRCDIR}/compat/archdirs.mk
-
-.SUFFIXES: .in
-.in:
-	${_MKTARGET_CREATE}
-	@rm -f ${.TARGET}
-	${TOOL_SED} -e "s#@ARCHSUBDIRS@#${ARCHSUBDIRS}#" < ${.ALLSRC} > ${.TARGET}
-
-CLEANFILES+= postinstall
+# The postinstall script is pre-built (not generated) for MINIX
+# since the tool chain may not be fully available
 
 .include <bsd.prog.mk>

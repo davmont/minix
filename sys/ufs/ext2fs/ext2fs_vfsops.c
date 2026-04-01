@@ -598,7 +598,7 @@ ext2fs_reload(struct mount *mp, kauth_cred_t cred, struct lwp *l)
 		}
 		cp = (char *)bp->b_data +
 		    (ino_to_fsbo(fs, ip->i_number) * EXT2_DINODE_SIZE(fs));
-		e2fs_iload((struct ext2fs_dinode *)cp, ip->i_din.e2fs_din);
+		e2fs_iload((struct ext2fs_dinode *)cp, ip->i_din.e2fs_din, EXT2_DINODE_SIZE(fs));
 		ext2fs_set_inode_guid(ip);
 		brelse(bp, 0);
 		vput(vp);
@@ -968,7 +968,7 @@ ext2fs_loadvnode(struct mount *mp, struct vnode *vp,
 
 	cp = (char *)bp->b_data + (ino_to_fsbo(fs, ino) * EXT2_DINODE_SIZE(fs));
 	ip->i_din.e2fs_din = pool_get(&ext2fs_dinode_pool, PR_WAITOK);
-	e2fs_iload((struct ext2fs_dinode *)cp, ip->i_din.e2fs_din);
+	e2fs_iload((struct ext2fs_dinode *)cp, ip->i_din.e2fs_din, EXT2_DINODE_SIZE(fs));
 	ext2fs_set_inode_guid(ip);
 	brelse(bp, 0);
 

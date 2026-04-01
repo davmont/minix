@@ -220,7 +220,7 @@ bool
 Compat_RunCommand(const char *cmdp, GNode *gn, StringListNode *ln)
 {
 	char *cmdStart;		/* Start of expanded command */
-	char *bp;
+	char *volatile bp;
 	bool silent;		/* Don't print command */
 	bool doIt;		/* Execute even if -n */
 	volatile bool errCheck;	/* Check errors */

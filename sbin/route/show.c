@@ -65,6 +65,10 @@ __RCSID("$NetBSD: show.c,v 1.51 2020/08/29 19:28:32 christos Exp $");
 #include "extern.h"
 #include "prog_ops.h"
 
+#ifndef RTF_CONNECTED
+#define RTF_CONNECTED RTF_CLONING
+#endif
+
 void
 parse_show_opts(int argc, char * const *argv, int *afp, int *flagsp,
     const char **afnamep, bool nolink)

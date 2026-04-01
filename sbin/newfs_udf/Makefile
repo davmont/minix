@@ -4,7 +4,7 @@
 
 PROG=	newfs_udf
 MAN=	newfs_udf.8
-SRCS=	newfs_udf.c udf_core.c \
+SRCS=	newfs_udf.c udf_create.c udf_write.c \
 	udf_osta.c fattr.c
 
 MOUNT=  ${NETBSDSRCDIR}/sbin/mount
@@ -14,8 +14,5 @@ CPPFLAGS+= -I${MOUNT} -I${KUDF} -I${NETBSDSRCDIR}/sys
 
 DPADD+=${LIBUTIL}
 LDADD+=-lutil -lprop
-
-CWARNFLAGS.clang+=	-Wno-error=address-of-packed-member
-CWARNFLAGS.gcc+=	${GCC_NO_ADDR_OF_PACKED_MEMBER}
 
 .include <bsd.prog.mk>

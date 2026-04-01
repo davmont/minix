@@ -1,6 +1,11 @@
 #ifndef _BITMAP_H
 #define _BITMAP_H
 
+#ifndef __ASSEMBLY__
+#include <sys/types.h>
+#include <limits.h>
+#endif
+
 /* Bit map operations to manipulate bits of a simple mask variable. */
 #define bit_set(mask, n)	((mask) |= (1 << (n)))
 #define bit_unset(mask, n)	((mask) &= ~(1 << (n)))
@@ -17,8 +22,8 @@
 #define SET_BIT(map,bit) ( MAP_CHUNK(map,bit) |= (1 << CHUNK_OFFSET(bit) ))
 #define UNSET_BIT(map,bit) ( MAP_CHUNK(map,bit) &= ~(1 << CHUNK_OFFSET(bit) ))
 
-#if defined(CONFIG_SMP) && defined(__GNUC__)
 #ifndef __ASSEMBLY__
+#if defined(CONFIG_SMP) && defined(__GNUC__)
 static inline void bits_fill(bitchunk_t * chunks, unsigned bits)
 {
 	unsigned c, cnt;

@@ -187,7 +187,7 @@ read_inode(ino32_t inumber, struct open_file *f)
 
 	dip = (struct ext2fs_dinode *)(buf +
 	    EXT2_DINODE_SIZE(fs) * ino_to_fsbo(fs, inumber));
-	e2fs_iload(dip, &fp->f_di);
+	e2fs_iload(dip, &fp->f_di, EXT2_DINODE_SIZE(fs));
 
 	/*
 	 * Clear out the old buffers

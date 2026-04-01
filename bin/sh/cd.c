@@ -126,7 +126,7 @@ cdcmd(int argc, char **argv)
 	    p++;
 	if (*p == 0 || *p == '/' || (path = bltinlookup("CDPATH", 1)) == NULL)
 		path = nullstr;
-	while ((p = padvance(&path, dest)) != NULL) {
+	while ((p = padvance(&path, dest, 0)) != NULL) {
 		if (stat(p, &statb) >= 0 && S_ISDIR(statb.st_mode)) {
 			if (!print) {
 				/*

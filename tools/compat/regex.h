@@ -1,8 +1,11 @@
-/*	$NetBSD: indent_codes.h,v 1.5 2003/08/07 11:14:08 agc Exp $	*/
+/*	$NetBSD: regex.h,v 1.13 2005/09/13 01:44:32 christos Exp $	*/
 
-/*
- * Copyright (c) 1980, 1993
+/*-
+ * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Henry Spencer of the University of Toronto.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,13 +31,14 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)indent_codes.h	8.1 (Berkeley) 6/6/93
+ *	@(#)regex.h	8.2 (Berkeley) 1/3/94
  */
 
-/*
- * Copyright (c) 1985 Sun Microsystems, Inc.
- * Copyright (c) 1976 Board of Trustees of the University of Illinois.
- * All rights reserved.
+/*-
+ * Copyright (c) 1992 Henry Spencer.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Henry Spencer of the University of Toronto.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -64,38 +68,76 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)indent_codes.h	8.1 (Berkeley) 6/6/93
+ *	@(#)regex.h	8.2 (Berkeley) 1/3/94
  */
 
-#define newline		1
-#define lparen		2
-#define rparen		3
-#define unary_op	4
-#define binary_op	5
-#define postop		6
-#define question	7
-#define casestmt	8
-#define colon		9
-#define semicolon	10
-#define lbrace		11
-#define rbrace		12
-#define ident		13
-#define comma		14
-#define comment		15
-#define swstmt		16
-#define preesc		17
-#define form_feed	18
-#define decl		19
-#define sp_paren	20
-#define sp_nparen	21
-#define ifstmt		22
-#define whilestmt	23
-#define forstmt		24
-#define stmt		25
-#define stmtl		26
-#define elselit		27
-#define dolit		28
-#define dohead		29
-#define ifhead		30
-#define elsehead	31
-#define period		32
+#ifndef _REGEX_H_
+#define _REGEX_H_
+
+#include <sys/cdefs.h>
+#include <sys/types.h>
+
+/* types */
+typedef off_t regoff_t;
+
+typedef struct {
+  int re_magic;
+  size_t re_nsub;       /* number of parenthesized subexpressions */
+  const char *re_endp;  /* end pointer for REG_PEND */
+  struct re_guts *re_g; /* none of your business :-) */
+} regex_t;
+
+typedef struct {
+  regoff_t rm_so; /* start of match */
+  regoff_t rm_eo; /* end of match */
+} regmatch_t;
+
+/* regcomp() flags */
+#define REG_BASIC 0000
+#define REG_EXTENDED 0001
+#define REG_ICASE 0002
+#define REG_NOSUB 0004
+#define REG_NEWLINE 0010
+#define REG_NOSPEC 0020
+#define REG_PEND 0040
+#define REG_DUMP 0200
+
+/* regerror() flags */
+#define REG_NOMATCH 1
+#define REG_BADPAT 2
+#define REG_ECOLLATE 3
+#define REG_ECTYPE 4
+#define REG_EESCAPE 5
+#define REG_ESUBREG 6
+#define REG_EBRACK 7
+#define REG_EPAREN 8
+#define REG_EBRACE 9
+#define REG_BADBR 10
+#define REG_ERANGE 11
+#define REG_ESPACE 12
+#define REG_BADRPT 13
+#define REG_EMPTY 14
+#define REG_ASSERT 15
+#define REG_INVARG 16
+#define REG_ENOSYS 17
+#define REG_ATOI 255  /* convert name to number (!) */
+#define REG_ITOA 0400 /* convert number to name (!) */
+
+/* regexec() flags */
+#define REG_NOTBOL 00001
+#define REG_NOTEOL 00002
+#define REG_STARTEND 00004
+#define REG_TRACE 00400 /* tracing of execution */
+#define REG_LARGE 01000 /* force large representation */
+#define REG_BACKR 02000 /* force use of backref code */
+#define REG_GNU 0400    /* enable GNU extensions */
+
+__BEGIN_DECLS
+int regcomp(regex_t *__restrict, const char *__restrict, int);
+size_t regerror(int, const regex_t *__restrict, char *__restrict, size_t);
+int regexec(const regex_t *__restrict, const char *__restrict, size_t,
+            regmatch_t[], int);
+void regfree(regex_t *);
+__END_DECLS
+
+#endif /* !_REGEX_H_ */

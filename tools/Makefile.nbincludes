@@ -21,7 +21,7 @@ _SUBDIR!=	cd ${_ARCHDIR} && ${MAKE} -V SUBDIR
 # There's no need to run these commands for "make cleandir" or "make obj",
 # and TOOL_SED will not yet have been built.
 _UFS_INCS!=	cd ${_UFSDIR} && find ffs ufs -name '*.h'
-_ARCH_INCS!=	${TOOL_SED} -e 's/^\#.*//' ${.CURDIR}/../headerlist
+_ARCH_INCS!=	${TOOL_SED} -e 's/^\#.*//' ${.CURDIR}/../headerlist | while read f; do [ -z "$$f" ] || [ ! -e "${_ARCHDIR}/$$f" ] || echo "$$f"; done
 .endif
 
 .if !defined(__MINIX)

@@ -4,6 +4,8 @@ MODULE=		texinfo
 
 CONFIGURE_ARGS=	--program-prefix=${_TOOL_PREFIX}
 
+HOST_CFLAGS+= -Wno-error=incompatible-pointer-types -std=gnu89
+
 .include "${.CURDIR}/../Makefile.gnuhost"
 
 .if !empty(.MAKE.OS:M*CYGWIN*) && target(install)

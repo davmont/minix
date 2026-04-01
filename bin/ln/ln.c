@@ -343,9 +343,13 @@ linkit(const char *source, const char *target, int isdir)
 	}
 
 	/* Attempt the link. */
+#ifdef __minix
+	if (sflag ? symlink(source, target) : link(source, target)) {
+#else
 	if (sflag ? symlink(source, target) :
 	    linkat(AT_FDCWD, source, AT_FDCWD, target,
 	    Pflag ? 0 : AT_SYMLINK_FOLLOW)) {
+#endif
 		warn("%s", target);
 		return (1);
 	}

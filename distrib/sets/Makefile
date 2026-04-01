@@ -269,6 +269,10 @@ installsets: .PHONY check_DESTDIR sanitise_METALOG
 
 # Should we ignore errors like extra or missing files in the flists?
 SLOPPY_FLIST?= NO
+.if defined(__MINIX)
+# MINIX builds often have additional generated headers and utilities
+SLOPPY_FLIST=	YES
+.endif
 .if !empty(SLOPPY_FLIST:M[Yy][Ee][Ss])
 CHECKFLIST_FLAGS+=	-e -m
 REGPKG.sloppy=		-m

@@ -415,11 +415,10 @@ bool MagicPass::runOnModule(Module &M) {
     for(i=0;i<intCastTypes.size();i++) {
         TYPECONST Type* type = intCastTypes[i];
         int value = intCastValues[i];
-        intCastMapIt = intCastMap.find(type);
-        if(intCastMapIt == intCastMap.end()) {
+        intCastMapIt = intCastMap.lower_bound(type);
+        if(intCastMapIt == intCastMap.end() || intCastMapIt->first != type) {
             std::set<int> valueSet;
-            intCastMap.insert(std::pair<TYPECONST Type*, std::set<int> >(type, valueSet));
-            intCastMapIt = intCastMap.find(type);
+            intCastMapIt = intCastMap.insert(intCastMapIt, std::pair<TYPECONST Type*, std::set<int> >(type, valueSet));
         }
         assert(intCastMapIt != intCastMap.end());
         std::set<int> *setPtr = &(intCastMapIt->second);

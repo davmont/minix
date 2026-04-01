@@ -64,6 +64,7 @@
 #include "lwip/mld6.h"
 
 #include <net/if_media.h>
+#include <minix/netdriver.h>
 
 #define ETHIF_MAX_MTU	1500		/* maximum MTU value for ethernet */
 #define ETHIF_DEF_MTU	ETHIF_MAX_MTU	/* default MTU value that we use */

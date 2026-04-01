@@ -666,7 +666,6 @@
 ./usr/include/c++                                       minix-base      gcc=5
 ./usr/include/c++/experimental                          minix-base      gcc=5
 ./usr/include/c++/ext                                   minix-base      gcc=5
-./usr/include/clang-3.6                                 minix-base      gcc=5
 ./usr/lib                                               minix-base
 ./usr/lib/cawf                                          minix-base
 ./usr/lib/cawf/common                                   minix-base

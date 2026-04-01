@@ -50,3 +50,6 @@ void setinteractive(int);
 void exitshell(int) __dead;
 void exitshell_savedstatus(void) __dead;
 int lastsig(void);
+const char *signalname(int);
+int signalnumber(const char *);
+int signalnext(int);

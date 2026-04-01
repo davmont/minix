@@ -350,7 +350,6 @@
 ./usr/include/cdk/swindow.h			comp-obsolete		obsolete
 ./usr/include/cdk/template.h			comp-obsolete		obsolete
 ./usr/include/cdk/viewer.h			comp-obsolete		obsolete
-./usr/include/clang-3.6/stdatomic.h	comp-c-include		llvm
 ./usr/include/complex.h				comp-c-include
 ./usr/include/cpio.h				comp-c-include
 ./usr/include/crypto/cryptodev.h		comp-c-include
@@ -1909,21 +1908,22 @@
 ./usr/include/g++/tr1/utility			comp-cxx-include	gcc,cxx,libstdcxx
 ./usr/include/g++/tr1/wchar.h			comp-cxx-include	gcc,cxx,libstdcxx
 ./usr/include/g++/tr1/wctype.h			comp-cxx-include	gcc,cxx,libstdcxx
-./usr/include/g++/tr1_impl/array		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/boost_sp_counted_base.h	comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cctype		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cfenv		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cinttypes		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cmath		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/complex		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cstdint		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cstdio		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cstdlib		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cwchar		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/cwctype		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/regex		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/type_traits		comp-cxx-include	obsolete
-./usr/include/g++/tr1_impl/utility		comp-cxx-include	obsolete
+./usr/include/g++/tr1_impl				comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/array		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/boost_sp_counted_base.h	comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cctype		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cfenv		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cinttypes		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cmath		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/complex		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cstdint		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cstdio		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cstdlib		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cwchar		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/cwctype		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/regex		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/type_traits		comp-cxx-include	gcc,cxx,libstdcxx
+./usr/include/g++/tr1_impl/utility		comp-cxx-include	gcc,cxx,libstdcxx
 ./usr/include/g++/tr2/bool_set			comp-cxx-include	gcc,cxx,libstdcxx
 ./usr/include/g++/tr2/bool_set.tcc		comp-cxx-include	gcc,cxx,libstdcxx
 ./usr/include/g++/tr2/dynamic_bitset		comp-cxx-include	gcc,cxx,libstdcxx

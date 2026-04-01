@@ -118,10 +118,11 @@ int	uspace;				/* kernel USPACE value */
 #define	kread(x, v) \
 	kvm_read(kd, psnl[x].n_value, (char *)&v, sizeof v) != sizeof(v)
 
-void
+int
 donlist(void)
 {
 	fixpt_t xccpu;
+	int r = 0;
 
 	nlistread = 1;
 
@@ -132,25 +133,28 @@ donlist(void)
 		mempages = MEMPAGES;
 		log_ccpu = LOG_CCPU;
 		maxslp = MAXSLP;
-		return;
+		return 1;
 	}
 
 	if (kread(X_FSCALE, fscale)) {
 		warnx("fscale: %s", kvm_geterr(kd));
 		eval = 1;
 		fscale = FSCALE;
+		r = 1;
 	}
 
 	if (kread(X_PHYSMEM, mempages)) {
 		warnx("avail_start: %s", kvm_geterr(kd));
 		eval = 1;
 		mempages = MEMPAGES;
+		r = 1;
 	}
 
 	if (kread(X_CCPU, xccpu)) {
 		warnx("ccpu: %s", kvm_geterr(kd));
 		eval = 1;
 		log_ccpu = LOG_CCPU;
+		r = 1;
 	} else
 		log_ccpu = log((double)xccpu / fscale);
 
@@ -158,7 +162,9 @@ donlist(void)
 		warnx("maxslp: %s", kvm_geterr(kd));
 		eval = 1;
 		maxslp = MAXSLP;
+		r = 1;
 	}
+	return r;
 }
 
 void

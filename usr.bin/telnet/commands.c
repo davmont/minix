@@ -142,6 +142,16 @@ static int togglehelp(int);
 static void settogglehelp(int);
 static int toggle(int, char *[]);
 static struct setlist *getset(const char *);
+
+#ifdef ENCRYPTION
+static int EncryptStart_wrapper(const char *, const char *);
+static int EncryptStop_wrapper(const char *, const char *);
+static int EncryptStartInput_wrapper(const char *, const char *);
+static int EncryptStopInput_wrapper(const char *, const char *);
+static int EncryptStartOutput_wrapper(const char *, const char *);
+static int EncryptStopOutput_wrapper(const char *, const char *);
+static int EncryptStatus_wrapper(const char *, const char *);
+#endif
 static int setcmd(int, char *[]);
 static int unsetcmd(int, char *[]);
 static int dokludgemode(int);
@@ -1280,7 +1290,7 @@ display(int  argc, char *argv[])
     }
 /*@*/optionstatus();
 #ifdef	ENCRYPTION
-    EncryptStatus(NULL, NULL);
+    EncryptStatus();
 #endif	/* ENCRYPTION */
     return 1;
 #undef	doset
@@ -1882,43 +1892,94 @@ auth_cmd(int  argc, char *argv[])
 struct encryptlist {
 	const char	*name;
 	const char	*help;
-	int	(*handler)(char *, char *);
+	int	(*handler)(const char *, const char *);
 	int	needconnect;
 	int	minarg;
 	int	maxarg;
 };
 
+#ifdef ENCRYPTION
+static int EncryptHelp(const char *, const char *);
+#else
 static int EncryptHelp(char *, char *);
+#endif
 
 struct encryptlist EncryptList[] = {
     { "enable", "Enable encryption. ('encrypt enable ?' for more)",
-						EncryptEnable, 1, 1, 2 },
+						(int (*)(const char *, const char *))EncryptEnable, 1, 1, 2 },
     { "disable", "Disable encryption. ('encrypt enable ?' for more)",
-						EncryptDisable, 0, 1, 2 },
+						(int (*)(const char *, const char *))EncryptDisable, 0, 1, 2 },
     { "type", "Set encryption type. ('encrypt type ?' for more)",
-						EncryptType, 0, 1, 1 },
+						(int (*)(const char *, const char *))EncryptType, 0, 1, 1 },
     { "start", "Start encryption. ('encrypt start ?' for more)",
-						EncryptStart, 1, 0, 1 },
+						EncryptStart_wrapper, 1, 0, 1 },
     { "stop", "Stop encryption. ('encrypt stop ?' for more)",
-						EncryptStop, 1, 0, 1 },
+						EncryptStop_wrapper, 1, 0, 1 },
     { "input", "Start encrypting the input stream",
-						EncryptStartInput, 1, 0, 0 },
+						EncryptStartInput_wrapper, 1, 0, 0 },
     { "-input", "Stop encrypting the input stream",
-						EncryptStopInput, 1, 0, 0 },
+						EncryptStopInput_wrapper, 1, 0, 0 },
     { "output", "Start encrypting the output stream",
-						EncryptStartOutput, 1, 0, 0 },
+						EncryptStartOutput_wrapper, 1, 0, 0 },
     { "-output", "Stop encrypting the output stream",
-						EncryptStopOutput, 1, 0, 0 },
+						EncryptStopOutput_wrapper, 1, 0, 0 },
 
     { "status",       "Display current status of authentication information",
-						EncryptStatus,	0, 0, 0 },
+						EncryptStatus_wrapper,	0, 0, 0 },
     { "help", 0,				EncryptHelp,	0, 0, 0 },
     { "?",    "Print help information",		EncryptHelp,	0, 0, 0 },
     { .name = 0 },
 };
 
+#ifdef ENCRYPTION
+static int
+EncryptStart_wrapper(const char *a, const char *b)
+{
+	return EncryptStart(a);
+}
+
+static int
+EncryptStop_wrapper(const char *a, const char *b)
+{
+	return EncryptStop(a);
+}
+
+static int
+EncryptStartInput_wrapper(const char *a, const char *b)
+{
+	return EncryptStartInput();
+}
+
+static int
+EncryptStopInput_wrapper(const char *a, const char *b)
+{
+	return EncryptStopInput();
+}
+
+static int
+EncryptStartOutput_wrapper(const char *a, const char *b)
+{
+	return EncryptStartOutput();
+}
+
+static int
+EncryptStopOutput_wrapper(const char *a, const char *b)
+{
+	return EncryptStopOutput();
+}
+
+static int
+EncryptStatus_wrapper(const char *a, const char *b)
+{
+	return EncryptStatus();
+}
+
+static int
+EncryptHelp(const char *s1, const char *s2)
+#else
 static int
 EncryptHelp(char *s1, char *s2)
+#endif
 {
 	struct encryptlist *c;
 

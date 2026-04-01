@@ -93,6 +93,7 @@ __RCSID("$NetBSD: vtw.c,v 1.13 2022/09/01 10:10:20 msaitoh Exp $");
 #include <netinet/ip_var.h>
 #include <netinet/pim_var.h>
 #include <netinet/tcp.h>
+#include <netinet/tcpip.h>
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_fsm.h>
 #include <netinet/tcp_timer.h>

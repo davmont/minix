@@ -127,8 +127,7 @@ void ioapic_unmask_irq(unsigned irq);
 void ioapic_mask_irq(unsigned irq);
 void ioapic_reset_pic(void);
 
-EXTERN int ioapic_enabled;
-EXTERN unsigned nioapics;
+
 
 void lapic_microsec_sleep(unsigned count);
 void ioapic_disable_irqs(u32_t irqs);

@@ -7,17 +7,13 @@ WARNS?=	4
 USE_FORT?=	yes	# network server
 
 RUMPPRG=	rtadvd
-SRCS=		rtadvd.c advcap.c if.c config.c timer.c dump.c
+SRCS=		rtadvd.c advcap.c if.c config.c timer.c dump.c rrenum.c
 MAN=		rtadvd.8 rtadvd.conf.5
 
 CPPFLAGS+=	-DINET6
 LDADD+=		-lutil
 DPADD+=		${LIBUTIL}
 
-LIBWRAP=	${NETBSDSRCDIR}/lib/libwrap
-SRCS+=		expandm.c
-.PATH.c:	${LIBWRAP}
-CPPFLAGS+=	-I${LIBWRAP}
 
 
 .if ${MKSHARE} != "no"

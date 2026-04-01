@@ -2,7 +2,7 @@
 
 /*-
  * Copyright (c) 2009, 2010 Joerg Sonnenberger <joerg@NetBSD.org>
- * Copyright (c) 2007-2008 Dag-Erling Coïdan Smørgrav
+ * Copyright (c) 2007-2008 Dag-Erling CoÃ¯dan SmÃ¸rgrav
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,6 +59,12 @@ __RCSID("$NetBSD: unzip.c,v 1.28 2021/09/10 21:52:18 rillig Exp $");
 
 #include <archive.h>
 #include <archive_entry.h>
+
+#if ARCHIVE_VERSION_NUMBER < 3000000
+#define archive_read_free(a) archive_read_finish(a)
+#define archive_read_add_passphrase(a, p) (void)0
+#define archive_read_set_passphrase_callback(a, b, c) (void)0
+#endif
 #ifdef __GLIBC__
 #include <readpassphrase.h>
 #endif
@@ -860,6 +866,7 @@ test(struct archive *a, struct archive_entry *e)
 	return error_count;
 }
 
+#if ARCHIVE_VERSION_NUMBER >= 3000000
 /*
  * Callback function for reading passphrase.
  * Originally from cpio.c and passphrase.c, libarchive.
@@ -887,6 +894,7 @@ passphrase_callback(struct archive *a, void *client_data)
 
 	return p;
 }
+#endif
 
 /*
  * Main loop: open the zipfile, iterate over its contents and decide what
@@ -905,10 +913,12 @@ unzip(const char *fn)
 
 	ac(archive_read_support_format_zip(a));
 
+#if ARCHIVE_VERSION_NUMBER >= 3000000
 	if (P_arg)
 		archive_read_add_passphrase(a, P_arg);
 	else
 		archive_read_set_passphrase_callback(a, passbuf, &passphrase_callback);
+#endif
 
 	ac(archive_read_open_filename(a, fn, 8192));
 

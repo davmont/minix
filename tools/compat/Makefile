@@ -4,7 +4,8 @@ HOSTLIB=	nbcompat
 
 .include <bsd.hostinit.mk>
 
-SRCS=		atoll.c basename.c cdbr.c cdbw.c dirname.c \
+SRCS=		atoll.c basename.c bswap16.c bswap32.c bswap64.c \
+		cdbr.c cdbw.c dirname.c \
 		dprintf.c fgetln.c flock.c fparseln.c fpurge.c \
 		getcap.c getline.c getmode.c getopt_long.c gettemp.c \
 		heapsort.c getsubopt.c \
@@ -39,8 +40,15 @@ HOST_CPPFLAGS+=	-no-cpp-precomp
 # -D_FILE_OFFSET_BITS=64 produces a much more amenable `struct stat', and
 # other file ops, on many systems, without changing function names.
 
-HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
-		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64
+HOST_CPPFLAGS+=	-I. -I./include -I./include/sys -I${.CURDIR} -I${.CURDIR}/sys \
+		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64 \
+		-include ${.CURDIR}/compat_defs.h
+
+HOST_CFLAGS+=	-Wno-error=implicit-function-declaration \
+		-Wno-error=int-conversion \
+		-Wno-error=implicit-int \
+		 \
+		-Wno-error=incompatible-pointer-types
 
 .PATH:		${.CURDIR}/../../lib/libc/cdb \
 		${.CURDIR}/../../lib/libc/gen \
@@ -65,7 +73,7 @@ HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		${.CURDIR}/../../common/lib/libc/md \
 		${.CURDIR}/../../common/lib/libc/stdlib \
 		${.CURDIR}/../../common/lib/libutil \
-		${.CURDIR}/../../external/bsd/flex/dist/src
+		${.CURDIR}/../../external/bsd/flex/dist
 
 DPSRCS+=	defs.mk
 CLEANFILES+=	config.log config.status configure.lineno *.stamp
@@ -79,6 +87,9 @@ _CURDIR:=	${.CURDIR}
 
 SRCS:=		${SRCS:M*.c}
 
+# Ensure nbtool_config.h is generated from config.cache
+nbtool_config.h: config.cache
+
 CONFIGURE_ARGS=	--cache-file=config.cache
 .if ${MAKEVERBOSE} == 0
 CONFIGURE_ARGS+=--silent
@@ -86,7 +97,7 @@ CONFIGURE_ARGS+=--silent
 
 config.cache: include/.stamp configure nbtool_config.h.in defs.mk.in
 	rm -f ${.TARGET}
-	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} CPPFLAGS=${HOST_CPPFLAGS:Q} \
+	CC=${HOST_CC:Q} CFLAGS=${HOST_CFLAGS:Q} \
 		LDFLAGS=${HOST_LDFLAGS:Q} \
 		${HOST_SH} ${.CURDIR}/configure ${CONFIGURE_ARGS}
 
@@ -104,6 +115,15 @@ cleandir.include: .PHONY
 
 include/.stamp:
 	mkdir -p ${INCSUBDIRS:@d@ include/$d @}
+	@# Copy all .h files from sys/sys that might be needed
+	for f in ${.CURDIR}/../../sys/sys/*.h; do \
+	  [ -f "$$f" ] && cp "$$f" include/sys/$$(basename $$f) || true; \
+	done
+	@# Copy all .h files from sys/arch/i386/include that might be needed
+	for f in ${.CURDIR}/../../sys/arch/i386/include/*.h; do \
+	  [ -f "$$f" ] && cp "$$f" include/machine/$$(basename $$f) || true; \
+	done
+	@echo "/* Stub pthread_types.h for compat build */" > include/sys/pthread_types.h
 	@touch ${.TARGET}
 
 # Install rules
@@ -155,6 +175,9 @@ ${HOST_SHAREDIR}/compat/defs.mk: defs.mk
 HOST_CPPFLAGS+=	${CPPFLAGS}
 
 .include <bsd.hostlib.mk>
+
+# Ensure include headers are ready before compilation
+realall: include/.stamp nbtool_config.h
 
 # Use uninstalled copy of host-mkdep
 HOST_MKDEP_OBJ!= cd ${.CURDIR}/../host-mkdep && ${PRINTOBJDIR}

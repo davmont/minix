@@ -786,18 +786,11 @@ rawsock_send(struct sock * sock, const struct sockdriver_data * data,
  * Update the set of flag-type socket options on a raw socket.
  */
 static void
-rawsock_setsockmask(struct sock * sock, unsigned int mask)
+rawsock_setsockmask(struct sock * sock, unsigned int mask __unused)
 {
 	struct rawsock *raw = (struct rawsock *)sock;
 
-	/*
-	 * FIXME: raw sockets are not supposed to have a broardcast check, so
-	 * perhaps just remove this and instead always set SOF_BROADCAST?
-	 */
-	if (mask & SO_BROADCAST)
-		ip_set_option(raw->raw_pcb, SOF_BROADCAST);
-	else
-		ip_reset_option(raw->raw_pcb, SOF_BROADCAST);
+	ip_set_option(raw->raw_pcb, SOF_BROADCAST);
 }
 
 /*

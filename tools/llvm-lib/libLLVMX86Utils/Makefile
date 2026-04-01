@@ -1,0 +1,1 @@
+.include <bsd.init.mk>

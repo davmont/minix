@@ -24,7 +24,7 @@ int main (int argc, char *argv[])
   endpoint_t proc_e = NONE;
   struct sysgetenv sysgetenv;
   char *to_whom, *operation, *what, *value;
-  size_t i, len;
+  size_t i, to_whom_len, operation_len, what_len;
 
   bin_name = argv[0];
   if (argc < 4 || argc > 5) usage();
@@ -37,18 +37,21 @@ int main (int argc, char *argv[])
   to_whom = argv[1];
   operation = argv[2];
   what = argv[3];
-  for (i = 0, len = strlen(to_whom); i < len; ++i)   to_whom[i] = tolower(to_whom[i]);
-  for (i = 0, len = strlen(operation); i < len; ++i) operation[i] = tolower(operation[i]);
-  for (i = 0, len = strlen(what); i < len; ++i)      what[i] = tolower(what[i]);
+  to_whom_len = strlen(to_whom);
+  operation_len = strlen(operation);
+  what_len = strlen(what);
+  for (i = 0; i < to_whom_len; ++i)   to_whom[i] = tolower(to_whom[i]);
+  for (i = 0; i < operation_len; ++i) operation[i] = tolower(operation[i]);
+  for (i = 0; i < what_len; ++i)      what[i] = tolower(what[i]);
 
-  if (!strncmp(to_whom, VFS, strlen(VFS)+1)) proc_e = VFS_PROC_NR;
-  else if (!strncmp(to_whom, PM, strlen(PM)+1)) proc_e = PM_PROC_NR;
+  if (!strncmp(to_whom, VFS, sizeof(VFS))) proc_e = VFS_PROC_NR;
+  else if (!strncmp(to_whom, PM, sizeof(PM))) proc_e = PM_PROC_NR;
   else usage();
 
   sysgetenv.key = what;
   sysgetenv.keylen = strlen(what) + 1;
 
-  if (!strncmp(operation, SET, strlen(SET)+1)) {
+  if (!strncmp(operation, SET, sizeof(SET))) {
 	if (argc != 5) usage();
 	value = argv[4];
 	sysgetenv.val = value;
@@ -71,7 +74,7 @@ int main (int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 	return(EXIT_SUCCESS);
-  } else if (!strncmp(operation, GET, strlen(GET)+1)) {
+  } else if (!strncmp(operation, GET, sizeof(GET))) {
 	char get_param_buffer[4096];
 
 	memset(get_param_buffer, '\0', sizeof(get_param_buffer));

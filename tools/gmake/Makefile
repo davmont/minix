@@ -13,6 +13,8 @@ CONFIGURE_ARGS+=--disable-nls
 
 MAKE_ARGS=	MAKEINFO=${TOOL_MAKEINFO:Q}
 
+HOST_CFLAGS+= -Wno-error=incompatible-pointer-types -std=gnu89
+
 .NOTPARALLEL:
 
 .include "${.CURDIR}/../Makefile.gnuhost"

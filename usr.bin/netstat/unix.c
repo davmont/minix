@@ -69,10 +69,12 @@ __RCSID("$NetBSD: unix.c,v 1.37 2022/09/02 06:25:43 msaitoh Exp $");
 static	void unixdomainprhdr(void);
 static	void unixdomainpr0(u_long, u_long, u_long, u_long, u_long, u_long,
 			   u_long, u_long, u_long, struct sockaddr_un *, int);
+#if 0
 static	void unixdomainpr(struct socket *, void *);
 
 static struct	file *file, *fileNFILE;
 static int	ns_nfiles;
+#endif
 
 static void
 unixdomainprhdr(void)
@@ -101,6 +103,7 @@ unixdomainpr0(u_long so_pcb, u_long so_type, u_long rcvq, u_long sndq,
 	putchar('\n');
 }
 
+#if 0
 static void
 unixdomainpr(struct socket *so, void *soaddr)
 {
@@ -136,14 +139,17 @@ unixdomainpr(struct socket *so, void *soaddr)
 		      (u_long)unp.unp_nextref, (u_long)unp.unp_addr,
 		      remote ? &rsun : &sun, remote);
 }
+#endif
 
 void
-unixpr(u_long off)
+unixpr(u_long off __unused)
 {
+#if 0
 	struct file *fp;
 	struct socket sock, *so = &sock;
 	char *filebuf;
 	struct protosw *unixsw = (struct protosw *)off;
+#endif
 
 	if (use_sysctl) {
 		struct kinfo_pcb *pcblist;
@@ -207,6 +213,7 @@ unixpr(u_long off)
 		}
 
 	} else {
+#if 0
 		filebuf = (char *)kvm_getfiles(get_kvmd(), KERN_FILE,
 					       0, &ns_nfiles);
 		if (filebuf == 0) {
@@ -227,5 +234,8 @@ unixpr(u_long off)
 				if (so->so_pcb)
 					unixdomainpr(so, fp->f_data);
 		}
+#else
+		warnx("unixdomain stats not available via KVM.");
+#endif
 	}
 }

@@ -2078,6 +2078,33 @@ display_version(void)
 	exit(0);
 }
 
+/* Missing function implementations for included files */
+
+/* Track total bytes read for progress display */
+static off_t total_infile_size = 0;
+
+static void
+check_siginfo(void)
+{
+	/* 
+	 * Check for SIGINFO signal to display progress statistics.
+	 * Since signal handling isn't fully implemented (marked XXX),
+	 * this is a no-op for now.
+	 */
+}
+
+static void
+infile_newdata(ssize_t n)
+{
+	/* 
+	 * Track bytes read from input file.
+	 * This is called after reading n bytes during decompression.
+	 */
+	if (n > 0) {
+		total_infile_size += n;
+	}
+}
+
 #ifndef NO_BZIP2_SUPPORT
 #include "unbzip2.c"
 #endif

@@ -4,7 +4,8 @@ PROG=	stat
 
 .if !defined(HOSTPROG)
 LINKS=	${BINDIR}/stat ${BINDIR}/readlink
-MAN=	stat.1 readlink.1
+MAN=	stat.1
+MLINKS=	stat.1 readlink.1
 .endif
 
 .include <bsd.own.mk>
