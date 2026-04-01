@@ -195,6 +195,46 @@ ATF_TC_BODY(evAddTime_basic, tc)
 	ATF_CHECK_EQ(ts.tv_nsec, 100000000);
 }
 
+ATF_TC(evAddTime_zero);
+ATF_TC_HEAD(evAddTime_zero, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evAddTime(3) with zero values");
+}
+
+ATF_TC_BODY(evAddTime_zero, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 0;
+	t1.tv_nsec = 0;
+	t2.tv_sec = 0;
+	t2.tv_nsec = 0;
+	ts = evAddTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evAddTime_nsec_overflow);
+ATF_TC_HEAD(evAddTime_nsec_overflow, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evAddTime(3) with nsec overflow");
+}
+
+ATF_TC_BODY(evAddTime_nsec_overflow, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 1;
+	t1.tv_nsec = 500000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 500000000;
+	ts = evAddTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 4);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
 ATF_TC(evSubTime_basic);
 ATF_TC_HEAD(evSubTime_basic, tc)
 {
@@ -248,6 +288,8 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, evConsTime_zero);
 	ATF_TP_ADD_TC(tp, evConsTime_negative);
 	ATF_TP_ADD_TC(tp, evAddTime_basic);
+	ATF_TP_ADD_TC(tp, evAddTime_zero);
+	ATF_TP_ADD_TC(tp, evAddTime_nsec_overflow);
 	ATF_TP_ADD_TC(tp, evSubTime_basic);
 	ATF_TP_ADD_TC(tp, evCmpTime_basic);
 
