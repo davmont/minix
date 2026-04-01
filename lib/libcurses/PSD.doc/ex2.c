@@ -51,6 +51,7 @@ main()
 	char id[100];
 	int hh = 0;
 	int curx, cury, base, arg;
+	size_t id_len;
 
 	initscr();
 	signal(SIGINT, quit);
