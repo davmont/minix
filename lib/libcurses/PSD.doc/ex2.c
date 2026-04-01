@@ -47,7 +47,7 @@ static int quit();
  */
 main()
 {
-	int i, j, c, n, d = 0;
+	int i, j, c, n, d = 0, len;
 	char id[100];
 	int hh = 0;
 	int curx, cury, base, arg;
@@ -69,7 +69,8 @@ main()
 	for (i = 0; i < YSIZE + 2; i++) {
 		int id_len = snprintf(id, sizeof id, "%d: ", i);
 		addstr(id);
-		for (j = 0; j < XSIZE - id_len; j++)
+		len = strlen(id);
+		for (j = 0; j < XSIZE - len; j++)
 			addch('0' + (i % 10));
 	}
 	c = getchar();
@@ -180,7 +181,8 @@ main()
 			insertln();
 			int id_len = snprintf(id, sizeof id, "%d: ", base);
 			addstr(id);
-			for (j = 0; j < XSIZE - id_len - 2; j++)
+			len = strlen(id);
+			for (j = 0; j < XSIZE - len - 2; j++)
 				addch('0' + (base % 10));
 			cury++;
 		} else if (cury >= YSIZE) {
@@ -189,7 +191,8 @@ main()
 			move(YSIZE - 1, 0);
 			int id_len = snprintf(id, sizeof id, "%d: ", base + YSIZE);
 			addstr(id);
-			for (j = 0; j < XSIZE - id_len - 2; j++)
+			len = strlen(id);
+			for (j = 0; j < XSIZE - len - 2; j++)
 				addch('0' + ((base + YSIZE) % 10));
 			cury--;
 			base++;
