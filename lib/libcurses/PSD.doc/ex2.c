@@ -51,6 +51,7 @@ main()
 	char id[100];
 	int hh = 0;
 	int curx, cury, base, arg;
+	size_t id_len;
 
 	initscr();
 	signal(SIGINT, quit);
@@ -69,7 +70,8 @@ main()
 	for (i = 0; i < YSIZE + 2; i++) {
 		(void)snprintf(id, sizeof id, "%d: ", i);
 		addstr(id);
-		for (j = 0; j < XSIZE - strlen(id); j++)
+		id_len = strlen(id);
+		for (j = 0; j < XSIZE - id_len; j++)
 			addch('0' + (i % 10));
 	}
 	c = getchar();
@@ -180,7 +182,8 @@ main()
 			insertln();
 			(void)snprintf(id, sizeof id, "%d: ", base);
 			addstr(id);
-			for (j = 0; j < XSIZE - strlen(id) - 2; j++)
+			id_len = strlen(id);
+			for (j = 0; j < XSIZE - id_len - 2; j++)
 				addch('0' + (base % 10));
 			cury++;
 		} else if (cury >= YSIZE) {
@@ -189,7 +192,8 @@ main()
 			move(YSIZE - 1, 0);
 			(void)snprintf(id, sizeof id, "%d: ", base + YSIZE);
 			addstr(id);
-			for (j = 0; j < XSIZE - strlen(id) - 2; j++)
+			id_len = strlen(id);
+			for (j = 0; j < XSIZE - id_len - 2; j++)
 				addch('0' + ((base + YSIZE) % 10));
 			cury--;
 			base++;
