@@ -77,7 +77,7 @@ ORIG_UNPAGED_OBJS += ${unpaged_obj}
 CLEANFILES+= ${ORIG_UNPAGED_OBJS}
 
 # Core paged kernel sources
-SRCS+=	mpx.S head.S protect.c pg_utils.c \
+SRCS+=	mpx.S head.S protect.c pg_utils.c pre_init.c \
 	arch_clock.c arch_do_vmctl.c arch_system.c arch_reset.c \
 	direct_tty_utils.c
 
