@@ -242,7 +242,8 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 	memset(diskStructure->primaryDescriptor.abstract_file_id, 0x20,37);
 	memset(diskStructure->primaryDescriptor.bibliographic_file_id, 0x20,37);
 
-	strcpy(diskStructure->primaryDescriptor.system_id,"NetBSD");
+	(void)strlcpy(diskStructure->primaryDescriptor.system_id, "NetBSD",
+	    sizeof(diskStructure->primaryDescriptor.system_id));
 
 	cd9660_defaults_set = 1;
 
