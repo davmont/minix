@@ -77,7 +77,7 @@ ORIG_UNPAGED_OBJS += ${unpaged_obj}
 CLEANFILES+= ${ORIG_UNPAGED_OBJS}
 
 # Core paged kernel sources
-SRCS+=	mpx.S head.S protect.c pg_utils.c pre_init.c \
+SRCS+=	mpx.S head.S klib.S protect.c pg_utils.c pre_init.c \
 	arch_clock.c arch_do_vmctl.c arch_system.c arch_reset.c \
 	direct_tty_utils.c
 
@@ -107,7 +107,7 @@ SRCS+= arch_watchdog.c
 CPPFLAGS+= -DUSE_WATCHDOG
 .endif
 
-head.o mpx.o: procoffsets.h sconst.h
+head.o mpx.o klib.o: procoffsets.h sconst.h
 
 SRCS+= procoffsets.h
 
