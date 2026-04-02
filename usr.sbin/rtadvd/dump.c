@@ -103,7 +103,7 @@ if_dump(void)
 	char prefixbuf[INET6_ADDRSTRLEN];
 	struct timespec now;
 
-	prog_clock_gettime(CLOCK_MONOTONIC, &now); /* XXX: unused in most cases */
+	now.tv_sec = 0;
 	TAILQ_FOREACH(rai, &ralist, next) {
 		fprintf(fp, "%s:\n", rai->ifname);
 
@@ -177,21 +177,25 @@ if_dump(void)
 				fprintf(fp, "vltime: infinity");
 			else
 				fprintf(fp, "vltime: %u", pfx->validlifetime);
-			if (pfx->vltimeexpire != 0)
+			if (pfx->vltimeexpire != 0) {
+				if (now.tv_sec == 0)
+					prog_clock_gettime(CLOCK_MONOTONIC, &now);
 				fprintf(fp, "(decr,expire %lld), ", (long long)
 					(pfx->vltimeexpire > now.tv_sec ?
 					pfx->vltimeexpire - now.tv_sec : 0));
-			else
+			} else
 				fprintf(fp, ", ");
 			if (pfx->preflifetime ==  ND6_INFINITE_LIFETIME)
 				fprintf(fp, "pltime: infinity");
 			else
 				fprintf(fp, "pltime: %u", pfx->preflifetime);
-			if (pfx->pltimeexpire != 0)
+			if (pfx->pltimeexpire != 0) {
+				if (now.tv_sec == 0)
+					prog_clock_gettime(CLOCK_MONOTONIC, &now);
 				fprintf(fp, "(decr,expire %lld), ", (long long)
 					(pfx->pltimeexpire > now.tv_sec ?
 					pfx->pltimeexpire - now.tv_sec : 0));
-			else
+			} else
 				fprintf(fp, ", ");
 			fprintf(fp, "flags: %s%s%s",
 				pfx->onlinkflg ? "L" : "",
