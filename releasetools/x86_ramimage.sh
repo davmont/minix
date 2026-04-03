@@ -8,7 +8,7 @@ set -e
 
 : ${ARCH=i386}
 : ${OBJ=../obj.${ARCH}}
-: ${TOOLCHAIN_TRIPLET=i586-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base"}
@@ -54,4 +54,4 @@ echo ""
 echo "RAM image modules at ${WORK_DIR}"
 echo ""
 echo "To boot this image on kvm:"
-echo "cd ${WORK_DIR} && qemu-system-i386 --enable-kvm -m 1G -kernel kernel -append \"bootramdisk=1\" -initrd \"${mods}\""
+echo "cd ${WORK_DIR} && $([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 1G -kernel kernel -append \"bootramdisk=1\" -initrd \"${mods}\""

@@ -119,8 +119,11 @@ include/.stamp:
 	for f in ${.CURDIR}/../../sys/sys/*.h; do \
 	  [ -f "$$f" ] && cp "$$f" include/sys/$$(basename $$f) || true; \
 	done
-	@# Copy all .h files from sys/arch/i386/include that might be needed
-	for f in ${.CURDIR}/../../sys/arch/i386/include/*.h; do \
+	@# Copy all .h files from sys/arch/${MACHINE}/include that might be needed.
+	@# Fall back to i386 if the machine-specific directory does not exist.
+	_arch_inc=${.CURDIR}/../../sys/arch/${MACHINE}/include; \
+	[ -d "$$_arch_inc" ] || _arch_inc=${.CURDIR}/../../sys/arch/i386/include; \
+	for f in $$_arch_inc/*.h; do \
 	  [ -f "$$f" ] && cp "$$f" include/machine/$$(basename $$f) || true; \
 	done
 	@echo "/* Stub pthread_types.h for compat build */" > include/sys/pthread_types.h
