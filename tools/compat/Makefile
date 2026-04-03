@@ -40,7 +40,7 @@ HOST_CPPFLAGS+=	-no-cpp-precomp
 # -D_FILE_OFFSET_BITS=64 produces a much more amenable `struct stat', and
 # other file ops, on many systems, without changing function names.
 
-HOST_CPPFLAGS+=	-I. -I./include -I./include/sys -I${.CURDIR} -I${.CURDIR}/sys \
+HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64 \
 		-include ${.CURDIR}/compat_defs.h
 
@@ -116,16 +116,22 @@ cleandir.include: .PHONY
 
 include/.stamp:
 	mkdir -p ${INCSUBDIRS:@d@ include/$d @}
-	@# Copy all .h files from sys/sys that might be needed
-	for f in ${.CURDIR}/../../sys/sys/*.h; do \
-	  [ -f "$$f" ] && cp "$$f" include/sys/$$(basename $$f) || true; \
+	@# Copy only the specific NetBSD sys headers needed by the compat layer.
+	@# Do NOT copy headers that conflict with glibc (types.h, param.h,
+	@# stdarg.h, stdint.h, stat.h, time.h, etc.).
+	@_sysdir=${.CURDIR}/../../sys/sys; \
+	for f in featuretest.h ansi.h cdefs.h cdefs_elf.h md5.h rmd160.h sha1.h sha2.h \
+	         cdb.h fd_set.h endian.h bswap.h null.h tree.h queue.h md4.h \
+	         dirent.h exec_elf.h exec.h bootblock.h disklabel.h dkio.h; do \
+	  [ -f "$$_sysdir/$$f" ] && cp "$$_sysdir/$$f" include/sys/$$f || true; \
 	done
-	@# Copy all .h files from sys/arch/${MACHINE}/include that might be needed.
+	@# Copy arch-specific headers for machine-dependent type definitions.
 	@# Fall back to i386 if the machine-specific directory does not exist.
 	_arch_inc=${.CURDIR}/../../sys/arch/${MACHINE}/include; \
 	[ -d "$$_arch_inc" ] || _arch_inc=${.CURDIR}/../../sys/arch/i386/include; \
-	for f in $$_arch_inc/*.h; do \
-	  [ -f "$$f" ] && cp "$$f" include/machine/$$(basename $$f) || true; \
+	for f in types.h ansi.h int_types.h cdefs.h bswap.h endian.h \
+	         disklabel.h param.h; do \
+	  [ -f "$$_arch_inc/$$f" ] && cp "$$_arch_inc/$$f" include/machine/$$f || true; \
 	done
 	@echo "/* Stub pthread_types.h for compat build */" > include/sys/pthread_types.h
 	@touch ${.TARGET}
