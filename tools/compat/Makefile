@@ -44,7 +44,8 @@ HOST_CPPFLAGS+=	-I. -I./include -I./include/sys -I${.CURDIR} -I${.CURDIR}/sys \
 		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64 \
 		-include ${.CURDIR}/compat_defs.h
 
-HOST_CFLAGS+=	-Wno-error=implicit-function-declaration \
+HOST_CFLAGS+=	-std=gnu11 \
+		-Wno-error=implicit-function-declaration \
 		-Wno-error=int-conversion \
 		-Wno-error=implicit-int \
 		 \
