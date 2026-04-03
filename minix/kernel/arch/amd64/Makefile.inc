@@ -79,7 +79,7 @@ CLEANFILES+= ${ORIG_UNPAGED_OBJS}
 # Core paged kernel sources
 SRCS+=	mpx.S head.S klib.S protect.c pg_utils.c pre_init.c \
 	arch_clock.c arch_do_vmctl.c arch_system.c arch_reset.c \
-	direct_tty_utils.c
+	direct_tty_utils.c memory.c
 
 SRCS+=	exception.c i8259.c \
 	do_iopenable.c do_readbios.c do_sdevio.c \

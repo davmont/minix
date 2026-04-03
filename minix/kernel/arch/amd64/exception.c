@@ -14,6 +14,9 @@
 #include <string.h>
 #include <assert.h>
 #include <machine/vm.h>
+#ifdef USE_WATCHDOG
+#include "kernel/watchdog.h"
+#endif
 
 struct ex_s {
     char *msg;
@@ -158,9 +161,13 @@ void exception_handler(int is_nested, struct exception_frame *frame)
     ep = (frame->vector < (reg_t)(sizeof(ex_data) / sizeof(ex_data[0])))
          ? &ex_data[frame->vector] : NULL;
 
-    /* Spurious NMI. */
+    /* NMI: route to watchdog if enabled, otherwise treat as spurious. */
     if (frame->vector == 2) {
+#ifdef USE_WATCHDOG
+        nmi_watchdog_handler((struct nmi_frame *)frame);
+#else
         printf("got spurious NMI\n");
+#endif
         return;
     }
 

@@ -107,6 +107,10 @@ void idt_copy_vectors(struct gate_table_s *first);
 void idt_copy_vectors_pic(void);
 
 /* klib.S */
+void   amd64_invlpg(vir_bytes addr);
+phys_bytes phys_memset(phys_bytes dst, u64_t pattern, phys_bytes count);
+void   memset_fault(void);
+void   memset_fault_in_kernel(void);
 __dead void x86_triplefault(void);
 reg_t  read_cr0(void);
 reg_t  read_cr2(void);
