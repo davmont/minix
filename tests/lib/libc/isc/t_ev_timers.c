@@ -145,6 +145,36 @@ ATF_TC_BODY(evConsTime_basic, tc)
 	ATF_CHECK_EQ(ts.tv_nsec, 456);
 }
 
+ATF_TC(evConsTime_zero);
+ATF_TC_HEAD(evConsTime_zero, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evConsTime(3) with zero values");
+}
+
+ATF_TC_BODY(evConsTime_zero, tc)
+{
+	struct timespec ts;
+
+	ts = evConsTime(0, 0);
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evConsTime_negative);
+ATF_TC_HEAD(evConsTime_negative, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evConsTime(3) with negative values");
+}
+
+ATF_TC_BODY(evConsTime_negative, tc)
+{
+	struct timespec ts;
+
+	ts = evConsTime(-1, -500000000);
+	ATF_CHECK_EQ(ts.tv_sec, -1);
+	ATF_CHECK_EQ(ts.tv_nsec, -500000000);
+}
+
 ATF_TC(evAddTime_basic);
 ATF_TC_HEAD(evAddTime_basic, tc)
 {
@@ -165,6 +195,46 @@ ATF_TC_BODY(evAddTime_basic, tc)
 	ATF_CHECK_EQ(ts.tv_nsec, 100000000);
 }
 
+ATF_TC(evAddTime_zero);
+ATF_TC_HEAD(evAddTime_zero, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evAddTime(3) with zero values");
+}
+
+ATF_TC_BODY(evAddTime_zero, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 0;
+	t1.tv_nsec = 0;
+	t2.tv_sec = 0;
+	t2.tv_nsec = 0;
+	ts = evAddTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evAddTime_nsec_overflow);
+ATF_TC_HEAD(evAddTime_nsec_overflow, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evAddTime(3) with nsec overflow");
+}
+
+ATF_TC_BODY(evAddTime_nsec_overflow, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 1;
+	t1.tv_nsec = 500000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 500000000;
+	ts = evAddTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 4);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
 ATF_TC(evSubTime_basic);
 ATF_TC_HEAD(evSubTime_basic, tc)
 {
@@ -182,6 +252,66 @@ ATF_TC_BODY(evSubTime_basic, tc)
 	ts = evSubTime(t1, t2);
 
 	ATF_CHECK_EQ(ts.tv_sec, 1);
+	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
+}
+
+ATF_TC(evSubTime_noborrow);
+ATF_TC_HEAD(evSubTime_noborrow, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with no borrow needed");
+}
+
+ATF_TC_BODY(evSubTime_noborrow, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 4;
+	t1.tv_nsec = 600000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 100000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 2);
+	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
+}
+
+ATF_TC(evSubTime_equal);
+ATF_TC_HEAD(evSubTime_equal, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with equal arguments");
+}
+
+ATF_TC_BODY(evSubTime_equal, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 4;
+	t1.tv_nsec = 100000000;
+	t2.tv_sec = 4;
+	t2.tv_nsec = 100000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, 0);
+	ATF_CHECK_EQ(ts.tv_nsec, 0);
+}
+
+ATF_TC(evSubTime_negative);
+ATF_TC_HEAD(evSubTime_negative, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evSubTime(3) with negative result");
+}
+
+ATF_TC_BODY(evSubTime_negative, tc)
+{
+	struct timespec t1, t2, ts;
+
+	t1.tv_sec = 1;
+	t1.tv_nsec = 100000000;
+	t2.tv_sec = 2;
+	t2.tv_nsec = 600000000;
+	ts = evSubTime(t1, t2);
+
+	ATF_CHECK_EQ(ts.tv_sec, -2);
 	ATF_CHECK_EQ(ts.tv_nsec, 500000000);
 }
 
@@ -207,16 +337,51 @@ ATF_TC_BODY(evCmpTime_basic, tc)
 	ATF_CHECK(evCmpTime(t2, t1) < 0);
 }
 
+ATF_TC(evNowTime_basic);
+ATF_TC_HEAD(evNowTime_basic, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "Test evNowTime(3)");
+}
+
+ATF_TC_BODY(evNowTime_basic, tc)
+{
+	struct timespec ts1, ts2;
+
+	/* Get the time using evNowTime */
+	ts1 = evNowTime();
+
+	/* Delay a little bit or just get another time */
+	ts2 = evNowTime();
+
+	/* Check that nanoseconds are within valid bounds */
+	ATF_CHECK(ts1.tv_nsec >= 0 && ts1.tv_nsec < 1000000000);
+	ATF_CHECK(ts2.tv_nsec >= 0 && ts2.tv_nsec < 1000000000);
+
+	/*
+	 * Since evNowTime uses CLOCK_MONOTONIC when built in libc,
+	 * it represents uptime. We check that time goes forward.
+	 */
+	ATF_CHECK(evCmpTime(ts2, ts1) >= 0);
+}
+
 ATF_TP_ADD_TCS(tp)
 {
+	ATF_TP_ADD_TC(tp, evNowTime_basic);
 	ATF_TP_ADD_TC(tp, evTimeSpec_basic);
 	ATF_TP_ADD_TC(tp, evTimeSpec_zero);
 	ATF_TP_ADD_TC(tp, evTimeSpec_max_usec);
 	ATF_TP_ADD_TC(tp, evTimeVal_basic);
 	ATF_TP_ADD_TC(tp, evTimeVal_zero);
 	ATF_TP_ADD_TC(tp, evConsTime_basic);
+	ATF_TP_ADD_TC(tp, evConsTime_zero);
+	ATF_TP_ADD_TC(tp, evConsTime_negative);
 	ATF_TP_ADD_TC(tp, evAddTime_basic);
+	ATF_TP_ADD_TC(tp, evAddTime_zero);
+	ATF_TP_ADD_TC(tp, evAddTime_nsec_overflow);
 	ATF_TP_ADD_TC(tp, evSubTime_basic);
+	ATF_TP_ADD_TC(tp, evSubTime_noborrow);
+	ATF_TP_ADD_TC(tp, evSubTime_equal);
+	ATF_TP_ADD_TC(tp, evSubTime_negative);
 	ATF_TP_ADD_TC(tp, evCmpTime_basic);
 
 	return atf_no_error();
