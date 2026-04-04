@@ -58,6 +58,9 @@
 
 
 #include <sys/types.h>
+#ifndef vax11c
+#include <sys/wait.h>
+#endif
 
 #ifdef vax11c
 #define BADSEEK
@@ -1630,7 +1633,17 @@ listen:
 			return ERROR;
 #else
 			vfile("******** RZ *******");
-			system("rz");
+			{
+				pid_t pid;
+				int status;
+				if ((pid = fork()) == 0) {
+					execl("/usr/bin/rz", "rz", (char *)NULL);
+					exit(127);
+				} else if (pid > 0) {
+					while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
+						continue;
+				}
+			}
 			vfile("******** SZ *******");
 			goto listen;
 #endif
