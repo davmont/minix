@@ -1637,7 +1637,7 @@ listen:
 				pid_t pid;
 				int status;
 				if ((pid = fork()) == 0) {
-					execl("/usr/bin/rz", "rz", (char *)NULL);
+					execlp("rz", "rz", (char *)NULL);
 					exit(127);
 				} else if (pid > 0) {
 					while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
