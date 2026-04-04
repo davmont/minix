@@ -5,13 +5,34 @@
 #include <string.h>
 #include <lib.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <dirent.h>
+#include <unistd.h>
 #include <assert.h>
 #include <signal.h>
 #include <minix/dmap.h>
 #include <minix/paths.h>
 #include "usb_driver.h"
 #include "proto.h"
+
+static int safe_exec(const char *cmd, char *const argv[]) {
+	pid_t pid = fork();
+	if (pid == -1) {
+		return -1;
+	} else if (pid == 0) {
+		execvp(cmd, argv);
+		exit(127);
+	} else {
+		int status;
+		if (waitpid(pid, &status, 0) == -1) {
+			return -1;
+		}
+		if (WIFEXITED(status)) {
+			return WEXITSTATUS(status);
+		}
+		return -1;
+	}
+}
 
 #define DEVMAN_TYPE_NAME "dev_type"
 #define PATH_LEN 256
@@ -83,17 +104,27 @@ static char major_bitmap[16]; /* can store up to 128 major number states */
  *===========================================================================*/
 int run_upscript(struct devmand_driver_instance *inst)
 {
-	char cmdl[1024];
-	cmdl[0] = 0;
+	char dev_id_str[16];
+	char major_str[16];
+	char *args[6];
 	int ret;
 
 	assert(inst->drv->upscript);
 	assert(inst->label);
 
-	snprintf(cmdl, 1024, "%s up %s %d %d",
-	    inst->drv->upscript, inst->label, inst->major, inst->dev_id);
-	dbg("Running Upscript:  \"%s\"", cmdl);
-	ret = system(cmdl);
+	snprintf(major_str, sizeof(major_str), "%d", inst->major);
+	snprintf(dev_id_str, sizeof(dev_id_str), "%d", inst->dev_id);
+
+	args[0] = inst->drv->upscript;
+	args[1] = "up";
+	args[2] = inst->label;
+	args[3] = major_str;
+	args[4] = dev_id_str;
+	args[5] = NULL;
+
+	dbg("Running Upscript: \"%s up %s %s %s\"",
+	    args[0], args[2], args[3], args[4]);
+	ret = safe_exec(args[0], args);
 	if (ret != 0) {
 		return EINVAL;
 	}
@@ -105,17 +136,19 @@ int run_upscript(struct devmand_driver_instance *inst)
  *===========================================================================*/
 int run_cleanscript(struct devmand_usb_driver *drv)
 {
-	char cmdl[1024];
-	cmdl[0] = 0;
+	char *args[4];
 	int ret;
 
 	assert(drv->upscript);
 	assert(drv->devprefix);
 
-	snprintf(cmdl, 1024, "%s clean %s ",
-		drv->upscript, drv->devprefix);
-	dbg("Running Upscript:  \"%s\"", cmdl);
-	ret = system(cmdl);
+	args[0] = drv->upscript;
+	args[1] = "clean";
+	args[2] = drv->devprefix;
+	args[3] = NULL;
+
+	dbg("Running Upscript: \"%s clean %s\"", args[0], args[2]);
+	ret = safe_exec(args[0], args);
 
 	if (ret != 0) {
 		return EINVAL;
@@ -130,19 +163,24 @@ int run_cleanscript(struct devmand_usb_driver *drv)
  *===========================================================================*/
 int run_downscript(struct devmand_driver_instance *inst)
 {
-	char cmdl[1024];
-	cmdl[0] = 0;
+	char major_str[16];
+	char *args[5];
 	int ret;
 
 	assert(inst->drv->downscript);
 	assert(inst->label);
 
-	snprintf(cmdl, 1024, "%s down %s %d",
-	    inst->drv->downscript, inst->label, inst->major);
+	snprintf(major_str, sizeof(major_str), "%d", inst->major);
 
-	dbg("Running Upscript:  \"%s\"", cmdl);
+	args[0] = inst->drv->downscript;
+	args[1] = "down";
+	args[2] = inst->label;
+	args[3] = major_str;
+	args[4] = NULL;
 
-	ret = system(cmdl);
+	dbg("Running Upscript: \"%s down %s %s\"", args[0], args[2], args[3]);
+
+	ret = safe_exec(args[0], args);
 
 	if (ret != 0) {
 		return EINVAL;
@@ -157,16 +195,22 @@ int run_downscript(struct devmand_driver_instance *inst)
  *===========================================================================*/
 int stop_driver(struct devmand_driver_instance *inst)
 {
-	char cmdl[1024];
-	cmdl[0] = 0;
+	char dev_id_str[16];
+	char *args[5];
 	int ret;
 
 	assert(inst->label);
 
-	snprintf(cmdl, 1024, "%s down %s %d",
-	    _PATH_MINIX_SERVICE, inst->label, inst->dev_id);
-	dbg("executing minix-service: \"%s\"", cmdl);
-	ret = system(cmdl);
+	snprintf(dev_id_str, sizeof(dev_id_str), "%d", inst->dev_id);
+
+	args[0] = _PATH_MINIX_SERVICE;
+	args[1] = "down";
+	args[2] = inst->label;
+	args[3] = dev_id_str;
+	args[4] = NULL;
+
+	dbg("executing minix-service: \"%s down %s %s\"", args[0], args[2], args[3]);
+	ret = safe_exec(args[0], args);
 	if (ret != 0)
 	{
 		return EINVAL;
@@ -183,8 +227,9 @@ int stop_driver(struct devmand_driver_instance *inst)
  *===========================================================================*/
 int start_driver(struct devmand_driver_instance *inst)
 {
-	char cmdl[1024];
-	cmdl[0] = 0;
+	char major_str[16];
+	char dev_id_str[16];
+	char *args[10];
 	int ret;
 
 	/* generate label */
@@ -198,12 +243,24 @@ int start_driver(struct devmand_driver_instance *inst)
 	assert(inst->drv->binary);
 	assert(inst->label);
 
-	snprintf(cmdl, 1024, "%s up %s  -major %d -devid %d -label %s",
-	    _PATH_MINIX_SERVICE, inst->drv->binary, inst->major, inst->dev_id,
-		inst->label);
-	dbg("executing minix-service: \"%s\"", cmdl);
+	snprintf(major_str, sizeof(major_str), "%d", inst->major);
+	snprintf(dev_id_str, sizeof(dev_id_str), "%d", inst->dev_id);
 
-	ret = system(cmdl);
+	args[0] = _PATH_MINIX_SERVICE;
+	args[1] = "up";
+	args[2] = inst->drv->binary;
+	args[3] = "-major";
+	args[4] = major_str;
+	args[5] = "-devid";
+	args[6] = dev_id_str;
+	args[7] = "-label";
+	args[8] = inst->label;
+	args[9] = NULL;
+
+	dbg("executing minix-service: \"%s up %s -major %s -devid %s -label %s\"",
+	    args[0], args[2], args[4], args[6], args[8]);
+
+	ret = safe_exec(args[0], args);
 
 	if (ret != 0) {
 		return EINVAL;
