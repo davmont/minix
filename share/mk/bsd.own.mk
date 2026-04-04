@@ -1078,7 +1078,11 @@ MACHINE_GNU_PLATFORM?=${MACHINE_GNU_ARCH}--netbsd
 
 .if defined(__MINIX)
 # We have a simpler toolchain naming scheme
+.if ${MACHINE_GNU_ARCH} == "amd64"
+MACHINE_GNU_PLATFORM:=x86_64-elf64-minix
+.else
 MACHINE_GNU_PLATFORM:=${MACHINE_GNU_ARCH}-elf32-minix
+.endif
 
 # We need to check for HAVE_GOLD after LD has been set
 .  if ${_HAVE_GOLD:U} == ""
