@@ -8,6 +8,8 @@
 #include <dirent.h>
 #include <assert.h>
 #include <signal.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <minix/dmap.h>
 #include <minix/paths.h>
 #include <unistd.h>
@@ -103,14 +105,40 @@ static struct option options[] =
 
 static char major_bitmap[16]; /* can store up to 128 major number states */
 
+/*===========================================================================*
+ *             execute_command                                               *
+ *===========================================================================*/
+static int execute_command(const char *cmd, char *const argv[])
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid == -1) {
+		return -1;
+	} else if (pid == 0) {
+		execvp(cmd, argv);
+		exit(127);
+	} else {
+		if (waitpid(pid, &status, 0) == -1) {
+			return -1;
+		}
+		if (WIFEXITED(status)) {
+			return WEXITSTATUS(status);
+		} else {
+			return -1;
+		}
+	}
+}
+
 
 /*===========================================================================*
  *             run_upscript                                                  *
  *===========================================================================*/
 int run_upscript(struct devmand_driver_instance *inst)
 {
-	char major_str[16];
-	char dev_id_str[16];
+	char major_str[32];
+	char dev_id_str[32];
 	char *argv[6];
 	int ret;
 
@@ -169,7 +197,7 @@ int run_cleanscript(struct devmand_usb_driver *drv)
  *===========================================================================*/
 int run_downscript(struct devmand_driver_instance *inst)
 {
-	char major_str[16];
+	char major_str[32];
 	char *argv[5];
 	int ret;
 
@@ -202,7 +230,7 @@ int run_downscript(struct devmand_driver_instance *inst)
  *===========================================================================*/
 int stop_driver(struct devmand_driver_instance *inst)
 {
-	char dev_id_str[16];
+	char dev_id_str[32];
 	char *argv[5];
 	int ret;
 
@@ -235,8 +263,8 @@ int stop_driver(struct devmand_driver_instance *inst)
  *===========================================================================*/
 int start_driver(struct devmand_driver_instance *inst)
 {
-	char major_str[16];
-	char dev_id_str[16];
+	char major_str[32];
+	char dev_id_str[32];
 	char *argv[10];
 	int ret;
 

@@ -152,7 +152,10 @@ int main(int argc, char **argv)
 	umask(0077);
 
 	selectlog(STDERR);
-	sprintf(tabfile, "%s/%s", SPOOLDIR, user);
+	if ((size_t)snprintf(tabfile, sizeof(tabfile), "%s/%s", SPOOLDIR, user) >= sizeof(tabfile)) {
+		fprintf(stderr, "%s: tabfile name too long\n", prog_name);
+		exit(1);
+	}
 
 	if (lflag) {
 		int fd;
