@@ -12,8 +12,34 @@
 #include <sys/wait.h>
 #include <minix/dmap.h>
 #include <minix/paths.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include "usb_driver.h"
 #include "proto.h"
+
+static int safe_execvp(const char *file, char *const argv[])
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid == -1) {
+		return -1;
+	} else if (pid == 0) {
+		execvp(file, argv);
+		exit(127);
+	}
+
+	if (waitpid(pid, &status, 0) == -1) {
+		return -1;
+	}
+
+	if (WIFEXITED(status)) {
+		return WEXITSTATUS(status);
+	}
+
+	return -1;
+}
 
 #define DEVMAN_TYPE_NAME "dev_type"
 #define PATH_LEN 256
@@ -131,8 +157,7 @@ int run_upscript(struct devmand_driver_instance *inst)
 
 	dbg("Running Upscript:  \"%s up %s %s %s\"",
 	    argv[0], argv[2], argv[3], argv[4]);
-
-	ret = execute_command(argv[0], argv);
+	ret = safe_execvp(argv[0], argv);
 	if (ret != 0) {
 		return EINVAL;
 	}
@@ -155,10 +180,9 @@ int run_cleanscript(struct devmand_usb_driver *drv)
 	argv[2] = drv->devprefix;
 	argv[3] = NULL;
 
-	dbg("Running Upscript:  \"%s clean %s\"",
-	    argv[0], argv[2]);
-
-	ret = execute_command(argv[0], argv);
+	dbg("Running Upscript:  \"%s clean %s \"",
+		argv[0], argv[2]);
+	ret = safe_execvp(argv[0], argv);
 
 	if (ret != 0) {
 		return EINVAL;
@@ -191,7 +215,7 @@ int run_downscript(struct devmand_driver_instance *inst)
 	dbg("Running Upscript:  \"%s down %s %s\"",
 	    argv[0], argv[2], argv[3]);
 
-	ret = execute_command(argv[0], argv);
+	ret = safe_execvp(argv[0], argv);
 
 	if (ret != 0) {
 		return EINVAL;
@@ -222,7 +246,7 @@ int stop_driver(struct devmand_driver_instance *inst)
 
 	dbg("executing minix-service: \"%s down %s %s\"",
 	    argv[0], argv[2], argv[3]);
-	ret = execute_command(argv[0], argv);
+	ret = safe_execvp(argv[0], argv);
 	if (ret != 0)
 	{
 		return EINVAL;
@@ -269,10 +293,10 @@ int start_driver(struct devmand_driver_instance *inst)
 	argv[8] = inst->label;
 	argv[9] = NULL;
 
-	dbg("executing minix-service: \"%s up %s -major %s -devid %s -label %s\"",
+	dbg("executing minix-service: \"%s up %s  -major %s -devid %s -label %s\"",
 	    argv[0], argv[2], argv[4], argv[6], argv[8]);
 
-	ret = execute_command(argv[0], argv);
+	ret = safe_execvp(argv[0], argv);
 
 	if (ret != 0) {
 		return EINVAL;
