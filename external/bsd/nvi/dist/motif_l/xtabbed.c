@@ -1626,7 +1626,7 @@ static char *my_strdup(char *str)
 static char *my_strtok(char *str1, char *str2)
 {
     char *ret;
-    int i, j, stop;
+    int i, j, stop, len2;
     static int start, len;
     static char *stext;
     
@@ -1644,11 +1644,13 @@ static char *my_strtok(char *str1, char *str2)
     if(start>=len)
 	return NULL;
     
+    len2 = strlen(str2);
+
     /* loop through characters */
     for(i=start; i<len; i++) {
 	/* loop through delimiters */
 	stop=0;
-	for(j=0; j<strlen(str2); j++)
+	for(j=0; j<len2; j++)
 	    if(stext[i]==str2[j])
 		stop=1;
 	
