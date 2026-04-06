@@ -363,8 +363,8 @@ cd9660_arguments_set_string(const char *val, const char *fieldtitle,
 			warnx("error: The %s must be composed of "
 			      "%c-characters", fieldtitle, testmode);
 	} else
-		warnx("error: The %s must be at most 32 characters long",
-		    fieldtitle);
+		warnx("error: The %s must be at most %zu characters long",
+		    fieldtitle, length);
 	return 0;
 }
 
@@ -447,10 +447,13 @@ cd9660_parse_opts(const char *option, fsinfo_t *fsopts)
 				warnx("The Boot Image Directory parameter"
 				 " requires a directory name");
 				rv = 0;
+			} else if (strlen(buf) > 12) {
+				warnx("error: The %s must be at most 12 characters long",
+				    desc);
+				rv = 0;
 			} else {
 				diskStructure->boot_image_directory =
 				     emalloc(strlen(buf) + 1);
-				/* BIG TODO: Add the max length function here */
 				rv = cd9660_arguments_set_string(buf, desc, 12,
 				    'd', diskStructure->boot_image_directory);
 			}
