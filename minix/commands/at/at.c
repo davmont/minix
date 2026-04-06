@@ -99,10 +99,16 @@ int main(int argc, char **argv, char **envp)
 			lday--;
 		break;
 	}
-  sprintf(job, "/usr/spool/at/%02d.%03d.%04d.%02d",
-	year % 100, lday, ltim, getpid() % 100);
-  sprintf(pastjob, "/usr/spool/at/past/%02d.%03d.%04d.%02d",
-	year % 100, lday, ltim, getpid() % 100);
+  if ((size_t)snprintf(job, sizeof(job), "/usr/spool/at/%02d.%03d.%04d.%02d",
+	year % 100, lday, ltim, getpid() % 100) >= sizeof(job)) {
+	fprintf(stderr, "%s: job filename too long\n", argv[0]);
+	exit(1);
+  }
+  if ((size_t)snprintf(pastjob, sizeof(pastjob), "/usr/spool/at/past/%02d.%03d.%04d.%02d",
+	year % 100, lday, ltim, getpid() % 100) >= sizeof(pastjob)) {
+	fprintf(stderr, "%s: pastjob filename too long\n", argv[0]);
+	exit(1);
+  }
   mask= umask(0077);
   if ((fp = fopen(pastjob, "w")) == NULL) {
 	fprintf(stderr, "%s: cannot create %s: %s\n",
