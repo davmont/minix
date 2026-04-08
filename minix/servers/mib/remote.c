@@ -431,7 +431,7 @@ mib_remote_call(struct mib_call * call, struct mib_node * node,
 	m.m_mib_lsys_call.newp_grant = newp_grant;
 	m.m_mib_lsys_call.newp_len = newp_len;
 	m.m_mib_lsys_call.user_endpt = call->call_endpt;
-	m.m_mib_lsys_call.flags = mib_authed(call) ? MIB_FLAG_AUTHED : 0;
+	m.m_mib_lsys_call.flags = !!mib_authed(call); /* TODO: define flags */
 	m.m_mib_lsys_call.root_ver = node->node_ver;
 	m.m_mib_lsys_call.tree_ver = mib_root.node_ver;
 

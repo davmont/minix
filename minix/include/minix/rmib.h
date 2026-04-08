@@ -30,9 +30,13 @@ struct rmib_call {
 };
 
 /*
- * Call flags.  These should be shared with the MIB service.
+ * Call flags.
+ *
+ * TODO: this is effectively a flag used on the wire.  This should be turned
+ * into a proper definition shared with the MIB service.  As long as we have
+ * only one flag anyway, this is not exactly urgent though.
  */
-#define RMIB_FLAG_AUTH	MIB_FLAG_AUTHED	/* user has superuser privileges */
+#define RMIB_FLAG_AUTH	0x1	/* user has superuser privileges */
 
 struct rmib_node;
 struct rmib_oldp;

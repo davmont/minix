@@ -1,36 +1,35 @@
-/*	$NetBSD: ex2.c,v 1.7 2003/08/07 16:44:27 agc Exp $
- *
- * Copyright (c) 1992, 1993
- *	 The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- *     @(#)ex2.c	8.1 (Berkeley) 6/8/93
- */
+.\"	$NetBSD: ex2.c,v 1.7 2003/08/07 16:44:27 agc Exp $
+.\"
+.\" Copyright (c) 1992, 1993
+.\"	 The Regents of the University of California.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. Neither the name of the University nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"     @(#)ex2.c	8.1 (Berkeley) 6/8/93
+.\"
 #include <curses.h>
-#include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
@@ -38,7 +37,7 @@
 #define YSIZE LINES
 #define XSIZE COLS
 
-static void quit(int);
+static int quit();
 
 /*
  * This program fills the screen up with characters and the allows the user to
@@ -46,14 +45,12 @@ static void quit(int);
  * Nothing fancy, just a demonstration of the elementary features of the
  * curses(3) package.
  */
-int
-main(void)
+main()
 {
-	int i, j, c, n, d = 0, len;
+	int i, j, c, n, d = 0;
 	char id[100];
 	int hh = 0;
 	int curx, cury, base, arg;
-	size_t id_len;
 
 	initscr();
 	signal(SIGINT, quit);
@@ -70,10 +67,9 @@ main(void)
 	move(0,0);
 	refresh();
 	for (i = 0; i < YSIZE + 2; i++) {
-		int id_len = snprintf(id, sizeof id, "%d: ", i);
+		(void)snprintf(id, sizeof id, "%d: ", i);
 		addstr(id);
-		len = strlen(id);
-		for (j = 0; j < XSIZE - len; j++)
+		for (j = 0; j < XSIZE - strlen(id); j++)
 			addch('0' + (i % 10));
 	}
 	c = getchar();
@@ -135,7 +131,7 @@ main(void)
 			refresh();
 			continue;
 		case 'q':
-			quit(0);
+			quit();
 		case 'f':
 			if (curx < XSIZE - 1)
 				curx++;
@@ -182,20 +178,18 @@ main(void)
 			base--;
 			move(0, 0);
 			insertln();
-			int id_len = snprintf(id, sizeof id, "%d: ", base);
+			(void)snprintf(id, sizeof id, "%d: ", base);
 			addstr(id);
-			len = strlen(id);
-			for (j = 0; j < XSIZE - len - 2; j++)
+			for (j = 0; j < XSIZE - strlen(id) - 2; j++)
 				addch('0' + (base % 10));
 			cury++;
 		} else if (cury >= YSIZE) {
 			move(0, 0);
 			deleteln();
 			move(YSIZE - 1, 0);
-			int id_len = snprintf(id, sizeof id, "%d: ", base + YSIZE);
+			(void)snprintf(id, sizeof id, "%d: ", base + YSIZE);
 			addstr(id);
-			len = strlen(id);
-			for (j = 0; j < XSIZE - len - 2; j++)
+			for (j = 0; j < XSIZE - strlen(id) - 2; j++)
 				addch('0' + ((base + YSIZE) % 10));
 			cury--;
 			base++;
@@ -205,8 +199,8 @@ main(void)
 	}
 }
 
-static void
-quit(int dummy)
+int
+quit()
 {
 	erase();
 	refresh();

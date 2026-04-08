@@ -589,19 +589,20 @@ device_connect_callback
 
 	dudev = devman_usb_device_new(i);
 
-	if (dudev == NULL) {
-		ddekit_printf("devman_usb_device_new failed\n");
-		return;
-	}
-
 	prepare_devman_usbdev(dev, i, interfaces, dudev);
+
+	if (dudev == NULL) {
+		/* TODO: ERROR */
+		printf("ERROR: !");
+	}
 
 	ddekit_usb_dev_set_data(dev, dudev);
 
 	res = devman_usb_device_add(dudev);
 	
 	if (res != 0) {
-		ddekit_printf("devman_usb_device_add failed\n");
+		/* TODO: Error*/
+		printf("ERROR!");
 	}
 }
 
@@ -638,7 +639,6 @@ static void device_disconnect_callback(struct ddekit_usb_dev * dev)
 
 	if (dudev == NULL) {
 		ddekit_printf("ddekit_usb_dev_get_data(dev) failed\n");
-		/* Return early to avoid passing NULL to devman_usb_device_remove */
 		return;
 	}
 

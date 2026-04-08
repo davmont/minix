@@ -933,8 +933,7 @@ int udf_create_sparing_tabled(void) {
   struct udf_sparing_table *spt;
   struct spare_map_entry *sme;
   uint32_t loc, cnt;
-  uint32_t val;
-  uint16_t crclen;
+  uint32_t crclen; /* XXX: should be 16; need to detect overflow */
 
   spt = calloc(context.sector_size, layout.sparing_table_dscr_lbas);
   if (spt == NULL)
@@ -957,14 +956,10 @@ int udf_create_sparing_tabled(void) {
   }
 
   /* calculate crc len for actual size */
-  val = sizeof(struct udf_sparing_table) - UDF_DESC_TAG_LENGTH;
-  val += (layout.sparable_blocks - 1) * sizeof(struct spare_map_entry);
-  if (val > UINT16_MAX) {
-    free(spt);
-    return EINVAL;
-  }
-  crclen = val;
-  spt->tag.desc_crc_len = udf_rw16(crclen);
+  crclen = sizeof(struct udf_sparing_table) - UDF_DESC_TAG_LENGTH;
+  crclen += (layout.sparable_blocks - 1) * sizeof(struct spare_map_entry);
+  /* XXX ensure crclen doesn't exceed UINT16_MAX ? */
+  spt->tag.desc_crc_len = udf_rw16((uint16_t)crclen);
 
   context.sparing_table = spt;
 
@@ -1084,8 +1079,7 @@ void udf_update_lvintd(int type) {
   struct logvol_desc *logvol;
   uint32_t *pos;
   uint32_t cnt, l_iu, num_partmappings;
-  uint32_t val;
-  uint16_t crclen;
+  uint32_t crclen; /* XXX: should be 16; need to detect overflow */
 
   lvid = context.logvol_integrity;
   logvol = context.logical_vol;
@@ -1127,11 +1121,9 @@ void udf_update_lvintd(int type) {
     *pos++ = udf_rw32(context.part_size[cnt]);
   }
 
-  val = sizeof(struct logvol_int_desc) - 4 - UDF_DESC_TAG_LENGTH + l_iu;
-  val += num_partmappings * 2 * 4;
-  if (val > UINT16_MAX)
-    errx(1, "crclen exceeds UINT16_MAX");
-  crclen = val;
+  crclen = sizeof(struct logvol_int_desc) - 4 - UDF_DESC_TAG_LENGTH + l_iu;
+  crclen += num_partmappings * 2 * 4;
+  /* XXX ensure crclen doesn't exceed UINT16_MAX ? */
   lvid->tag.desc_crc_len = udf_rw16(crclen);
 
   context.logvol_info = lvinfo;
@@ -1715,8 +1707,7 @@ int udf_create_new_fe(struct file_entry **fep, int file_type, struct stat *st) {
   struct icb_tag *icb;
   struct timestamp birthtime;
   struct filetimes_extattr_entry *ft_extattr;
-  uint32_t val;
-  uint16_t crclen;
+  uint32_t crclen; /* XXX: should be 16; need to detect overflow */
   uint16_t icbflags;
 
   *fep = NULL;
@@ -1799,13 +1790,8 @@ int udf_create_new_fe(struct file_entry **fep, int file_type, struct stat *st) {
   fe->l_ad = udf_rw32(0);
   fe->logblks_rec = udf_rw64(0); /* intern */
 
-  val = sizeof(struct file_entry) - 1 - UDF_DESC_TAG_LENGTH;
-  val += udf_rw32(fe->l_ea);
-  if (val > UINT16_MAX) {
-    free(fe);
-    return EINVAL;
-  }
-  crclen = val;
+  crclen = sizeof(struct file_entry) - 1 - UDF_DESC_TAG_LENGTH;
+  crclen += udf_rw32(fe->l_ea);
 
   /* make sure the header sums stays correct */
   fe->tag.desc_crc_len = udf_rw16(crclen);
@@ -1819,8 +1805,7 @@ int udf_create_new_efe(struct extfile_entry **efep, int file_type,
                        struct stat *st) {
   struct extfile_entry *efe;
   struct icb_tag *icb;
-  uint32_t val;
-  uint16_t crclen;
+  uint32_t crclen; /* XXX: should be 16; need to detect overflow */
   uint16_t icbflags;
 
   *efep = NULL;
@@ -1890,12 +1875,7 @@ int udf_create_new_efe(struct extfile_entry **efep, int file_type,
   efe->l_ad = udf_rw32(0);
   efe->logblks_rec = udf_rw64(0);
 
-  val = sizeof(struct extfile_entry) - 1 - UDF_DESC_TAG_LENGTH;
-  if (val > UINT16_MAX) {
-    free(efe);
-    return EINVAL;
-  }
-  crclen = val;
+  crclen = sizeof(struct extfile_entry) - 1 - UDF_DESC_TAG_LENGTH;
 
   /* make sure the header sums stays correct */
   efe->tag.desc_crc_len = udf_rw16(crclen);

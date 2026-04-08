@@ -93,11 +93,10 @@ __parse_cap (char const *cap, ...)
 		goto err;
 #ifdef DEBUG
 	{
-		int	i, len;
+		int	i;
 		
 		__CTRACE(__CTRACE_MISC, "__parse_cap: cap = ");
-		len = strlen(cap);
-		for (i = 0; i < len; i++)
+		for (i = 0; cap[i] != '\0'; i++)
 			__CTRACE(__CTRACE_MISC, "%s", unctrl(cap[i]));
 		__CTRACE(__CTRACE_MISC, "\n");
 	}

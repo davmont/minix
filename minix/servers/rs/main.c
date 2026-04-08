@@ -259,10 +259,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
        * Set privileges.
        */
       /* Get label. */
-      if (strlcpy(rpub->label, boot_image_priv->label, sizeof(rpub->label))
-          >= sizeof(rpub->label)) {
-          panic("RS: boot image label too long");
-      }
+      strcpy(rpub->label, boot_image_priv->label);
 
       /* Force a static priv id for system services in the boot image. */
       rp->r_priv.s_id = static_priv_id(

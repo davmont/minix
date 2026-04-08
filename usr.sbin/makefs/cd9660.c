@@ -242,8 +242,7 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 	memset(diskStructure->primaryDescriptor.abstract_file_id, 0x20,37);
 	memset(diskStructure->primaryDescriptor.bibliographic_file_id, 0x20,37);
 
-	(void)strlcpy(diskStructure->primaryDescriptor.system_id, "NetBSD",
-	    sizeof(diskStructure->primaryDescriptor.system_id));
+	strcpy(diskStructure->primaryDescriptor.system_id,"NetBSD");
 
 	cd9660_defaults_set = 1;
 
@@ -363,8 +362,8 @@ cd9660_arguments_set_string(const char *val, const char *fieldtitle,
 			warnx("error: The %s must be composed of "
 			      "%c-characters", fieldtitle, testmode);
 	} else
-		warnx("error: The %s must be at most %zu characters long",
-		    fieldtitle, length);
+		warnx("error: The %s must be at most 32 characters long",
+		    fieldtitle);
 	return 0;
 }
 
@@ -447,13 +446,10 @@ cd9660_parse_opts(const char *option, fsinfo_t *fsopts)
 				warnx("The Boot Image Directory parameter"
 				 " requires a directory name");
 				rv = 0;
-			} else if (strlen(buf) > 12) {
-				warnx("error: The %s must be at most 12 characters long",
-				    desc);
-				rv = 0;
 			} else {
 				diskStructure->boot_image_directory =
 				     emalloc(strlen(buf) + 1);
+				/* BIG TODO: Add the max length function here */
 				rv = cd9660_arguments_set_string(buf, desc, 12,
 				    'd', diskStructure->boot_image_directory);
 			}

@@ -298,7 +298,7 @@ void build_cmd_dep(struct rproc *rp)
   /* Build argument vector to be passed to execute call. The format of the
    * arguments vector is: path, arguments, NULL. 
    */
-  strlcpy(rp->r_args, rp->r_cmd, sizeof(rp->r_args));		/* copy raw command */
+  strcpy(rp->r_args, rp->r_cmd);		/* copy raw command */
   arg_count = 0;				/* initialize arg count */
   rp->r_argv[arg_count++] = rp->r_args;		/* start with path */
   cmd_ptr = rp->r_args;				/* do some parsing */ 
@@ -508,7 +508,7 @@ struct rproc *rp;
 
   /* Publish a new unique label for the system service. */
   rpub->label[RS_MAX_LABEL_LEN-1] = '\0';
-  strlcpy(label, rpub->label, sizeof(label));
+  strcpy(label, rpub->label);
   snprintf(rpub->label, RS_MAX_LABEL_LEN, "%lu.%s", ++detach_counter, label);
   ds_publish_label(rpub->label, rpub->endpoint, DSF_OVERWRITE);
 
@@ -827,7 +827,7 @@ struct rproc *rp;				/* pointer to service slot */
   /* If PCI properties are set, inform the PCI driver about the new service. */
   if(rpub->pci_acl.rsp_nr_device || rpub->pci_acl.rsp_nr_class) {
       pci_acl = rpub->pci_acl;
-      strlcpy(pci_acl.rsp_label, rpub->label, sizeof(pci_acl.rsp_label));
+      strcpy(pci_acl.rsp_label, rpub->label);
       pci_acl.rsp_endpoint= rpub->endpoint;
 
       r = pci_set_acl(&pci_acl);
