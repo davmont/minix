@@ -274,8 +274,10 @@ PAM_STATIC_DPADD=
 .endif
 
 .if defined(__MINIX)
-# lgcc_eh is required for unwinding statically
+# lgcc_eh is required for unwinding statically (GCC only; Clang uses libunwind)
+.if ${HAVE_LIBGCC_EH:Uyes} == "yes"
 LDADD+= -lgcc_eh
+.endif
 .endif # defined(__MINIX)
 
 #	NB:	If you are a library here, add it in bsd.README

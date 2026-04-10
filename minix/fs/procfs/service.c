@@ -253,7 +253,7 @@ service_update(void)
 			continue;
 
 		node = add_inode(service_node, rproc.pub[slot].label, slot,
-		    &stat, (index_t)0, (cbdata_t)slot);
+		    &stat, (index_t)0, (cbdata_t)(uintptr_t)slot);
 
 		if (node == NULL)
 			out_of_inodes();

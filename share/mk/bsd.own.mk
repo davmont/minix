@@ -83,6 +83,15 @@ SMP_FLAGS += -DCONFIG_MAX_CPUS=${CONFIG_MAX_CPUS}
 
 CPPFLAGS+= ${SMP_FLAGS}
 
+# Ensure __minix is defined for cross-compilation targeting Minix.
+# The clang cross-compiler for x86_64-elf64-minix doesn't define __minix
+# automatically (unlike the i386 target which has OS-level support in LLVM).
+# sys/sys/types.h, minix/type.h, and many other headers gate Minix-specific
+# types (u8_t, u16_t, etc.) on this macro.
+.if defined(__MINIX) && !defined(HOSTPROG) && !defined(HOSTLIB)
+CPPFLAGS+= -D__minix=3 -D__minix__=3 -D__ELF__=1
+.endif
+
 # Disabled unaligned accesses on ARM
 .if !empty(MACHINE_ARCH:Mearm*)
 CFLAGS+= -mno-unaligned-access
@@ -1078,7 +1087,11 @@ MACHINE_GNU_PLATFORM?=${MACHINE_GNU_ARCH}--netbsd
 
 .if defined(__MINIX)
 # We have a simpler toolchain naming scheme
+.if ${MACHINE_GNU_ARCH} == "x86_64"
+MACHINE_GNU_PLATFORM:=x86_64-elf64-minix
+.else
 MACHINE_GNU_PLATFORM:=${MACHINE_GNU_ARCH}-elf32-minix
+.endif
 
 # We need to check for HAVE_GOLD after LD has been set
 .  if ${_HAVE_GOLD:U} == ""
@@ -1215,7 +1228,7 @@ SOFTFLOAT_BITS=	32
 
 .if ${MACHINE_ARCH} == "i386" || \
     ${MACHINE_ARCH} == "x86_64" || \
-    ${MACHINE_ARCH} == "sparc" 
+    ${MACHINE_ARCH} == "sparc"
 MKSLJIT?=	yes
 .else
 MKSLJIT?=	no
@@ -1230,8 +1243,9 @@ MKBINUTILS?=	${MKBFD}
 
 #
 # We want to build zfs only for amd64 by default for now.
+# Minix does not have ZFS support, so skip for Minix builds.
 #
-.if ${MACHINE} == "amd64"
+.if ${MACHINE} == "amd64" && !defined(__MINIX)
 MKZFS?=		yes
 .endif
 
@@ -1265,7 +1279,7 @@ _MKVARS.yes= \
 #MINIX-specific vars
 _MKVARS.yes+= \
 	MKSYSDEBUG MKLIVEUPDATE MKLLVMCMDS
-.if (${MACHINE_ARCH} == "i386")
+.if (${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64")
 _MKVARS.yes+= \
 	MKWATCHDOG MKACPI MKAPIC MKDEBUGREG MKINSTALLBOOT MKPCI
 .endif

@@ -44,7 +44,7 @@ static struct sd_slot *get_slot(devminor_t minor);
 /* Prototypes for the block device */
 static int block_open(devminor_t minor, int access);
 static int block_close(devminor_t minor);
-static int block_transfer(devminor_t minor,
+static ssize_t block_transfer(devminor_t minor,
     int do_write,
     u64_t position,
     endpoint_t endpt, iovec_t * iov, unsigned int nr_req, int flags);
@@ -276,7 +276,7 @@ copyfrom(endpoint_t src_e,
 /*===========================================================================*
  *                    block_transfer                                         *
  *===========================================================================*/
-static int
+static ssize_t
 block_transfer(
     devminor_t minor,		/* minor device number */
     int do_write,		/* read or write? */

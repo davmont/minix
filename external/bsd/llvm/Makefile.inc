@@ -63,7 +63,11 @@ CPPFLAGS+=	-I${LLVM_INCLUDE_OBJDIR} -I${LLVM_INCLUDE_CONFIG} \
 .if !defined(__MINIX)
 LLVM_PLATFORM=${MACHINE_GNU_ARCH}--netbsd
 .else
+.if ${MACHINE_GNU_ARCH} == "x86_64"
+LLVM_PLATFORM=x86_64-elf64-minix
+.else
 LLVM_PLATFORM=${MACHINE_GNU_ARCH}-elf32-minix
+.endif
 
 LLVM_CONFIGURE_ARGS+=	\
 	--with-binutils-include=${NETBSDSRCDIR}/external/gpl3/binutils/dist/include \

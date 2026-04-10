@@ -236,25 +236,6 @@ static const struct flags tc_lflags[] = {
 	FLAG(NOFLSH),
 };
 
-static const struct flags tiocm_flags[] = {
-	FLAG(TIOCM_LE),
-	FLAG(TIOCM_DTR),
-	FLAG(TIOCM_RTS),
-	FLAG(TIOCM_ST),
-	FLAG(TIOCM_SR),
-	FLAG(TIOCM_CTS),
-	FLAG(TIOCM_CAR),
-	FLAG(TIOCM_RNG),
-	FLAG(TIOCM_DSR),
-};
-
-static const struct flags tioc_flags[] = {
-	FLAG(TIOCFLAG_SOFTCAR),
-	FLAG(TIOCFLAG_CLOCAL),
-	FLAG(TIOCFLAG_CRTSCTS),
-	FLAG(TIOCFLAG_MDMBUF),
-	FLAG(TIOCFLAG_CDTRCTS),
-};
 
 static void
 put_tty_disc(struct trace_proc * proc, const char * name, int disc)
@@ -513,26 +494,6 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 		if (ptr == NULL)
 			return dir;
 		put_ptr(proc, NULL, *(vir_bytes *)ptr);
-		return IF_ALL;
-
-	case TIOCMSET:
-	case TIOCMBIS:
-	case TIOCMBIC:
-	case TIOCMGET:
-		if (ptr == NULL)
-			return dir;
-
-		put_flags(proc, NULL, tiocm_flags, COUNT(tiocm_flags), "0x%x",
-		    *(int *)ptr);
-		return IF_ALL;
-
-	case TIOCGFLAGS:
-	case TIOCSFLAGS:
-		if (ptr == NULL)
-			return dir;
-
-		put_flags(proc, NULL, tioc_flags, COUNT(tioc_flags), "0x%x",
-		    *(int *)ptr);
 		return IF_ALL;
 
 	case TIOCPTMGET:

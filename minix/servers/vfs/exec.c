@@ -666,7 +666,7 @@ static int insert_arg(char stack[ARG_MAX], size_t *stk_bytes, char *arg,
 	}
 
 	/* set argv[0] correctly */
-	((char **) stack)[1] = (char *) a0 - arg_len + *vsp;
+	((char **) stack)[1] = (char *)((vir_bytes)a0 - (vir_bytes)arg_len + *vsp);
 
 	/* Update stack pointer in the process address space. */
 	*vsp -= offset;

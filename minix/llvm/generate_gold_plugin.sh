@@ -8,6 +8,7 @@ cd $(dirname $0)
 : ${JOBS=1}
 : ${OBJ_LLVM=${NETBSDSRCDIR}/../obj_llvm.${ARCH}}
 : ${OBJ=${NETBSDSRCDIR}/../obj.${ARCH}}
+: ${HOST_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix" || echo "i586-elf32-minix")}
 : ${CROSS_TOOLS=${OBJ}/"tooldir.`uname -s`-`uname -r`-`uname -m`"/bin}
 : ${MAKE=make}
 
@@ -32,7 +33,7 @@ ${LLVMSRCDIR}/llvm/configure \
     --prefix=/usr \
     --sysconfdir=/etc/llvm \
     --with-clang-srcdir=${LLVMSRCDIR}/clang \
-    --host=i586-elf32-minix \
+    --host=${HOST_TRIPLET} \
     --with-binutils-include=${NETBSDSRCDIR}/external/gpl3/binutils/dist/include \
     --disable-debug-symbols \
     --enable-assertions \

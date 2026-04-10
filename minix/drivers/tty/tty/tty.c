@@ -244,6 +244,7 @@ set_color(tty_t *tp, int color)
 
 	buf[0] = '\033';
 	snprintf(&buf[1], sizeof(buf) - 1, "[1;%dm", color);
+	tp->tty_outkbuf = buf;
 	do_write(tp->tty_minor, 0, KERNEL, (cp_grant_id_t) buf, sizeof(buf),
 		CDEV_NONBLOCK, 0);
 }
@@ -256,6 +257,7 @@ reset_color(tty_t *tp)
 #define SGR_COLOR_RESET	39
 	buf[0] = '\033';
 	snprintf(&buf[1], sizeof(buf) - 1, "[0;%dm", SGR_COLOR_RESET);
+	tp->tty_outkbuf = buf;
 	do_write(tp->tty_minor, 0, KERNEL, (cp_grant_id_t) buf, sizeof(buf),
 		CDEV_NONBLOCK, 0);
 }
@@ -429,6 +431,7 @@ do_new_kmess(void)
 
 		if (kernel_msg_color != 0)
 			set_color(tp, kernel_msg_color);
+		tp->tty_outkbuf = kernel_buf_copy;
 		do_write(tp->tty_minor, 0, KERNEL,
 			(cp_grant_id_t) kernel_buf_copy, bytes,
 			CDEV_NONBLOCK, 0);
@@ -558,6 +561,8 @@ static ssize_t do_write(devminor_t minor, u64_t UNUSED(position),
   tp->tty_outcaller = endpt;
   tp->tty_outid = id;
   tp->tty_outgrant = grant;
+  if (endpt != KERNEL)
+	tp->tty_outkbuf = NULL;
   assert(tp->tty_outcum == 0);
   tp->tty_outleft = size;
 

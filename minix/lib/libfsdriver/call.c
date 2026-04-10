@@ -937,7 +937,7 @@ bread_bwrite(const struct fsdriver * __restrict fdp,
 /*
  * Process a BREAD request from VFS.
  */
-ssize_t
+int
 fsdriver_bread(const struct fsdriver * __restrict fdp,
 	const message * __restrict m_in, message * __restrict m_out)
 {
@@ -951,7 +951,7 @@ fsdriver_bread(const struct fsdriver * __restrict fdp,
 /*
  * Process a BWRITE request from VFS.
  */
-ssize_t
+int
 fsdriver_bwrite(const struct fsdriver * __restrict fdp,
 	const message * __restrict m_in, message * __restrict m_out)
 {

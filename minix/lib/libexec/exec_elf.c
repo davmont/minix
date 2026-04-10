@@ -242,13 +242,13 @@ int libexec_load_elf(struct exec_info *execi)
 
 		if(try_mmap && execi->memmap(execi, vaddr, fbytes, foffset, clearend, mmap_prot) == OK) {
 #if ELF_DEBUG
-			printf("libexec: mmap 0x%lx-0x%llx done, clearend 0x%x\n",
+			printf("libexec: mmap 0x%lx-0x%lx done, clearend 0x%x\n",
 				vaddr, vaddr+fbytes, clearend);
 #endif
 
-			if(seg_membytes > fbytes) {
-				int rem_mem = seg_membytes - fbytes;;
-				vir_bytes remstart = vaddr + fbytes;
+			if(seg_membytes > (vir_bytes)fbytes) {
+				int rem_mem = seg_membytes - (vir_bytes)fbytes;;
+				vir_bytes remstart = vaddr + (vir_bytes)fbytes;
 				if(execi->allocmem_ondemand(execi,
 					remstart, rem_mem) != OK) {
 					printf("libexec: mmap extra mem failed\n");

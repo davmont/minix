@@ -414,7 +414,7 @@ static struct device *m_block_part(devminor_t minor)
 /*===========================================================================*
  *				m_block_transfer			     *
  *===========================================================================*/
-static int m_block_transfer(
+static ssize_t m_block_transfer(
   devminor_t minor,		/* minor device number */
   int do_write,			/* read or write? */
   u64_t position,		/* offset on device to read or write */
@@ -555,7 +555,8 @@ static int m_block_ioctl(devminor_t minor, unsigned long request,
 	return(EBUSY);
   }
   if(m_vaddrs[minor]) {
-	u32_t a, o;
+	vir_bytes a;
+	u32_t o;
 	u64_t size;
 	int r;
 	if(ex64hi(dv->dv_size)) {
