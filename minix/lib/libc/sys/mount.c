@@ -81,7 +81,7 @@ int minix_mount(char *special, char *name, int mountflags, int srvflags,
 			free(rslabel);
 		} else {
 			if (stat(name, &statbuf) < 0) return -1;
-			snprintf(label, MNT_LABEL_LEN, "fs_%llx_%llx", statbuf.st_dev, statbuf.st_ino);
+			snprintf(label, MNT_LABEL_LEN, "fs_%llx_%llx", (unsigned long long)statbuf.st_dev, (unsigned long long)statbuf.st_ino);
 		}
 	}
   } else {

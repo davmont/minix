@@ -273,7 +273,7 @@ int fd;
 		exit(1);
 	}
   } else {
-	if (mtget.mt_blksiz > SSIZE_MAX) {
+	if ((ssize_t)mtget.mt_blksiz > SSIZE_MAX) {
 		fprintf(stderr,
 		"vol: %s: tape block size (%lu) is too large to handle\n",
 			name, (unsigned long) mtget.mt_blksiz);

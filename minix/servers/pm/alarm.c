@@ -54,12 +54,12 @@ struct timeval *tv;
 
   ticks = system_hz * (unsigned long) tv->tv_sec;
   if ( (ticks / system_hz) != (unsigned long)tv->tv_sec) {
-	ticks = LONG_MAX;
+	ticks = (clock_t)UINT_MAX;
   } else {
 	ticks += ((system_hz * (unsigned long)tv->tv_usec + (US-1)) / US);
   }
 
-  if (ticks > LONG_MAX) ticks = LONG_MAX;
+  if (ticks > (clock_t)UINT_MAX) ticks = (clock_t)UINT_MAX;
 
   return(ticks);
 }

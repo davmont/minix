@@ -254,6 +254,7 @@
 ./usr/tests/lib/libc/hash
 ./usr/tests/lib/libc/hash/data
 ./usr/tests/lib/libc/locale
+./usr/tests/lib/libc/isc
 ./usr/tests/lib/libc/inet
 ./usr/tests/lib/libc/net
 ./usr/tests/lib/libc/net/getaddrinfo

@@ -49,8 +49,8 @@
 
 #define	_MACHINE	amd64
 #define	MACHINE		"amd64"
-#define	_MACHINE_ARCH	amd64
-#define	MACHINE_ARCH	"amd64"
+#define	_MACHINE_ARCH	x86_64
+#define	MACHINE_ARCH	"x86_64"
 #define	MID_MACHINE	MID_AMD64
 
 #define ALIGNED_POINTER(p,t)	1

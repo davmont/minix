@@ -1,0 +1,32 @@
+include <minix/type.h>
+include <sys/ucontext.h>
+include <sys/errno.h>
+include <machine/mcontext.h>
+
+struct __ucontext
+member UC_FLAGS uc_flags
+member UC_LINK uc_link
+member MAGIC uc_mcontext.mc_magic
+member RDI uc_mcontext.__gregs[_REG_RDI]
+member RSI uc_mcontext.__gregs[_REG_RSI]
+member RBP uc_mcontext.__gregs[_REG_RBP]
+member RAX uc_mcontext.__gregs[_REG_RAX]
+member RBX uc_mcontext.__gregs[_REG_RBX]
+member RCX uc_mcontext.__gregs[_REG_RCX]
+member RDX uc_mcontext.__gregs[_REG_RDX]
+member R8  uc_mcontext.__gregs[_REG_R8]
+member R9  uc_mcontext.__gregs[_REG_R9]
+member R10 uc_mcontext.__gregs[_REG_R10]
+member R11 uc_mcontext.__gregs[_REG_R11]
+member R12 uc_mcontext.__gregs[_REG_R12]
+member R13 uc_mcontext.__gregs[_REG_R13]
+member R14 uc_mcontext.__gregs[_REG_R14]
+member R15 uc_mcontext.__gregs[_REG_R15]
+member PC  uc_mcontext.__gregs[_REG_RIP]
+member SP  uc_mcontext.__gregs[_REG_RSP]
+member PSW uc_mcontext.__gregs[_REG_RFLAGS]
+define EFAULT EFAULT
+define EINVAL EINVAL
+define MCF_MAGIC MCF_MAGIC
+define _UC_IGNFPU _UC_IGNFPU
+define _UC_IGNSIGM _UC_IGNSIGM

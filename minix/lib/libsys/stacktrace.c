@@ -10,7 +10,12 @@ Copyright 1995 Philip Homburg
 #include <string.h>
 #include <minix/sysutil.h>
 
+/* reg_t must match the native register/pointer size */
+#if defined(__x86_64__) || defined(__amd64__)
+typedef unsigned long reg_t;
+#else
 typedef unsigned int reg_t;
+#endif
 
 extern reg_t get_bp(void);
 
