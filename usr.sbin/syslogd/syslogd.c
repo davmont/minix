@@ -3763,16 +3763,15 @@ cfline(size_t linenum, const char *line, struct filed *f, const char *prog,
 	 * There should not be any space before the log facility.
 	 * Check this is okay, complain and fix if it is not.
 	 */
-	q = line;
 	if (isblank((unsigned char)*line)) {
 		errno = 0;
 		logerror("Warning: `%s' space or tab before the log facility",
 		    line);
 		/* Fix: strip all spaces/tabs before the log facility */
-		while (*q++ && isblank((unsigned char)*q))
-			/* skip blanks */;
-		line = q;
+		while (isblank((unsigned char)*line))
+			line++;
 	}
+	q = line;
 
 	/*
 	 * q is now at the first char of the log facility
