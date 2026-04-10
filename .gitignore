@@ -82,6 +82,3 @@ build_stdout.log
 build_error.log
 minix/drivers/storage/memory/imgrd.mfs
 minix/drivers/storage/ramdisk/image
-minix/kernel/arch/x86_64/procoffsets.h
-minix/kernel/arch/x86_64/procoffsets.h.tmp
-minix/kernel/arch/x86_64/extracted-*.h
