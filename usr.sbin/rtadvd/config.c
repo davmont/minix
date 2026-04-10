@@ -180,6 +180,8 @@ getconfig(const char *intface, int exithard)
 	var = t;							\
      } while (0)
 
+#define COMPAT_MAGIC 256
+
 #define MAYHAVE(var, cap, def)						\
      do {								\
 	if ((var = agetnum(cap)) < 0)					\
@@ -562,12 +564,12 @@ getconfig(const char *intface, int exithard)
 #endif
 
 		makeentry(entbuf, sizeof(entbuf), i, "rtplen");
-		/* XXX: 256 is a magic number for compatibility check. */
-		MAYHAVE(val, entbuf, 256);
-		if (val == 256) {
+		/* XXX: COMPAT_MAGIC is a magic number for compatibility check. */
+		MAYHAVE(val, entbuf, COMPAT_MAGIC);
+		if (val == COMPAT_MAGIC) {
 			makeentry(oentbuf, sizeof(oentbuf), i, "rtrplen");
-			MAYHAVE(val, oentbuf, 256);
-			if (val != 256) {
+			MAYHAVE(val, oentbuf, COMPAT_MAGIC);
+			if (val != COMPAT_MAGIC) {
 				fprintf(stderr, "%s was obsoleted.  Use %s.\n",
 					oentbuf, entbuf);
 			} else
@@ -597,11 +599,11 @@ getconfig(const char *intface, int exithard)
 				val |= ND_RA_FLAG_RTPREF_LOW;
 			}
 		} else
-			MAYHAVE(val, entbuf, 256); /* XXX */
-		if (val == 256) {
+			MAYHAVE(val, entbuf, COMPAT_MAGIC); /* XXX */
+		if (val == COMPAT_MAGIC) {
 			makeentry(oentbuf, sizeof(oentbuf), i, "rtrflags");
-			MAYHAVE(val, oentbuf, 256);
-			if (val != 256) {
+			MAYHAVE(val, oentbuf, COMPAT_MAGIC);
+			if (val != COMPAT_MAGIC) {
 				fprintf(stderr, "%s was obsoleted.  Use %s.\n",
 					oentbuf, entbuf);
 			} else
