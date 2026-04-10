@@ -341,9 +341,9 @@ static const char *mtypename(int mtype, int *possible_callname)
 	/* 2 matches */
 	if(errname && callname) {
 		static char typename[100];
-		strcpy(typename, errname);
-		strcat(typename, " / ");
-		strcat(typename, callname);
+		strlcpy(typename, errname, sizeof(typename));
+		strlcat(typename, " / ", sizeof(typename));
+		strlcat(typename, callname, sizeof(typename));
 		return typename;
 	}
 
