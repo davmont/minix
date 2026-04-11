@@ -180,6 +180,10 @@ getconfig(const char *intface, int exithard)
 	var = t;							\
      } while (0)
 
+/*
+ * 256 is an out-of-bounds sentinel value used to detect if a configuration
+ * parameter is missing, allowing fallback to obsolete parameters.
+ */
 #define COMPAT_MAGIC 256
 
 #define MAYHAVE(var, cap, def)						\
@@ -564,7 +568,6 @@ getconfig(const char *intface, int exithard)
 #endif
 
 		makeentry(entbuf, sizeof(entbuf), i, "rtplen");
-		/* XXX: COMPAT_MAGIC is a magic number for compatibility check. */
 		MAYHAVE(val, entbuf, COMPAT_MAGIC);
 		if (val == COMPAT_MAGIC) {
 			makeentry(oentbuf, sizeof(oentbuf), i, "rtrplen");
@@ -599,7 +602,7 @@ getconfig(const char *intface, int exithard)
 				val |= ND_RA_FLAG_RTPREF_LOW;
 			}
 		} else
-			MAYHAVE(val, entbuf, COMPAT_MAGIC); /* XXX */
+			MAYHAVE(val, entbuf, COMPAT_MAGIC);
 		if (val == COMPAT_MAGIC) {
 			makeentry(oentbuf, sizeof(oentbuf), i, "rtrflags");
 			MAYHAVE(val, oentbuf, COMPAT_MAGIC);
