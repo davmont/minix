@@ -62,6 +62,7 @@ static struct {
 	hcd_datatog	*rx_tog;	/* per-device RX toggle pointer          */
 	hcd_reg1	 ep_num;	/* endpoint number of active transfer    */
 	hcd_speed	 speed;		/* device speed (always HIGH in Phase 1) */
+	int		 port_idx;	/* root-hub port of the active device    */
 } ehci_active;
 
 
@@ -331,6 +332,7 @@ ehci_init(void)
 	}
 
 	/* 7. Wire hcd_driver_state operations table */
+	ehci_driver.controller_id    = 0;	/* first (and currently only) controller */
 	ehci_driver.setup_device     = ehci_setup_device;
 	ehci_driver.reset_device     = ehci_reset_device;
 	ehci_driver.setup_stage      = ehci_setup_stage;
@@ -421,7 +423,7 @@ ehci_isr(void *priv)
 	if (sts & EHCI_STS_PCD) {
 		/*
 		 * Scan every port for connect/disconnect changes.
-		 * Phase 1: all events are routed to the single port_device.
+		 * Each port has its own slot in driver->port_device[].
 		 */
 		hcsparams = HCD_RD4(ehci_dev.cap_regs, EHCI_HCSPARAMS);
 		n_ports   = (int)EHCI_HCS_N_PORTS(hcsparams);
@@ -438,7 +440,9 @@ ehci_isr(void *priv)
 
 			if (portsc & EHCI_PORT_CCS) {
 				USB_MSG("EHCI: device connected on port %d", i);
-				hcd_handle_event(drv->port_device,
+				hcd_update_port(drv, HCD_EVENT_CONNECTED, i);
+				ehci_active.port_idx = i;
+				hcd_handle_event(drv->port_device[i],
 						  HCD_EVENT_CONNECTED, 0);
 			} else {
 				USB_MSG("EHCI: device disconnected from port %d", i);
@@ -447,8 +451,9 @@ ehci_isr(void *priv)
 					ehci_active.qtd_idx = -1;
 				}
 				ehci_async_unlink_device_qh();
-				hcd_handle_event(drv->port_device,
+				hcd_handle_event(drv->port_device[i],
 						  HCD_EVENT_DISCONNECTED, 0);
+				hcd_update_port(drv, HCD_EVENT_DISCONNECTED, i);
 			}
 		}
 	}
@@ -463,7 +468,8 @@ ehci_isr(void *priv)
 			      ? ehci_active.ep_num
 			      : HCD_DEFAULT_EP;
 
-		hcd_handle_event(drv->port_device, HCD_EVENT_ENDPOINT, ep);
+		hcd_handle_event(drv->port_device[ehci_active.port_idx],
+				  HCD_EVENT_ENDPOINT, ep);
 	}
 }
 
