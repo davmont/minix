@@ -96,8 +96,11 @@
 /* CR4 bits needed for Long Mode */
 #define CR4_PAE             (1 << 5)   /* Physical Address Extension */
 #define CR4_PGE             (1 << 7)   /* Page Global Enable */
-#define CR4_OSFXSR          (1 << 9)   /* SSE enable */
-#define CR4_OSXMMEXCPT      (1 << 10)  /* SSE exception enable */
+#define CR4_OSFXSR          (1 << 9)   /* SSE enable (FXSAVE/FXRSTOR) */
+#define CR4_OSXMMEXCPT      (1 << 10)  /* SSE #XM exception enable */
+#define CR4_FSGSBASE        (1 << 16)  /* Enable RDFSBASE/WRFSBASE etc. */
+#define CR4_PCIDE           (1 << 17)  /* Process-Context ID Enable */
+#define CR4_OSXSAVE         (1 << 18)  /* XSAVE/XRSTOR and AVX enable */
 
 /* CR0 bits */
 #define CR0_PE              (1 << 0)   /* Protection Enable */

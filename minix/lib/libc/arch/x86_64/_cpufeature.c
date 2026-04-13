@@ -9,6 +9,9 @@ int _cpufeature(int cpufeature)
 {
 	u32_t eax, ebx, ecx, edx;
 	u32_t ef_eax = 0, ef_ebx = 0, ef_ecx = 0, ef_edx = 0;
+	u32_t l7_ebx = 0;		/* leaf 7 subleaf 0 EBX */
+	u32_t ld1_eax = 0;		/* leaf 0xD subleaf 1 EAX */
+	u32_t max_leaf;
 	unsigned int family, model, stepping;
 	int is_intel = 0, is_amd = 0;
 
@@ -17,7 +20,8 @@ int _cpufeature(int cpufeature)
 	/* We assume >= pentium for cpuid */
 	eax = 0;
 	_cpuid(&eax, &ebx, &ecx, &edx);
-	if(eax > 0) {
+	max_leaf = eax;
+	if(max_leaf > 0) {
 		char vendor[12];
 		memcpy(vendor,   &ebx, sizeof(ebx));
 		memcpy(vendor+4, &edx, sizeof(edx));
@@ -30,22 +34,33 @@ int _cpufeature(int cpufeature)
 		_cpuid(&eax, &ebx, &ecx, &edx);
 	} else return 0;
 
-	stepping   =  eax        & 0xf;
+	stepping = eax & 0xf;
 	model    = (eax >>  4) & 0xf;
 
-	if(model == 0xf || model == 0x6) {
+	if(model == 0xf || model == 0x6)
 		model += ((eax >> 16) & 0xf) << 4;
-	}
 
-	family   = (eax >>  8) & 0xf;
+	family = (eax >>  8) & 0xf;
 
-	if(family == 0xf) {
+	if(family == 0xf)
 		family += (eax >> 20) & 0xff;
-	}
 
 	if(is_amd) {
 		ef_eax = 0x80000001;
 		_cpuid(&ef_eax, &ef_ebx, &ef_ecx, &ef_edx);
+	}
+
+	/* Leaf 7, subleaf 0: structured extended feature flags. */
+	if(max_leaf >= 7) {
+		u32_t l7_eax = 7, l7_ecx = 0;
+		_cpuid(&l7_eax, &l7_ebx, &l7_ecx, &edx);
+	}
+
+	/* Leaf 0xD, subleaf 1: XSAVE extended features. */
+	if(max_leaf >= 0xD && (ecx & CPUID1_ECX_XSAVE)) {
+		u32_t ld_eax = 0xD, ld_ecx = 1, ld_ebx, ld_edx;
+		_cpuid(&ld_eax, &ld_ebx, &ld_ecx, &ld_edx);
+		ld1_eax = ld_eax;
 	}
 
 	switch(cpufeature) {
@@ -94,6 +109,30 @@ int _cpufeature(int cpufeature)
 			if(!is_amd) return 0;
 			if(!(ef_edx & CPUID_EF_EDX_SYSENTER)) return 0;
 			return 1;
+
+		/* --- Modern x86-64 features (leaf 1, ECX) --- */
+		case _CPUF_X86_PCID:
+			return ecx & CPUID1_ECX_PCID;
+		case _CPUF_X86_x2APIC:
+			return ecx & CPUID1_ECX_x2APIC;
+		case _CPUF_X86_TSC_DL:
+			return ecx & CPUID1_ECX_TSC_DL;
+		case _CPUF_X86_XSAVE:
+			return ecx & CPUID1_ECX_XSAVE;
+		case _CPUF_X86_AVX:
+			return ecx & CPUID1_ECX_AVX;
+
+		/* --- Modern x86-64 features (leaf 7, EBX) --- */
+		case _CPUF_X86_FSGSBASE:
+			return l7_ebx & CPUID7_EBX_FSGSBASE;
+		case _CPUF_X86_AVX2:
+			return l7_ebx & CPUID7_EBX_AVX2;
+
+		/* --- XSAVE sub-features (leaf 0xD, subleaf 1, EAX) --- */
+		case _CPUF_X86_XSAVEOPT:
+			return ld1_eax & CPUIDD1_EAX_XSAVEOPT;
+		case _CPUF_X86_XSAVEC:
+			return ld1_eax & CPUIDD1_EAX_XSAVEC;
 	}
 
 	return 0;
