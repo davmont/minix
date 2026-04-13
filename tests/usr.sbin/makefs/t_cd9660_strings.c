@@ -63,6 +63,26 @@ ATF_TC_BODY(cd9660_valid_a_chars_basic, tc)
 	ATF_CHECK_EQ(cd9660_valid_a_chars("ABC|"), 0);
 	ATF_CHECK_EQ(cd9660_valid_a_chars("ABC}"), 0);
 	ATF_CHECK_EQ(cd9660_valid_a_chars("ABC~"), 0);
+
+	/* Boundary tests for valid ranges */
+	ATF_CHECK_EQ(cd9660_valid_a_chars(" "), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("\""), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("%"), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("?"), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("A"), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("Z"), 1);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("a"), 2);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("z"), 2);
+
+	/* Boundary tests for explicitly excluded characters */
+	ATF_CHECK_EQ(cd9660_valid_a_chars("#"), 0);
+	ATF_CHECK_EQ(cd9660_valid_a_chars("$"), 0);
+
+	/* Internal padding null bytes testing via string literals where applicable
+	 * Since the string is passed as const char*, intermediate nulls cut the string off,
+	 * so "A\0#" will return 1, because it only tests 'A'.
+	 */
+	ATF_CHECK_EQ(cd9660_valid_a_chars("A\0#"), 1);
 }
 
 ATF_TP_ADD_TCS(tp)
