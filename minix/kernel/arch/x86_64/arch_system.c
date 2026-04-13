@@ -47,6 +47,21 @@ static void ser_dump_vfs(void);
 static void ser_init(void);
 #endif
 
+/*
+ * XSAVE state: set once during BSP fpu_init(), then read-only.
+ *
+ *  use_xsave     — non-zero when XSAVE/XRSTOR are available (CR4.OSXSAVE set)
+ *  use_xsaveopt  — non-zero when XSAVEOPT is also available (faster saves)
+ *  xsave_area_size — bytes required per process; between FPU_XFP_SIZE and
+ *                    FPU_XSAVE_MAX_SIZE, queried from CPUID leaf 0xD
+ */
+static int    use_xsave    = 0;
+static int    use_xsaveopt = 0;
+static size_t xsave_area_size = FPU_XFP_SIZE;
+
+/* Exported so that do_fork / do_sigsend / do_sigreturn can use the right size. */
+size_t fpu_get_save_size(void) { return xsave_area_size; }
+
 /*===========================================================================*
  *  fpu_init                                                                  *
  *===========================================================================*/
@@ -60,18 +75,82 @@ void fpu_init(void)
 
     if ((sw & 0xff) == 0 && (cw & 0x103f) == 0x3f) {
         reg_t cr0, cr4;
+        u32_t eax, ebx, ecx, edx;
 
-        /* All amd64 CPUs have FPU + SSE2, so we enable both flags. */
+        /* All amd64 CPUs have FPU + SSE2; enable FXSAVE and SSE exceptions. */
         cr0 = read_cr0();
-        cr0 &= ~(1UL << 2);    /* clear EM (no FPU emulation) */
+        cr0 &= ~(1UL << 2);    /* clear EM */
         cr0 |=  (1UL << 1);    /* set MP */
-        cr0 |=  (1UL << 5);    /* set NE (native FP exceptions) */
+        cr0 |=  (1UL << 5);    /* set NE */
         write_cr0(cr0);
 
         cr4 = read_cr4();
-        cr4 |= CR4_OSFXSR;     /* enable FXSAVE/FXRSTOR */
-        cr4 |= CR4_OSXMMEXCPT; /* enable SSE #XM exceptions */
-        write_cr4(cr4);
+        cr4 |= CR4_OSFXSR;
+        cr4 |= CR4_OSXMMEXCPT;
+
+        /*
+         * P1.2 — XSAVE detection.
+         *
+         * CPUID leaf 1, ECX bit 26 reports hardware XSAVE support.
+         * We additionally need to set CR4.OSXSAVE to tell the CPU the OS
+         * will manage the extended state, then re-read CPUID leaf 0xD to
+         * find out the actual save-area size for the currently enabled XCR0
+         * components (XCR0 defaults to 0x3 = x87 + SSE after reset, but we
+         * set it to -1ULL to enable all features the CPU supports).
+         */
+        eax = 1; ebx = ecx = edx = 0;
+        _cpuid(&eax, &ebx, &ecx, &edx);
+
+        if (ecx & CPUID1_ECX_XSAVE) {
+            u32_t d1_eax, d1_ebx, d1_ecx, d1_edx;
+            u32_t d0_eax, d0_ebx, d0_ecx, d0_edx;
+
+            /* Enable OS XSAVE support in CR4 first. */
+            cr4 |= CR4_OSXSAVE;
+            write_cr4(cr4);
+
+            /*
+             * Expand XCR0 to all features the CPU advertises.
+             * CPUID leaf 0xD, subleaf 0, EAX:EDX reports the valid XCR0 bits.
+             * We set XCR0 = that mask so that all components are managed.
+             */
+            d0_eax = 0xD; d0_ecx = 0;
+            _cpuid(&d0_eax, &d0_ebx, &d0_ecx, &d0_edx);
+            /* XSETBV: write d0_edx:d0_eax into XCR0 (index 0). */
+            __asm__ __volatile__(
+                "xsetbv"
+                :
+                : "c" (0),          /* XCR index 0 */
+                  "a" (d0_eax),     /* low 32 bits */
+                  "d" (d0_edx)      /* high 32 bits */
+            );
+
+            /*
+             * Query CPUID leaf 0xD, subleaf 1 for XSAVEOPT/XSAVEC support
+             * and subleaf 0, EBX for the actual save-area size required with
+             * the current XCR0 setting.
+             */
+            d1_eax = 0xD; d1_ecx = 1;
+            _cpuid(&d1_eax, &d1_ebx, &d1_ecx, &d1_edx);
+
+            use_xsaveopt  = (d1_eax & CPUIDD1_EAX_XSAVEOPT) ? 1 : 0;
+
+            /* Leaf 0xD subleaf 0, EBX = size of XSAVE area for current XCR0. */
+            xsave_area_size = d0_ebx;
+            if (xsave_area_size < FPU_XFP_SIZE)
+                xsave_area_size = FPU_XFP_SIZE;
+            if (xsave_area_size > FPU_XSAVE_MAX_SIZE) {
+                printf("fpu_init: XSAVE area %zu > max %d, capping\n",
+                    xsave_area_size, FPU_XSAVE_MAX_SIZE);
+                xsave_area_size = FPU_XSAVE_MAX_SIZE;
+            }
+
+            use_xsave = 1;
+            printf("fpu_init: XSAVE enabled, area=%zu bytes%s\n",
+                xsave_area_size, use_xsaveopt ? " (XSAVEOPT)" : "");
+        } else {
+            write_cr4(cr4);     /* write without CR4_OSXSAVE */
+        }
 
         get_cpulocal_var(fpu_presence) = 1;
     } else {
@@ -89,9 +168,21 @@ void save_local_fpu(struct proc *pr, int retain)
     if (!is_fpu()) return;
     assert(state);
 
-    /* amd64 always has FXSR; use FXSAVE unconditionally. */
-    fxsave(state);
-    (void)retain;   /* FXSAVE is non-destructive, retain flag irrelevant */
+    if (use_xsave) {
+        /*
+         * XSAVEOPT skips saving state components that have not been modified
+         * since the last XRSTOR — significantly faster for processes that do
+         * not use AVX.  Fall back to plain XSAVE when XSAVEOPT is absent.
+         */
+        if (use_xsaveopt)
+            xsaveopt_asm(state);
+        else
+            xsave_asm(state);
+    } else {
+        fxsave(state);
+    }
+
+    (void)retain;   /* XSAVE and FXSAVE are both non-destructive */
 }
 
 /*===========================================================================*
@@ -115,8 +206,17 @@ void save_fpu(struct proc *pr)
     }
 }
 
-/* FPU state storage: 512 bytes each, 16-byte aligned (FXSAVE requirement). */
-static char fpu_state[NR_PROCS][FPU_XFP_SIZE] __aligned(FPUALIGN);
+/*
+ * FPU state storage.
+ *
+ * Each slot is FPU_XSAVE_MAX_SIZE bytes so it can accommodate any XSAVE area
+ * size reported by CPUID leaf 0xD at runtime.  The alignment is 64 bytes as
+ * required by XSAVE (FXSAVE only needs 16; 64 satisfies both).
+ *
+ * Only the first xsave_area_size bytes of each slot are written/read;
+ * the rest are zero-initialised at boot and never touched.
+ */
+static char fpu_state[NR_PROCS][FPU_XSAVE_MAX_SIZE] __aligned(FPUALIGN);
 
 /*===========================================================================*
  *  arch_proc_reset                                                           *
@@ -131,7 +231,14 @@ void arch_proc_reset(struct proc *pr)
     if (pr->p_nr >= 0) {
         v = fpu_state[pr->p_nr];
         assert(!((vir_bytes)v % FPUALIGN));
-        memset(v, 0, FPU_XFP_SIZE);
+        /*
+         * Zero the entire save area.  When XSAVE is active this also clears
+         * the XSAVE header (bytes 512–575): XSTATE_BV=0 means "no components
+         * saved", which causes XRSTOR to initialise all enabled components to
+         * their architectural reset values — exactly what we want for a new
+         * process.
+         */
+        memset(v, 0, xsave_area_size);
     }
 
     memset(&reg, 0, sizeof(reg));
@@ -169,8 +276,13 @@ int restore_fpu(struct proc *pr)
         fninit();
         pr->p_misc_flags |= MF_FPU_INITIALIZED;
     } else {
-        if (fxrstor(state))
-            return EINVAL;
+        if (use_xsave) {
+            if (xrstor_asm(state))
+                return EINVAL;
+        } else {
+            if (fxrstor(state))
+                return EINVAL;
+        }
     }
     return OK;
 }

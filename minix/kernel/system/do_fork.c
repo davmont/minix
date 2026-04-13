@@ -29,9 +29,7 @@ int do_fork(struct proc * caller, message * m_ptr)
  * m_lsys_krn_sys_fork.endpt has forked.
  * The child is m_lsys_krn_sys_fork.slot.
  */
-#if defined(__i386__)
   char *old_fpu_save_area_p;
-#endif
   register struct proc *rpc;		/* child process pointer */
   struct proc *rpp;			/* parent process pointer */
   int gen;
@@ -57,15 +55,17 @@ int do_fork(struct proc * caller, message * m_ptr)
   save_fpu(rpp);
   /* Copy parent 'proc' struct to child. And reinitialize some fields. */
   gen = _ENDPOINT_G(rpc->p_endpoint);
-#if defined(__i386__)
   old_fpu_save_area_p = rpc->p_seg.fpu_state;
-#endif
   *rpc = *rpp;				/* copy 'proc' struct */
-#if defined(__i386__)
+  /*
+   * Restore the child's own FPU state pointer (overwritten by the struct
+   * copy above) and duplicate the parent's FPU save area into it.
+   * fpu_get_save_size() returns the actual XSAVE area size (>= FPU_XFP_SIZE)
+   * so that AVX / AVX-512 state is correctly inherited on fork.
+   */
   rpc->p_seg.fpu_state = old_fpu_save_area_p;
-  if(proc_used_fpu(rpp))
-	memcpy(rpc->p_seg.fpu_state, rpp->p_seg.fpu_state, FPU_XFP_SIZE);
-#endif
+  if (proc_used_fpu(rpp))
+	memcpy(rpc->p_seg.fpu_state, rpp->p_seg.fpu_state, fpu_get_save_size());
   if(++gen >= _ENDPOINT_MAX_GENERATION)	/* increase generation */
 	gen = 1;			/* generation number wraparound */
   rpc->p_nr = m_ptr->m_lsys_krn_sys_fork.slot;	/* this was obliterated by copy */

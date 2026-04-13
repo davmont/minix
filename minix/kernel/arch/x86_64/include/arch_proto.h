@@ -106,9 +106,14 @@ struct gate_table_s {
 void idt_copy_vectors(struct gate_table_s *first);
 void idt_copy_vectors_pic(void);
 
-/* klib.S */
+/* klib.S — FPU helpers */
 int    __fxrstor_end(void *);
 int    __frstor_failure(void *);
+void   xsave_asm(void *buf);
+void   xsaveopt_asm(void *buf);
+int    xrstor_asm(void *buf);
+int    __xrstor_end(void *);
+int    __xrstor_failure(void *);
 void   phys_insb(u16_t port, phys_bytes buf, size_t count);
 void   phys_insw(u16_t port, phys_bytes buf, size_t count);
 void   phys_outsb(u16_t port, phys_bytes buf, size_t count);

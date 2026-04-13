@@ -201,7 +201,8 @@ void arch_boot_proc(struct boot_image *b, struct proc *p);
 void cpu_identify(void);
 void cpu_enable_features(void);
 /* arch dependent FPU initialization per CPU */
-void fpu_init(void);
+void   fpu_init(void);
+size_t fpu_get_save_size(void);
 /* returns true if pfu is present and initialized */
 int is_fpu(void);
 void ser_putc(char);

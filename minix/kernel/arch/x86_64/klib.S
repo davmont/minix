@@ -215,6 +215,43 @@ ENTRY(__frstor_failure)
 	mov	$1, %eax
 	ret
 
+/*
+ * XSAVE family — RDI = 64-byte-aligned save buffer.
+ * EDX:EAX = RFBM (request feature bitmap); we always pass -1:-1 to
+ * save/restore all state components enabled in XCR0.
+ */
+
+/* void xsave_asm(void *buf) */
+ENTRY(xsave_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xsave	(%rdi)
+	ret
+
+/* void xsaveopt_asm(void *buf) */
+ENTRY(xsaveopt_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xsaveopt (%rdi)
+	ret
+
+/*
+ * int xrstor_asm(void *buf) — returns 0 on success, 1 on fault.
+ * The exception.c #GP/#XM handler redirects RIP to __xrstor_failure
+ * if the fault occurs between xrstor_asm and __xrstor_end.
+ */
+ENTRY(xrstor_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xrstor	(%rdi)
+ENTRY(__xrstor_end)
+	xor	%eax, %eax
+	ret
+
+ENTRY(__xrstor_failure)
+	mov	$1, %eax
+	ret
+
 /*===========================================================================*
  *  Misc                                                                     *
  *===========================================================================*/

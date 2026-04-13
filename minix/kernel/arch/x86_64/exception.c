@@ -189,10 +189,17 @@ void exception_handler(int is_nested, struct exception_frame *frame)
             }
         }
 
-        /* FPU state restore fault. */
+        /* FPU state restore fault (FXRSTOR path). */
         if ((void *)frame->rip >= (void *)fxrstor &&
             (void *)frame->rip <= (void *)__fxrstor_end) {
             frame->rip = (reg_t)__frstor_failure;
+            return;
+        }
+
+        /* FPU state restore fault (XRSTOR path). */
+        if ((void *)frame->rip >= (void *)xrstor_asm &&
+            (void *)frame->rip <= (void *)__xrstor_end) {
+            frame->rip = (reg_t)__xrstor_failure;
             return;
         }
 
