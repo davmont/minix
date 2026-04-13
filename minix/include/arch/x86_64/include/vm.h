@@ -88,9 +88,22 @@
 #define CPUID1_EDX_HTT		(1UL << 28)
 #define CPUID1_ECX_SSE3		(1UL)
 #define CPUID1_ECX_SSSE3	(1UL <<  9)
+#define CPUID1_ECX_PCID		(1UL << 17)	/* Process-Context Identifiers */
 #define CPUID1_ECX_SSE4_1	(1UL << 19)
 #define CPUID1_ECX_SSE4_2	(1UL << 20)
+#define CPUID1_ECX_x2APIC	(1UL << 21)	/* x2APIC present */
+#define CPUID1_ECX_TSC_DL	(1UL << 24)	/* TSC Deadline timer */
+#define CPUID1_ECX_XSAVE	(1UL << 26)	/* XSAVE/XRSTOR/XSETBV/XGETBV */
+#define CPUID1_ECX_AVX		(1UL << 28)	/* Advanced Vector Extensions */
 #define CPUID_EF_EDX_SYSENTER	(1UL << 11)	/* Intel SYSENTER (extended) */
+
+/* CPUID leaf 7, subleaf 0 — structured extended feature flags (EBX). */
+#define CPUID7_EBX_FSGSBASE	(1UL <<  0)	/* RDFSBASE/WRFSBASE etc. */
+#define CPUID7_EBX_AVX2		(1UL <<  5)	/* AVX2 */
+
+/* CPUID leaf 0xD, subleaf 1 — XSAVE extended features (EAX). */
+#define CPUIDD1_EAX_XSAVEOPT	(1UL <<  0)	/* XSAVEOPT instruction */
+#define CPUIDD1_EAX_XSAVEC	(1UL <<  1)	/* XSAVEC + compacted form */
 
 /*
  * I386_VM_* compatibility aliases for shared code (e.g. vm/pagetable.c)

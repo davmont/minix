@@ -106,9 +106,21 @@ struct gate_table_s {
 void idt_copy_vectors(struct gate_table_s *first);
 void idt_copy_vectors_pic(void);
 
-/* klib.S */
+/* klib.S — FPU helpers */
 int    __fxrstor_end(void *);
 int    __frstor_failure(void *);
+void   xsave_asm(void *buf);
+void   xsaveopt_asm(void *buf);
+int    xrstor_asm(void *buf);
+int    __xrstor_end(void *);
+int    __xrstor_failure(void *);
+
+/* klib.S — FSGSBASE helpers (only call when CR4.FSGSBASE is set) */
+u64_t  read_fsbase(void);
+void   write_fsbase(u64_t base);
+u64_t  read_gsbase(void);
+void   write_gsbase(u64_t base);
+
 void   phys_insb(u16_t port, phys_bytes buf, size_t count);
 void   phys_insw(u16_t port, phys_bytes buf, size_t count);
 void   phys_outsb(u16_t port, phys_bytes buf, size_t count);
