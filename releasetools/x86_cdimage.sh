@@ -8,7 +8,7 @@ set -e
 
 : ${ARCH=i386}
 : ${OBJ=../obj.${ARCH}}
-: ${TOOLCHAIN_TRIPLET=i586-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base"}
@@ -79,13 +79,13 @@ then
 fi
 
 echo "Writing ISO..."
-${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=i386;${DESTDIR}/usr/mdec/bootxx_cd9660,label=MINIX" ${IMG} ${ROOT_DIR}
+${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=${ARCH};${DESTDIR}/usr/mdec/bootxx_cd9660,label=MINIX" ${IMG} ${ROOT_DIR}
 
 echo ""
 echo "ISO image at `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm using the bootloader:"
-echo "qemu-system-i386 --enable-kvm -cdrom `pwd`/${IMG}"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -cdrom `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm:"
-echo "cd ${MODDIR} && qemu-system-i386 --enable-kvm -kernel kernel -append \"bootcd=1 cdproberoot=1\" -initrd \"${mods}\" -cdrom `pwd`/${IMG}"
+echo "cd ${MODDIR} && $([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -kernel kernel -append \"bootcd=1 cdproberoot=1\" -initrd \"${mods}\" -cdrom `pwd`/${IMG}"

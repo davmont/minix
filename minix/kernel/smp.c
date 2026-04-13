@@ -12,8 +12,8 @@ struct cpu cpus[CONFIG_MAX_CPUS];
 
 /* info passed to another cpu along with a sched ipi */
 struct sched_ipi_data {
-	volatile u32_t	flags;
-	volatile u32_t	data;
+	volatile u32_t		flags;
+	volatile uintptr_t	data;	/* pointer-sized: 32-bit on i386, 64-bit on amd64 */
 };
 
 static struct sched_ipi_data  sched_ipi_data[CONFIG_MAX_CPUS];

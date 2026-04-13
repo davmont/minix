@@ -8,7 +8,7 @@ set -e
 
 : ${ARCH=i386}
 : ${OBJ=../obj.${ARCH}}
-: ${TOOLCHAIN_TRIPLET=i586-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base"}
@@ -99,7 +99,7 @@ echo ""
 echo "To boot this image on kvm using the bootloader:"
 # This is really, really slow.
 # echo "qemu-system-i386 --enable-kvm -m 1G -usbdevice disk:`pwd`/${IMG}"
-echo "qemu-system-i386 --enable-kvm -m 1G -hda `pwd`/${IMG}"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 1G -hda `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm:"
-echo "cd ${ROOT_DIR} && qemu-system-i386 --enable-kvm -m 1G -kernel kernel -append \"bootramdisk=1\" -initrd \"${mods}\""
+echo "cd ${ROOT_DIR} && $([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 1G -kernel kernel -append \"bootramdisk=1\" -initrd \"${mods}\""

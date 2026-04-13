@@ -193,7 +193,7 @@ pmax_setboot(ib_params *params)
 	int			retval;
 	char			*bootstrapbuf;
 	size_t			bootstrapsize = 0;	/* XXX: gcc */
-	uint32_t		bootstrapload, bootstrapexec;
+	uint32_t		bootstrapload = 0, bootstrapexec = 0;	/* XXX: gcc */
 	ssize_t			rv;
 
 	assert(params != NULL);

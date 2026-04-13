@@ -1,6 +1,6 @@
 # Makefile for kernel
 CONFIG_SMP=	yes
-CONFIG_MAX_CPUS= 8
+CONFIG_MAX_CPUS= 32
 .include <bsd.own.mk>
 
 PROG=		kernel

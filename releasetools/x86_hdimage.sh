@@ -8,7 +8,7 @@ set -e
 
 : ${ARCH=i386}
 : ${OBJ=../obj.${ARCH}}
-: ${TOOLCHAIN_TRIPLET=i586-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base minix-comp minix-games minix-man minix-tests tests"}
@@ -89,7 +89,8 @@ then
        rm -rf ${EFI_DIR} && mkdir -p ${EFI_DIR}/boot/minix_default ${EFI_DIR}/boot/efi
        create_grub_cfg
        cp ${MODDIR}/* ${EFI_DIR}/boot/minix_default/
-       cp ${RELEASETOOLSDIR}/grub/grub-core/booti386.efi ${EFI_DIR}/boot/efi
+       _EFI_IMG=$([ "${ARCH}" = "amd64" ] && echo "bootx64.efi" || echo "booti386.efi")
+       cp ${RELEASETOOLSDIR}/grub/grub-core/${_EFI_IMG} ${EFI_DIR}/boot/efi
        cp ${RELEASETOOLSDIR}/grub/grub-core/*.mod ${EFI_DIR}/boot/efi
 fi
 
@@ -128,9 +129,9 @@ echo ""
 echo "Disk image at `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm using the bootloader:"
-echo "qemu-system-i386 --enable-kvm -m 256 -hda `pwd`/${IMG}"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 256 -hda `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm:"
-echo "cd ${MODDIR} && qemu-system-i386 --enable-kvm -m 256M -kernel kernel -append \"rootdevname=c0d0p0\" -initrd \"${mods}\" -hda `pwd`/${IMG}"
+echo "cd ${MODDIR} && $([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 256M -kernel kernel -append \"rootdevname=c0d0p0\" -initrd \"${mods}\" -hda `pwd`/${IMG}"
 echo "To boot this image on kvm with EFI (tianocore OVMF):"
-echo "qemu-system-i386 -L . -bios OVMF-i32.fd -m 256M -drive file=minix_x86.img,if=ide,format=raw"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64 -L . -bios OVMF.fd" || echo "qemu-system-i386 -L . -bios OVMF-i32.fd") -m 256M -drive file=minix_x86.img,if=ide,format=raw"

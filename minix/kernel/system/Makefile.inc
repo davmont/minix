@@ -39,12 +39,11 @@ SRCS+= 	\
 	do_schedctl.c \
 	do_statectl.c
 
-.if ${MACHINE_ARCH} == "i386"
+.if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 SRCS+=  \
 	do_devio.c \
 	do_vdevio.c
 .endif
 
-.if ${MACHINE_ARCH} == "x86_64"
-SRCS+=  do_mcontext.c do_sysctl.c
-.endif
+# do_mcontext.c is already in the generic SRCS list above; no x86_64-specific
+# re-addition needed (doing so causes a multiple-definition linker error).

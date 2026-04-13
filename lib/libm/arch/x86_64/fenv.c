@@ -87,8 +87,11 @@ __RCSID("$NetBSD: fenv.c,v 1.6 2013/11/11 00:31:51 joerg Exp $");
 fenv_t __fe_dfl_env = {
 	{
 		__NetBSD_NPXCW__,	/* Control word register */
-		0x00000000,		/* Status word register */
+		0x0,			/* Unused */
+		0x0000,			/* Status word register */
+		0x0,			/* Unused */
 		0x0000ffff,		/* Tag word register */
+		0x0,			/* Unused */
 		{
 			0x00000000,
 			0x00000000,

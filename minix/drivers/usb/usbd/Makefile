@@ -5,4 +5,8 @@
 SUBDIR= .WAIT base/earm
 .endif
 
+.if ${MACHINE_ARCH} == "x86_64"
+SUBDIR= .WAIT base/amd64
+.endif
+
 .include <bsd.subdir.mk>

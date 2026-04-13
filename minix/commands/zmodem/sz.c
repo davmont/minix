@@ -58,6 +58,9 @@
 
 
 #include <sys/types.h>
+#ifndef vax11c
+#include <sys/wait.h>
+#endif
 
 #ifdef vax11c
 #define BADSEEK
@@ -595,8 +598,8 @@ int wctxpn(char *name)
 
 	if (Modem2) {
 		if ((in!=stdin) && *name && fstat(fileno(in), &f)!= -1) {
-			fprintf(stderr, "Sending %s, %lld blocks: ",
-			  name, f.st_size>>7);
+			fprintf(stderr, "Sending %s, %ld blocks: ",
+			  name, (long)(f.st_size>>7));
 		}
 		fprintf(stderr, "Give your local XMODEM receive command now.\r\n");
 		return OK;
@@ -630,7 +633,7 @@ int wctxpn(char *name)
 	while (q < (txbuf + 1024))
 		*q++ = 0;
 	if (!Ascii && (in!=stdin) && *name && fstat(fileno(in), &f)!= -1)
-		sprintf(p, "%llu %llo %o 0 %d %ld", f.st_size, f.st_mtime,
+		sprintf(p, "%llu %llo %o 0 %d %ld", (unsigned long long)f.st_size, (unsigned long long)f.st_mtime,
 		  f.st_mode, Filesleft, Totalleft);
 	Totalleft -= f.st_size;
 	if (--Filesleft <= 0)
@@ -1630,7 +1633,17 @@ listen:
 			return ERROR;
 #else
 			vfile("******** RZ *******");
-			system("rz");
+			{
+				pid_t pid;
+				int status;
+				if ((pid = fork()) == 0) {
+					execlp("rz", "rz", (char *)NULL);
+					exit(127);
+				} else if (pid > 0) {
+					while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
+						continue;
+				}
+			}
 			vfile("******** SZ *******");
 			goto listen;
 #endif
@@ -1685,7 +1698,7 @@ void countem(int argc, char **argv)
 			}
 		}
 		if (Verbose>2)
-			fprintf(stderr, " %lld", f.st_size);
+			fprintf(stderr, " %ld", (long)f.st_size);
 	}
 	if (Verbose>2)
 		fprintf(stderr, "\ncountem: Total %d %ld\n",

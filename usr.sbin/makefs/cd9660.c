@@ -175,6 +175,7 @@ static cd9660node *cd9660_create_directory(iso9660_disk *, const char *,
 static cd9660node *cd9660_create_special_directory(iso9660_disk *, u_char,
     cd9660node *);
 static int  cd9660_add_generic_bootimage(iso9660_disk *, const char *);
+static void cd9660_add_padding_sectors(iso9660_disk *);
 
 
 /*
@@ -242,7 +243,8 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 	memset(diskStructure->primaryDescriptor.abstract_file_id, 0x20,37);
 	memset(diskStructure->primaryDescriptor.bibliographic_file_id, 0x20,37);
 
-	strcpy(diskStructure->primaryDescriptor.system_id,"NetBSD");
+	(void)strlcpy(diskStructure->primaryDescriptor.system_id, "NetBSD",
+	    sizeof(diskStructure->primaryDescriptor.system_id));
 
 	cd9660_defaults_set = 1;
 
@@ -362,8 +364,8 @@ cd9660_arguments_set_string(const char *val, const char *fieldtitle,
 			warnx("error: The %s must be composed of "
 			      "%c-characters", fieldtitle, testmode);
 	} else
-		warnx("error: The %s must be at most 32 characters long",
-		    fieldtitle);
+		warnx("error: The %s must be at most %zu characters long",
+		    fieldtitle, length);
 	return 0;
 }
 
@@ -446,10 +448,13 @@ cd9660_parse_opts(const char *option, fsinfo_t *fsopts)
 				warnx("The Boot Image Directory parameter"
 				 " requires a directory name");
 				rv = 0;
+			} else if (strlen(buf) > 12) {
+				warnx("error: The %s must be at most 12 characters long",
+				    desc);
+				rv = 0;
 			} else {
 				diskStructure->boot_image_directory =
 				     emalloc(strlen(buf) + 1);
-				/* BIG TODO: Add the max length function here */
 				rv = cd9660_arguments_set_string(buf, desc, 12,
 				    'd', diskStructure->boot_image_directory);
 			}
@@ -639,12 +644,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 		    PRId64 "\n", __func__, diskStructure->totalSectors);
 	}
 
-	/*
-	 * Add padding sectors at the end
-	 * TODO: Clean this up and separate padding
-	 */
-	if (diskStructure->include_padding_areas)
-		diskStructure->totalSectors += 150;
+	cd9660_add_padding_sectors(diskStructure);
 
 	cd9660_write_image(diskStructure, image);
 
@@ -663,6 +663,13 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 
 /* Generic function pointer - implement later */
 typedef int (*cd9660node_func)(cd9660node *);
+
+static void
+cd9660_add_padding_sectors(iso9660_disk *diskStructure)
+{
+	if (diskStructure->include_padding_areas)
+		diskStructure->totalSectors += CD9660_END_PADDING;
+}
 
 static void
 cd9660_finalize_PVD(iso9660_disk *diskStructure)

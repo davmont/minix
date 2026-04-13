@@ -185,7 +185,7 @@ construct_pid_dirs(void)
 		 * process could keep open a file or directory across the owner
 		 * change, it might be able to access information it shouldn't.
 		 */
-		if (pid != (pid_t)get_inode_cbdata(node) ||
+		if (pid != (pid_t)(uintptr_t)get_inode_cbdata(node) ||
 		    !check_owner(node, i))
 			delete_inode(node);
 	}
@@ -215,7 +215,7 @@ construct_pid_dirs(void)
 		make_stat(&stat, i, NO_INDEX);
 
 		node = add_inode(root, name, i, &stat, nr_pid_entries,
-		    (cbdata_t)pid);
+		    (cbdata_t)(uintptr_t)pid);
 
 		if (node == NULL)
 			out_of_inodes();

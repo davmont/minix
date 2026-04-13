@@ -31,7 +31,7 @@ extern struct arch_watchdog *watchdog;
 int arch_watchdog_init(void);
 void arch_watchdog_stop(void);
 
-#ifdef __i386__
+#if defined(__i386__) || defined(__x86_64__)
 /* if the watchdog detects lockup, let the arch code to handle it */
 void arch_watchdog_lockup(const struct nmi_frame * frame);
 
