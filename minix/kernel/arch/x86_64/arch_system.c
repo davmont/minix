@@ -176,6 +176,35 @@ int restore_fpu(struct proc *pr)
 }
 
 /*===========================================================================*
+ *  cpu_enable_features                                                       *
+ *===========================================================================*/
+/*
+ * Enable CPU features that must be set on every CPU (BSP and APs) after
+ * cpu_identify() has populated cpu_info[].  Add new per-item blocks here
+ * as later phases enable XSAVE, FSGSBASE, PCID, etc.
+ */
+void cpu_enable_features(void)
+{
+    u32_t efer_hi, efer_lo;
+
+    /* P1.1 — No-Execute (NX) bit.
+     *
+     * Set EFER.NXE so that page-table entries with the XD (bit 63) flag
+     * actually prevent instruction fetches from data pages.  The bit is
+     * defined in archconst.h but was never written to the MSR.
+     *
+     * Safe unconditionally on x86-64: the NX feature is architecturally
+     * guaranteed on all AMD64-compatible CPUs (CPUID 0x80000001 EDX bit 20
+     * is always set on any CPU that implements the AMD64 long-mode spec).
+     *
+     * EFER is a 32-bit MSR; hi word is reserved/zero.
+     */
+    ia32_msr_read(AMD_MSR_EFER, &efer_hi, &efer_lo);
+    if (!(efer_lo & AMD_EFER_NXE))
+        ia32_msr_write(AMD_MSR_EFER, efer_hi, efer_lo | AMD_EFER_NXE);
+}
+
+/*===========================================================================*
  *  cpu_identify                                                              *
  *===========================================================================*/
 void cpu_identify(void)
