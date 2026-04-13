@@ -62,6 +62,26 @@ static size_t xsave_area_size = FPU_XFP_SIZE;
 /* Exported so that do_fork / do_sigsend / do_sigreturn can use the right size. */
 size_t fpu_get_save_size(void) { return xsave_area_size; }
 
+/*
+ * P2.1 — FSGSBASE.
+ * Set once in cpu_enable_features().  When non-zero, RDFSBASE/WRFSBASE/
+ * RDGSBASE/WRGSBASE instructions are available (and CR4.FSGSBASE is set).
+ */
+int use_fsgsbase = 0;
+
+/*
+ * P2.4 — PCID (Process-Context Identifiers).
+ * use_pcid: non-zero once CR4.PCIDE has been set on the BSP.
+ * next_pcid: rolling counter; wraps at PCID_MAX (4094, reserving 0 for kernel
+ *            and 4095 as a sentinel).  Access is single-threaded during boot;
+ *            at runtime only arch_proc_reset() advances it while the BKL is
+ *            held, so no additional lock is needed.
+ */
+int use_pcid   = 0;
+#define PCID_KERNEL  0u
+#define PCID_MAX     4094u
+static u16_t next_pcid = 1;
+
 /*===========================================================================*
  *  fpu_init                                                                  *
  *===========================================================================*/
@@ -246,6 +266,23 @@ void arch_proc_reset(struct proc *pr)
 
     pr->p_seg.fpu_state = v;
 
+    /*
+     * P2.4 — assign a unique PCID for user processes when PCID is active.
+     * Kernel processes (p_nr < 0) use PCID_KERNEL (0).
+     * The counter wraps at PCID_MAX; on wrap we skip 0 to preserve the
+     * kernel reservation.  A full TLB invalidation for the recycled PCID
+     * is not needed here because arch_proc_reset always pairs with a fresh
+     * page-table assignment (p_cr3 is set later by VM), so stale TLB
+     * entries for the old owner of this PCID will never match.
+     */
+    if (use_pcid && pr->p_nr >= 0) {
+        pr->p_seg.p_pcid = next_pcid;
+        if (++next_pcid > PCID_MAX)
+            next_pcid = 1;
+    } else {
+        pr->p_seg.p_pcid = PCID_KERNEL;
+    }
+
     /* Segment selectors used by this process in user mode. */
     pr->p_reg.cs = USER_CS_SELECTOR;
     pr->p_reg.ss = USER_DS_SELECTOR;
@@ -262,6 +299,45 @@ void arch_set_secondary_ipc_return(struct proc *p, u32_t val)
 {
     /* On amd64 the secondary IPC return goes in RBX (mirrors i386 EBX). */
     p->p_reg.rbx = val;
+}
+
+/*===========================================================================*
+ *  __switch_address_space                                                    *
+ *===========================================================================*/
+/*
+ * Switch the CPU to the address space of process p.
+ *
+ * P2.4: when use_pcid is active the PCID is OR-ed into bits 11:0 of CR3 and
+ * bit 63 is set to suppress the TLB flush — the CPU keeps TLB entries for
+ * this PCID cached and validates them against the new page table silently.
+ * When use_pcid is not active this degenerates to the original plain CR3
+ * write (with the same-CR3 skip optimisation).
+ */
+void __switch_address_space(struct proc *p, struct proc **ptproc)
+{
+    reg_t new_cr3 = (reg_t)p->p_seg.p_cr3;
+
+    if (!new_cr3)
+        return;
+
+    if (use_pcid) {
+        /*
+         * OR in the PCID (bits 11:0 of CR3).  Since p_cr3 is a physical
+         * page-table address it is always page-aligned (bottom 12 bits zero).
+         * Setting bit 63 tells the CPU not to invalidate TLB entries for
+         * this PCID — context switch without TLB shootdown.
+         */
+        new_cr3 |= (reg_t)p->p_seg.p_pcid;
+        new_cr3 |= (1ULL << 63);   /* CR3 no-flush bit */
+        write_cr3(new_cr3);
+    } else {
+        reg_t cur_cr3 = read_cr3();
+        if (new_cr3 == cur_cr3)
+            return;
+        write_cr3(new_cr3);
+    }
+
+    *ptproc = p;
 }
 
 /*===========================================================================*
@@ -292,28 +368,63 @@ int restore_fpu(struct proc *pr)
  *===========================================================================*/
 /*
  * Enable CPU features that must be set on every CPU (BSP and APs) after
- * cpu_identify() has populated cpu_info[].  Add new per-item blocks here
- * as later phases enable XSAVE, FSGSBASE, PCID, etc.
+ * cpu_identify() has populated cpu_info[].  Called from main.c (BSP) and
+ * from the AP bring-up path via smp_init().
  */
 void cpu_enable_features(void)
 {
     u32_t efer_hi, efer_lo;
+    reg_t cr4;
 
     /* P1.1 — No-Execute (NX) bit.
      *
      * Set EFER.NXE so that page-table entries with the XD (bit 63) flag
-     * actually prevent instruction fetches from data pages.  The bit is
-     * defined in archconst.h but was never written to the MSR.
+     * actually prevent instruction fetches from data pages.
      *
-     * Safe unconditionally on x86-64: the NX feature is architecturally
-     * guaranteed on all AMD64-compatible CPUs (CPUID 0x80000001 EDX bit 20
-     * is always set on any CPU that implements the AMD64 long-mode spec).
-     *
-     * EFER is a 32-bit MSR; hi word is reserved/zero.
+     * Safe unconditionally on x86-64: NX is architecturally guaranteed on
+     * all AMD64-compatible CPUs (CPUID 0x80000001 EDX bit 20 always set).
      */
     ia32_msr_read(AMD_MSR_EFER, &efer_hi, &efer_lo);
     if (!(efer_lo & AMD_EFER_NXE))
         ia32_msr_write(AMD_MSR_EFER, efer_hi, efer_lo | AMD_EFER_NXE);
+
+    cr4 = read_cr4();
+
+    /* P2.1 — FSGSBASE.
+     *
+     * Setting CR4.FSGSBASE (bit 16) allows user-mode code to read/write the
+     * FS and GS base registers directly with RDFSBASE/WRFSBASE/RDGSBASE/
+     * WRGSBASE — avoiding the MSR path.  The kernel can also use these
+     * faster instructions for TLS base setup.
+     *
+     * The feature bit is _CPUF_X86_FSGSBASE (CPUID leaf 7, EBX bit 0).
+     * We set use_fsgsbase on the BSP and propagate to APs: APs set the CR4
+     * bit unconditionally if the BSP already set use_fsgsbase.
+     */
+    if (_cpufeature(_CPUF_X86_FSGSBASE)) {
+        cr4 |= CR4_FSGSBASE;
+        use_fsgsbase = 1;
+    }
+
+    /* P2.4 — PCID (Process-Context Identifiers).
+     *
+     * CR4.PCIDE (bit 17) enables the PCID mechanism: the bottom 12 bits of
+     * CR3 become the current PCID.  Writing CR3 with bit 63 set suppresses
+     * the TLB flush for that address space, avoiding full TLB shootdowns on
+     * context switches to processes whose entries are still cached.
+     *
+     * Precondition: CR4.PCIDE requires CR4.PAE (always on in long mode).
+     * We only enable it on the BSP; APs mirror the BSP's use_pcid flag.
+     *
+     * Note: once PCIDE is enabled, ALL CR3 writes must include a valid PCID
+     * in bits 11:0.  __switch_address_space() handles this in C.
+     */
+    if (_cpufeature(_CPUF_X86_PCID)) {
+        cr4 |= CR4_PCIDE;
+        use_pcid = 1;
+    }
+
+    write_cr4(cr4);
 }
 
 /*===========================================================================*

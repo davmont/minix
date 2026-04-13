@@ -253,6 +253,32 @@ ENTRY(__xrstor_failure)
 	ret
 
 /*===========================================================================*
+ *  FSGSBASE helpers (require CR4.FSGSBASE; all amd64 CPUs in 64-bit mode    *
+ *  that support the feature can execute these from ring 0 unconditionally). *
+ *  RDI = new base value (write), RAX = base value returned (read).         *
+ *===========================================================================*/
+
+/* u64_t read_fsbase(void) */
+ENTRY(read_fsbase)
+	rdfsbase	%rax
+	ret
+
+/* void write_fsbase(u64_t base) */
+ENTRY(write_fsbase)
+	wrfsbase	%rdi
+	ret
+
+/* u64_t read_gsbase(void) */
+ENTRY(read_gsbase)
+	rdgsbase	%rax
+	ret
+
+/* void write_gsbase(u64_t base) */
+ENTRY(write_gsbase)
+	wrgsbase	%rdi
+	ret
+
+/*===========================================================================*
  *  Misc                                                                     *
  *===========================================================================*/
 
@@ -383,21 +409,6 @@ LABEL(__copy_msg_to_user_end)
 ENTRY(__user_copy_msg_pointer_failure)
 	mov	$-1, %rax
 	ret
-
-/*===========================================================================*
- *  __switch_address_space(struct proc *p, struct proc **ptproc)            *
- *  RDI = proc ptr, RSI = pointer-to-ptproc                                 *
- *===========================================================================*/
-ENTRY(__switch_address_space)
-	mov	P_CR3(%rdi), %rax       /* load new CR3 value */
-	test	%rax, %rax
-	jz	0f
-	mov	%cr3, %rcx
-	cmp	%rcx, %rax
-	je	0f
-	mov	%rax, %cr3              /* switch address space */
-	mov	%rdi, (%rsi)            /* *ptproc = p */
-0:	ret
 
 /*===========================================================================*
  *  switch_k_stack(void *rsp, void (*cont)(void))                           *

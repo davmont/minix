@@ -200,6 +200,9 @@ void arch_init(void);
 void arch_boot_proc(struct boot_image *b, struct proc *p);
 void cpu_identify(void);
 void cpu_enable_features(void);
+/* P2.1 / P2.4 feature flags — set by cpu_enable_features() on each CPU */
+extern int use_fsgsbase;
+extern int use_pcid;
 /* arch dependent FPU initialization per CPU */
 void   fpu_init(void);
 size_t fpu_get_save_size(void);

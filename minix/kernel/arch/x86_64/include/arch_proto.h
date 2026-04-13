@@ -114,6 +114,13 @@ void   xsaveopt_asm(void *buf);
 int    xrstor_asm(void *buf);
 int    __xrstor_end(void *);
 int    __xrstor_failure(void *);
+
+/* klib.S — FSGSBASE helpers (only call when CR4.FSGSBASE is set) */
+u64_t  read_fsbase(void);
+void   write_fsbase(u64_t base);
+u64_t  read_gsbase(void);
+void   write_gsbase(u64_t base);
+
 void   phys_insb(u16_t port, phys_bytes buf, size_t count);
 void   phys_insw(u16_t port, phys_bytes buf, size_t count);
 void   phys_outsb(u16_t port, phys_bytes buf, size_t count);
