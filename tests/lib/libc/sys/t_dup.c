@@ -46,10 +46,10 @@ __RCSID("$NetBSD: t_dup.c,v 1.8 2012/03/18 07:00:51 jruoho Exp $");
 #include <sysexits.h>
 
 static char	path[] = "dup";
-static void	check_mode(bool, bool, bool);
+static void	check_mode(bool, bool);
 
 static void
-check_mode(bool _dup, bool _dup2, bool _dup3)
+check_mode(bool _dup, bool _dup3)
 {
 	int mode[3] = { O_RDONLY, O_WRONLY, O_RDWR   };
 	int perm[5] = { 0700, 0400, 0600, 0444, 0666 };
@@ -73,8 +73,6 @@ check_mode(bool _dup, bool _dup2, bool _dup3)
 
 			if (_dup != false)
 				fd = dup(fd1);
-			else if (_dup2 != false)
-				fd = dup2(fd1, fd2);
 			else if (_dup3 != false)
 				fd = dup3(fd1, fd2, O_CLOEXEC);
 			else {
@@ -99,98 +97,6 @@ check_mode(bool _dup, bool _dup2, bool _dup3)
 		}
 	}
 }
-
-ATF_TC(dup2_basic);
-ATF_TC_HEAD(dup2_basic, tc)
-{
-	atf_tc_set_md_var(tc, "descr", "A basic test of dup2(2)");
-}
-
-ATF_TC_BODY(dup2_basic, tc)
-{
-	int fd, fd1, fd2;
-
-	fd1 = open("/etc/passwd", O_RDONLY);
-	fd2 = open("/etc/passwd", O_RDONLY);
-
-	ATF_REQUIRE(fd1 >= 0);
-	ATF_REQUIRE(fd2 >= 0);
-
-	fd = dup2(fd1, fd2);
-	ATF_REQUIRE(fd >= 0);
-
-	if (fd != fd2)
-		atf_tc_fail("invalid descriptor");
-
-	(void)close(fd);
-	(void)close(fd1);
-
-	ATF_REQUIRE(close(fd2) != 0);
-}
-
-ATF_TC(dup2_err);
-ATF_TC_HEAD(dup2_err, tc)
-{
-	atf_tc_set_md_var(tc, "descr", "Test error conditions of dup2(2)");
-}
-
-ATF_TC_BODY(dup2_err, tc)
-{
-	int fd;
-
-	fd = open("/etc/passwd", O_RDONLY);
-	ATF_REQUIRE(fd >= 0);
-
-	errno = 0;
-	ATF_REQUIRE_ERRNO(EBADF, dup2(-1, -1) == -1);
-
-	errno = 0;
-	ATF_REQUIRE_ERRNO(EBADF, dup2(fd, -1) == -1);
-
-	errno = 0;
-	ATF_REQUIRE_ERRNO(EBADF, dup2(-1, fd) == -1);
-
-	/*
-	 * Note that this should not fail with EINVAL.
-	 */
-	ATF_REQUIRE(dup2(fd, fd) != -1);
-
-	(void)close(fd);
-}
-
-ATF_TC(dup2_max);
-ATF_TC_HEAD(dup2_max, tc)
-{
-	atf_tc_set_md_var(tc, "descr", "Test dup2(2) against limits");
-}
-
-ATF_TC_BODY(dup2_max, tc)
-{
-	struct rlimit res;
-
-	(void)memset(&res, 0, sizeof(struct rlimit));
-	(void)getrlimit(RLIMIT_NOFILE, &res);
-
-	errno = 0;
-	ATF_REQUIRE_ERRNO(EBADF, dup2(STDERR_FILENO, res.rlim_cur + 1) == -1);
-}
-
-ATF_TC_WITH_CLEANUP(dup2_mode);
-ATF_TC_HEAD(dup2_mode, tc)
-{
-	atf_tc_set_md_var(tc, "descr", "A basic test of dup2(2)");
-}
-
-ATF_TC_BODY(dup2_mode, tc)
-{
-	check_mode(false, true, false);
-}
-
-ATF_TC_CLEANUP(dup2_mode, tc)
-{
-	(void)unlink(path);
-}
-
 
 ATF_TC(dup3_err);
 ATF_TC_HEAD(dup3_err, tc)
@@ -250,10 +156,26 @@ ATF_TC_HEAD(dup3_mode, tc)
 
 ATF_TC_BODY(dup3_mode, tc)
 {
-	check_mode(false, false, true);
+	check_mode(false, true);
 }
 
 ATF_TC_CLEANUP(dup3_mode, tc)
+{
+	(void)unlink(path);
+}
+
+ATF_TC_WITH_CLEANUP(dup_mode);
+ATF_TC_HEAD(dup_mode, tc)
+{
+	atf_tc_set_md_var(tc, "descr", "A basic test of dup(2)");
+}
+
+ATF_TC_BODY(dup_mode, tc)
+{
+	check_mode(true, false);
+}
+
+ATF_TC_CLEANUP(dup_mode, tc)
 {
 	(void)unlink(path);
 }
@@ -351,29 +273,9 @@ ATF_TC_CLEANUP(dup_max, tc)
 	(void)unlink(path);
 }
 
-ATF_TC_WITH_CLEANUP(dup_mode);
-ATF_TC_HEAD(dup_mode, tc)
-{
-	atf_tc_set_md_var(tc, "descr", "A basic test of dup(2)");
-}
-
-ATF_TC_BODY(dup_mode, tc)
-{
-	check_mode(true, false, false);
-}
-
-ATF_TC_CLEANUP(dup_mode, tc)
-{
-	(void)unlink(path);
-}
-
 ATF_TP_ADD_TCS(tp)
 {
 
-	ATF_TP_ADD_TC(tp, dup2_basic);
-	ATF_TP_ADD_TC(tp, dup2_err);
-	ATF_TP_ADD_TC(tp, dup2_max);
-	ATF_TP_ADD_TC(tp, dup2_mode);
 	ATF_TP_ADD_TC(tp, dup3_err);
 	ATF_TP_ADD_TC(tp, dup3_max);
 	ATF_TP_ADD_TC(tp, dup3_mode);
