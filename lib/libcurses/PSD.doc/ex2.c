@@ -54,8 +54,7 @@ main(void)
 	int hh = 0;
 	int curx, cury, base, arg;
 	size_t len;
-	size_t id_len;
-
+	
 	initscr();
 	signal(SIGINT, quit);
 	crmode();
@@ -71,7 +70,6 @@ main(void)
 	move(0,0);
 	refresh();
 	for (i = 0; i < YSIZE + 2; i++) {
-		int id_len = snprintf(id, sizeof id, "%d: ", i);
 		addstr(id);
 		len = strlen(id);
 		for (j = 0; j < (int)(XSIZE - len); j++)
@@ -182,8 +180,7 @@ main(void)
 		if (cury < 0) {
 			base--;
 			move(0, 0);
-			insertln();
-			int id_len = snprintf(id, sizeof id, "%d: ", base);
+			insertln();			
 			addstr(id);
 			len = strlen(id);
 			for (j = 0; j < (int)(XSIZE - len - 2); j++)
@@ -192,8 +189,7 @@ main(void)
 		} else if (cury >= YSIZE) {
 			move(0, 0);
 			deleteln();
-			move(YSIZE - 1, 0);
-			int id_len = snprintf(id, sizeof id, "%d: ", base + YSIZE);
+			move(YSIZE - 1, 0);			
 			addstr(id);
 			len = strlen(id);
 			for (j = 0; j < (int)(XSIZE - len - 2); j++)
