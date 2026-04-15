@@ -31,7 +31,10 @@ struct ehci_qtd {
 	hcd_reg4 alt_next;	/* Alternate next (short-packet path)          */
 	hcd_reg4 token;		/* Status, PID, toggle, byte count (EHCI_QTD_*)*/
 	hcd_reg4 buf[5];	/* Up to 5 × 4 KB buffer page pointers         */
-} __aligned(32);		/* §3.5: qTDs must be 32-byte aligned           */
+};
+/* §3.5: qTD pools must be 32-byte aligned — satisfied by alloc_contig(AC_ALIGN4K)
+ * and the element stride equals sizeof(struct ehci_qtd) = 32 bytes.
+ * __aligned(32) is NOT on the struct type to avoid padding inside ehci_qh. */
 
 
 /*===========================================================================*

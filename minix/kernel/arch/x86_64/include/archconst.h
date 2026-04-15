@@ -148,8 +148,7 @@
 #define CPU_VENDOR_AMD          2
 #define CPU_VENDOR_UNKNOWN      0xff
 
-/* FPU context alignment */
-#define FPUALIGN                16
+/* FPU context alignment — defined in <machine/fpu.h> (FPUALIGN 64 for XSAVE) */
 
 /* Allocate-on-demand sentinel for pg_map() */
 #define PG_ALLOCATEME   ((phys_bytes)-1)

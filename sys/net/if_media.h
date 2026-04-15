@@ -184,6 +184,7 @@ void		ifmedia_removeall(struct ifmedia *);
 #define	IFM_10G_TWINAX_LONG	24	/* 10GBase Twinax Long copper */
 #define	IFM_10G_LRM	25		/* 10GBase-LRM 850nm Multi-mode */
 #define	IFM_10G_T	26		/* 10GBase-T - RJ45 */
+#define	IFM_2500_T	27		/* 2500BASE-T - RJ45 */
 
 #define	IFM_ETH_MASTER	0x00000100	/* master mode (1000baseT) */
 #define	IFM_ETH_RXPAUSE	0x00000200	/* receive PAUSE frames */
@@ -437,6 +438,8 @@ struct ifmedia_description {
 	{ IFM_ETHER | IFM_10G_CX4,	"10GBASE-CX4" },		\
 	{ IFM_ETHER | IFM_2500_SX,	"2500baseSX" },			\
 	{ IFM_ETHER | IFM_2500_SX,	"2500SX" },			\
+	{ IFM_ETHER | IFM_2500_T,	"2500baseT" },			\
+	{ IFM_ETHER | IFM_2500_T,	"2500BASE-T" },			\
 									\
 	{ IFM_TOKEN | IFM_TOK_STP4,	"DB9/4Mbit" },			\
 	{ IFM_TOKEN | IFM_TOK_STP4,	"4STP" },			\
@@ -570,6 +573,7 @@ struct ifmedia_baudrate {
 	{ IFM_ETHER | IFM_10G_SR,	IF_Gbps(10ULL) },		\
 	{ IFM_ETHER | IFM_10G_CX4,	IF_Gbps(10ULL) },		\
 	{ IFM_ETHER | IFM_2500_SX,	IF_Mbps(2500ULL) },		\
+	{ IFM_ETHER | IFM_2500_T,	IF_Mbps(2500ULL) },		\
 									\
 	{ IFM_TOKEN | IFM_TOK_STP4,	IF_Mbps(4) },			\
 	{ IFM_TOKEN | IFM_TOK_STP16,	IF_Mbps(16) },			\
