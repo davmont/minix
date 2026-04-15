@@ -315,6 +315,7 @@ static ssize_t do_write(devminor_t minor, u64_t UNUSED(position),
   tp->tty_outcaller = endpt;
   tp->tty_outid = id;
   tp->tty_outgrant = grant;
+  tp->tty_outkbuf = NULL;
   assert(tp->tty_outcum == 0);
   tp->tty_outleft = size;
 

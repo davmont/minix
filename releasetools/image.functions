@@ -269,12 +269,17 @@ fetch_and_build_grub()
          # most recent known working commit at the time of writing
          git checkout a0bf403f66dbaca4edd8e667bfc397dd91c8d71c
          ./autogen.sh
-         ./configure --with-platform=efi --target=i386
+         if [ "${ARCH}" = "amd64" ]; then
+           _GRUB_EFI_TARGET=x86_64; _GRUB_EFI_IMG=bootx64.efi
+         else
+           _GRUB_EFI_TARGET=i386;   _GRUB_EFI_IMG=booti386.efi
+         fi
+         ./configure --with-platform=efi --target=${_GRUB_EFI_TARGET}
          make clean
          make -j ${JOBS}
          cd grub-core
-         ../grub-mkimage -v -d . -o booti386.efi -O i386-efi -p /boot/efi normal part_msdos fat chain boot configfile multiboot minix3 gzio efi_uga
-         ls -l booti386.efi
+         ../grub-mkimage -v -d . -o ${_GRUB_EFI_IMG} -O ${_GRUB_EFI_TARGET}-efi -p /boot/efi normal part_msdos fat chain boot configfile multiboot minix3 gzio efi_uga
+         ls -l ${_GRUB_EFI_IMG}
          popd
        fi
 }
@@ -350,7 +355,12 @@ create_ramdisk_image()
 
 	# Build image
 	_RAMDISKSIZE=$(${CROSS_TOOLS}/nbmkfs.mfs -d ${RAMSIZE} -I 0 ${WORK_DIR}/imgrd.mfs ${WORK_DIR}/proto.root)
-	(cd ${WORK_DIR}; ${TOOLCHAIN_TRIPLET}objcopy -Ibinary -Bi386 -Oi586-elf32-minix imgrd.mfs imgrd.o)
+	if [ "${ARCH}" = "amd64" ]; then
+		_OBJCOPY_BARCH=x86_64; _OBJCOPY_OFMT=x86_64-elf64-minix
+	else
+		_OBJCOPY_BARCH=i386;   _OBJCOPY_OFMT=i586-elf32-minix
+	fi
+	(cd ${WORK_DIR}; ${TOOLCHAIN_TRIPLET}objcopy -Ibinary -B${_OBJCOPY_BARCH} -O${_OBJCOPY_OFMT} imgrd.mfs imgrd.o)
 	${TOOLCHAIN_TRIPLET}clang --sysroot=${DESTDIR} -L ${DESTDIR}/usr/lib -static -o ${WORK_DIR}/mod06_memory ${OBJ}/minix/drivers/storage/memory/memory.o ${WORK_DIR}/imgrd.o -nodefaultlibs -lblockdriver -lchardriver -lsys -lminc
 }
 
@@ -507,6 +517,16 @@ else
 	# Now start the build.
 	#
 	sh ${BUILDSH} -j ${JOBS} -m ${ARCH} -O ${OBJ} -D ${DESTDIR} ${BUILDVARS} -U -u release
+
+	# The amd64 arch tree does not include sys/arch/i386/stand, so the
+	# BIOS-stage bootloaders (boot_monitor, bootxx_*) are built here as a
+	# separate step.  The i386/stand Makefiles detect MACHINE_ARCH=x86_64
+	# and add the required -m32 cross-compilation flags automatically.
+	if [ "${ARCH}" = "amd64" ]
+	then
+		echo "Building i386 bootloaders for ${DESTDIR}/usr/mdec..."
+		${CROSS_TOOLS}/nbmake-${ARCH} -C sys/arch/i386/stand dependall install
+	fi
 
 fi
 

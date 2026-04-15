@@ -62,6 +62,7 @@
 #define	MID_SH5_64	0x09b	/* LP64 SH5 */
 #define	MID_SPARC64	0x09c	/* LP64 sparc */
 #define	MID_X86_64	0x09d	/* AMD x86-64 */
+#define	MID_AMD64	MID_X86_64	/* alias */
 #define	MID_SH5_32	0x09e	/* ILP32 SH5 */
 #define	MID_IA64	0x09f	/* Itanium */
 

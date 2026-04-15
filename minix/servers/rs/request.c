@@ -194,10 +194,10 @@ int do_restart(message *m_ptr)
       printf("RS: recovery script performs service restart...\n");
 
   /* Restart the service, but make sure we don't call the script again. */
-  strcpy(script, rp->r_script);
+  strlcpy(script, rp->r_script, sizeof(script));
   rp->r_script[0] = '\0';
   restart_service(rp);
-  strcpy(rp->r_script, script);
+  strlcpy(rp->r_script, script, sizeof(rp->r_script));
 
   return OK;
 }

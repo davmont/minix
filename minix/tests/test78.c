@@ -62,7 +62,7 @@ main(int argc, char **argv)
 
 	for(i = 0; i < LOOPS; i++) {
 		for(t = 0; t < FILETYPES; t++) {
-			int c;
+			int len;
 			char fn[2000];
 			mode_t m = filetypes[t].modebit;
 
@@ -70,8 +70,13 @@ main(int argc, char **argv)
 			 * dirent record length alignment issues
 			 */
 
-			snprintf(fn, sizeof(fn), "%d.%d.%d.", t, filetypes[t].dt, i);
-			for(c = 0; c < i; c++) strcat(fn, "x");
+			len = snprintf(fn, sizeof(fn), "%d.%d.%d.", t, filetypes[t].dt, i);
+			if (len > 0 && (size_t)len < sizeof(fn)) {
+				if ((size_t)(len + i) < sizeof(fn)) {
+					memset(fn + len, 'x', i);
+					fn[len + i] = '\0';
+				}
+			}
 			
 			/* create the right type */
 

@@ -67,7 +67,7 @@ static void sprof_save_proc(struct proc * p)
 	s = (struct sprof_proc *) (sprof_sample_buffer + sprof_info.mem_used);
 
 	s->proc = p->p_endpoint;
-	strcpy(s->name, p->p_name);
+	strlcpy(s->name, p->p_name, sizeof(s->name));
 
 	sprof_info.mem_used += sizeof(struct sprof_proc);
 }

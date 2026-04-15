@@ -38,6 +38,11 @@ CPPFLAGS+=	-I. -I${CLANG_SRCDIR}/include -I${LLD_SRCDIR}/include \
 LLVM_INCLUDE_CONFIG=	${LLVM_TOOLCONF_OBJDIR}/config/include
 CLANG_INCLUDE_CONFIG=	${LLVM_TOOLCONF_OBJDIR}/config/tools/clang/include
 MCLINKER_INCLUDE_CONFIG= ${LLVM_TOPLEVEL}/config/mclinker
+# Fallback source-tree config for generated headers (e.g. DataTypes.h) that
+# may not yet exist in the build-dir when llvm-lib jobs start in a parallel
+# build (-jN).  The source-tree copy is identical to the configure output and
+# is never removed by cleandir, so it is always available.
+LLVM_INCLUDE_CONFIG_SRC= ${LLVM_TOPLEVEL}/config
 LLVM_INCLUDE_OBJDIR!=	cd ${NETBSDSRCDIR}/tools/llvm-include && ${PRINTOBJDIR}
 LLVM_TOOLCONF_OBJDIR!=	cd ${NETBSDSRCDIR}/tools/llvm && ${PRINTOBJDIR}
 HOST_CPPFLAGS+=	${CPPFLAGS}
@@ -59,11 +64,18 @@ LDFLAGS+=	-Wl,--gc-sections
 .endif
 CPPFLAGS+=	-I${LLVM_INCLUDE_OBJDIR} -I${LLVM_INCLUDE_CONFIG} \
 		-I${CLANG_INCLUDE_CONFIG} -I${MCLINKER_INCLUDE_CONFIG}
+.if defined(HOSTLIB) || defined(HOSTPROG)
+CPPFLAGS+=	-I${LLVM_INCLUDE_CONFIG_SRC}
+.endif
 
 .if !defined(__MINIX)
 LLVM_PLATFORM=${MACHINE_GNU_ARCH}--netbsd
 .else
+.if ${MACHINE_GNU_ARCH} == "x86_64"
+LLVM_PLATFORM=x86_64-elf64-minix
+.else
 LLVM_PLATFORM=${MACHINE_GNU_ARCH}-elf32-minix
+.endif
 
 LLVM_CONFIGURE_ARGS+=	\
 	--with-binutils-include=${NETBSDSRCDIR}/external/gpl3/binutils/dist/include \

@@ -238,7 +238,7 @@ rs_write(register tty_t *tp, int try)
 		if (tp->tty_outcaller == KERNEL) {
 			/* We're trying to print on kernel's behalf */
 			memcpy(rs->ohead,
-				(char *) tp->tty_outgrant + tp->tty_outcum,
+				tp->tty_outkbuf + tp->tty_outcum,
 				count);
 		} else {
 			if ((r = sys_safecopyfrom(tp->tty_outcaller,

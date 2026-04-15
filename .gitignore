@@ -76,3 +76,9 @@ minix/kernel/procoffsets.h
 minix/kernel/procoffsets.h.tmp
 minix/kernel/extracted-*.h
 minix/kernel/kernel
+
+# amd64 port build artifacts
+build_stdout.log
+build_error.log
+minix/drivers/storage/memory/imgrd.mfs
+minix/drivers/storage/ramdisk/image

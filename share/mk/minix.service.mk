@@ -31,7 +31,9 @@ DPADD+= ${LIBMINC}
 .endif # empty(${LDADD:M-lc})
 
 .if ${PROG:U} != "kernel"
+.if ${HAVE_LIBGCC_EH:Uyes} == "yes"
 LDADD+= -lgcc_eh
+.endif
 .endif # ${PROG:U} != "kernel"
 
 # Get (more) internal minix definitions and declarations.

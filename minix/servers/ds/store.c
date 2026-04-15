@@ -237,9 +237,9 @@ static int map_service(const struct rprocpub *rpub)
   }
 
   /* Set attributes. */
-  strcpy(dsp->key, rpub->label);
+  strlcpy(dsp->key, rpub->label, sizeof(dsp->key));
   dsp->u.u32 = (u32_t) rpub->endpoint;
-  strcpy(dsp->owner, "rs");
+  strlcpy(dsp->owner, "rs", sizeof(dsp->owner));
   dsp->flags = DSF_IN_USE | DSF_TYPE_LABEL;
 
   /* Update subscribers having a matching subscription. */
@@ -367,8 +367,8 @@ int do_publish(message *m_ptr)
   }
 
   /* Set attributes. */
-  strcpy(dsp->key, key_name);
-  strcpy(dsp->owner, source);
+  strlcpy(dsp->key, key_name, sizeof(dsp->key));
+  strlcpy(dsp->owner, source, sizeof(dsp->owner));
   dsp->flags = DSF_IN_USE | (flags & DSF_MASK_INTERNAL);
 
   /* Update subscribers having a matching subscription. */
@@ -503,7 +503,7 @@ int do_subscribe(message *m_ptr)
 	  type_set = DSF_MASK_TYPE;
 
   subp->flags = DSF_IN_USE | type_set;
-  strcpy(subp->owner, owner);
+  strlcpy(subp->owner, owner, sizeof(subp->owner));
   for(b = 0; b < BITMAP_CHUNKS(NR_DS_KEYS); b++)
 	subp->old_subs[b] = 0;
 
