@@ -47,6 +47,9 @@ CWARNFLAGS.clang+=	-Wno-error=missing-field-initializers -Wno-error=switch
 CWARNFLAGS.clang+=	-Wno-error=implicit-exception-spec-mismatch
 
 #LDADD+=	-Wl,-z,defs
+# libgcc_eh is GCC-specific; Clang handles EH via libcxxrt (sources included above)
+.if ${MKGCC:Uno} == "yes"
 LDADD+=	-lgcc_eh
+.endif
 
 .include <bsd.lib.mk>

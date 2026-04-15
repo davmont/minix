@@ -18,6 +18,10 @@
 /* Can be returned by 'read_data' to indicate error */
 #define HCD_READ_ERR -1
 
+/* Maximum number of root-hub ports per host controller.
+ * EHCI supports up to 15 ports; OHCI/UHCI typically have 2–4. */
+#define HCD_MAX_PORTS 15
+
 /* Possible states of USB device address */
 typedef enum {
 
@@ -49,9 +53,13 @@ struct hcd_driver_state {
 	/* Controller's private data (like mapped registers) */
 	void *		private_data;
 
-	/* TODO: Only one port for each driver */
-	/* Represents device attached to USB port handled by this driver */
-	hcd_device_state * port_device;
+	/* Index of this controller in the platform's driver table (0-based).
+	 * Set by the platform init function (e.g. ehci_init). */
+	int		controller_id;
+
+	/* One device slot per root-hub port.  Index matches the hardware
+	 * port number.  NULL means no device is currently attached. */
+	hcd_device_state * port_device[HCD_MAX_PORTS];
 
 	/* Array to hold information of unused device addresses */
 	hcd_addr_state dev_addr[HCD_TOTAL_ADDR];
@@ -64,8 +72,8 @@ struct hcd_driver_state {
 /* Handle asynchronous event */
 void hcd_handle_event(hcd_device_state *, hcd_event, hcd_reg1);
 
-/* This resolves port's device structure for given driver and event */
-void hcd_update_port(hcd_driver_state *, hcd_event);
+/* This resolves port's device structure for given driver, event and port index */
+void hcd_update_port(hcd_driver_state *, hcd_event, int);
 
 
 #endif /* !_HCD_INTERFACE_H_ */

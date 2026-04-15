@@ -43,6 +43,7 @@ void bsp_finish_booting(void)
 #endif /* SPROFILE */
 
   cpu_identify();
+  cpu_enable_features();
 
   vm_running = 0;
   krandom.random_sources = RANDOM_SOURCES;

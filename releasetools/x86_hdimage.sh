@@ -8,7 +8,7 @@ set -e
 
 : ${ARCH=i386}
 : ${OBJ=../obj.${ARCH}}
-: ${TOOLCHAIN_TRIPLET=i586-elf32-minix-}
+: ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
 : ${SETS="minix-base minix-comp minix-games minix-man minix-tests tests"}
@@ -45,16 +45,16 @@ workdir_add_kernel minix/$RELEASE_VERSION
 
 # add boot.cfg
 cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
-menu=Start MINIX 3:load_mods /boot/minix_default/mod*; multiboot /boot/minix_default/kernel rootdevname=c0d0p0
-menu=Start latest MINIX 3:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0
-menu=Start latest MINIX 3 in single user mode:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0 bootopts=-s
+menu=Start MINIX 3:load_mods /boot/minix_default/mod*; multiboot /boot/minix_default/kernel rootdevname=c0d0p0 ata_no_dma=1
+menu=Start latest MINIX 3:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0 ata_no_dma=1
+menu=Start latest MINIX 3 in single user mode:load_mods /boot/minix_latest/mod*; multiboot /boot/minix_latest/kernel rootdevname=c0d0p0 bootopts=-s ata_no_dma=1
 menu=Start MINIX 3 ALIX:load_mods /boot/minix_default/mod*;multiboot /boot/minix_default/kernel rootdevname=c0d0p0 console=tty00 consdev=com0 ata_no_dma=1
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
 timeout=5
 default=2
-menu=Start MINIX 3 ($RELEASE_VERSION):load_mods /boot/minix/$RELEASE_VERSION/mod*; multiboot /boot/minix/$RELEASE_VERSION/kernel rootdevname=c0d0p0
+menu=Start MINIX 3 ($RELEASE_VERSION):load_mods /boot/minix/$RELEASE_VERSION/mod*; multiboot /boot/minix/$RELEASE_VERSION/kernel rootdevname=c0d0p0 ata_no_dma=1
 END_BOOT_CFG
 add_file_spec "boot.cfg" extra.boot
 
@@ -89,7 +89,8 @@ then
        rm -rf ${EFI_DIR} && mkdir -p ${EFI_DIR}/boot/minix_default ${EFI_DIR}/boot/efi
        create_grub_cfg
        cp ${MODDIR}/* ${EFI_DIR}/boot/minix_default/
-       cp ${RELEASETOOLSDIR}/grub/grub-core/booti386.efi ${EFI_DIR}/boot/efi
+       _EFI_IMG=$([ "${ARCH}" = "amd64" ] && echo "bootx64.efi" || echo "booti386.efi")
+       cp ${RELEASETOOLSDIR}/grub/grub-core/${_EFI_IMG} ${EFI_DIR}/boot/efi
        cp ${RELEASETOOLSDIR}/grub/grub-core/*.mod ${EFI_DIR}/boot/efi
 fi
 
@@ -128,9 +129,9 @@ echo ""
 echo "Disk image at `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm using the bootloader:"
-echo "qemu-system-i386 --enable-kvm -m 256 -hda `pwd`/${IMG}"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 256 -hda `pwd`/${IMG}"
 echo ""
 echo "To boot this image on kvm:"
-echo "cd ${MODDIR} && qemu-system-i386 --enable-kvm -m 256M -kernel kernel -append \"rootdevname=c0d0p0\" -initrd \"${mods}\" -hda `pwd`/${IMG}"
+echo "cd ${MODDIR} && $([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64" || echo "qemu-system-i386") --enable-kvm -m 256M -kernel kernel -append \"rootdevname=c0d0p0\" -initrd \"${mods}\" -hda `pwd`/${IMG}"
 echo "To boot this image on kvm with EFI (tianocore OVMF):"
-echo "qemu-system-i386 -L . -bios OVMF-i32.fd -m 256M -drive file=minix_x86.img,if=ide,format=raw"
+echo "$([ "${ARCH}" = "amd64" ] && echo "qemu-system-x86_64 -L . -bios OVMF.fd" || echo "qemu-system-i386 -L . -bios OVMF-i32.fd") -m 256M -drive file=minix_x86.img,if=ide,format=raw"

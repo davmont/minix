@@ -15,6 +15,7 @@ TESTS_C+=		t_clock_gettime
 TESTS_C+=		t_clone
 TESTS_C+=		t_connect
 TESTS_C+=		t_dup
+TESTS_C+=		t_dup2
 TESTS_C+=		t_fsync
 TESTS_C+=		t_getcontext
 TESTS_C+=		t_getgroups

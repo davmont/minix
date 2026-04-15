@@ -614,6 +614,7 @@
 
 /* MIB sysctl request on a registered subtree. */
 #define COMMON_MIB_CALL		(COMMON_RQ_BASE+5)
+#  define MIB_FLAG_AUTHED	0x01	/* user has superuser privileges */
 
 /* Reply to process event message to PM. */
 #define PROC_EVENT_REPLY	(COMMON_RS_BASE+0)

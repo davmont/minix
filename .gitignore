@@ -66,3 +66,19 @@ build_tail.txt
 makefs.log
 minix_x86.iso
 minix_x86.img
+.vscode
+.claude
+# tools/compat generated headers (copied from sys/ at build time via include/.stamp)
+tools/compat/include/
+
+# kernel build-generated files
+minix/kernel/procoffsets.h
+minix/kernel/procoffsets.h.tmp
+minix/kernel/extracted-*.h
+minix/kernel/kernel
+
+# amd64 port build artifacts
+build_stdout.log
+build_error.log
+minix/drivers/storage/memory/imgrd.mfs
+minix/drivers/storage/ramdisk/image

@@ -72,8 +72,10 @@ int getuctx(ucontext_t *ucp)
  *===========================================================================*/
 void makecontext(ucontext_t *ucp, void (*func)(void), int argc, ...)
 {
+#if defined(__i386__) || defined(__arm__)
   va_list ap;
   unsigned int *stack_top;
+#endif
 
   /* There are a number of situations that are erroneous, but we can't actually
      tell the caller something is wrong, because this is a void function.
@@ -209,10 +211,61 @@ void makecontext(ucontext_t *ucp, void (*func)(void), int argc, ...)
 	if (stack_top == ucp->uc_stack.ss_sp) {
 		_UC_MACHINE_SET_STACK(ucp, 0);
 	}
+#elif defined(__x86_64__) || defined(__amd64__)
+	/* System V AMD64 ABI: first 6 integer args in rdi, rsi, rdx, rcx, r8, r9;
+	 * additional args on the stack at [RSP+8], [RSP+16], ...
+	 *
+	 * We set RIP = func directly (not via ctx_start).
+	 * The "return address" on the stack is ctx_start.
+	 * ctx_start uses R12 (callee-saved, set here) to call resumecontext(ucp).
+	 */
+	{
+	__greg_t *gr = ucp->uc_mcontext.__gregs;
+	uintptr_t *sp;
+	va_list vap;
+	int stackargs = (argc > 6) ? argc - 6 : 0;
+	/* nwords = return addr (1) + stack args; must be odd for RSP%16==8 */
+	int nwords = 1 + stackargs;
+	if (nwords % 2 == 0)
+		nwords++;	/* padding to maintain 16-byte alignment at call entry */
+
+	sp = (uintptr_t *)((uintptr_t)ucp->uc_stack.ss_sp +
+	    ucp->uc_stack.ss_size);
+	sp = (uintptr_t *)((uintptr_t)sp & ~0xf);
+	sp -= nwords;
+
+	gr[_REG_RSP] = (uintptr_t)sp;
+	gr[_REG_RBP] = 0;
+	gr[_REG_RIP] = (uintptr_t)func;
+	gr[_REG_R12] = (uintptr_t)ucp;	/* callee-saved; ctx_start passes it to resumecontext */
+
+	/* Place ctx_start as the return address (called when func returns). */
+	*sp++ = (uintptr_t)ctx_start;
+
+	/* Set up first 6 args in registers. */
+	va_start(vap, argc);
+	if (argc > 0) { argc--; gr[_REG_RDI] = va_arg(vap, uintptr_t); }
+	if (argc > 0) { argc--; gr[_REG_RSI] = va_arg(vap, uintptr_t); }
+	if (argc > 0) { argc--; gr[_REG_RDX] = va_arg(vap, uintptr_t); }
+	if (argc > 0) { argc--; gr[_REG_RCX] = va_arg(vap, uintptr_t); }
+	if (argc > 0) { argc--; gr[_REG_R8]  = va_arg(vap, uintptr_t); }
+	if (argc > 0) { argc--; gr[_REG_R9]  = va_arg(vap, uintptr_t); }
+
+	/* Remaining args go on the stack (arg7 at [RSP+8], arg8 at [RSP+16]...). */
+	while (stackargs-- > 0)
+		*sp++ = va_arg(vap, uintptr_t);
+	va_end(vap);
+
+	/* If we ran out of stack space, invalidate stack pointer. */
+	if (gr[_REG_RSP] == 0 ||
+	    (uintptr_t)sp >= (uintptr_t)ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size) {
+		gr[_REG_RSP] = 0;
+	}
+	}
 #else
 # error "Unsupported platform"
 #endif
-  }	
+  }
 }
 
 

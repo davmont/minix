@@ -28,42 +28,19 @@
 /*
  * Linux: <features.h> turns on _POSIX_SOURCE by default, even though the
  * program (not the OS) should do that.  Preload <features.h> and
- * then override some of the feature test macros. Must be included very early
- * for sys/cdefs.h and other headers to work correctly.
+ * then override some of the feature test macros.
  */
 
 #if defined(__linux__) && HAVE_FEATURES_H
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
 #include <features.h>
-#endif
-
-
-#if defined(__linux__) && HAVE_FEATURES_H
 #undef _POSIX_SOURCE
 #undef _POSIX_C_SOURCE
 #define __USE_ISOC99 1
 #endif /* __linux__ && HAVE_FEATURES_H */
 
-/* Include sys/cdefs.h early to define C declaration macros (__BEGIN_DECLS, etc.)
- * needed by other system headers like sys/mman.h. Must be before sys/mman.h.
- */
-#include <sys/cdefs.h>
-
-/* Ensure __THROW is defined for glibc headers */
-#ifndef __THROW
-#define __THROW
-#endif
-#ifndef __THROWNL
-#define __THROWNL
-#endif
-
 /* System headers needed for (re)definitions below. */
 
-/* Don't include sys/mman.h here - it will be included by sys/param.h or other headers
- * and including it unconditionally causes issues with __THROW not being properly defined.
- */
+#include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/types.h>
 /* time.h needs to be pulled in first at least on netbsd w/o _NETBSD_SOURCE */
@@ -82,7 +59,9 @@
 #include <err.h>
 #endif
 
-
+#if HAVE_SYS_CDEFS_H
+#include <sys/cdefs.h>
+#endif
 #if HAVE_SYS_SYSLIMITS_H
 #include <sys/syslimits.h>
 #endif

@@ -40,14 +40,15 @@ HOST_CPPFLAGS+=	-no-cpp-precomp
 # -D_FILE_OFFSET_BITS=64 produces a much more amenable `struct stat', and
 # other file ops, on many systems, without changing function names.
 
-HOST_CPPFLAGS+=	-I. -I./include -I./include/sys -I${.CURDIR} -I${.CURDIR}/sys \
+HOST_CPPFLAGS+=	-I. -I./include -I${.CURDIR} -I${.CURDIR}/sys \
 		-DHAVE_NBTOOL_CONFIG_H=1 -D_FILE_OFFSET_BITS=64 \
 		-include ${.CURDIR}/compat_defs.h
 
-HOST_CFLAGS+=	-Wno-error=implicit-function-declaration \
+HOST_CFLAGS+=	-std=gnu11 \
+		-Wno-error=implicit-function-declaration \
 		-Wno-error=int-conversion \
 		-Wno-error=implicit-int \
-		-Wno-error=return-mismatch \
+		 \
 		-Wno-error=incompatible-pointer-types
 
 .PATH:		${.CURDIR}/../../lib/libc/cdb \
@@ -115,13 +116,64 @@ cleandir.include: .PHONY
 
 include/.stamp:
 	mkdir -p ${INCSUBDIRS:@d@ include/$d @}
-	@# Copy all .h files from sys/sys that might be needed
-	for f in ${.CURDIR}/../../sys/sys/*.h; do \
-	  [ -f "$$f" ] && cp "$$f" include/sys/$$(basename $$f) || true; \
+	@# Copy only the specific NetBSD sys headers needed by the compat layer.
+	@# Do NOT copy headers that conflict with glibc (types.h, param.h,
+	@# stdarg.h, stdint.h, stat.h, time.h, etc.).
+	@_sysdir=${.CURDIR}/../../sys/sys; \
+	for f in featuretest.h cdefs_elf.h md5.h rmd160.h sha1.h sha2.h \
+	         cdb.h fd_set.h null.h tree.h queue.h md4.h \
+	         dirent.h exec_elf.h exec.h bootblock.h disklabel.h dkio.h \
+	         common_int_types.h; do \
+	  [ -f "$$_sysdir/$$f" ] && cp "$$_sysdir/$$f" include/sys/$$f || true; \
 	done
-	@# Copy all .h files from sys/arch/i386/include that might be needed
-	for f in ${.CURDIR}/../../sys/arch/i386/include/*.h; do \
-	  [ -f "$$f" ] && cp "$$f" include/machine/$$(basename $$f) || true; \
+	@# sys/cdefs.h: thin shim — include_next pulls in glibc's cdefs.h for
+	@# __THROW / __attr_access_none / etc., then add Minix-specific macros.
+	@printf '/* Compat shim: get host cdefs first, then add Minix extras */\n' \
+	    > include/sys/cdefs.h
+	@printf '#include_next <sys/cdefs.h>\n' >> include/sys/cdefs.h
+	@printf '#ifndef __GNUC_PREREQ__\n' >> include/sys/cdefs.h
+	@printf '# ifdef __GNUC__\n' >> include/sys/cdefs.h
+	@printf '#  define __GNUC_PREREQ__(x,y) \\\n' >> include/sys/cdefs.h
+	@printf '   ((__GNUC__==(x)&&__GNUC_MINOR__>=(y))||(__GNUC__>(x)))\n' >> include/sys/cdefs.h
+	@printf '# else\n' >> include/sys/cdefs.h
+	@printf '#  define __GNUC_PREREQ__(x,y) 0\n' >> include/sys/cdefs.h
+	@printf '# endif\n' >> include/sys/cdefs.h
+	@printf '#endif\n' >> include/sys/cdefs.h
+	@printf '#ifndef __RENAME\n# define __RENAME(x)\n#endif\n' >> include/sys/cdefs.h
+	@printf '#ifndef __constfunc\n# define __constfunc __attribute__((__const__))\n#endif\n' \
+	    >> include/sys/cdefs.h
+	@printf '#ifndef __unused\n# define __unused __attribute__((__unused__))\n#endif\n' \
+	    >> include/sys/cdefs.h
+	@printf '#ifndef __pure\n# define __pure __attribute__((__pure__))\n#endif\n' \
+	    >> include/sys/cdefs.h
+	@printf '#ifndef __BEGIN_PUBLIC_DECLS\n' >> include/sys/cdefs.h
+	@printf '# ifdef __cplusplus\n' >> include/sys/cdefs.h
+	@printf '#  define __BEGIN_PUBLIC_DECLS extern "C" {\n' >> include/sys/cdefs.h
+	@printf '#  define __END_PUBLIC_DECLS }\n' >> include/sys/cdefs.h
+	@printf '# else\n' >> include/sys/cdefs.h
+	@printf '#  define __BEGIN_PUBLIC_DECLS\n' >> include/sys/cdefs.h
+	@printf '#  define __END_PUBLIC_DECLS\n' >> include/sys/cdefs.h
+	@printf '# endif\n' >> include/sys/cdefs.h
+	@printf '#endif\n' >> include/sys/cdefs.h
+	@# sys/stdint.h redirects to the host <stdint.h> (Minix bswap.h needs it).
+	@printf '#ifndef _SYS_STDINT_H_\n#define _SYS_STDINT_H_\n#include <stdint.h>\n#endif\n' \
+	    > include/sys/stdint.h
+	@# sys/endian.h: wrap glibc's <endian.h> to avoid __mbstate_t / redefinition
+	@# conflicts that arise from Minix's full endian.h include chain.
+	@printf '#ifndef _SYS_ENDIAN_H_\n#define _SYS_ENDIAN_H_\n' > include/sys/endian.h
+	@printf '#include <endian.h>\n' >> include/sys/endian.h
+	@printf '#include <byteswap.h>\n' >> include/sys/endian.h
+	@printf '#ifndef htobe16\n# define htobe16(x) __bswap_16(x)\n#endif\n' >> include/sys/endian.h
+	@printf '#endif\n' >> include/sys/endian.h
+	@# sys/ansi.h: minimal stub — avoids __mbstate_t conflict with glibc.
+	@printf '#ifndef _SYS_ANSI_H_\n#define _SYS_ANSI_H_\n#endif\n' > include/sys/ansi.h
+	@# Copy arch-specific headers for machine-dependent type definitions.
+	@# Fall back to i386 if the machine-specific directory does not exist.
+	_arch_inc=${.CURDIR}/../../sys/arch/${MACHINE}/include; \
+	[ -d "$$_arch_inc" ] || _arch_inc=${.CURDIR}/../../sys/arch/i386/include; \
+	for f in types.h ansi.h int_types.h cdefs.h bswap.h byte_swap.h endian.h \
+	         endian_machdep.h disklabel.h param.h; do \
+	  [ -f "$$_arch_inc/$$f" ] && cp "$$_arch_inc/$$f" include/machine/$$f || true; \
 	done
 	@echo "/* Stub pthread_types.h for compat build */" > include/sys/pthread_types.h
 	@touch ${.TARGET}

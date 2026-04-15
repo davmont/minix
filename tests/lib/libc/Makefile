@@ -12,7 +12,7 @@ SUBDIR+=	tls_dso .WAIT # sync
 # LSC: db hangs, so compiled, installed, but not added to the testsuite by
 #      default
 SUBDIR+= db
-TESTS_SUBDIRS+=	hash inet locale net regex stdlib
+TESTS_SUBDIRS+=	hash inet isc locale net regex stdlib
 TESTS_SUBDIRS+=	stdio string termios time
 
 .if !defined(__MINIX)

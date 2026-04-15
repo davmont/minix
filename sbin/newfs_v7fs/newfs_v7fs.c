@@ -217,9 +217,9 @@ progress(const struct progress_arg *p)
 	if (p) {
 		Progress = *p;
 		if (p->cdev)
-			strcpy(cdev, p->cdev);
+			strlcpy(cdev, p->cdev, sizeof(cdev));
 		if (p->label)
-			strcpy(label, p->label);
+			strlcpy(label, p->label, sizeof(label));
 	}
 
 	if (!Progress.tick)

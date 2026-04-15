@@ -206,35 +206,38 @@ hcd_handle_event(hcd_device_state * device, hcd_event event, hcd_reg1 val)
  *    hcd_update_port                                                        *
  *===========================================================================*/
 void
-hcd_update_port(hcd_driver_state * driver, hcd_event event)
+hcd_update_port(hcd_driver_state * driver, hcd_event event, int port)
 {
 	DEBUG_DUMP;
+
+	USB_ASSERT(port >= 0 && port < HCD_MAX_PORTS,
+		"Port index out of range in hcd_update_port");
 
 	switch (event) {
 		case HCD_EVENT_CONNECTED:
 			/* Check if already assigned */
-			USB_ASSERT(NULL == driver->port_device,
+			USB_ASSERT(NULL == driver->port_device[port],
 				"Device was already connected before "
 				"receiving 'connection' event");
 
 			/* Assign new blank device */
-			driver->port_device = hcd_new_device();
+			driver->port_device[port] = hcd_new_device();
 
 			/* Associate this device with driver */
-			driver->port_device->driver = driver;
+			driver->port_device[port]->driver = driver;
 			break;
 
 		case HCD_EVENT_DISCONNECTED:
 			/* Check if already released */
-			USB_ASSERT(NULL != driver->port_device,
+			USB_ASSERT(NULL != driver->port_device[port],
 				"Device was already disconnected before "
 				"receiving 'disconnection' event");
 
 			/* Release device */
-			hcd_delete_device(driver->port_device);
+			hcd_delete_device(driver->port_device[port]);
 
 			/* Clear port device pointer */
-			driver->port_device = NULL;
+			driver->port_device[port] = NULL;
 			break;
 
 		default:

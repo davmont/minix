@@ -3,6 +3,6 @@
 
 TESTSDIR=       ${TESTSBASE}/usr.sbin
 
-TESTS_SUBDIRS+= mtree tcpdump traceroute useradd
+TESTS_SUBDIRS+= makefs mtree tcpdump traceroute useradd
 
 .include <bsd.test.mk>

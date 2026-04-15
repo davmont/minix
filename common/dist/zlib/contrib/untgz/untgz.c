@@ -136,12 +136,12 @@ char *TGZfname (const char *arcname)
   static char buffer[1024];
   int origlen,i;
 
-  strcpy(buffer,arcname);
+  snprintf(buffer, sizeof(buffer), "%s", arcname);
   origlen = strlen(buffer);
 
   for (i=0; TGZsuffix[i]; i++)
     {
-       strcpy(buffer+origlen,TGZsuffix[i]);
+       snprintf(buffer+origlen, sizeof(buffer)-origlen, "%s", TGZsuffix[i]);
        if (access(buffer,F_OK) == 0)
          return buffer;
     }

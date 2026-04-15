@@ -84,13 +84,13 @@ int sys_vmctl_set_addrspace(endpoint_t who, phys_bytes ptroot, void
 #define sys_outsw(port, proc_ep, buffer, count) \
   sys_sdevio(DIO_OUTPUT_WORD, port, proc_ep, buffer, count, 0)
 #define sys_safe_insb(port, ept, grant, offset, count) \
-  sys_sdevio(DIO_SAFE_INPUT_BYTE, port, ept, (void*)grant, count, offset)
+  sys_sdevio(DIO_SAFE_INPUT_BYTE, port, ept, (void*)(uintptr_t)grant, count, offset)
 #define sys_safe_outsb(port, ept, grant, offset, count) \
-  sys_sdevio(DIO_SAFE_OUTPUT_BYTE, port, ept, (void*)grant, count, offset)
+  sys_sdevio(DIO_SAFE_OUTPUT_BYTE, port, ept, (void*)(uintptr_t)grant, count, offset)
 #define sys_safe_insw(port, ept, grant, offset, count) \
-  sys_sdevio(DIO_SAFE_INPUT_WORD, port, ept, (void*)grant, count, offset)
+  sys_sdevio(DIO_SAFE_INPUT_WORD, port, ept, (void*)(uintptr_t)grant, count, offset)
 #define sys_safe_outsw(port, ept, grant, offset, count) \
-  sys_sdevio(DIO_SAFE_OUTPUT_WORD, port, ept, (void*)grant, count, offset)
+  sys_sdevio(DIO_SAFE_OUTPUT_WORD, port, ept, (void*)(uintptr_t)grant, count, offset)
 int sys_sdevio(int req, long port, endpoint_t proc_ep, void *buffer, int
 	count, vir_bytes offset);
 void *alloc_contig(size_t len, int flags, phys_bytes *phys);

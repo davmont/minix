@@ -663,7 +663,9 @@ LDLIBC ?= -nodefaultlibs
 LDADD+= -lgcc
 .else
 LDADD+= ${${ACTIVE_CC} == "gcc":? -lgcc:}
+.if ${HAVE_LIBGCC_EH:Uyes} == "yes"
 LDADD+= -lgcc_eh
+.endif
 .endif # !defined(__MINIX)
 .endif
 .endif

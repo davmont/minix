@@ -20,10 +20,10 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	mkdir -p config
 	printf '#!/bin/sh\necho 2.7.3' > config/python
 	chmod 755 config/python
-	cd config && ${HOST_SH} ${CONFIG_DIR}/configure ${LLVM_CONFIGURE_ARGS} \
+	cd config && ${HOST_SH} ${LLVM_SRCDIR}/configure ${LLVM_CONFIGURE_ARGS} \
 	    --enable-optimized CC=${HOST_CC:Q} CXX=${HOST_CXX:Q} \
 	    --with-python=${.OBJDIR}/config/python && \
-	cp ${LLVM_TOPLEVEL}/include/module.modulemap include/llvm/module.modulemap
+	cp ${LLVM_SRCDIR}/include/llvm/module.modulemap include/llvm/module.modulemap
 
 support-modules: module-test.cpp Makefile
 	if ${HOST_CXX} -stdlib=libc++ -c -fmodules -fcxx-modules -fmodules-cache-path=./module.cache \

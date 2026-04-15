@@ -73,6 +73,28 @@ void arch_timer_int_handler(void)
 {
 }
 
+void bkl_unlock_after_intr(void)
+{
+	/*
+	 * Called from the kernel-mode PIC interrupt path (hwint_master /
+	 * hwint_slave in mpx.S) after the IRQ handler returns.
+	 *
+	 * context_stop_idle() acquires the BKL on entry to that path.  The IRQ
+	 * handler may or may not release it:  timer_int_handler does (via
+	 * calib_cpu_handler / arch_timer_int_handler), but every other handler
+	 * – including the spurious-IRQ7 path where irq_handle() finds no hook –
+	 * does not.  Without an unconditional release here, the second
+	 * kernel-mode interrupt that fires (e.g. during estimate_cpu_freq()
+	 * where IF=1 and BKL=0) would call context_stop_idle() → BKL_LOCK on
+	 * an already-locked spinlock and deadlock forever.
+	 *
+	 * The APIC calibration code avoids the same problem by registering a
+	 * dedicated spurious_irq_handler() that calls BKL_UNLOCK(); we achieve
+	 * the same effect here for all PIC interrupts in one place.
+	 */
+	BKL_UNLOCK();
+}
+
 static int calib_cpu_handler(irq_hook_t * UNUSED(hook))
 {
 	u64_t tsc;

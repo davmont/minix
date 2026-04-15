@@ -22,7 +22,7 @@ char_ioctl_name(unsigned long req)
 	NAME(MINIX_I2C_IOCTL_EXEC);
 	NAME(FBIOGET_VSCREENINFO);
 	NAME(FBIOPUT_VSCREENINFO);
-	NAME(FBIOGET_FSCREENINFO);	/* TODO: print argument */
+	NAME(FBIOGET_FSCREENINFO);
 	NAME(FBIOPAN_DISPLAY);
 	NAME(DSPIORATE);
 	NAME(DSPIOSTEREO);
@@ -66,10 +66,10 @@ char_ioctl_name(unsigned long req)
 	NAME(TIOCPKT);
 	NAME(TIOCSTOP);			/* no argument */
 	NAME(TIOCSTART);		/* no argument */
-	NAME(TIOCMSET);			/* TODO: print argument */
-	NAME(TIOCMBIS);			/* TODO: print argument */
-	NAME(TIOCMBIC);			/* TODO: print argument */
-	NAME(TIOCMGET);			/* TODO: print argument */
+	NAME(TIOCMSET);
+	NAME(TIOCMBIS);
+	NAME(TIOCMBIC);
+	NAME(TIOCMGET);
 	NAME(TIOCREMOTE);
 	NAME(TIOCGWINSZ);
 	NAME(TIOCSWINSZ);
@@ -81,14 +81,14 @@ char_ioctl_name(unsigned long req)
 	NAME(TIOCEXT);
 	NAME(TIOCSIG);			/* no argument */
 	NAME(TIOCDRAIN);		/* no argument */
-	NAME(TIOCGFLAGS);		/* TODO: print argument */
-	NAME(TIOCSFLAGS);		/* TODO: print argument */
-	NAME(TIOCDCDTIMESTAMP);		/* TODO: print argument */
-	NAME(TIOCRCVFRAME);		/* TODO: print argument */
-	NAME(TIOCXMTFRAME);		/* TODO: print argument */
-	NAME(TIOCPTMGET);		/* TODO: print argument */
+	NAME(TIOCGFLAGS);
+	NAME(TIOCSFLAGS);
+	NAME(TIOCDCDTIMESTAMP);
+	NAME(TIOCRCVFRAME);
+	NAME(TIOCXMTFRAME);
+	NAME(TIOCPTMGET);
 	NAME(TIOCGRANTPT);		/* no argument */
-	NAME(TIOCPTSNAME);		/* TODO: print argument */
+	NAME(TIOCPTSNAME);
 	NAME(TIOCSQSIZE);
 	NAME(TIOCGQSIZE);
 	NAME(TIOCSFON);			/* big IOCTL, not printing argument */
@@ -236,6 +236,7 @@ static const struct flags tc_lflags[] = {
 	FLAG(NOFLSH),
 };
 
+
 static void
 put_tty_disc(struct trace_proc * proc, const char * name, int disc)
 {
@@ -262,6 +263,26 @@ static const struct flags kbd_leds[] = {
 	FLAG(KBD_LEDS_NUM),
 	FLAG(KBD_LEDS_CAPS),
 	FLAG(KBD_LEDS_SCROLL),
+};
+
+static const struct flags modem_flags[] = {
+	FLAG(TIOCM_LE),
+	FLAG(TIOCM_DTR),
+	FLAG(TIOCM_RTS),
+	FLAG(TIOCM_ST),
+	FLAG(TIOCM_SR),
+	FLAG(TIOCM_CTS),
+	FLAG(TIOCM_CD),
+	FLAG(TIOCM_RI),
+	FLAG(TIOCM_DSR),
+};
+
+static const struct flags tty_flags[] = {
+	FLAG(TIOCFLAG_SOFTCAR),
+	FLAG(TIOCFLAG_CLOCAL),
+	FLAG(TIOCFLAG_CRTSCTS),
+	FLAG(TIOCFLAG_MDMBUF),
+	FLAG(TIOCFLAG_CDTRCTS),
 };
 
 int
@@ -314,6 +335,22 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 		put_value(proc, "xoffset", "%"PRIu32, fbvs->xoffset);
 		put_value(proc, "yoffset", "%"PRIu32, fbvs->yoffset);
 		return 0;
+
+		case FBIOGET_FSCREENINFO:
+		{
+			struct fb_fix_screeninfo *fbfs;
+			if ((fbfs = (struct fb_fix_screeninfo *)ptr) == NULL)
+				return IF_IN;
+
+			put_buf(proc, "id", PF_LOCADDR | PF_STRING, (vir_bytes)fbfs->id,
+			    sizeof(fbfs->id));
+			put_value(proc, "line_length", "%"PRIu32, fbfs->line_length);
+			if (verbose > 0) {
+				put_value(proc, "mmio_start", "0x%lx", (unsigned long)fbfs->mmio_start);
+				put_value(proc, "mmio_len", "%zu", fbfs->mmio_len);
+			}
+			return 0;
+		}
 
 	case DSPIORATE:
 	case DSPIOSTEREO:
@@ -452,12 +489,32 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 		put_value(proc, NULL, "%d", *(int *)ptr);
 		return IF_ALL;
 
+	case TIOCRCVFRAME:
+	case TIOCXMTFRAME:
+		if (ptr == NULL)
+			return dir;
+		put_ptr(proc, NULL, *(vir_bytes *)ptr);
+		return IF_ALL;
+
+	case TIOCPTMGET:
 	case TIOCPTSNAME:
 		if ((pm = (struct ptmget *)ptr) == NULL)
 			return IF_IN;
 
+		if (req == TIOCPTMGET) {
+			put_value(proc, "cfd", "%d", pm->cfd);
+			put_value(proc, "sfd", "%d", pm->sfd);
+			put_buf(proc, "cn", PF_LOCADDR | PF_STRING, (vir_bytes)pm->cn,
+			    sizeof(pm->cn));
+		}
 		put_buf(proc, "sn", PF_LOCADDR | PF_STRING, (vir_bytes)pm->sn,
 		    sizeof(pm->sn));
+		return IF_ALL;
+
+	case TIOCDCDTIMESTAMP:
+		if (ptr == NULL)
+			return IF_OUT;
+		put_struct_timeval(proc, NULL, PF_LOCADDR, (vir_bytes)ptr);
 		return IF_ALL;
 
 	case TIOCSTI:
@@ -469,6 +526,26 @@ char_ioctl_arg(struct trace_proc * proc, unsigned long req, void * ptr,
 			    get_escape(*(char *)ptr));
 		else
 			put_value(proc, NULL, "%u", *(char *)ptr);
+		return IF_ALL;
+
+	case TIOCMSET:
+	case TIOCMBIS:
+	case TIOCMBIC:
+	case TIOCMGET:
+		if (ptr == NULL)
+			return (req == TIOCMGET) ? IF_IN : IF_OUT;
+
+		put_flags(proc, NULL, modem_flags, COUNT(modem_flags), "0x%x",
+		    *(int *)ptr);
+		return IF_ALL;
+
+	case TIOCGFLAGS:
+	case TIOCSFLAGS:
+		if (ptr == NULL)
+			return (req == TIOCGFLAGS) ? IF_IN : IF_OUT;
+
+		put_flags(proc, NULL, tty_flags, COUNT(tty_flags), "0x%x",
+		    *(int *)ptr);
 		return IF_ALL;
 
 	case TIOCGWINSZ:

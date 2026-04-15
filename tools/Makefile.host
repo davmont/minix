@@ -45,7 +45,7 @@ ${var}:=	${${var}}
 HOSTPROGNAME?=	${HOSTPROG}
 HOST_BINDIR?=	${TOOLDIR}/bin
 HOST_CPPFLAGS:=	${HOST_CPPFLAGS} ${CPPFLAGS}
-HOST_CPPFLAGS:=	${HOST_CPPFLAGS:N-Wp,-iremap,*:N--sysroot=*}
+HOST_CPPFLAGS:=	${HOST_CPPFLAGS:N-Wp,-iremap,*:N--sysroot=*:N-D__minix*:N-D__minix__*}
 HOST_INSTALLPROG?=${HOST_BINDIR}/${HOSTPROGNAME}${HOSTEXEEXT}
 .undef LINKS
 

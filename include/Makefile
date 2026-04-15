@@ -16,7 +16,7 @@ INCS=	a.out.h aio.h ar.h assert.h atomic.h \
 	login_cap.h lwp.h malloc.h math.h md2.h \
 	memory.h mntopts.h monetary.h mpool.h mqueue.h \
 	ndbm.h netconfig.h netdb.h netgroup.h nlist.h nl_types.h nsswitch.h \
-	paths.h pwd.h quota.h randomid.h ranlib.h re_comp.h regex.h regexp.h \
+	paths.h pthread_types.h pwd.h quota.h randomid.h ranlib.h re_comp.h regex.h regexp.h \
 	resolv.h res_update.h rmt.h sched.h search.h semaphore.h setjmp.h \
 	string.h sgtty.h signal.h spawn.h stab.h stddef.h stdio.h \
 	stdlib.h strings.h stringlist.h struct.h sysexits.h tar.h time.h \

@@ -112,7 +112,7 @@ static int mmap_file(struct vmproc *vmp,
 	if((u64_t) len + file_offset > filesize) {
 		printf("VM: truncating mmap dev 0x%x ino %d beyond file size in %d; offset %llu, len %lu, size %llu; ",
 			dev, ino, vmp->vm_endpoint,
-			file_offset, len, filesize);
+			(unsigned long long)file_offset, len, (unsigned long long)filesize);
 		len = filesize - file_offset;
 		return EINVAL;
 	}
