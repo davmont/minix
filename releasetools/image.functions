@@ -518,6 +518,16 @@ else
 	#
 	sh ${BUILDSH} -j ${JOBS} -m ${ARCH} -O ${OBJ} -D ${DESTDIR} ${BUILDVARS} -U -u release
 
+	# The amd64 arch tree does not include sys/arch/i386/stand, so the
+	# BIOS-stage bootloaders (boot_monitor, bootxx_*) are built here as a
+	# separate step.  The i386/stand Makefiles detect MACHINE_ARCH=x86_64
+	# and add the required -m32 cross-compilation flags automatically.
+	if [ "${ARCH}" = "amd64" ]
+	then
+		echo "Building i386 bootloaders for ${DESTDIR}/usr/mdec..."
+		${CROSS_TOOLS}/nbmake-${ARCH} -C sys/arch/i386/stand dependall install
+	fi
+
 fi
 
 # sanity check
