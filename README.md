@@ -187,7 +187,6 @@ For detailed instructions see the
 - **Official Wiki:** [wiki.minix3.org](https://wiki.minix3.org)
 - **User Guide:** [Getting Started](https://wiki.minix3.org/doku.php?id=www:getting-started:start)
 - **Release Notes:** [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — detailed changelog since the fork
-- **EFI Boot Plan:** [`releasetools/EFI_BOOT_PLAN.md`](releasetools/EFI_BOOT_PLAN.md)
 - **Book:** *Operating Systems: Design and Implementation* (3rd ed.) — Tanenbaum & Woodhull
 
 ---
