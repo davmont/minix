@@ -65,10 +65,14 @@ bootstrap32:
      *   EAX = MULTIBOOT_BOOTLOADER_MAGIC  (0x2BADB002)
      *   EBX = physical address of multiboot_info_t
      *
-     * Save them; we pass them to pre_init() later.
+     * Carry magic in EBX and info ptr in ESI through the page-table setup.
+     * EDI and ESI would seem natural, but the page-table zeroing loops use
+     * EDI as the rep-stosl destination pointer, clobbering it immediately.
+     * EBX is not touched anywhere between here and the 64-bit call to
+     * pre_init(), so it is the safe register for the magic value.
      */
-    mov     %eax, %edi          /* magic in EDI */
-    mov     %ebx, %esi          /* info ptr in ESI */
+    mov     %ebx, %esi          /* info ptr → ESI (not clobbered by PT setup) */
+    mov     %eax, %ebx          /* magic  → EBX (not clobbered by PT setup) */
 
     /* Set up a small temporary stack. */
     mov     $(_C_LABEL(boot32_stktop)), %esp
@@ -192,11 +196,12 @@ ENTRY(longmode_start)
     movabs  $(_C_LABEL(k_initial_stktop)), %rsp
     xor     %rbp, %rbp
 
-    /* Pass multiboot magic (RDI) and info pointer (RSI) to pre_init().
-     * On amd64 the first two integer arguments go in RDI, RSI — they were
-     * already placed there by the 32-bit stub above via EDI/ESI, which the
-     * CPU zero-extends to RDI/RSI on the transition.
+    /* pre_init(u32_t magic, u32_t ebx): SysV AMD64 ABI — RDI, RSI.
+     * magic was carried in EBX/RBX (zero-extended on any 32-bit write);
+     * info ptr was carried in ESI/RSI.  Move magic into RDI now.
      */
+    mov     %rbx, %rdi          /* magic (RBX) → first arg (RDI) */
+    /* RSI already holds the multiboot info pointer */
     call    _C_LABEL(pre_init)
 
     /* pre_init() returns the kinfo_t * boot pointer in RAX.
