@@ -125,12 +125,16 @@ ENTRY(x86_load_ss)
 /*
  * void ia32_msr_read(u32_t reg, u32_t *hi, u32_t *lo)
  *                    RDI         RSI          RDX
+ *
+ * IMPORTANT: rdmsr overwrites RDX with the MSR high bits, destroying the
+ * *lo pointer passed in RDX.  Save it in R8 (caller-saved) before rdmsr.
  */
 ENTRY(ia32_msr_read)
 	mov	%edi, %ecx      /* MSR number */
+	mov	%rdx, %r8       /* save *lo pointer — rdmsr will clobber RDX */
 	rdmsr                   /* result: EDX=hi, EAX=lo */
 	mov	%edx, (%rsi)    /* store hi */
-	mov	%eax, (%rdx)    /* store lo */
+	mov	%eax, (%r8)     /* store lo (using saved pointer) */
 	ret
 
 /*

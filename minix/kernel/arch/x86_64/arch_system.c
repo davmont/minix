@@ -146,9 +146,17 @@ void fpu_init(void)
             );
 
             /*
-             * Query CPUID leaf 0xD, subleaf 1 for XSAVEOPT/XSAVEC support
-             * and subleaf 0, EBX for the actual save-area size required with
-             * the current XCR0 setting.
+             * Re-query CPUID leaf 0xD, subleaf 0 NOW — after xsetbv has
+             * expanded XCR0.  CPUID.0xD.0.EBX reports the save-area size
+             * for the *current* XCR0, so querying before xsetbv would have
+             * given the default (x87+SSE only = 512 B) rather than the full
+             * size needed for AVX, AVX-512, etc.
+             */
+            d0_eax = 0xD; d0_ecx = 0;
+            _cpuid(&d0_eax, &d0_ebx, &d0_ecx, &d0_edx);
+
+            /*
+             * Query CPUID leaf 0xD, subleaf 1 for XSAVEOPT/XSAVEC support.
              */
             d1_eax = 0xD; d1_ecx = 1;
             _cpuid(&d1_eax, &d1_ebx, &d1_ecx, &d1_edx);
