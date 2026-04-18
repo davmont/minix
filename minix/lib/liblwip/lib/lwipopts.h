@@ -55,7 +55,7 @@
  * cause problems on alignment-enforcing platforms, and a value that is too
  * large will cause lwIP to fail on an assertion.
  */
-#if defined(__LP64__) || defined(__x86_64__) || defined(__amd64__)
+#ifdef __LP64__
 #define MEM_ALIGNMENT                   8
 #else
 #define MEM_ALIGNMENT                   4
