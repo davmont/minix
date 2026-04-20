@@ -35,7 +35,7 @@ extern void getconfig(const char *, int);
 extern void delete_prefix(struct prefix *);
 extern void invalidate_prefix(struct prefix *);
 extern void update_prefix(struct prefix *);
-extern void add_prefix(struct rainfo *, int, const struct in6_addr *, int);
+extern int add_prefix(struct rainfo *, int, const struct in6_addr *, int);
 extern void make_packet(struct rainfo *);
 extern void get_prefix(struct rainfo *);
 

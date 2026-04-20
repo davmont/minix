@@ -42,8 +42,8 @@ COPTS=  -Os
 
 .if ${MACHINE_ARCH} == "x86_64"
 LDFLAGS+=  -Wl,-m,elf_i386
-AFLAGS+=   -m32
-CPUFLAGS=  -m32
+AFLAGS+=   --target=i586-elf32-minix
+CPUFLAGS=  --target=i586-elf32-minix
 LIBKERN_ARCH=i386
 KERNMISCMAKEFLAGS="LIBKERN_ARCH=i386"
 .else
@@ -116,8 +116,38 @@ LIBKERN= ${KERNLIB}
 
 USE_BITCODE=no
 
+.if ${MACHINE_ARCH} == "x86_64"
+# When cross-building i386 boot binaries from an amd64 host the prebuilt
+# ${DESTDIR}/usr/lib/libminc.a is an x86-64 library and cannot be linked
+# into 32-bit i386 output.  Compile the required string and 64-bit math
+# symbols directly from source instead.
+LIBKERN=
+.PATH:	${S}/../common/lib/libc/string \
+	${S}/../common/lib/libc/stdlib \
+	${S}/external/bsd/compiler_rt/dist/lib/builtins
+SRCS+=	strrchr.c strcmp.c strcat.c memchr.c \
+	strncpy.c strlcpy.c strncmp.c strcpy.c strlen.c \
+	memcpy.c memset.c memcmp.c memmove.c strchr.c \
+	strtoul.c udivdi3.c umoddi3.c udivmoddi4.c
+# compiler_rt files include int_lib.h via a relative "..." include; they
+# also need __NetBSD__ so int_lib.h takes the kernel/standalone header path
+# rather than trying to #include <stdint.h> etc. which are not available
+# with -nostdinc.
+CPPFLAGS.udivdi3.c=	-I${S}/external/bsd/compiler_rt/dist/lib/builtins \
+			-D__NetBSD__
+CPPFLAGS.umoddi3.c=	-I${S}/external/bsd/compiler_rt/dist/lib/builtins \
+			-D__NetBSD__
+CPPFLAGS.udivmoddi4.c=	-I${S}/external/bsd/compiler_rt/dist/lib/builtins \
+			-D__NetBSD__
+# compiler_rt functions have no forward declarations in int_lib.h.
+COPTS.udivdi3.c=	-Wno-missing-prototypes
+COPTS.umoddi3.c=	-Wno-missing-prototypes
+COPTS.udivmoddi4.c=	-Wno-missing-prototypes
+.else
 # use MINIX minc
 LIBKERN= ${DESTDIR}/usr/lib/libminc.a
+.endif
+
 .endif # !defined(__MINIX)
 
 ### find out what to use for libz

@@ -5,6 +5,7 @@
 TESTSDIR=	${TESTSBASE}/lib/libc/string
 
 TESTS_C+=	t_bm
+TESTS_C+=	t_index
 TESTS_C+=	t_memchr
 TESTS_C+=	t_memcpy
 TESTS_C+=	t_memmem
@@ -13,15 +14,19 @@ TESTS_C+=	t_popcount
 TESTS_C+=	t_strcat
 TESTS_C+=	t_strchr
 TESTS_C+=	t_strcmp
+TESTS_C+=	t_stpcpy
 TESTS_C+=	t_strcpy
 TESTS_C+=	t_strcspn
 TESTS_C+=	t_strerror
 TESTS_C+=	t_stresep
 TESTS_C+=	t_strtok
 TESTS_C+=	t_strlen
+TESTS_C+=	t_strndup
 TESTS_C+=	t_strpbrk
 TESTS_C+=	t_strrchr
+TESTS_C+=	t_rindex
 TESTS_C+=	t_strspn
+TESTS_C+=	t_strtok
 TESTS_C+=	t_swab
 
 WARNS=		4
