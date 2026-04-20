@@ -18,6 +18,7 @@ TESTS_C+=	t_strcspn
 TESTS_C+=	t_strerror
 TESTS_C+=	t_stresep
 TESTS_C+=	t_strlen
+TESTS_C+=	t_strndup
 TESTS_C+=	t_strpbrk
 TESTS_C+=	t_strrchr
 TESTS_C+=	t_rindex
