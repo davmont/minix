@@ -1029,6 +1029,10 @@ ifinfo(char *ifname, int argc, char **argv)
 	(void)prog_close(s);
 }
 
+#ifndef ND_RA_FLAG_RTPREF_MASK	/* XXX: just for compilation on *BSD release */
+#define ND_RA_FLAG_RTPREF_MASK	0x18 /* 00011000 */
+#endif
+
 static void
 rtrlist(void)
 {

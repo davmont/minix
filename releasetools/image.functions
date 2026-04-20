@@ -525,21 +525,7 @@ else
 	if [ "${ARCH}" = "amd64" ]
 	then
 		echo "Building i386 bootloaders for ${DESTDIR}/usr/mdec..."
-		# Build only the three subdirectories that produce binaries consumed
-		# by the amd64 image scripts.  The mbr subdirectory is skipped: it
-		# has no MACHINE_ARCH=x86_64 cross-compilation guard so clang
-		# silently ignores -m32 for assembly, producing an x86-64 object
-		# that the i386 linker rejects.  The mbr binaries are only needed
-		# when installing to a physical disk from inside a running MINIX
-		# system, not during cross-built image creation.
-		#
-		# Each directory is invoked directly to avoid passing SUBDIR=
-		# on the command line, which would leak into child make invocations
-		# and cause them to recurse into non-existent subdirectories.
-		for _standdir in boot/biosboot cdboot bootxx/bootxx_minixfs3; do
-			${CROSS_TOOLS}/nbmake-${ARCH} \
-				-C sys/arch/i386/stand/${_standdir} dependall install
-		done
+		${CROSS_TOOLS}/nbmake-${ARCH} -C sys/arch/i386/stand dependall install
 	fi
 
 fi

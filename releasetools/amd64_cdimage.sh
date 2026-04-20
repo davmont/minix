@@ -79,9 +79,7 @@ then
 fi
 
 echo "Writing ISO..."
-# bootimage platform must be "i386" regardless of kernel arch: bootxx_cd9660
-# is the i386 BIOS El Torito loader and nbmakefs does not accept "amd64".
-${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=i386;${DESTDIR}/usr/mdec/bootxx_cd9660,label=MINIX" ${IMG} ${ROOT_DIR}
+${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=${ARCH};${DESTDIR}/usr/mdec/bootxx_cd9660,label=MINIX" ${IMG} ${ROOT_DIR}
 
 echo ""
 echo "ISO image at `pwd`/${IMG}"

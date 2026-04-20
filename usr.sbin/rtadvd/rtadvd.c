@@ -591,8 +591,8 @@ rtmsg_input(void)
 				}
 				break;
 			}
-			if (add_prefix(rai, ifindex, addr, plen) == 0)
-				prefixchange = 1;
+			add_prefix(rai, ifindex, addr, plen);
+			prefixchange = 1;
 			break;
 		case RTM_DELETE:
 			/* init ifflags because it may have changed */
