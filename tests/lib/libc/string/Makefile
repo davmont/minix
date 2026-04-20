@@ -14,6 +14,7 @@ TESTS_C+=	t_popcount
 TESTS_C+=	t_strcat
 TESTS_C+=	t_strchr
 TESTS_C+=	t_strcmp
+TESTS_C+=	t_stpcpy
 TESTS_C+=	t_strcpy
 TESTS_C+=	t_strcspn
 TESTS_C+=	t_strerror
