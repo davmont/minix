@@ -489,10 +489,10 @@ delete:
 		return (1);
 	}
 	if (rtmsg(RTM_DELETE) == 0) {
-		struct sockaddr_in6 s6 = *mysin; /* XXX: for safety */
+		struct sockaddr_in6 s6 = *mysin;
 
-		mysin->sin6_scope_id = 0;
-		inet6_putscopeid(mysin, INET6_IS_ADDR_LINKLOCAL);
+		s6.sin6_scope_id = 0;
+		inet6_putscopeid(&s6, INET6_IS_ADDR_LINKLOCAL);
 		(void)getnameinfo((struct sockaddr *)(void *)&s6,
 		    (socklen_t)s6.sin6_len, host_buf,
 		    sizeof(host_buf), NULL, 0,
