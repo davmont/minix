@@ -408,7 +408,7 @@ sun_bootstrap(ib_params *params, struct alpha_boot_block * const bb)
 	/*
 	 * Make alpha checksum <47:32> come out to the sun magic.
 	 */
-	bb16[BB_ADJUST_OFFSET + 2] = htobe16(SUN_DKMAGIC) - bb16[254];
+	bb16[BB_ADJUST_OFFSET + 2] = htobe16(SUN_DKMAGIC - be16toh(bb16[254]));
 	resum(params, bb, bb16);
 	sunsum = compute_sunsum(bb16);		/* might be the final value */
 	if (params->flags & IB_VERBOSE)
@@ -416,9 +416,9 @@ sun_bootstrap(ib_params *params, struct alpha_boot_block * const bb)
 	/*
 	 * Arrange to have alpha 63:48 add up to the sparc checksum.
 	 */
-	chkdelta = sunsum - bb16[255];
-	bb16[BB_ADJUST_OFFSET + 3] = chkdelta >> 1;
-	bb16[BB_ADJUST_OFFSET + 7] = chkdelta >> 1;
+	chkdelta = sunsum - be16toh(bb16[255]);
+	bb16[BB_ADJUST_OFFSET + 3] = htobe16(chkdelta >> 1);
+	bb16[BB_ADJUST_OFFSET + 7] = htobe16(chkdelta >> 1);
 	/*
 	 * By placing half the correction in two different uint64_t words at
 	 * positions 63:48, the sparc sum will not change but the alpha sum
@@ -431,8 +431,10 @@ sun_bootstrap(ib_params *params, struct alpha_boot_block * const bb)
 			    chkdelta);
 		assert(bb16[BB_ADJUST_OFFSET + 6] == 0);
 		assert(bb16[BB_ADJUST_OFFSET + 012] == 0);
-		bb16[BB_ADJUST_OFFSET + 6] += 0x8000;
-		bb16[BB_ADJUST_OFFSET + 012] += 0x8000;
+		bb16[BB_ADJUST_OFFSET + 6] =
+		    htobe16(be16toh(bb16[BB_ADJUST_OFFSET + 6]) + 0x8000);
+		bb16[BB_ADJUST_OFFSET + 012] =
+		    htobe16(be16toh(bb16[BB_ADJUST_OFFSET + 012]) + 0x8000);
 	}
 	resum(params, bb, bb16);
 	if (params->flags & IB_VERBOSE)
@@ -448,9 +450,10 @@ check_sparc(const struct alpha_boot_block * const bb, const char *when)
 #define wmsg "%s sparc %s 0x%04x invalid, expected 0x%04x"
 
 	memcpy(bb16, bb, sizeof(bb16));
-	if (compute_sunsum(bb16) != bb16[255])
-		warnx(wmsg, when, "checksum", bb16[255], compute_sunsum(bb16));
-	if (bb16[254] != htobe16(SUN_DKMAGIC))
-		warnx(wmsg, when, "magic number", bb16[254],
-		    htobe16(SUN_DKMAGIC));
+	if (compute_sunsum(bb16) != be16toh(bb16[255]))
+		warnx(wmsg, when, "checksum", be16toh(bb16[255]),
+		    compute_sunsum(bb16));
+	if (be16toh(bb16[254]) != SUN_DKMAGIC)
+		warnx(wmsg, when, "magic number", be16toh(bb16[254]),
+		    SUN_DKMAGIC);
 }

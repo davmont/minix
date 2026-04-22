@@ -85,7 +85,7 @@ compute_sunsum(const uint16_t *bb16)
 
 	s = 0;
 	for (i = 0; i < 255; ++i)
-		s ^= bb16[i];
+		s ^= be16toh(bb16[i]);
 	return (s);
 }
 
@@ -100,9 +100,8 @@ set_sunsum(ib_params *params, uint16_t *bb16, uint16_t sum)
 	if (params->flags & IB_VERBOSE) {
 		printf("Old Sun checksum:          0x%04x\n",
 		    be16toh(bb16[SUNSUM_OFFSET]));
-		printf("Recalculated Sun checksum: 0x%04x\n", be16toh(sum));
+		printf("Recalculated Sun checksum: 0x%04x\n", sum);
 	}
-		// XXX: does this need to be big endian?
-	bb16[SUNSUM_OFFSET] = sum;
+	bb16[SUNSUM_OFFSET] = htobe16(sum);
 	return (1);
 }
