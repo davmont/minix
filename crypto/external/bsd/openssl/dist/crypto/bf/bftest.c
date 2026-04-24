@@ -338,6 +338,7 @@ static int print_test_data(void)
     printf("\niv[8]     = ");
     for (j = 0; j < 8; j++)
         printf("%02X", cbc_iv[j]);
+    int cbc_len = strlen(cbc_data) + 1;
     printf("\ndata[%d]  = '%s'", cbc_len, cbc_data);
     printf("\ndata[%d]  = ", cbc_len);
     for (j = 0; j < cbc_len; j++)
