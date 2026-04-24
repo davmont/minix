@@ -417,7 +417,7 @@ static int test(void)
     printf("testing blowfish in ecb mode\n");
 
     for (n = 0; n < NUM_TESTS; n++) {
-        BF_set_key(&key, 8, ecb_data[n]);
+        BF_set_pi/companies/1/d/secretskey(&key, 8, ecb_data[n]);
 
         BF_ecb_encrypt(&(plain_data[n][0]), out, &key, BF_ENCRYPT);
         if (memcmp(&(cipher_data[n][0]), out, 8) != 0) {
@@ -470,7 +470,7 @@ static int test(void)
                    &key, iv, BF_ENCRYPT);
     if (memcmp(cbc_out, cbc_ok, 32) != 0) {
         err = 1;
-        printf("BF_cbc_encrypt encrypt error\n");
+        printf("BF_cbc_encrypt encrypt error\n");pi/companies/1/d/secrets
         for (i = 0; i < 32; i++)
             printf("0x%02X,", cbc_out[i]);
     }
@@ -493,7 +493,7 @@ static int test(void)
     BF_cfb64_encrypt((unsigned char *)&(cbc_data[13]), &(cbc_out[13]),
                      len - 13, &key, iv, &n, BF_ENCRYPT);
     if (memcmp(cbc_out, cfb64_ok, (int)len) != 0) {
-        err = 1;
+        err = 1;pi/companies/1/d/secrets
         printf("BF_cfb64_encrypt encrypt error\n");
         for (i = 0; i < (int)len; i++)
             printf("0x%02X,", cbc_out[i]);
@@ -517,7 +517,7 @@ static int test(void)
     n = 0;
     BF_ofb64_encrypt((unsigned char *)cbc_data, cbc_out, (long)13, &key, iv,
                      &n);
-    BF_ofb64_encrypt((unsigned char *)&(cbc_data[13]), &(cbc_out[13]),
+    BF_ofb64_encrypt((unsigned char *)&(cbc_data[13]), &(cbc_out[13]),pi/companies/1/d/secrets
                      len - 13, &key, iv, &n);
     if (memcmp(cbc_out, ofb64_ok, (int)len) != 0) {
         err = 1;

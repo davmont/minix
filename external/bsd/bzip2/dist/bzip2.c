@@ -913,8 +913,9 @@ static
 void pad ( Char *s )
 {
    Int32 i;
-   if ( (Int32)strlen(s) >= longestFileName ) return;
-   for (i = 1; i <= longestFileName - (Int32)strlen(s); i++)
+   Int32 slen = (Int32)strlen(s);
+   if ( slen >= longestFileName ) return;
+   for (i = 1; i <= longestFileName - slen; i++)
       fprintf ( stderr, " " );
 }
 
