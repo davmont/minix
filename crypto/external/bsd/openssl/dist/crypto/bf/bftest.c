@@ -300,6 +300,7 @@ int main(int argc, char *argv[])
 static int print_test_data(void)
 {
     unsigned int i, j;
+    size_t cbc_len = strlen(cbc_data) + 1;
 
     printf("ecb test data\n");
     printf("key bytes\t\tclear bytes\t\tcipher bytes\n");
@@ -337,9 +338,9 @@ static int print_test_data(void)
     printf("\niv[8]     = ");
     for (j = 0; j < 8; j++)
         printf("%02X", cbc_iv[j]);
-    printf("\ndata[%d]  = '%s'", (int)strlen(cbc_data) + 1, cbc_data);
-    printf("\ndata[%d]  = ", (int)strlen(cbc_data) + 1);
-    for (j = 0; j < strlen(cbc_data) + 1; j++)
+    printf("\ndata[%d]  = '%s'", (int)cbc_len, cbc_data);
+    printf("\ndata[%d]  = ", (int)cbc_len);
+    for (j = 0; j < cbc_len; j++)
         printf("%02X", cbc_data[j]);
     printf("\n");
     printf("cbc cipher text\n");
@@ -349,14 +350,14 @@ static int print_test_data(void)
     printf("\n");
 
     printf("cfb64 cipher text\n");
-    printf("cipher[%d]= ", (int)strlen(cbc_data) + 1);
-    for (j = 0; j < strlen(cbc_data) + 1; j++)
+    printf("cipher[%d]= ", (int)cbc_len);
+    for (j = 0; j < cbc_len; j++)
         printf("%02X", cfb64_ok[j]);
     printf("\n");
 
     printf("ofb64 cipher text\n");
-    printf("cipher[%d]= ", (int)strlen(cbc_data) + 1);
-    for (j = 0; j < strlen(cbc_data) + 1; j++)
+    printf("cipher[%d]= ", (int)cbc_len);
+    for (j = 0; j < cbc_len; j++)
         printf("%02X", ofb64_ok[j]);
     printf("\n");
     return (0);
