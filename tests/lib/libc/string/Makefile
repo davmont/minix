@@ -31,4 +31,6 @@ TESTS_C+=	t_wcslen
 
 WARNS=		4
 
+TESTS_C+=	t_wcschr
+
 .include <bsd.test.mk>
