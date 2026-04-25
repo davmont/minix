@@ -1010,6 +1010,7 @@ add_prefix(struct rainfo *rai, int ifindex, const struct in6_addr *addr,
 
 	/* reconstruct the packet */
 	make_packet(rai);
+
 	return 0;
 }
 
