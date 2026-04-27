@@ -6,11 +6,27 @@
 
 /*
  * Offset of the current-process pointer on the kernel stack right after a
- * trap.  On amd64, the CPU pushes SS, RSP, RFLAGS, CS, RIP (5 * 8 bytes)
- * and we additionally push the vector + error code (2 * 8 bytes), giving
- * 7 * 8 = 56 bytes below the saved RBP we push as scratch.
+ * trap, measured from RSP _before_ the SAVE_PROCESS_CTX macro does its
+ * own "push %rbp".
+ *
+ * For a user-mode interrupt (ring 3 → ring 0) the CPU switches to the kernel
+ * stack at tss.rsp0 and pushes SS, RSP, RFLAGS, CS, RIP (5 × 8 = 40 bytes).
+ * The proc pointer was stored at *rsp0 by arch_finish_switch_to_user(), so
+ * it is now 40 bytes above the current RSP, i.e. at (40)(%rsp).
+ *
+ * SAVE_PROCESS_CTX pushes %rbp as a scratch register first (8 more bytes),
+ * so the formula it uses is:
+ *
+ *   (CURR_PROC_PTR + 8 + displ)(%rsp)
+ *
+ * With CURR_PROC_PTR = 40, displ = 0 (hwint stubs, no extra items on stack):
+ *   (40 + 8 + 0) = 48  →  proc_ptr at (48)(%rsp)  ✓
+ *
+ * With displ = 16 (exception_entry, which pre-pushes errcode + vector):
+ *   (40 + 8 + 16) = 64  →  proc_ptr at (64)(%rsp)  ✓  (5+2 items = 56 bytes
+ *                                                        below the saved %rbp)
  */
-#define CURR_PROC_PTR   56
+#define CURR_PROC_PTR   40
 
 /*
  * Test whether the interrupt/exception originated in kernel mode.

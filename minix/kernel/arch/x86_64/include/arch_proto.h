@@ -176,6 +176,7 @@ void       vm_enable_paging(void);
 void       add_memmap(kinfo_t *cbi, u64_t addr, u64_t len);
 phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
 void       cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end);
+phys_bytes pg_alloc_page(kinfo_t *cbi);
 
 /* multiboot / pre_init */
 void multiboot_init(void);

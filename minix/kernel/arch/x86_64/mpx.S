@@ -49,9 +49,17 @@
  * process cycle counter, dispatch the handler, send EOI, and jump to
  * switch_to_user().  When nested (kernel was already running) we save
  * a minimal frame, handle it, and return with IRETQ.
+ *
+ * TEST_INT_IN_KERNEL checks CS (at RSP+8 after the CPU-pushed frame with no
+ * extra stub items):
+ *   RSP+0 = RIP, RSP+8 = CS, RSP+16 = RFLAGS, [RSP+24=RSP, RSP+32=SS for ring-3]
+ *
+ * In the kernel-nested path (0:) we push 9 caller-saved regs (72 bytes).
+ * For a ring-0 interrupt (3 CPU items): RFLAGS is at RSP+(9+2)*8 = 11*8
+ * after those pushes, so CLEAR_IF uses offset 11*8.
  */
 #define hwint_master(irq)                                               \
-    TEST_INT_IN_KERNEL(0, 0f)                                           ;\
+    TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
     xor     %rbp, %rbp                                                  ;\
@@ -76,7 +84,7 @@
     call    _C_LABEL(bkl_unlock_after_intr)                             ;\
     movb    $END_OF_INT, %al                                            ;\
     outb    $INT_CTL                                                    ;\
-    CLEAR_IF(9*8(%rsp))     /* clear IF in saved RFLAGS */              ;\
+    CLEAR_IF(11*8(%rsp))    /* clear IF in saved RFLAGS (ring-0: 9+2=11 slots) */;\
     pop     %r11                                                        ;\
     pop     %r10                                                        ;\
     pop     %r9                                                         ;\
@@ -90,7 +98,7 @@
 
 /* Slave PIC interrupts (IRQ 8-15) — same but also send EOI to slave. */
 #define hwint_slave(irq)                                                \
-    TEST_INT_IN_KERNEL(0, 0f)                                           ;\
+    TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
     xor     %rbp, %rbp                                                  ;\
@@ -117,7 +125,7 @@
     movb    $END_OF_INT, %al                                            ;\
     outb    $INT_CTL                                                    ;\
     outb    $INT2_CTL                                                   ;\
-    CLEAR_IF(9*8(%rsp))                                                 ;\
+    CLEAR_IF(11*8(%rsp))                                                ;\
     pop     %r11                                                        ;\
     pop     %r10                                                        ;\
     pop     %r9                                                         ;\
@@ -336,9 +344,11 @@ ENTRY(restore_user_context_int)
  *   RSP
  *   SS
  */
+/* After the exception stubs push errcode + vector (2 × 8 = 16 bytes),
+ * the CPU-pushed CS is at RSP+24 (vector=RSP+0, errcode=RSP+8, RIP=RSP+16, CS=RSP+24). */
 .balign 16
 exception_entry:
-    TEST_INT_IN_KERNEL(16, exception_entry_nested)
+    TEST_INT_IN_KERNEL(24, exception_entry_nested)
 
 exception_entry_from_user:
     /* displ=16: skip over [vector, errcode] already on stack */

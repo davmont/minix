@@ -218,6 +218,11 @@ void exception_handler(int is_nested, struct exception_frame *frame)
     }
 
     if (is_nested == 0 && !iskernelp(saved_proc)) {
+        /* #NM (Device Not Available): lazy FPU context switch. */
+        if (frame->vector == COPROC_NOT_VECTOR) {
+            copr_not_available_handler();
+            NOT_REACHABLE;
+        }
         cause_sig(proc_nr(saved_proc), ep ? ep->signum : SIGILL);
         return;
     }

@@ -131,6 +131,7 @@ int libexec_load_elf(struct exec_info *execi)
 	int e, i = 0;
 	int first = 1;
 	vir_bytes startv = 0, stacklow;
+	vir_bytes saved_entry;
 
 	assert(execi != NULL);
 	assert(execi->hdr != NULL);
@@ -138,6 +139,11 @@ int libexec_load_elf(struct exec_info *execi)
 	if((e=elf_unpack(execi->hdr, execi->hdr_len, &hdr, &phdr)) != OK) {
 		return e;
 	 }
+
+	/* Save the entry point now, before any pg_map calls that may replace
+	 * the identity mapping covering hdr's physical address, making hdr
+	 * unreadable after TLB flush. */
+	saved_entry = hdr->e_entry;
 
 	/* this function can load the dynamic linker, but that
 	 * shouldn't require an interpreter itself.
@@ -310,7 +316,7 @@ int libexec_load_elf(struct exec_info *execi)
 #endif
 
 	/* record entry point and lowest load vaddr for caller */
-	execi->pc = hdr->e_entry + execi->load_offset;
+	execi->pc = saved_entry + execi->load_offset;
 	execi->load_base = startv;
 
 	return OK;

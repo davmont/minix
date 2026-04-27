@@ -512,6 +512,29 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
         execi.allocmem_ondemand        = libexec_pg_alloc;
         execi.clearproc                = NULL;
 
+        /* Copy the ELF binary to high physical memory (second gigabyte).
+         * libexec_pg_alloc calls pg_map(PG_ALLOCATEME,...) which replaces
+         * 2MB identity-map PD entries for the VM's virtual address range.
+         * This destroys the identity mapping of the original module pages
+         * (physical ~0x7FC000) after the first segment is allocated, making
+         * subsequent reads through execi.hdr return zeros.  Placing the copy
+         * at the top of physical RAM (allocated via pg_alloc_page) puts it in
+         * PDPT[1] (1-2 GB) which none of the low-vaddr allocations touch. */
+#ifndef AMD64_PAGE_SIZE
+#define AMD64_PAGE_SIZE 4096UL
+#endif
+        {
+            size_t mod_len  = execi.hdr_len;
+            size_t n_pages  = (mod_len + AMD64_PAGE_SIZE - 1) / AMD64_PAGE_SIZE;
+            phys_bytes base = 0;
+            size_t p;
+            for (p = 0; p < n_pages; p++)
+                base = pg_alloc_page(&kinfo); /* descends; last = lowest page */
+            memcpy((void *)(uintptr_t)base, execi.hdr, mod_len);
+            execi.hdr     = (char *)(uintptr_t)base;
+            execi.filesize = execi.hdr_len = mod_len;
+        }
+
         if (libexec_load_elf(&execi) != OK)
             panic("VM loading failed");
 

@@ -24,7 +24,6 @@
 #include <sys/reboot.h>
 #include <machine/partition.h>
 #include "string.h"
-#include "direct_utils.h"
 #include "serial.h"
 #include "glo.h"
 
@@ -55,6 +54,7 @@ int kernel_may_alloc = 1;
 #ifndef AMD64_PAGE_SIZE
 #define AMD64_PAGE_SIZE 4096UL
 #endif
+
 
 /*===========================================================================*
  *  mb_set_param                                                              *
@@ -183,7 +183,6 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
     assert(mbi->mi_mods_count > 0);
     memcpy(&cbi->module_list, (void *)(uintptr_t)mbi->mi_mods_addr,
            mbi->mi_mods_count * sizeof(multiboot_module_t));
-
     memset(cbi->memmap, 0, sizeof(cbi->memmap));
 
     if (mbi->mi_flags & MULTIBOOT_INFO_HAS_MMAP) {

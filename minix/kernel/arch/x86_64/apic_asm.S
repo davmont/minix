@@ -29,7 +29,7 @@
 
 #define apic_hwint(irq)							\
 ENTRY(apic_hwint##irq)							\
-	TEST_INT_IN_KERNEL(0, 0f)					;\
+	TEST_INT_IN_KERNEL(8, 0f)					;\
 									\
 	SAVE_PROCESS_CTX(0, KTS_INT_HARD)				;\
 	push	%rbp							;\
@@ -55,7 +55,7 @@ ENTRY(apic_hwint##irq)							\
 	APIC_IRQ_HANDLER(irq)						;\
 	movq	_C_LABEL(lapic_eoi_addr), %rax				;\
 	movl	$0, (%rax)						;\
-	CLEAR_IF(9*8(%rsp))						;\
+	CLEAR_IF(11*8(%rsp))						;\
 	pop	%r11							;\
 	pop	%r10							;\
 	pop	%r9							;\
@@ -142,7 +142,7 @@ apic_hwint(63)
 	movl	$0, (%rax)						;
 
 #define lapic_intr(func)						\
-	TEST_INT_IN_KERNEL(0, 0f)					;\
+	TEST_INT_IN_KERNEL(8, 0f)					;\
 									\
 	SAVE_PROCESS_CTX(0, KTS_INT_HARD)				;\
 	push	%rbp							;\
@@ -164,7 +164,7 @@ apic_hwint(63)
 	push	%r11							;\
 	call	_C_LABEL(context_stop_idle)				;\
 	LAPIC_INTR_HANDLER(func)					;\
-	CLEAR_IF(9*8(%rsp))						;\
+	CLEAR_IF(11*8(%rsp))						;\
 	pop	%r11							;\
 	pop	%r10							;\
 	pop	%r9							;\

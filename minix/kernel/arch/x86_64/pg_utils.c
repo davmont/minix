@@ -258,6 +258,7 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
                 pdpt = alloc_pagetable(&ph);
                 pml4[ml4i] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE | PG_USER;
             } else {
+                pml4[ml4i] |= PG_USER;
                 pdpt = (u64_t *)(uintptr_t)(pml4[ml4i] & PG_ADDR_MASK);
             }
 
@@ -266,6 +267,7 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
                 pd = alloc_pagetable(&ph);
                 pdpt[dpti] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE | PG_USER;
             } else {
+                pdpt[dpti] |= PG_USER;
                 pd = (u64_t *)(uintptr_t)(pdpt[dpti] & PG_ADDR_MASK);
             }
 
@@ -316,16 +318,20 @@ phys_bytes pg_roundup(phys_bytes b)
 
 void vm_enable_paging(void)
 {
-    reg_t cr0, cr4;
+    reg_t cr4;
 
     cr4 = read_cr4();
     cr4 |= CR4_PAE;
     cr4 |= CR4_PGE;     /* global pages */
     write_cr4(cr4);
 
-    cr0 = read_cr0();
-    cr0 |= CR0_PG | CR0_WP;
-    write_cr0(cr0);
+    /*
+     * CR0.PG and CR0.WP are already set by head.S before entering long mode.
+     * Re-issuing write_cr0 with those bits while paging is already on causes
+     * KVM to re-validate the page tables and fault.  Skip the CR0 write here;
+     * prot_init() will call vm_enable_paging() again after paged page tables
+     * are loaded, at which point CR0 is already correct.
+     */
 }
 
 /* =========================================================================

@@ -60,10 +60,26 @@ static void direct_scroll_up(int lines)
 	print_line-= lines;
 }
 
+static void serial_putc(char c)
+{
+	int i;
+	/* Wait for transmitter to be empty, then send. */
+	for (i = 0; i < 100000 && !(inb(COM1_LSR) & LSR_THRE); i++) { }
+	outb(COM1_THR, c);
+	if (c == '\n') {
+		for (i = 0; i < 100000 && !(inb(COM1_LSR) & LSR_THRE); i++) { }
+		outb(COM1_THR, '\r');
+	}
+}
+
 void direct_print_char(char c)
 {
-	while (print_line >= MULTIBOOT_CONSOLE_LINES)
+	serial_putc(c);
+
+	while (print_line >= MULTIBOOT_CONSOLE_LINES) {
+		outb(COM1_THR, 'S'); /* DBG: scroll */
 		direct_scroll_up(1);
+	}
 
 #define TABWIDTH 8
 	if(c == '\t') {
@@ -78,10 +94,12 @@ void direct_print_char(char c)
 	}
 
 	if (c == '\n') {
+		outb(COM1_THR, '>'); /* DBG: enter nl-fill */
 		while (print_col < MULTIBOOT_CONSOLE_COLS)
 			direct_put_char(' ', print_line, print_col++);
 		print_line++;
 		print_col = 0;
+		outb(COM1_THR, '<'); /* DBG: nl-fill done */
 		return;
 	}
 
@@ -102,6 +120,18 @@ void direct_print(const char *str)
 		direct_print_char(*str);
 		str++;
 	}
+}
+
+void direct_print_hex64(unsigned long v)
+{
+	static const char hex[] = "0123456789abcdef";
+	char buf[19];
+	int i;
+	buf[0] = '0'; buf[1] = 'x';
+	for (i = 0; i < 16; i++)
+		buf[2 + i] = hex[(v >> (60 - i * 4)) & 0xf];
+	buf[18] = '\0';
+	direct_print(buf);
 }
 
 /* Standard and AT keyboard.  (PS/2 MCA implies AT throughout.) */

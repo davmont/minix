@@ -291,11 +291,13 @@ void arch_proc_reset(struct proc *pr)
         pr->p_seg.p_pcid = PCID_KERNEL;
     }
 
-    /* Segment selectors used by this process in user mode. */
-    pr->p_reg.cs = USER_CS_SELECTOR;
-    pr->p_reg.ss = USER_DS_SELECTOR;
-    /* On amd64, DS/ES/FS/GS are not stored in the stackframe_s directly;
-     * the hardware only cares about CS/SS for IRETQ. */
+    /* Segment selectors for user-mode processes.  These go in 'reg' so they
+     * survive the memcpy inside arch_proc_setcontext — setting them directly
+     * in pr->p_reg would be overwritten by that copy. */
+    if (!iskerneln(pr->p_nr)) {
+        reg.cs = USER_CS_SELECTOR;
+        reg.ss = USER_DS_SELECTOR;
+    }
 
     arch_proc_setcontext(pr, &reg, 0, KTS_FULLCONTEXT);
 }
