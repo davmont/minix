@@ -22,6 +22,7 @@ TESTS_C+=	t_strpbrk
 TESTS_C+=	t_strrchr
 TESTS_C+=	t_strspn
 TESTS_C+=	t_swab
+TESTS_C+=	t_wcsncat
 
 WARNS=		4
 
