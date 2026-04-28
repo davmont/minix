@@ -1,0 +1,2 @@
+all:
+	@echo "Submake done"
