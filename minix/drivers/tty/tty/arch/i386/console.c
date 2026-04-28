@@ -935,15 +935,14 @@ tty_t *tp;
   /* Get the BIOS parameters that describe the VDU. */
   if (! vdu_initialized++) {
 
-	/* FIXME: How about error checking? What to do on failure??? */
-  	s=sys_readbios(VDU_SCREEN_COLS_ADDR, &bios_columns,
-		VDU_SCREEN_COLS_SIZE);
-  	s=sys_readbios(VDU_CRT_BASE_ADDR, &bios_crtbase,
-		VDU_CRT_BASE_SIZE);
-  	s=sys_readbios( VDU_SCREEN_ROWS_ADDR, &bios_rows,
-		VDU_SCREEN_ROWS_SIZE);
-  	s=sys_readbios(VDU_FONTLINES_ADDR, &bios_fontlines,
-		VDU_FONTLINES_SIZE);
+	if ((s=sys_readbios(VDU_SCREEN_COLS_ADDR, &bios_columns, VDU_SCREEN_COLS_SIZE)) != OK)
+		panic("sys_readbios failed for VDU_SCREEN_COLS: %d", s);
+	if ((s=sys_readbios(VDU_CRT_BASE_ADDR, &bios_crtbase, VDU_CRT_BASE_SIZE)) != OK)
+		panic("sys_readbios failed for VDU_CRT_BASE: %d", s);
+	if ((s=sys_readbios(VDU_SCREEN_ROWS_ADDR, &bios_rows, VDU_SCREEN_ROWS_SIZE)) != OK)
+		panic("sys_readbios failed for VDU_SCREEN_ROWS: %d", s);
+	if ((s=sys_readbios(VDU_FONTLINES_ADDR, &bios_fontlines, VDU_FONTLINES_SIZE)) != OK)
+		panic("sys_readbios failed for VDU_FONTLINES: %d", s);
 
   	vid_port = bios_crtbase;
   	scr_width = bios_columns;
