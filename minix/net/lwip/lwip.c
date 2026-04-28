@@ -26,11 +26,14 @@ static void expire_lwip_timer(int);
 uint32_t
 sys_now(void)
 {
+	uint32_t ticks, hz;
 
 	recheck_timer = TRUE;
 
-	/* TODO: avoid 64-bit arithmetic if possible. */
-	return (uint32_t)(((uint64_t)getticks() * 1000) / sys_hz());
+	ticks = (uint32_t)getticks();
+	hz = sys_hz();
+
+	return (ticks / hz) * 1000 + (ticks % hz) * 1000 / hz;
 }
 
 /*
