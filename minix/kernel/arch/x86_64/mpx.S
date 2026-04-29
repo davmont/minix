@@ -62,6 +62,7 @@
     TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
+    mov     %rbp, %rdi                                                  ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -101,6 +102,7 @@
     TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
+    mov     %rbp, %rdi                                                  ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -243,6 +245,7 @@ ENTRY(ipc_entry_common)
     push    %rbp
 
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp
@@ -277,6 +280,7 @@ ENTRY(kernel_call_entry_common)
     push    %rbp
 
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp
@@ -385,6 +389,7 @@ exception_entry_from_user:
     SAVE_PROCESS_CTX(16, KTS_INT_HARD)
 
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp
