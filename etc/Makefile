@@ -660,7 +660,7 @@ snap_pre: .PHONY check_DESTDIR check_RELEASEDIR distribution
 # snap_post --
 #	Build the install media and notes from distrib
 #
-snap_post: .PHONY .MAKE build_kernelsets build_releasekernels
+snap_post: .PHONY .MAKE snap_pre build_kernelsets build_releasekernels
 .if ${MKUPDATE} == "no"
 	cd ${NETBSDSRCDIR}/distrib && ${MAKE} cleandir
 .endif

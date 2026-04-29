@@ -68,7 +68,7 @@ struct gatedesc64_s {
  * ========================================================================= */
 
 /*
- * GDT: null + kern_cs + kern_ds + user_cs + user_ds + per-cpu TSS pairs.
+ * GDT: null + kern_cs + kern_ds + user_cs_compat + user_ds + user_cs64 + per-cpu TSS pairs.
  * Each TSS takes two 8-byte slots (treated as one 16-byte sysdesc_s).
  */
 static struct segdesc_s gdt[GDT_SIZE] __aligned(DESC_SIZE);
@@ -79,6 +79,16 @@ struct tss_s tss[CONFIG_MAX_CPUS];
 
 /* Per-CPU kernel stack top pointers (also stored in TSS.RSP0). */
 u64_t k_percpu_stacks[CONFIG_MAX_CPUS];
+
+/*
+ * Per-CPU GS-base scratch area for the SYSCALL path.
+ * syscall_entry does: swapgs; mov %rsp,%gs:0; mov %gs:8,%rsp
+ * IA32_KERNEL_GS_BASE must point here so that GS:8 == tss[cpu].rsp0.
+ */
+struct percpu_gs_s {
+    u64_t user_rsp;    /* offset 0: scratch for user RSP during SYSCALL */
+    u64_t kernel_rsp;  /* offset 8: kernel RSP (== tss[cpu].rsp0) */
+} percpu_gs[CONFIG_MAX_CPUS];
 
 int prot_init_done = 0;
 
@@ -177,6 +187,19 @@ int tss_init(unsigned cpu, void *kernel_stack)
     *((reg_t *)(uintptr_t)(t->rsp0 + sizeof(reg_t))) = (reg_t)cpu;
 
     /*
+     * Initialize the GS-base scratch area and write IA32_KERNEL_GS_BASE so
+     * that syscall_entry's "swapgs; mov %gs:8,%rsp" loads tss[cpu].rsp0.
+     */
+    percpu_gs[cpu].user_rsp   = 0;
+    percpu_gs[cpu].kernel_rsp = t->rsp0;
+    {
+        u64_t gs_base = (u64_t)(uintptr_t)&percpu_gs[cpu];
+        ia32_msr_write(AMD_MSR_KERNEL_GS_BASE,
+                       (u32_t)(gs_base >> 32),
+                       (u32_t)(gs_base & 0xFFFFFFFFU));
+    }
+
+    /*
      * IST1: dedicated double-fault stack so a stack overflow cannot
      * prevent the double-fault handler from running.
      */
@@ -214,12 +237,14 @@ int tss_init(unsigned cpu, void *kernel_stack)
 
         /*
          * STAR: high 32 bits contain selector pair.
-         * Bits[47:32] = KERN_CS_SELECTOR  -> SYSCALL CS.
-         * Bits[63:48] = USER_CS_SELECTOR  -> SYSRET CS.
+         * Bits[47:32] = KERN_CS_SELECTOR        -> SYSCALL CS.
+         * Bits[63:48] = USER_CS_COMPAT_SELECTOR -> SYSRETQ arithmetic base:
+         *               SYSRETQ CS = +16 = USER_CS_SELECTOR (GDT[5])
+         *               SYSRETQ SS = +8  = USER_DS_SELECTOR (GDT[4])
          * Low 32 bits = entry point (ignored in 64-bit mode; use LSTAR).
          */
         star_lo = 0;
-        star_hi = ((u32_t)USER_CS_SELECTOR << 16) | KERN_CS_SELECTOR;
+        star_hi = ((u32_t)USER_CS_COMPAT_SELECTOR << 16) | KERN_CS_SELECTOR;
         ia32_msr_write(AMD_MSR_STAR, star_hi, star_lo);
 
         /* LSTAR = syscall_entry handler address. */
@@ -397,8 +422,9 @@ void prot_init(void)
     /* Build GDT entries. */
     init_codeseg64(KERN_CS_INDEX, INTR_PRIVILEGE);
     init_dataseg64(KERN_DS_INDEX, INTR_PRIVILEGE);
-    init_codeseg64(USER_CS_INDEX, USER_PRIVILEGE);
+    init_codeseg64(USER_CS_COMPAT_INDEX, USER_PRIVILEGE);
     init_dataseg64(USER_DS_INDEX, USER_PRIVILEGE);
+    init_codeseg64(USER_CS_INDEX, USER_PRIVILEGE);
 
     tss_init(0, &k_boot_stktop);
 

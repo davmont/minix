@@ -39,7 +39,7 @@ multiboot_magic_val:
 multiboot_flags_val:
     .long   (MULTIBOOT_HEADER_WANT_MEMORY | MULTIBOOT_HEADER_MODS_ALIGNED)
 multiboot_checksum_val:
-    .long   -(MULTIBOOT_HEADER_MAGIC | \
+    .long   -(MULTIBOOT_HEADER_MAGIC + \
               (MULTIBOOT_HEADER_WANT_MEMORY | MULTIBOOT_HEADER_MODS_ALIGNED))
     /* unused fields */
     .long 0, 0, 0, 0, 0
@@ -94,19 +94,19 @@ bootstrap32:
     /* Zero PML4 table. */
     mov     $(_C_LABEL(boot_pml4)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx             /* 4096 bytes / 4 bytes per stosl */
     rep stosl
 
     /* Zero PDPT. */
     mov     $(_C_LABEL(boot_pdpt)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx
     rep stosl
 
     /* Zero PD. */
     mov     $(_C_LABEL(boot_pd)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx
     rep stosl
 
     /* PML4[0] -> PDPT (present + writable) */

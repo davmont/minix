@@ -40,8 +40,8 @@ tools/**/obj/
 external/*/dist/
 external/*/dist-*/
 gnu/dist/*/
-!/.gitignore
 .gitignore
+!/.gitignore
 .svn
 *.worldstone.log
 .worldstone*
@@ -82,3 +82,27 @@ build_stdout.log
 build_error.log
 minix/drivers/storage/memory/imgrd.mfs
 minix/drivers/storage/ramdisk/image
+
+# Additional build artifacts
+minix_amd64.iso
+machines.lo.o
+
+# Bootxx build artifacts
+sys/arch/i386/stand/bootxx/bootxx*.o
+sys/arch/i386/stand/bootxx/bootxx*.d
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3.sym
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3.map
+sys/arch/i386/stand/cdboot/cdboot
+
+# BIOS boot artifacts
+sys/arch/i386/stand/boot/biosboot/boot_monitor
+sys/arch/i386/stand/boot/biosboot/boot_monitor.map
+sys/arch/i386/stand/boot/biosboot/boot_monitor.sym
+sys/arch/i386/stand/boot/biosboot/vers.c
+sys/arch/i386/stand/cdboot/bootxx_cd9660
+
+# nbmake creates machine/x86/i386 include-dir symlinks in-tree during cross-build
+sys/arch/i386/stand/**/machine
+sys/arch/i386/stand/**/x86
+sys/arch/i386/stand/**/i386
