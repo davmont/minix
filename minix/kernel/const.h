@@ -32,7 +32,16 @@
 /* User limits. */
 #ifndef USR_DATATOP
 #ifndef _MINIX_MAGIC
+#ifdef __x86_64__
+/*
+ * On amd64 the VM server currently uses a single PD covering 0-1 GB.
+ * freepde_start = 256 reserves PD[256..511] for kernel/pagedir use,
+ * so user virtual space is limited to 0-512 MB (PD[0..255]).
+ */
+#define USR_DATATOP 0x20000000
+#else
 #define USR_DATATOP 0xF0000000
+#endif
 #else
 #define USR_DATATOP 0xE0000000	/* TODO: is this necessary? */
 #endif

@@ -192,7 +192,13 @@ int pg_mapkernel(void)
         pa  += AMD64_BIG_PAGE_SIZE;
     }
 
-    return pml4_idx(kern_vir_start); /* first PML4 index used */
+    /*
+     * Return a freepde_start value for the VM server's single PD (which covers
+     * 0–1 GB).  PD[0..255] are reserved for user-space mappings (0–512 MB) and
+     * PD[256..511] are available for kernel-device and pagedir mappings.
+     */
+    (void)pml4_idx(kern_vir_start); /* suppress unused-variable warning */
+    return 256;
 }
 
 /* =========================================================================
