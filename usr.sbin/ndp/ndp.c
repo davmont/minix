@@ -489,10 +489,10 @@ delete:
 		return (1);
 	}
 	if (rtmsg(RTM_DELETE) == 0) {
-		struct sockaddr_in6 s6 = *mysin; /* XXX: for safety */
+		struct sockaddr_in6 s6 = *mysin;
 
-		mysin->sin6_scope_id = 0;
-		inet6_putscopeid(mysin, INET6_IS_ADDR_LINKLOCAL);
+		s6.sin6_scope_id = 0;
+		inet6_putscopeid(&s6, INET6_IS_ADDR_LINKLOCAL);
 		(void)getnameinfo((struct sockaddr *)(void *)&s6,
 		    (socklen_t)s6.sin6_len, host_buf,
 		    sizeof(host_buf), NULL, 0,
@@ -1028,10 +1028,6 @@ ifinfo(char *ifname, int argc, char **argv)
 
 	(void)prog_close(s);
 }
-
-#ifndef ND_RA_FLAG_RTPREF_MASK	/* XXX: just for compilation on *BSD release */
-#define ND_RA_FLAG_RTPREF_MASK	0x18 /* 00011000 */
-#endif
 
 static void
 rtrlist(void)
