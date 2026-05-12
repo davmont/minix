@@ -43,16 +43,22 @@ zcalloc(voidpf opaque, unsigned int items, unsigned int size)
 {
 	unsigned int totalsize;
 
+	unsigned int *p;
+
 	totalsize = items * size;
-	opaque = alloc(totalsize);
-	if (opaque != NULL)
-		memset(opaque, 0, totalsize);
-	return opaque;
+	p = alloc(totalsize + sizeof(*p));
+	if (p != NULL) {
+		*p++ = totalsize;
+		memset(p, 0, totalsize);
+	}
+	return p;
 }
 
 void
 zcfree(voidpf opaque, voidpf ptr)
 {
+	unsigned int *p = ptr;
 
-	dealloc(ptr, 0);	/* XXX: size not known */
+	p--;
+	dealloc(p, *p + sizeof(*p));
 }
