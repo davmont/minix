@@ -73,11 +73,6 @@ typedef u8_t uDWord[4];
 
 #define UPACKED __attribute__((__packed__))
 
-#define UT_WRITE		0x00
-#define UT_READ			0x80
-#define UT_STANDARD		0x00
-#define UT_DEVICE		0x00
-
 /* Requests */
 #define	UR_GET_STATUS		0x00
 #define	UR_CLEAR_FEATURE	0x01

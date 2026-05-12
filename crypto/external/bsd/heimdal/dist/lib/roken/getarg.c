@@ -475,10 +475,9 @@ static int
 arg_match_short (struct getargs *args, size_t num_args,
 		 char *argv, int argc, char **rargv, int *goptind)
 {
-    size_t j, k, len;
+    size_t j, k;
 
-    len = strlen(rargv[*goptind]);
-    for(j = 1; j > 0 && j < len; j++) {
+    for(j = 1; j > 0 && j < strlen(rargv[*goptind]); j++) {
 	for(k = 0; k < num_args; k++) {
 	    char *goptarg;
 

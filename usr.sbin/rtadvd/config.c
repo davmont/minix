@@ -976,7 +976,7 @@ update_prefix(struct prefix * prefix)
  * XXX: other parameters of the prefix(e.g. lifetime) should be
  * able to be specified.
  */
-int
+void
 add_prefix(struct rainfo *rai, int ifindex, const struct in6_addr *addr,
     int plen)
 {
@@ -986,7 +986,7 @@ add_prefix(struct rainfo *rai, int ifindex, const struct in6_addr *addr,
 	if ((prefix = calloc(1, sizeof(*prefix))) == NULL) {
 		logit(LOG_ERR, "%s: memory allocation failed",
 		       __func__);
-		return -1;
+		return;		/* XXX: error or exit? */
 	}
 	prefix->prefix = *addr;
 	prefix->prefixlen = plen;
@@ -1010,8 +1010,6 @@ add_prefix(struct rainfo *rai, int ifindex, const struct in6_addr *addr,
 
 	/* reconstruct the packet */
 	make_packet(rai);
-
-	return 0;
 }
 
 void

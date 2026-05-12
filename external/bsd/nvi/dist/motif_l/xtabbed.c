@@ -2060,12 +2060,10 @@ static int XRotDrawHorizontalString(Display *dpy, XFontStruct *font, Drawable dr
     XSetFont(dpy, my_gc, font->fid);
 	
     /* count number of sections in string */
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)
@@ -2306,12 +2304,10 @@ static RotatedTextItem *XRotCreateTextItem(Display *dpy, XFontStruct *font, floa
 	
     /* count number of sections in string */
     item->nl=1;
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		item->nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)
@@ -2843,12 +2839,10 @@ XPoint *XRotTextExtents(Display *dpy, XFontStruct *font, float angle, int x, int
     
     /* count number of sections in string */
     nl=1;
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)

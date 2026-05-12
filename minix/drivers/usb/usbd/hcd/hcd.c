@@ -576,10 +576,11 @@ hcd_get_device_descriptor(hcd_device_state * this_device)
 
 	DEBUG_DUMP;
 
+	/* TODO: magic numbers, no header for these */
 	/* Format setup packet */
-	setup.bRequestType	= UT_READ | UT_STANDARD | UT_DEVICE;
-	setup.bRequest		= UR_GET_DESCRIPTOR;
-	setup.wValue		= (UDESC_DEVICE << 8);
+	setup.bRequestType	= 0x80;			/* IN */
+	setup.bRequest		= 0x06;			/* Get descriptor */
+	setup.wValue		= 0x0100;		/* Device */
 	setup.wIndex		= 0x0000;
 	setup.wLength		= sizeof(this_device->device_desc);
 
@@ -629,8 +630,9 @@ hcd_set_address(hcd_device_state * this_device)
 		(this_device->reserved_address <= HCD_LAST_ADDR),
 		"Illegal device address supplied");
 
-	setup.bRequestType	= UT_WRITE | UT_STANDARD | UT_DEVICE;
-	setup.bRequest		= UR_SET_ADDRESS;
+	/* TODO: magic numbers, no header for these */
+	setup.bRequestType	= 0x00;			/* OUT */
+	setup.bRequest		= 0x05;			/* Set address */
 	setup.wValue		= this_device->reserved_address;
 	setup.wIndex		= 0x0000;
 	setup.wLength		= 0x0000;
@@ -691,9 +693,10 @@ hcd_get_descriptor_tree(hcd_device_state * this_device)
 	{
 		/* TODO: Default configuration is hard-coded
 		 * but others are rarely used anyway */
-		setup.bRequestType	= UT_READ | UT_STANDARD | UT_DEVICE;
-		setup.bRequest		= UR_GET_DESCRIPTOR;
-		setup.wValue		= (UDESC_CONFIG << 8) | HCD_DEFAULT_CONFIG;
+		/* TODO: magic numbers, no header for these */
+		setup.bRequestType	= 0x80;		/* IN */
+		setup.bRequest		= 0x06;		/* Get descriptor */
+		setup.wValue		= 0x0200 | HCD_DEFAULT_CONFIG;
 		setup.wIndex		= 0x0000;
 		setup.wLength		= sizeof(temp_config_descriptor);
 
@@ -744,9 +747,10 @@ hcd_get_descriptor_tree(hcd_device_state * this_device)
 	{
 		/* TODO: Default configuration is hard-coded
 		 * but others are rarely used anyway */
-		setup.bRequestType	= UT_READ | UT_STANDARD | UT_DEVICE;
-		setup.bRequest		= UR_GET_DESCRIPTOR;
-		setup.wValue		= (UDESC_CONFIG << 8) | HCD_DEFAULT_CONFIG;
+		/* TODO: magic numbers, no header for these */
+		setup.bRequestType	= 0x80;		/* IN */
+		setup.bRequest		= 0x06;		/* Get descriptor */
+		setup.wValue		= 0x0200 | HCD_DEFAULT_CONFIG;
 		setup.wIndex		= 0x0000;
 		setup.wLength		= expected_length;
 
@@ -809,8 +813,9 @@ hcd_set_configuration(hcd_device_state * this_device, hcd_reg1 configuration)
 
 	DEBUG_DUMP;
 
-	setup.bRequestType	= UT_WRITE | UT_STANDARD | UT_DEVICE;
-	setup.bRequest		= UR_SET_CONFIG;
+	/* TODO: magic numbers, no header for these */
+	setup.bRequestType	= 0x00;		/* OUT */
+	setup.bRequest		= 0x09;		/* Set configuration */
 	setup.wValue		= configuration;
 	setup.wIndex		= 0x0000;
 	setup.wLength		= 0x0000;
@@ -1088,8 +1093,9 @@ hcd_setup_packet(hcd_device_state * this_device, hcd_ctrlrequest * setup,
 	/* For data packets... */
 	if (setup->wLength > 0) {
 
+		/* TODO: magic number */
 		/* ...IN data packets */
-		if (setup->bRequestType & UT_READ) {
+		if (setup->bRequestType & 0x80) {
 
 			for(;;) {
 
@@ -1144,7 +1150,7 @@ hcd_setup_packet(hcd_device_state * this_device, hcd_ctrlrequest * setup,
 	}
 
 	/* Status stages */
-	if (setup->bRequestType & UT_READ) {
+	if (setup->bRequestType & 0x80) {
 
 		/* Try confirming data receive */
 		d->out_status_stage(d->private_data);

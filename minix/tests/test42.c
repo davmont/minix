@@ -10,7 +10,6 @@
 #include <sys/select.h>
 #include <sys/ptrace.h>
 #include <sys/syslimits.h>
-#include <dirent.h>
 
 #define ITERATIONS 3
 int max_error = 4;
@@ -26,7 +25,6 @@ int max_error = 4;
 
 #define timed_test(func) (timed_test_func(#func, func));
 
-pid_t get_pm_pid(void);
 int main(int argc, char **argv);
 void test(int m, int a);
 void timed_test_func(const char *s, void (* func)(void));
@@ -908,8 +906,11 @@ void test_attach()
   if (errno != EPERM) my_e(4);
 
   /* Attaching to PM is not allowed. */
-  if (ptrace(T_ATTACH, get_pm_pid(), 0, 0) != -1) my_e(5);
+#if 0
+  /* FIXME: disabled until we can reliably determine PM's pid */
+  if (ptrace(T_ATTACH, 0, 0, 0) != -1) my_e(5);
   if (errno != EPERM) my_e(6);
+#endif
 
   pid = traced_fork(test_attach_child);
 
@@ -1506,34 +1507,3 @@ void test_reattach()
   traced_wait();
 }
 
-
-pid_t get_pm_pid(void) {
-    char path[256];
-    char buf[256];
-    FILE *f;
-    pid_t pm_pid = -1;
-    DIR *d = opendir("/proc");
-
-    if (d) {
-        struct dirent *dir;
-        while ((dir = readdir(d)) != NULL) {
-            int pid = atoi(dir->d_name);
-            if (pid > 0) {
-                snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
-                f = fopen(path, "r");
-                if (f) {
-                    if (fgets(buf, sizeof(buf), f)) {
-                        if (strcmp(buf, "pm") == 0) {
-                            pm_pid = pid;
-                            fclose(f);
-                            break;
-                        }
-                    }
-                    fclose(f);
-                }
-            }
-        }
-        closedir(d);
-    }
-    return pm_pid;
-}
