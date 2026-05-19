@@ -41,7 +41,7 @@ banner==========================================================================
 banner=
 menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1
 menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 ahci=yes
-menu=MINIX 3 (serial console, verbose):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 cttyline=0 verbose=3
+menu=MINIX 3 (serial console, verbose):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 console=tty00 verbose=3
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
