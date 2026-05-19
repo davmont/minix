@@ -1,0 +1,23 @@
+#
+# Sorted using sort_set.pl in releasetools.
+# to add an entry simply add it at the end of the
+# file and run
+# ../../../../releasetools/sort_set.pl < mi > out
+# mv out mi
+#
+./etc/system.conf.d/igc                                 minix-base
+./service/acpi                                          minix-base
+./service/igc                                           minix-base
+./service/pci                                           minix-base
+./service/pckbd                                         minix-base
+./service/random                                        minix-base
+./service/usbd                                          minix-base
+./service/virtio_blk                                    minix-base
+./usr/lib/libacpi.a                                     minix-base
+./usr/lib/libacpi_pic.a                                 minix-base
+./usr/lib/libvirtio.a                                   minix-base
+./usr/lib/libvirtio_pic.a                               minix-base
+./usr/mdec                                              minix-base
+./usr/mdec/boot_monitor                                 minix-base
+./usr/mdec/bootxx_cd9660                                minix-base
+./usr/mdec/bootxx_minixfs3                              minix-base

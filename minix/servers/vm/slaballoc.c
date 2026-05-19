@@ -26,7 +26,13 @@
 #include "util.h"
 #include "sanitycheck.h"
 
-#define SLABSIZES 200
+/*
+ * Largest object slaballoc() can serve is SLABSIZES-1+MINSIZE bytes.  On
+ * amd64, LP64 inflates VM's internal structs — notably struct vfs_request_node
+ * (a 104-byte message plus a 104-byte reqstate buffer) is ~240 bytes — so the
+ * i386-era value of 200 is too small.  512 gives MAXSIZE 519 with headroom.
+ */
+#define SLABSIZES 512
 
 #define ITEMSPERPAGE(bytes) (int)(DATABYTES / (bytes))
 

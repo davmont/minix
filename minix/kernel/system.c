@@ -138,6 +138,17 @@ void kernel_call(message *m_user, struct proc * caller)
   int result = OK;
   message msg;
 
+  {
+    static unsigned _n = 0;
+    if (_n < 10) {
+      _n++;
+      printf("kernel_call#%u m_user=%p caller='%s' kts=%d\n",
+        _n, m_user,
+        caller ? caller->p_name : "?",
+        caller ? caller->p_seg.p_kern_trap_style : -1);
+    }
+  }
+
   caller->p_delivermsg_vir = (vir_bytes) m_user;
   /*
    * the ldt and cr3 of the caller process is loaded because it just've trapped
@@ -210,7 +221,7 @@ void system_init(void)
 
   /* Device I/O. */
   map(SYS_IRQCTL, do_irqctl);  		/* interrupt control operations */
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
   map(SYS_DEVIO, do_devio);   		/* inb, inw, inl, outb, outw, outl */
   map(SYS_VDEVIO, do_vdevio);  		/* vector with devio requests */
 #endif
@@ -252,8 +263,8 @@ void system_init(void)
   map(SYS_PADCONF, do_padconf);		/* configure pinmux */
 #endif
 
-  /* i386-specific. */
-#if defined(__i386__)
+  /* i386/x86_64-specific. */
+#if defined(__i386__) || defined(__x86_64__)
   map(SYS_READBIOS, do_readbios);	/* read from BIOS locations */
   map(SYS_IOPENABLE, do_iopenable); 	/* Enable I/O */
   map(SYS_SDEVIO, do_sdevio);		/* phys_insb, _insw, _outsb, _outsw */

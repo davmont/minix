@@ -148,6 +148,20 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
         static char value[BUF];
 
         memcpy(cmdline, (void *)(uintptr_t)mbi->mi_cmdline, BUF);
+
+        /* Dump raw cmdline bytes via COM1 so we can see what we got. */
+        {
+            int dump_i;
+            #define PI_COM1(c) __asm__ __volatile__("outb %0, %1" : : "a"((char)(c)), "Nd"((unsigned short)0x3F8))
+            PI_COM1('C'); PI_COM1('L'); PI_COM1('=');
+            for (dump_i = 0; dump_i < 200 && cmdline[dump_i]; dump_i++) {
+                PI_COM1(cmdline[dump_i]);
+            }
+            PI_COM1('|'); PI_COM1('E'); PI_COM1('O'); PI_COM1('L');
+            PI_COM1('\r'); PI_COM1('\n');
+            #undef PI_COM1
+        }
+
         p = cmdline;
         while (*p) {
             var_i = value_i = 0;
@@ -165,9 +179,9 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
     }
 
     mb_set_param(cbi->param_buf, ARCHVARNAME,
-                 (char *)get_board_arch_name(BOARD_ID_INTEL), cbi);
+                 (char *)get_board_arch_name(BOARD_ID_INTEL_AMD64), cbi);
     mb_set_param(cbi->param_buf, BOARDVARNAME,
-                 (char *)get_board_name(BOARD_ID_INTEL), cbi);
+                 (char *)get_board_name(BOARD_ID_INTEL_AMD64), cbi);
 
     cbi->user_sp  = USR_STACKTOP;
     cbi->user_end = USR_DATATOP;
@@ -227,10 +241,6 @@ kinfo_t *pre_init(u32_t magic, u32_t ebx)
 
     get_parameters(ebx, &kinfo);
 
-    /*
-     * Build the initial page tables in physical memory, load them into CR3,
-     * and enable paging.  After pg_load() the kernel runs at its high VMA.
-     */
     pg_clear();
     pg_identity(&kinfo);
     kinfo.freepde_start = pg_mapkernel();

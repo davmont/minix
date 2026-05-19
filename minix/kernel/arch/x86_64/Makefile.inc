@@ -139,7 +139,7 @@ CPPFLAGS+= -DUSE_ACPI
 .endif
 
 .if ${USE_APIC} != "no"
-SRCS+= apic.c apic_asm.S arch_smp.c
+SRCS+= apic.c apic_asm.S arch_smp.c trampoline.S
 CPPFLAGS+= -DUSE_APIC
 .endif
 

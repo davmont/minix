@@ -64,6 +64,16 @@ static phys_bytes kern_phys_start = (phys_bytes)&_kern_phys_base;
 static phys_bytes kern_kernlen    = (phys_bytes)&_kern_size;
 
 /*
+ * Kernel physical memory map base.  Physical memory is mapped here in every
+ * page table so the kernel can access arbitrary physical addresses even when
+ * a user-process page table (which has no 0-4 GB identity map) is loaded.
+ *
+ * PML4[256] = 0xffff800000000000 — 512 GB range, of which we use 0-4 GB.
+ */
+#define KERN_PHYSMAP        0xffff800000000000ULL
+#define KERN_PHYSMAP_PML4   256
+
+/*
  * Root PML4 table (one per address space; this is the bootstrap copy).
  * During early boot the kernel runs with this table; VM sets up its own later.
  */
@@ -74,7 +84,9 @@ static u64_t pml4[AMD64_ENTRIES] __aligned(AMD64_PAGE_SIZE);
  * After VM is up, all allocation goes through VM's physical allocator.
  * ========================================================================= */
 
-#define BOOT_PT_POOL    16  /* enough for the first 4 GB identity map */
+#define BOOT_PT_POOL    32  /* identity (1 PDPT + 4 PD) + physmap (1 PDPT + 4 PD)
+                             * + kernel mapping (1 PDPT + 1 PD)
+                             * + VM user-space PTs (~10) = ~22 total; 32 gives headroom */
 
 static u64_t boot_pt_pool[BOOT_PT_POOL][AMD64_ENTRIES]
     __aligned(AMD64_PAGE_SIZE);
@@ -126,14 +138,33 @@ void pg_identity(kinfo_t *cbi)
 
     assert(cbi->mem_high_phys);
 
-    /* Allocate the PDPT. */
-    pdpt = alloc_pagetable(&ph);
-    pml4[0] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
+    phys_bytes pdpt_ph, physmap_pdpt_ph, physmap_pd_ph;
+    u64_t *physmap_pdpt, *physmap_pd;
 
-    /* Map 4 × 1 GB = 4 GB total using 2 MB pages per PD. */
+    /* Allocate the identity PDPT for PML4[0].  pg_map() will reuse this
+     * PDPT and overwrite its PD entries to install 4 KB page tables for
+     * user-space sections; those writes must NOT affect the physmap. */
+    pdpt = alloc_pagetable(&pdpt_ph);
+    pml4[0] = (pdpt_ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
+
+    /* Allocate a completely separate PDPT for the kernel physmap (PML4[256]).
+     * Its PDs are also separate so pg_map()'s mutations of the identity PDs
+     * cannot corrupt the physmap's 2 MB bigpage entries. */
+    physmap_pdpt = alloc_pagetable(&physmap_pdpt_ph);
+    pml4[KERN_PHYSMAP_PML4] = (physmap_pdpt_ph & PG_ADDR_MASK)
+                               | PG_PRESENT | PG_WRITE;
+
+    /* Map 4 × 1 GB = 4 GB using 2 MB bigpages.  Each GB gets one PD; the
+     * identity PDs (reachable via pml4[0]) and the physmap PDs (reachable
+     * via pml4[KERN_PHYSMAP_PML4]) are allocated independently. */
     for (i = 0; i < 4; i++) {
+        /* Identity PD (pml4[0] path). */
         pd = alloc_pagetable(&ph);
         pdpt[i] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
+
+        /* Physmap PD (pml4[KERN_PHYSMAP_PML4] path) — separate allocation. */
+        physmap_pd = alloc_pagetable(&physmap_pd_ph);
+        physmap_pdpt[i] = (physmap_pd_ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
 
         for (j = 0; j < AMD64_ENTRIES; j++) {
             mapped = ((phys_bytes)i * AMD64_HUGE_PAGE_SIZE)
@@ -143,7 +174,8 @@ void pg_identity(kinfo_t *cbi)
             if (mapped >= (cbi->mem_high_phys & ~(AMD64_BIG_PAGE_SIZE - 1)))
                 flags |= PG_PWT | PG_PCD;  /* non-RAM: cache disabled */
 
-            pd[j] = (mapped & PG_ADDR_MASK) | flags;
+            pd[j]         = (mapped & PG_ADDR_MASK) | flags;
+            physmap_pd[j] = (mapped & PG_ADDR_MASK) | flags;
         }
     }
 }
@@ -360,11 +392,16 @@ void cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end)
 {
     int m;
     phys_bytes o;
+    int cuts = 0;
 
     if ((o = start % AMD64_PAGE_SIZE)) start -= o;
     if ((o = end   % AMD64_PAGE_SIZE)) end   += AMD64_PAGE_SIZE - o;
 
     assert(kernel_may_alloc);
+
+    /* Diagnostic: log every cut and whether it found a chunk to split. */
+    printf("CUT: request [0x%lx, 0x%lx) mmap_size=%d\n",
+        (unsigned long)start, (unsigned long)end, cbi->mmap_size);
 
     for (m = 0; m < cbi->mmap_size; m++) {
         phys_bytes substart = start, subend = end;
@@ -375,11 +412,19 @@ void cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end)
         if (subend   > memend ) subend   = memend;
         if (substart >= subend) continue;
 
+        printf("CUT:   chunk %d [0x%lx, 0x%lx) -> cut [0x%lx, 0x%lx)\n",
+            m, (unsigned long)memaddr, (unsigned long)memend,
+            (unsigned long)substart, (unsigned long)subend);
+        cuts++;
+
         cbi->memmap[m].mm_base_addr = cbi->memmap[m].mm_length = 0;
         if (substart > memaddr)
             add_memmap(cbi, memaddr, substart - memaddr);
         if (subend < memend)
             add_memmap(cbi, subend, memend - subend);
+    }
+    if (cuts == 0) {
+        printf("CUT:   no chunk overlapped — no-op\n");
     }
 }
 
@@ -441,6 +486,8 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
 {
     int m;
     multiboot_memory_map_t *mmap;
+    phys_bytes ret;
+    static unsigned alloc_count = 0;
 
     assert(kernel_may_alloc);
 
@@ -452,7 +499,16 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
 
         mmap->mm_length -= AMD64_PAGE_SIZE;
         cbi->kernel_allocated_bytes_dynamic += AMD64_PAGE_SIZE;
-        return mmap->mm_base_addr + mmap->mm_length;
+        ret = mmap->mm_base_addr + mmap->mm_length;
+        /* Diagnostic: log if allocation hits ACPI table region. */
+        if (ret >= 0x3ffe0000 && ret < 0x40000000) {
+            printf("PGALLOC: returning 0x%lx (m=%d chunk[%lx,%lx))\n",
+                (unsigned long)ret, m,
+                (unsigned long)mmap->mm_base_addr,
+                (unsigned long)(mmap->mm_base_addr + mmap->mm_length + AMD64_PAGE_SIZE));
+        }
+        alloc_count++;
+        return ret;
     }
 
     panic("can't find free memory");

@@ -30,12 +30,15 @@
 
 /*
  * Test whether the interrupt/exception originated in kernel mode.
- * The CS pushed by the CPU is at (displ)(%rsp) from the current stack top.
- * Kernel CS has the lower 2 RPL bits == 0; user CS has RPL == 3.
+ * The CPU pushes CS in an 8-byte slot; on amd64 the upper 6 bytes are
+ * architecturally implementation-defined (typically zero, but not
+ * guaranteed across all CPUs / KVM combinations).  We can't rely on cmpq
+ * matching the full 8 bytes — testing only the RPL bits is correct and
+ * cheaper.  RPL=0 → kernel; RPL=3 → user.
  */
 #define TEST_INT_IN_KERNEL(displ, label)        \
-	cmpq    $KERN_CS_SELECTOR, displ(%rsp)  ;\
-	je      label                           ;
+	testb   $3, displ(%rsp)                 ;\
+	jz      label                           ;
 
 /*
  * Save all 64-bit general-purpose registers to the process structure pointed
@@ -117,7 +120,9 @@
 	push    %rbp                                                    ;\
 	mov     (CURR_PROC_PTR + 8 + displ)(%rsp), %rbp                ;\
 	SAVE_GP_REGS(%rbp)                                              ;\
-	movq    $trapcode, P_KERN_TRAP_STYLE(%rbp)                      ;\
+	/* p_kern_trap_style is an `int' (4 bytes); use movl so we don't \
+	 * spill 4 bytes of zero into the adjacent p_pcid (u16) field. */\
+	movl    $trapcode, P_KERN_TRAP_STYLE(%rbp)                      ;\
 	pop     %rsi        /* original rbp */                          ;\
 	mov     %rsi, BPREG(%rbp)                                       ;\
 	RESTORE_KERNEL_SEGS                                             ;\

@@ -366,7 +366,15 @@ void memstats(int *nodes, int *pages, int *largest)
 	}
 }
 
-static int findbit(int low, int startscan, int pages, int memflags, int *len)
+/*
+ * Returns a page number, or NO_MEM if no suitable run was found.  The return
+ * type must be phys_clicks (not int): NO_MEM is (phys_clicks)-1, and callers
+ * assign the result to a 64-bit phys_bytes.  An int return would sign-extend
+ * the NO_MEM value to 0xffffffffffffffff, which then fails to compare equal
+ * to NO_MEM (0x00000000ffffffff) and slips past the caller's error check.
+ */
+static phys_clicks findbit(int low, int startscan, int pages, int memflags,
+	int *len)
 {
 	int run_length = 0, i;
 	int freerange_start = startscan;

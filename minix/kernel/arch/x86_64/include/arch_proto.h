@@ -128,6 +128,7 @@ void   phys_outsw(u16_t port, phys_bytes buf, size_t count);
 void   __copy_msg_from_user_end(void);
 void   __copy_msg_to_user_end(void);
 void   __user_copy_msg_pointer_failure(void);
+void   switch_k_stack(void *rsp, void (*cont)(void));
 void   amd64_invlpg(vir_bytes addr);
 phys_bytes phys_memset(phys_bytes dst, u64_t pattern, phys_bytes count);
 void   memset_fault(void);

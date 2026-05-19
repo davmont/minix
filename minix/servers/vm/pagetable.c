@@ -53,9 +53,11 @@ static int bigpage_ok = 1;
 struct vmproc *vmprocess = &vmproc[VM_PROC_NR];
 
 #if defined(__x86_64__)
-/* PML4[511] entry from the bootstrap page table — shared kernel mapping.
- * Captured during pt_init() and written into every new process's PML4. */
-static u64_t vm_kernel_pml4_entry = 0;
+/* PML4[511] — shared kernel mapping.  PML4[256] — physmap (phys 0-4 GB at
+ * VA 0xffff800000000000).  Both captured from bootstrap and written into
+ * every new process's PML4 by pt_mapkernel(). */
+static u64_t vm_kernel_pml4_entry  = 0;
+static u64_t vm_physmap_pml4_entry = 0;
 #endif
 
 /* Spare memory, ready to go after initialization, to avoid a
@@ -879,6 +881,14 @@ int pt_writemap(struct vmproc * vmp,
 #elif defined(__arm__)
 		entry = (physaddr & ARM_VM_PTE_MASK) | flags;
 #endif
+		/* Diagnostic for amd64 directphys debugging — silenced; the
+		 * APIC/ACPI investigation is resolved.  Keep just for any
+		 * unexpected high-phys directphys mapping (none should occur
+		 * after the alloc_lowest fix in arch_boot_proc). */
+		if (physaddr >= 0x3ffe0000 && physaddr <= 0x40000000) {
+			printf("VM: pt_writemap UNEXPECTED phys=0x%lx (ACPI region)\n",
+			    (unsigned long)physaddr);
+		}
 
 		if(verify) {
 			pte_t maskedentry;
@@ -1141,7 +1151,10 @@ void pt_init(void)
 	assert(!(kern_mb_mod->mod_start % ARCH_BIG_PAGE_SIZE));
 	assert(!(kernel_boot_info.vir_kern_start % ARCH_BIG_PAGE_SIZE));
 #if defined(__x86_64__)
-	kern_start_pde = ARCH_VM_DIR_ENTRIES; /* kernel lives at PML4[511], not in pt_dir */
+	/* PD[0..255] = user space (0-512 MB); PD[256..511] = kernel/pagedir mappings.
+	 * pt_copy and pt_ptmap must not touch 256+: those PDEs are managed by
+	 * pt_mapkernel/pt_bind and have pt_dir set but pt_pt NULL. */
+	kern_start_pde = kernel_boot_info.freepde_start; /* = 256 */
 #else
 	kern_start_pde = kernel_boot_info.vir_kern_start / ARCH_BIG_PAGE_SIZE;
 #endif
@@ -1288,7 +1301,8 @@ void pt_init(void)
 		if(sys_vircopy(NONE, mypdbr, SELF,
 			(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
 			panic("VM: sys_vircopy (PML4) failed");
-		vm_kernel_pml4_entry = currentpagedir[511];
+		vm_kernel_pml4_entry  = currentpagedir[511];
+		vm_physmap_pml4_entry = currentpagedir[256];
 		pdpt_phys = currentpagedir[0] & ARCH_VM_ADDR_MASK;
 		/* Copy user PDPT. */
 		if(sys_vircopy(NONE, pdpt_phys, SELF,
@@ -1362,11 +1376,9 @@ void pt_init(void)
                 if(sys_abscopy(ptaddr_kern, ptaddr_us, VM_PAGE_SIZE) != OK)
 			panic("pt_init: abscopy failed");
 	}
-
 	/* Inform kernel vm has a newly built page table. */
 	assert(vmproc[VM_PROC_NR].vm_endpoint == VM_PROC_NR);
 	pt_bind(newpt, &vmproc[VM_PROC_NR]);
-
 	pt_init_done = 1;
 
 	/* VM is now fully functional in that it can dynamically allocate memory
@@ -1513,8 +1525,12 @@ int pt_mapkernel(pt_t *pt)
 	assert(kern_pde >= 0);
 
 #if defined(__x86_64__)
-	/* On x86-64 the kernel lives at PML4[511] — install the shared entry. */
+	/* PML4[511]: shared kernel mapping (high canonical range).
+	 * PML4[256]: physmap — phys 0-4 GB at VA 0xffff800000000000.
+	 * Both must be in every address space so the kernel can access physical
+	 * memory and its own code/data regardless of which CR3 is loaded. */
 	pt->pt_pml4[511] = vm_kernel_pml4_entry;
+	pt->pt_pml4[256] = vm_physmap_pml4_entry;
 #else
 	/* pt_init() has made sure this is ok. */
 	addr = kern_mb_mod->mod_start;

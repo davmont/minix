@@ -41,19 +41,28 @@
  *   RDI = src/dest endpoint
  *   RSI = message pointer
  */
+/*
+ * IPCFUNC: save/restore RBX because we must clobber it with the opcode
+ * before the trap, and the kernel restores all saved GPRs (including the
+ * clobbered RBX) on the way back, which would corrupt the caller's RBX.
+ */
 #define IPCFUNC(name, opcode, vec)					\
 ENTRY(usermapped_ ## name ## _softint)					;\
+	push	%rbx		/* preserve caller's callee-saved RBX */;\
 	mov	%rdi, %rax	/* RAX = endpoint */			;\
 	mov	%rsi, %r10	/* R10 = message */			;\
 	movq	$opcode, %rbx	/* RBX = call opcode */			;\
 	int	$vec		/* trap into kernel */			;\
+	pop	%rbx		/* restore caller's RBX */		;\
 	ret								;\
 ENTRY(usermapped_ ## name ## _syscall)					;\
+	push	%rbx		/* preserve caller's callee-saved RBX */;\
 	mov	%rdi, %rax	/* RAX = endpoint */			;\
 	mov	%rsi, %r10	/* R10 = message */			;\
 	movq	$opcode, %rbx	/* RBX = call opcode */			;\
 	movq	$vec, %rdi	/* RDI = selector (clobbers arg!) */	;\
 	syscall			/* trap into kernel */			;\
+	pop	%rbx		/* restore caller's RBX */		;\
 	ret
 
 /*
@@ -70,7 +79,7 @@ ENTRY(usermapped_ ## name ## _softint)					;\
 	movq	$opcode, %rbx	/* RBX = RECEIVE */			;\
 	int	$vec		/* trap; on return RBX = ipc_status */	;\
 	pop	%rcx		/* RCX = status_ptr */			;\
-	mov	%rbx, (%rcx)	/* *status_ptr = ipc_status */		;\
+	movl	%ebx, (%rcx)	/* *status_ptr = ipc_status (32-bit) */	;\
 	pop	%rbx		/* restore RBX */			;\
 	ret								;\
 ENTRY(usermapped_ ## name ## _syscall)					;\
@@ -82,7 +91,7 @@ ENTRY(usermapped_ ## name ## _syscall)					;\
 	movq	$vec, %rdi	/* RDI = IPCVEC_UM selector */		;\
 	syscall			/* trap; on return RBX = ipc_status */	;\
 	pop	%rcx		/* RCX = status_ptr */			;\
-	mov	%rbx, (%rcx)	/* *status_ptr = ipc_status */		;\
+	movl	%ebx, (%rcx)	/* *status_ptr = ipc_status (32-bit) */	;\
 	pop	%rbx		/* restore RBX */			;\
 	ret
 
@@ -92,17 +101,21 @@ ENTRY(usermapped_ ## name ## _syscall)					;\
  */
 #define SENDAFUNC(name, opcode, vec)					\
 ENTRY(usermapped_ ## name ## _softint)					;\
+	push	%rbx		/* preserve caller's callee-saved RBX */;\
 	mov	%rsi, %rax	/* RAX = count */			;\
 	mov	%rdi, %r10	/* R10 = table */			;\
 	movq	$opcode, %rbx	/* RBX = SENDA */			;\
 	int	$vec							;\
+	pop	%rbx		/* restore caller's RBX */		;\
 	ret								;\
 ENTRY(usermapped_ ## name ## _syscall)					;\
+	push	%rbx		/* preserve caller's callee-saved RBX */;\
 	mov	%rsi, %rax	/* RAX = count */			;\
 	mov	%rdi, %r10	/* R10 = table */			;\
 	movq	$opcode, %rbx	/* RBX = SENDA */			;\
 	movq	$vec, %rdi	/* RDI = selector */			;\
 	syscall								;\
+	pop	%rbx		/* restore caller's RBX */		;\
 	ret
 
 /*

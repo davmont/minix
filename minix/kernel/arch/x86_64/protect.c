@@ -187,12 +187,22 @@ int tss_init(unsigned cpu, void *kernel_stack)
     *((reg_t *)(uintptr_t)(t->rsp0 + sizeof(reg_t))) = (reg_t)cpu;
 
     /*
-     * Initialize the GS-base scratch area and write IA32_KERNEL_GS_BASE so
-     * that syscall_entry's "swapgs; mov %gs:8,%rsp" loads tss[cpu].rsp0.
+     * Initialize the GS-base scratch area for this cpu.  Its kernel_rsp
+     * mirrors tss[cpu].rsp0 so that syscall_entry's
+     *   swapgs; mov %gs:8, %rsp
+     * loads the right per-cpu kernel stack.
+     *
+     * IA32_KERNEL_GS_BASE is a per-CPU MSR: writing it changes the value
+     * for the CPU currently executing this function, not for `cpu'.  So
+     * we must only program it when initializing the CPU we are running
+     * on.  Initializing TSS data for *other* CPUs (e.g. APs that are not
+     * yet brought up) must not clobber the BSP's MSR -- otherwise
+     * syscall_entry on the BSP would later swapgs to another CPU's
+     * percpu_gs and land on the wrong kernel stack.
      */
     percpu_gs[cpu].user_rsp   = 0;
     percpu_gs[cpu].kernel_rsp = t->rsp0;
-    {
+    if (cpu == cpuid) {
         u64_t gs_base = (u64_t)(uintptr_t)&percpu_gs[cpu];
         ia32_msr_write(AMD_MSR_KERNEL_GS_BASE,
                        (u32_t)(gs_base >> 32),
@@ -257,6 +267,14 @@ int tss_init(unsigned cpu, void *kernel_stack)
 
         /* FMASK: clear IF (bit 9) on SYSCALL so interrupts are off. */
         ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)IF_MASK);
+
+        /*
+         * Tell userland that SYSCALL is wired up.  On amd64 SYSCALL is part of
+         * the long-mode ABI and always available, so we set this unconditionally
+         * after the MSRs above are configured.  Without this flag,
+         * arch_phys_map_reply() exposes the slower softint stubs to libc.
+         */
+        minix_feature_flags |= MKF_I386_AMD_SYSCALL;
     }
 
     return (int)SEG_SELECTOR(index);
@@ -483,6 +501,8 @@ int libexec_clear_memset(struct exec_info *execi, vir_bytes vaddr, size_t len)
 
 static int libexec_pg_alloc(struct exec_info *execi, vir_bytes vaddr, size_t len)
 {
+    printf("PGAL: vaddr=0x%lx len=%zu (will pg_map+memset)\n",
+        (unsigned long)vaddr, len);
     pg_map(PG_ALLOCATEME, vaddr, vaddr + len, &kinfo);
     pg_load();
     memset((char *)vaddr, 0, len);
@@ -550,12 +570,24 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
 #define AMD64_PAGE_SIZE 4096UL
 #endif
         {
+            /* Use alloc_lowest() to get a CONTIGUOUS phys range.  The
+             * previous code (loop calling pg_alloc_page n_pages times +
+             * memcpy from "lowest base") was buggy because pg_alloc_page
+             * doesn't guarantee allocations come from the same chunk —
+             * when the highest-index chunk runs dry it falls back to
+             * another chunk, and the resulting `base = lowest of N
+             * scattered pages` doesn't actually own the contiguous N×4KB
+             * range that memcpy then writes.  In practice that monolithic
+             * memcpy clobbered the ACPI tables at phys 0x3ffe2335 and
+             * broke the userspace ACPI service. */
+            extern phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
             size_t mod_len  = execi.hdr_len;
-            size_t n_pages  = (mod_len + AMD64_PAGE_SIZE - 1) / AMD64_PAGE_SIZE;
-            phys_bytes base = 0;
-            size_t p;
-            for (p = 0; p < n_pages; p++)
-                base = pg_alloc_page(&kinfo); /* descends; last = lowest page */
+            phys_bytes base;
+            base = alloc_lowest(&kinfo, mod_len);
+            printf("VMCOPY: base=0x%lx mod_len=%zu (contig phys [0x%lx, 0x%lx))\n",
+                (unsigned long)base, mod_len,
+                (unsigned long)base,
+                (unsigned long)(base + roundup(mod_len, AMD64_PAGE_SIZE)));
             memcpy((void *)(uintptr_t)base, execi.hdr, mod_len);
             execi.hdr     = (char *)(uintptr_t)base;
             execi.filesize = execi.hdr_len = mod_len;

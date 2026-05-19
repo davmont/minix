@@ -1,5 +1,6 @@
 # /etc/rc.minix - MINIX system startup script
 
+echo "RCMINIX: entry, args=$@, pid=$$" >&2
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 # The normal system boot situation is that init(8) invokes the ramdisk RC
@@ -96,10 +97,13 @@ esac
 
 case $action in
 start)
+    echo "RCMINIX: start branch, bootcd='$bootcd'" >&2
     # If booting from CD, we want some directories to be ramdisks
     if [ ! -z "$bootcd" ]
     then
+	echo "RCMINIX: sourcing /etc/rc.cd" >&2
 	. /etc/rc.cd
+	echo "RCMINIX: returned from /etc/rc.cd" >&2
     fi
 
     # National keyboard?

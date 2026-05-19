@@ -58,12 +58,8 @@ dir.umount:=	minix/commands/umount
 RAMDISK_SMALL=		1
 .endif
 
-.if ${MACHINE_ARCH} == "i386"
+.if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 ETC+=			rs.single
-PROGRAMS+=		at_wini
-dir.at_wini:=	minix/drivers/storage/at_wini
-PROGRAMS+=		floppy
-dir.floppy:=	minix/drivers/storage/floppy
 PROGRAMS+=		pci
 dir.pci:=	minix/drivers/bus/pci
 PROGRAMS+=		pckbd
@@ -76,12 +72,22 @@ PROGRAMS+=		isofs
 dir.isofs:=	minix/fs/isofs
 
 .if ${MKSMALL} != "yes"
-PROGRAMS+=		ahci
-dir.ahci:=	minix/drivers/storage/ahci
-PROGRAMS+=		virtio_blk
-dir.virtio_blk:= minix/drivers/storage/virtio_blk
 PROGRAMS+=		ext2
 dir.ext2:=	minix/fs/ext2
+PROGRAMS+=		virtio_blk
+dir.virtio_blk:= minix/drivers/storage/virtio_blk
+.endif
+.endif # i386 || x86_64
+
+.if ${MACHINE_ARCH} == "i386"
+PROGRAMS+=		at_wini
+dir.at_wini:=	minix/drivers/storage/at_wini
+PROGRAMS+=		floppy
+dir.floppy:=	minix/drivers/storage/floppy
+
+.if ${MKSMALL} != "yes"
+PROGRAMS+=		ahci
+dir.ahci:=	minix/drivers/storage/ahci
 .endif
 
 .if ${MKACPI} != "no"
@@ -90,6 +96,14 @@ PROGRAMS+=		acpi
 dir.acpi:=	minix/drivers/power/acpi
 .endif
 .endif # ${MACHINE_ARCH} == "i386"
+
+.if ${MACHINE_ARCH} == "x86_64"
+.if ${MKACPI} != "no"
+RAMDISK_INC_ACPI= 1
+PROGRAMS+=		acpi
+dir.acpi:=	minix/drivers/power/acpi
+.endif
+.endif # ${MACHINE_ARCH} == "x86_64"
 
 .if ${MACHINE_ARCH} == "earm"
 PROGRAMS+=		mmc

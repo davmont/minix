@@ -5,8 +5,11 @@
 SUBDIR+=	ahci
 SUBDIR+=	fbd
 SUBDIR+=	filter
-SUBDIR+=	virtio_blk
 .  endif # ${MACHINE_ARCH} == "i386"
+
+.  if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
+SUBDIR+=	virtio_blk
+.  endif # i386 || x86_64
 
 .  if ${MACHINE_ARCH} == "earm"
 SUBDIR+=	mmc

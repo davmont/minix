@@ -48,10 +48,13 @@ SUBDIR+=	../minix/lib/libgcc_s_empty
 .endif
 
 .if (${MACHINE_ARCH} == "i386")
-SUBDIR+=	../minix/lib/libacpi \
-		../minix/lib/libhgfs \
+SUBDIR+=	../minix/lib/libhgfs \
 		../minix/lib/libvassert \
-		../minix/lib/libvboxfs \
+		../minix/lib/libvboxfs
+.endif
+
+.if (${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64")
+SUBDIR+=	../minix/lib/libacpi \
 		../minix/lib/libvirtio
 .endif
 

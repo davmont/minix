@@ -192,6 +192,27 @@ ENTRY(longmode_start)
     mov     %ax, %fs
     mov     %ax, %gs
 
+    /* Initialize COM1 at 115200 8N1 so the kernel's later printf path can
+     * write to the serial port (used when cttyline=0 is set in boot args). */
+    movw    $0x3FB, %dx; movb $0x80, %al; outb %al, %dx  /* DLAB=1 */
+    movw    $0x3F8, %dx; movb $0x01, %al; outb %al, %dx  /* DLL=1 (115200) */
+    movw    $0x3F9, %dx; movb $0x00, %al; outb %al, %dx  /* DLM=0 */
+    movw    $0x3FB, %dx; movb $0x03, %al; outb %al, %dx  /* 8N1, DLAB=0 */
+    movw    $0x3FA, %dx; movb $0xC7, %al; outb %al, %dx  /* FIFO enable */
+    movw    $0x3FC, %dx; movb $0x0B, %al; outb %al, %dx  /* RTS+DTR */
+
+    /* Emit "HEAD64\r\n" directly via COM1 to confirm we got here.
+     * (Diagnostic to localize early-boot hangs that occur before printf.) */
+    movw    $0x3F8, %dx
+    movb    $'H', %al; outb %al, %dx
+    movb    $'E', %al; outb %al, %dx
+    movb    $'A', %al; outb %al, %dx
+    movb    $'D', %al; outb %al, %dx
+    movb    $'6', %al; outb %al, %dx
+    movb    $'4', %al; outb %al, %dx
+    movb    $'\r', %al; outb %al, %dx
+    movb    $'\n', %al; outb %al, %dx
+
     /* Set up the initial 64-bit stack. */
     movabs  $(_C_LABEL(k_initial_stktop)), %rsp
     xor     %rbp, %rbp
@@ -209,7 +230,22 @@ ENTRY(longmode_start)
     movabs  $(_C_LABEL(k_initial_stktop)), %rsp
     xor     %rbp, %rbp
     push    $0              /* terminate stack traces */
-    mov     %rax, %rdi      /* pass boot info to kmain */
+
+    mov     %rax, %rdi      /* pass boot info to kmain (first arg) */
+
+    /* Save RDI across COM1 emit. */
+    push    %rdi
+    /* Emit "KMAIN\r\n" via COM1 — confirms pre_init returned cleanly. */
+    movw    $0x3F8, %dx
+    movb    $'K', %al; outb %al, %dx
+    movb    $'M', %al; outb %al, %dx
+    movb    $'A', %al; outb %al, %dx
+    movb    $'I', %al; outb %al, %dx
+    movb    $'N', %al; outb %al, %dx
+    movb    $'\r', %al; outb %al, %dx
+    movb    $'\n', %al; outb %al, %dx
+    pop     %rdi
+
     call    _C_LABEL(kmain)
 
     /* Not reached. */

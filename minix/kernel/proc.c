@@ -177,6 +177,13 @@ static void idle(void)
 {
 	struct proc * p;
 
+	{
+		static unsigned idle_count = 0;
+		idle_count++;
+		if (idle_count <= 30)
+			printf("idle#%u\n", idle_count);
+	}
+
 	/* This function is called whenever there is no work to do.
 	 * Halt the CPU, and measure how many timestamp counter ticks are
 	 * spent not doing anything. This allows test setups to measure
@@ -305,6 +312,47 @@ void switch_to_user(void)
 #ifdef CONFIG_SMP
 	int tlb_must_refresh = 0;
 #endif
+	{
+		static unsigned stu_count = 0;
+		static int stu_dumped = 0;
+		struct proc *_dbg_p = get_cpulocal_var(proc_ptr);
+		++stu_count;
+		BOOT_VERBOSE(
+			if (stu_count <= 50) {
+				printf("STU#%u kts=%d pc=0x%lx name='%s'\n",
+				    stu_count,
+				    _dbg_p ? _dbg_p->p_seg.p_kern_trap_style : -1,
+				    _dbg_p ? (unsigned long)_dbg_p->p_reg.pc : 0,
+				    _dbg_p ? _dbg_p->p_name : "(null)");
+			}
+		);
+		/* Periodic proc-table dump.  Fires at several checkpoints so
+		 * we can see how state evolves over time on the APIC vs PIC
+		 * paths.
+		 */
+		if (stu_count == 2000 || stu_count == 5000 ||
+		    stu_count == 10000 || stu_count == 20000 ||
+		    stu_count == 50000) {
+			struct proc *pp;
+			(void)stu_dumped;
+			printf("STUDUMP: proc table after %u stu calls "
+			    "(current=%s)\n",
+			    stu_count, _dbg_p ? _dbg_p->p_name : "?");
+			for (pp = BEG_PROC_ADDR; pp < END_PROC_ADDR; pp++) {
+				if (pp->p_rts_flags & RTS_SLOT_FREE)
+					continue;
+				printf("STUDUMP  ep=%d %-10s rts=0x%lx "
+				    "sndto=%d rcvfrom=%d ctl=%lu prio=%d "
+				    "cycles=%llu\n",
+				    pp->p_endpoint, pp->p_name,
+				    (unsigned long)pp->p_rts_flags,
+				    pp->p_sendto_e, pp->p_getfrom_e,
+				    (unsigned long)pp->p_cpu_time_left,
+				    pp->p_priority,
+				    (unsigned long long)pp->p_cycles);
+			}
+		}
+	}
 
 	p = get_cpulocal_var(proc_ptr);
 	/*
@@ -335,8 +383,39 @@ not_runnable_pick_new:
 	 * timer interrupt the execution resumes here and we can pick another
 	 * process. If there is still nothing runnable we "schedule" IDLE again
 	 */
-	while (!(p = pick_proc())) {
-		idle();
+	{
+		/* Static so it persists across switch_to_user calls: idle is
+		 * exited (via timer int → new switch_to_user) once per tick, so
+		 * a per-call counter never accumulates.  Reset when ANY proc
+		 * becomes runnable so we don't spuriously dump on every brief
+		 * idle period.
+		 */
+		static unsigned long idle_spin_total = 0;
+		static int stall_dumped = 0;
+		while (!(p = pick_proc())) {
+			idle_spin_total++;
+			if (idle_spin_total == 500 && !stall_dumped) {
+				struct proc *pp;
+				stall_dumped = 1;
+				printf("STALL: nothing runnable for %lu idle "
+				    "spins; proc table:\n",
+				    idle_spin_total);
+				for (pp = BEG_PROC_ADDR;
+				    pp < END_PROC_ADDR; pp++) {
+					if (pp->p_rts_flags & RTS_SLOT_FREE)
+						continue;
+					printf("STALL  ep=%d %-10s rts=0x%lx "
+					    "sndto=%d rcvfrom=%d\n",
+					    pp->p_endpoint, pp->p_name,
+					    (unsigned long)pp->p_rts_flags,
+					    pp->p_sendto_e,
+					    pp->p_getfrom_e);
+				}
+			}
+			idle();
+		}
+		if (idle_spin_total > 0)
+			idle_spin_total = 0;
 	}
 
 	/* update the global variable */
@@ -463,7 +542,20 @@ check_misc_flags:
 	}
 #endif
 	
-	restart_local_timer();
+	{
+		static unsigned _n = 0;
+		if (_n < 3) {
+			printf("stu: before restart_local_timer, p=%p name='%s' nr=%d\n",
+			    p, p->p_name, p->p_nr);
+		}
+		restart_local_timer();
+		if (_n < 3) {
+			printf("stu: after restart_local_timer, kts=%d pc=0x%lx sp=0x%lx\n",
+			    p->p_seg.p_kern_trap_style,
+			    (unsigned long)p->p_reg.pc, (unsigned long)p->p_reg.sp);
+			_n++;
+		}
+	}
 
 	/*
 	 * restore_user_context() carries out the actual mode switch from kernel
@@ -600,6 +692,17 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
 {
   struct proc *const caller_ptr = get_cpulocal_var(proc_ptr);	/* get pointer to caller */
   int call_nr = (int) r1;
+
+  {
+    static unsigned _n = 0;
+    if (_n < 10) {
+      _n++;
+      printf("do_ipc#%u call=%d src_dest=%lu caller='%s' kts=%d\n",
+        _n, call_nr, (unsigned long)r2,
+        caller_ptr ? caller_ptr->p_name : "?",
+        caller_ptr ? caller_ptr->p_seg.p_kern_trap_style : -1);
+    }
+  }
 
   assert(!RTS_ISSET(caller_ptr, RTS_SLOT_FREE));
 

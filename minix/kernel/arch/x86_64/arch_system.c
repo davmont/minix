@@ -317,11 +317,13 @@ void arch_set_secondary_ipc_return(struct proc *p, u32_t val)
 /*
  * Switch the CPU to the address space of process p.
  *
- * P2.4: when use_pcid is active the PCID is OR-ed into bits 11:0 of CR3 and
- * bit 63 is set to suppress the TLB flush — the CPU keeps TLB entries for
- * this PCID cached and validates them against the new page table silently.
- * When use_pcid is not active this degenerates to the original plain CR3
- * write (with the same-CR3 skip optimisation).
+ * P2.4: when use_pcid is active the PCID is OR-ed into bits 11:0 of CR3.
+ * We do NOT set bit 63 (the no-flush bit) so that the TLB entries for this
+ * PCID are invalidated on every switch.  This is required for correct
+ * pagefault handling: without the flush, stale read-only TLB entries cached
+ * before a COW fault survive the switch back and the process faults again in
+ * an infinite loop.  When use_pcid is not active this degenerates to a plain
+ * CR3 write (with the same-CR3 skip optimisation).
  */
 void __switch_address_space(struct proc *p, struct proc **ptproc)
 {
@@ -332,13 +334,14 @@ void __switch_address_space(struct proc *p, struct proc **ptproc)
 
     if (use_pcid) {
         /*
-         * OR in the PCID (bits 11:0 of CR3).  Since p_cr3 is a physical
-         * page-table address it is always page-aligned (bottom 12 bits zero).
-         * Setting bit 63 tells the CPU not to invalidate TLB entries for
-         * this PCID — context switch without TLB shootdown.
+         * OR in the PCID (bits 11:0 of CR3).  Do NOT set bit 63 (no-flush):
+         * we need the TLB flushed for this PCID on every switch so that
+         * stale read-only TLB entries from before a COW pagefault are
+         * invalidated before the process is resumed.  Without this flush the
+         * process would see the old protected entry and fault again in an
+         * infinite loop.
          */
         new_cr3 |= (reg_t)p->p_seg.p_pcid;
-        new_cr3 |= (1ULL << 63);   /* CR3 no-flush bit */
         write_cr3(new_cr3);
     } else {
         reg_t cur_cr3 = read_cr3();
@@ -491,6 +494,29 @@ void arch_init(void)
 
 #ifdef USE_ACPI
     acpi_init();
+    /* DBGRSDT marker: state of phys 0x3ffe2335 after acpi_init. */
+    {
+        const volatile unsigned char *b =
+            (const volatile unsigned char *)
+            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+        int i;
+        printf("DBGRSDT @ post-acpi_init:");
+        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+        printf("\n");
+    }
+    /* Carve ACPI tables out of the memmap so the page allocator doesn't
+     * hand their physical pages to processes and clobber the table
+     * contents before the userspace ACPI service starts. */
+    acpi_reserve_tables();
+    {
+        const volatile unsigned char *b =
+            (const volatile unsigned char *)
+            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+        int i;
+        printf("DBGRSDT @ post-reserve:");
+        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+        printf("\n");
+    }
 #endif
 
 #if defined(USE_APIC) && !defined(CONFIG_SMP)
@@ -499,11 +525,29 @@ void arch_init(void)
     } else if (!apic_single_cpu_init()) {
         DEBUGBASIC(("APIC not present, using legacy PIC\n"));
     }
+    {
+        const volatile unsigned char *b =
+            (const volatile unsigned char *)
+            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+        int i;
+        printf("DBGRSDT @ post-apic:");
+        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+        printf("\n");
+    }
 #endif
 
     /* Reserve BIOS memory regions. */
     cut_memmap(&kinfo, BIOS_MEM_BEGIN, BIOS_MEM_END);
     cut_memmap(&kinfo, BASE_MEM_TOP,   UPPER_MEM_END);
+    {
+        const volatile unsigned char *b =
+            (const volatile unsigned char *)
+            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+        int i;
+        printf("DBGRSDT @ post-arch_init:");
+        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+        printf("\n");
+    }
 }
 
 /*===========================================================================*
@@ -583,6 +627,7 @@ void arch_proc_setcontext(struct proc *p, struct stackframe_s *state,
 void restore_user_context(struct proc *p)
 {
     int trap_style = p->p_seg.p_kern_trap_style;
+    BOOT_VERBOSE(printf("RUC kts=%d\n", trap_style));
 
     p->p_seg.p_kern_trap_style = KTS_NONE;
 
@@ -598,6 +643,29 @@ void restore_user_context(struct proc *p)
     case KTS_INT_UM:
     case KTS_FULLCONTEXT:
     case KTS_INT_ORIG:
+        {
+            static unsigned _ruc_int_dispatch = 0;
+            _ruc_int_dispatch++;
+            BOOT_VERBOSE(printf(
+                "RUC#%u DISPATCH (kts=%d → restore_user_context_int)\n",
+                _ruc_int_dispatch, trap_style));
+        }
+        {
+            /* One-shot dump: only first 30 entries to avoid flooding. */
+            static int dumped = 0;
+            if (dumped < 30) {
+                u8_t *up = (u8_t *)(uintptr_t)p->p_reg.pc;
+                printf("ruc: -> restore_user_context_int, cr3=0x%lx pcid=%u "
+                    "pc=0x%lx sp=0x%lx cs=0x%lx ss=0x%lx psw=0x%lx\n",
+                    (unsigned long)p->p_seg.p_cr3, (unsigned)p->p_seg.p_pcid,
+                    (unsigned long)p->p_reg.pc, (unsigned long)p->p_reg.sp,
+                    (unsigned long)p->p_reg.cs, (unsigned long)p->p_reg.ss,
+                    (unsigned long)p->p_reg.psw);
+                printf("ruc: bytes @ pc: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    up[0], up[1], up[2], up[3], up[4], up[5], up[6], up[7]);
+                dumped++;
+            }
+        }
         restore_user_context_int(p);
         NOT_REACHABLE;
     default:

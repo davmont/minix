@@ -62,7 +62,7 @@
     TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
-    mov     %rbp, %rdi                                                  ;\
+    mov     %rbp, %rdi      /* context_stop(proc) arg, amd64 ABI */     ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -102,7 +102,7 @@
     TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
-    mov     %rbp, %rdi                                                  ;\
+    mov     %rbp, %rdi      /* context_stop(proc) arg, amd64 ABI */     ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -195,8 +195,9 @@ ENTRY(syscall_entry)
     /* Retrieve the current process pointer. */
     mov     8(%rsp), %rbp           /* proc ptr (skip our saved rbp) */
 
-    /* Record that we entered via SYSCALL. */
-    movq    $KTS_SYSCALL, P_KERN_TRAP_STYLE(%rbp)
+    /* Record that we entered via SYSCALL.  p_kern_trap_style is `int' (4
+     * bytes); movq would spill into the adjacent p_pcid field. */
+    movl    $KTS_SYSCALL, P_KERN_TRAP_STYLE(%rbp)
 
     /*
      * Save all user GPRs.  At this point RBP holds the proc ptr so BPREG

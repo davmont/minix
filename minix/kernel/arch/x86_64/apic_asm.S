@@ -33,12 +33,12 @@ ENTRY(apic_hwint##irq)							\
 									\
 	SAVE_PROCESS_CTX(0, KTS_INT_HARD)				;\
 	push	%rbp							;\
+	mov	%rbp, %rdi	/* context_stop(proc) arg, amd64 ABI */ ;\
 	xor	%rbp, %rbp						;\
 	call	_C_LABEL(context_stop)					;\
 	pop	%rbp							;\
 	APIC_IRQ_HANDLER(irq)						;\
-	movq	_C_LABEL(lapic_eoi_addr), %rax				;\
-	movl	$0, (%rax)						;\
+	call	_C_LABEL(arch_eoi)					;\
 	jmp	_C_LABEL(switch_to_user)				;\
 									\
 0:									\
@@ -53,8 +53,7 @@ ENTRY(apic_hwint##irq)							\
 	push	%r11							;\
 	call	_C_LABEL(context_stop_idle)				;\
 	APIC_IRQ_HANDLER(irq)						;\
-	movq	_C_LABEL(lapic_eoi_addr), %rax				;\
-	movl	$0, (%rax)						;\
+	call	_C_LABEL(arch_eoi)					;\
 	CLEAR_IF(11*8(%rsp))						;\
 	pop	%r11							;\
 	pop	%r10							;\
@@ -138,14 +137,14 @@ apic_hwint(63)
 
 #define LAPIC_INTR_HANDLER(func)					\
 	call	_C_LABEL(func)						;\
-	movq	_C_LABEL(lapic_eoi_addr), %rax				;\
-	movl	$0, (%rax)						;
+	call	_C_LABEL(arch_eoi)					;
 
 #define lapic_intr(func)						\
 	TEST_INT_IN_KERNEL(8, 0f)					;\
 									\
 	SAVE_PROCESS_CTX(0, KTS_INT_HARD)				;\
 	push	%rbp							;\
+	mov	%rbp, %rdi	/* context_stop(proc) arg, amd64 ABI */ ;\
 	xor	%rbp, %rbp						;\
 	call	_C_LABEL(context_stop)					;\
 	pop	%rbp							;\

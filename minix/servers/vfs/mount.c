@@ -142,6 +142,9 @@ int do_mount(void)
 
   /* Fetch the type of the file system. */
   if (type_len > sizeof(mount_type)) return(ENAMETOOLONG);
+
+  printf("VFSMNT: do_mount caller=%d label='%s' dev='%s' path='%s'\n",
+      who_e, mount_label, mount_dev, mount_path);
   if (fetch_name(type, type_len, mount_type) != OK) return(err_code);
 
   /* Do the actual job */
@@ -452,7 +455,15 @@ int do_umount(void)
   if ((dev = name_to_dev(TRUE /*allow_mountpt*/, fullpath)) == NO_DEV)
 	return(err_code);
 
-  if ((r = unmount(dev, label)) != OK) return(r);
+  printf("VFSMNT: do_umount caller=%d path='%s' dev=0x%lx\n",
+      who_e, fullpath, (unsigned long)dev);
+
+  if ((r = unmount(dev, label)) != OK) {
+      printf("VFSMNT: do_umount caller=%d FAILED ret=%d\n", who_e, r);
+      return(r);
+  }
+
+  printf("VFSMNT: do_umount caller=%d OK label='%s'\n", who_e, label);
 
   /* Return the label of the mounted file system, so that the caller
    * can shut down the corresponding server process.

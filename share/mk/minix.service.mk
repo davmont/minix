@@ -7,6 +7,14 @@
 AFLAGS+= -D__ASSEMBLY__
 COPTS+= -fno-builtin
 
+# KVM's x86 instruction emulator does not support SSE2 (XMM) memory stores
+# when handling EPT violations on write-faults to lazily-mapped pages.
+# Disable the auto-vectorizers for amd64 services to prevent xorps+movups
+# / movq-xmm patterns for struct initialization.
+.if ${MACHINE_ARCH} == "x86_64"
+CFLAGS+= -fno-slp-vectorize -fno-vectorize
+.endif
+
 # For MKCOVERAGE builds, enable coverage options.
 .if ${MKCOVERAGE:Uno} == "yes"
 CPPFLAGS+= ${COVCPPFLAGS}

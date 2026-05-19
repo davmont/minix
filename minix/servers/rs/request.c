@@ -23,6 +23,8 @@ message *m_ptr;					/* request message pointer */
   int noblock;
   int init_flags = 0;
 
+  printf("RS: do_up entry: caller=%d\n", m_ptr->m_source);
+
   /* Check if the call can be allowed. */
   if((r = check_call_permission(m_ptr->m_source, RS_UP, NULL)) != OK)
       return r;
@@ -68,10 +70,17 @@ message *m_ptr;					/* request message pointer */
   }
 
   /* Check for duplicates */
-  if(lookup_slot_by_label(rpub->label)) {
-      printf("RS: service with the same label '%s' already exists\n",
-          rpub->label);
-      return EBUSY;
+  {
+      struct rproc *existing = lookup_slot_by_label(rpub->label);
+      if (existing) {
+          struct rprocpub *epub = existing->r_pub;
+          printf("RS: service with the same label '%s' already exists "
+              "(requested by ep=%d; existing ep=%d pid=%d cmd='%s' flags=0x%x)\n",
+              rpub->label, m_ptr->m_source,
+              epub->endpoint, existing->r_pid,
+              existing->r_cmd, existing->r_flags);
+          return EBUSY;
+      }
   }
   if(rpub->dev_nr>0 && lookup_slot_by_dev_nr(rpub->dev_nr)) {
       printf("RS: service with the same device number %d already exists\n",

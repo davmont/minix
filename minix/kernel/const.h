@@ -39,6 +39,14 @@
  * so user virtual space is limited to 0-512 MB (PD[0..255]).
  */
 #define USR_DATATOP 0x20000000
+/*
+ * Place the initial VM server stack at 128 MB so it is always within
+ * physical RAM even with minimal QEMU configurations (-m 256).
+ * USR_DATATOP (512 MB) exceeds typical minimum RAM; using it as the
+ * initial stack pointer puts the stack above physical memory, so
+ * KVM silently drops stack writes and returns garbage on reads.
+ */
+#define USR_STACKTOP 0x08000000
 #else
 #define USR_DATATOP 0xF0000000
 #endif

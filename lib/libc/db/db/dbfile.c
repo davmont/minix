@@ -70,7 +70,7 @@ out:
 	close(fd);
 	errno = serrno;
 	return -1;
-	
+
 }
 
 int
