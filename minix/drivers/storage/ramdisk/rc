@@ -75,6 +75,13 @@ then	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
 
 	if [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
 	then	minix-service -c up /service/virtio_blk -dev /dev/c0d0 -label virtio_blk_0 -args instance=0
+	elif [ -x /service/at_wini ]
+	then
+		# Default to legacy IDE on amd64.  QEMU's default -cdrom is
+		# attached to the PIIX3 IDE controller, so we need at_wini up
+		# to access the boot CD in cdprobe below.
+		minix-service -c up /service/at_wini -dev /dev/c0d0 -label at_wini_0
+		minix-service -cr up /service/at_wini -dev /dev/c1d0 -label at_wini_1 -args instance=1 2>/dev/null || :
 	fi
 	umount /proc >/dev/null
 fi

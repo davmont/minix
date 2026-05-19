@@ -79,9 +79,12 @@ dir.virtio_blk:= minix/drivers/storage/virtio_blk
 .endif
 .endif # i386 || x86_64
 
-.if ${MACHINE_ARCH} == "i386"
+.if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 PROGRAMS+=		at_wini
 dir.at_wini:=	minix/drivers/storage/at_wini
+.endif
+
+.if ${MACHINE_ARCH} == "i386"
 PROGRAMS+=		floppy
 dir.floppy:=	minix/drivers/storage/floppy
 

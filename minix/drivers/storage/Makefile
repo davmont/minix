@@ -18,8 +18,11 @@ SUBDIR+=	mmc
 SUBDIR+=	vnd
 .endif # ${MKIMAGEONLY} == "no"
 
-.if ${MACHINE_ARCH} == "i386"
+.if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 SUBDIR+=	at_wini
+.endif
+
+.if ${MACHINE_ARCH} == "i386"
 SUBDIR+=	floppy
 .endif # ${MACHINE_ARCH} == "i386"
 

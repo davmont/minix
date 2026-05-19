@@ -7,6 +7,7 @@
 #
 ./etc/system.conf.d/igc                                 minix-base
 ./service/acpi                                          minix-base
+./service/at_wini                                       minix-base
 ./service/igc                                           minix-base
 ./service/pci                                           minix-base
 ./service/pckbd                                         minix-base

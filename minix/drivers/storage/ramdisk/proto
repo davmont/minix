@@ -21,6 +21,8 @@ d--755 0 0
 #ifdef __i386__
 		floppy ---755 0 0 floppy
 		ahci ---755 0 0 ahci
+#endif
+#if defined(__i386__) || defined(__x86_64__)
 		at_wini ---755 0 0 at_wini
 #endif
 #if defined(__i386__) || defined(__x86_64__)
