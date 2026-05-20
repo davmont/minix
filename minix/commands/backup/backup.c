@@ -177,7 +177,8 @@ void maketarget(char *dir2)
   if (make_dir(dir2) == 0) return;	/* we just made it */
 
   /* We have to try creating all the higher level directories. */
-  strcpy(dbuf, dir2);
+  strncpy(dbuf, dir2, sizeof(dbuf) - 1);
+  dbuf[sizeof(dbuf) - 1] = '\0';
   p = dbuf + 1;
   while (1) {
 	while (*p != '/' && *p != '\0') p++;
@@ -368,9 +369,7 @@ int copy(char *dir1, struct sorted *sp, char *cbuf2)
   }
   res = 0;
   if (dflag) return(0);		/* backup -d means only directories */
-  strcpy(cbuf1, dir1);
-  strncat(cbuf1, "/", (size_t)1);
-  strncat(cbuf1, sp->namep, (size_t)NAME_SIZE);	/* cbuf1 = source file name */
+  snprintf(cbuf1, sizeof(cbuf1), "%s/%s", dir1, sp->namep);
 
   /* At this point, cbuf1 contains the source file name, cbuf2 the target. */
   fd1 = open(cbuf1, O_RDONLY);
