@@ -2,7 +2,12 @@
 
 # CD boottime initializations.
 
-echo "RCCD: enter, pid=$$, args=$@"
+# Diagnostic markers — gated on verbose=2+ in the kernel boot command line.
+_rccd_verbose=$(sysenv verbose 2>/dev/null)
+: ${_rccd_verbose:=0}
+rcv() { [ "${_rccd_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
+
+rcv "RCCD: enter, pid=$$, args=$@"
 echo -n "Creating ramdisks:"
 
 # Set up a ramdisk to make a read-only part of the directory tree writable
@@ -11,23 +16,23 @@ echo -n "Creating ramdisks:"
 # $3 : ramdisk size in blocks
 create_ramdisk()
 {
-	echo "RCCD: create_ramdisk $1 $2 $3"
+	rcv "RCCD: create_ramdisk $1 $2 $3"
 	echo -n " $2"
 	ramdisk $3 /dev/$1 > /dev/null
 	mkfs.mfs /dev/$1 > /dev/null
 
 	# copy files
-	echo "RCCD:  about to mount /dev/$1 /mnt"
+	rcv "RCCD:  about to mount /dev/$1 /mnt"
 	mount /dev/$1 /mnt > /dev/null; r=$?
-	echo "RCCD:   mount /dev/$1 /mnt ret=$r"
+	rcv "RCCD:   mount /dev/$1 /mnt ret=$r"
 	(cd $2 && pax -rw . /mnt)
 
-	echo "RCCD:  about to umount /mnt"
+	rcv "RCCD:  about to umount /mnt"
 	umount /mnt > /dev/null; r=$?
-	echo "RCCD:   umount /mnt ret=$r"
-	echo "RCCD:  about to mount /dev/$1 $2"
+	rcv "RCCD:   umount /mnt ret=$r"
+	rcv "RCCD:  about to mount /dev/$1 $2"
 	mount /dev/$1 $2 > /dev/null; r=$?
-	echo "RCCD:   mount /dev/$1 $2 ret=$r"
+	rcv "RCCD:   mount /dev/$1 $2 ret=$r"
 }
 
 # Create /var ramdisk

@@ -23,7 +23,9 @@ message *m_ptr;					/* request message pointer */
   int noblock;
   int init_flags = 0;
 
+#ifdef RS_DEBUG_DO_UP
   printf("RS: do_up entry: caller=%d\n", m_ptr->m_source);
+#endif
 
   /* Check if the call can be allowed. */
   if((r = check_call_permission(m_ptr->m_source, RS_UP, NULL)) != OK)

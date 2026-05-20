@@ -143,8 +143,10 @@ int do_mount(void)
   /* Fetch the type of the file system. */
   if (type_len > sizeof(mount_type)) return(ENAMETOOLONG);
 
+#ifdef VFS_DEBUG_MOUNT
   printf("VFSMNT: do_mount caller=%d label='%s' dev='%s' path='%s'\n",
       who_e, mount_label, mount_dev, mount_path);
+#endif
   if (fetch_name(type, type_len, mount_type) != OK) return(err_code);
 
   /* Do the actual job */
@@ -455,15 +457,21 @@ int do_umount(void)
   if ((dev = name_to_dev(TRUE /*allow_mountpt*/, fullpath)) == NO_DEV)
 	return(err_code);
 
+#ifdef VFS_DEBUG_MOUNT
   printf("VFSMNT: do_umount caller=%d path='%s' dev=0x%lx\n",
       who_e, fullpath, (unsigned long)dev);
+#endif
 
   if ((r = unmount(dev, label)) != OK) {
+#ifdef VFS_DEBUG_MOUNT
       printf("VFSMNT: do_umount caller=%d FAILED ret=%d\n", who_e, r);
+#endif
       return(r);
   }
 
+#ifdef VFS_DEBUG_MOUNT
   printf("VFSMNT: do_umount caller=%d OK label='%s'\n", who_e, label);
+#endif
 
   /* Return the label of the mounted file system, so that the caller
    * can shut down the corresponding server process.

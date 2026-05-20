@@ -138,7 +138,9 @@ void kernel_call(message *m_user, struct proc * caller)
   int result = OK;
   message msg;
 
-  {
+  /* Diagnostic (verbose builds only): log the first few kernel_calls.
+   * Was used to localise where boot hung during amd64 bring-up. */
+  BOOT_VERBOSE({
     static unsigned _n = 0;
     if (_n < 10) {
       _n++;
@@ -147,7 +149,7 @@ void kernel_call(message *m_user, struct proc * caller)
         caller ? caller->p_name : "?",
         caller ? caller->p_seg.p_kern_trap_style : -1);
     }
-  }
+  });
 
   caller->p_delivermsg_vir = (vir_bytes) m_user;
   /*

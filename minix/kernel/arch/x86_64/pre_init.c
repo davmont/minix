@@ -149,7 +149,11 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
 
         memcpy(cmdline, (void *)(uintptr_t)mbi->mi_cmdline, BUF);
 
-        /* Dump raw cmdline bytes via COM1 so we can see what we got. */
+        /* Dump raw cmdline bytes via COM1 so we can see what we got.
+         * Unconditional because this is unpaged code — `verboseboot`
+         * lives in paged BSS which isn't mapped at unpaged-execution
+         * time, so a BOOT_VERBOSE gate here would page-fault.  Output
+         * is a single short line at boot. */
         {
             int dump_i;
             #define PI_COM1(c) __asm__ __volatile__("outb %0, %1" : : "a"((char)(c)), "Nd"((unsigned short)0x3F8))

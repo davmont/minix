@@ -40,11 +40,10 @@ int arch_do_vmctl(
   struct proc *p
 )
 {
-  /* Diagnostic: dump bytes at phys 0x3ffe2335 via the kernel's linear
-   * physmap (pml4[256]) once per 200 vmctls.  Identity-map dump removed —
-   * pml4[0] gets torn down for some virt ranges during boot setup and the
-   * read triggers a kernel pagefault. */
-  {
+  /* Diagnostic (verbose builds only): dump bytes at phys 0x3ffe2335 via
+   * the kernel's linear physmap (pml4[256]) once per 200 vmctls.  Was
+   * used to track ACPI-table corruption during the amd64 bring-up. */
+  BOOT_VERBOSE({
 	static unsigned vmctl_dump_count = 0;
 	if ((++vmctl_dump_count) % 200 == 1) {
 		const volatile unsigned char *bp =
@@ -56,7 +55,7 @@ int arch_do_vmctl(
 			printf(" %02x", bp[i]);
 		printf("\n");
 	}
-  }
+  });
   switch(m_ptr->SVMCTL_PARAM) {
 	case VMCTL_GET_PDBR:
 		/* Get process page directory base reg (CR3). */

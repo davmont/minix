@@ -177,12 +177,12 @@ static void idle(void)
 {
 	struct proc * p;
 
-	{
+	BOOT_VERBOSE({
 		static unsigned idle_count = 0;
 		idle_count++;
 		if (idle_count <= 30)
 			printf("idle#%u\n", idle_count);
-	}
+	});
 
 	/* This function is called whenever there is no work to do.
 	 * Halt the CPU, and measure how many timestamp counter ticks are
@@ -542,20 +542,24 @@ check_misc_flags:
 	}
 #endif
 	
-	{
+	BOOT_VERBOSE({
 		static unsigned _n = 0;
 		if (_n < 3) {
 			printf("stu: before restart_local_timer, p=%p name='%s' nr=%d\n",
 			    p, p->p_name, p->p_nr);
+			_n++;
 		}
-		restart_local_timer();
-		if (_n < 3) {
+	});
+	restart_local_timer();
+	BOOT_VERBOSE({
+		static unsigned _n2 = 0;
+		if (_n2 < 3) {
 			printf("stu: after restart_local_timer, kts=%d pc=0x%lx sp=0x%lx\n",
 			    p->p_seg.p_kern_trap_style,
 			    (unsigned long)p->p_reg.pc, (unsigned long)p->p_reg.sp);
-			_n++;
+			_n2++;
 		}
-	}
+	});
 
 	/*
 	 * restore_user_context() carries out the actual mode switch from kernel

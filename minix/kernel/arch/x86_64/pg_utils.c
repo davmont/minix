@@ -419,7 +419,12 @@ void cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end)
 
     assert(kernel_may_alloc);
 
-    /* Diagnostic: log every cut and whether it found a chunk to split. */
+    /* Note: this routine is compiled into both the paged and unpaged
+     * namespaces; the unpaged copy can't safely reach `verboseboot`
+     * (a high-virtual symbol unmapped during early boot), so the
+     * CUT: diagnostics here stay unconditional.  They fire only
+     * during early memmap setup and acpi_reserve_tables(), not
+     * continuously — minor noise on the default boot path. */
     printf("CUT: request [0x%lx, 0x%lx) mmap_size=%d\n",
         (unsigned long)start, (unsigned long)end, cbi->mmap_size);
 
@@ -507,7 +512,6 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
     int m;
     multiboot_memory_map_t *mmap;
     phys_bytes ret;
-    static unsigned alloc_count = 0;
 
     assert(kernel_may_alloc);
 
@@ -520,14 +524,18 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
         mmap->mm_length -= AMD64_PAGE_SIZE;
         cbi->kernel_allocated_bytes_dynamic += AMD64_PAGE_SIZE;
         ret = mmap->mm_base_addr + mmap->mm_length;
-        /* Diagnostic: log if allocation hits ACPI table region. */
+        /* Diagnostic: log if an allocation hits the ACPI table region.
+         * Unconditional because this routine is compiled into the
+         * unpaged namespace too (where BOOT_VERBOSE / verboseboot
+         * aren't reachable yet).  The check is narrow so the print
+         * fires only when something interesting happens. */
         if (ret >= 0x3ffe0000 && ret < 0x40000000) {
             printf("PGALLOC: returning 0x%lx (m=%d chunk[%lx,%lx))\n",
                 (unsigned long)ret, m,
                 (unsigned long)mmap->mm_base_addr,
-                (unsigned long)(mmap->mm_base_addr + mmap->mm_length + AMD64_PAGE_SIZE));
+                (unsigned long)(mmap->mm_base_addr + mmap->mm_length
+                                + AMD64_PAGE_SIZE));
         }
-        alloc_count++;
         return ret;
     }
 

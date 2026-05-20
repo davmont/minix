@@ -492,31 +492,26 @@ void arch_init(void)
     ser_init();
 #endif
 
+/* Diagnostic: dump 16 bytes at the RSDT-discovery sentinel address.  Tracks
+ * ACPI-table corruption regressions during arch_init. */
+#define DBGRSDT(label) BOOT_VERBOSE({ \
+    const volatile unsigned char *b = \
+        (const volatile unsigned char *) \
+        (((char *)0xffff800000000000UL) + 0x3ffe2335UL); \
+    int i; \
+    printf("DBGRSDT @ " label ":"); \
+    for (i = 0; i < 16; i++) printf(" %02x", b[i]); \
+    printf("\n"); \
+})
+
 #ifdef USE_ACPI
     acpi_init();
-    /* DBGRSDT marker: state of phys 0x3ffe2335 after acpi_init. */
-    {
-        const volatile unsigned char *b =
-            (const volatile unsigned char *)
-            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
-        int i;
-        printf("DBGRSDT @ post-acpi_init:");
-        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
-        printf("\n");
-    }
+    DBGRSDT("post-acpi_init");
     /* Carve ACPI tables out of the memmap so the page allocator doesn't
      * hand their physical pages to processes and clobber the table
      * contents before the userspace ACPI service starts. */
     acpi_reserve_tables();
-    {
-        const volatile unsigned char *b =
-            (const volatile unsigned char *)
-            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
-        int i;
-        printf("DBGRSDT @ post-reserve:");
-        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
-        printf("\n");
-    }
+    DBGRSDT("post-reserve");
 #endif
 
 #if defined(USE_APIC) && !defined(CONFIG_SMP)
@@ -525,29 +520,13 @@ void arch_init(void)
     } else if (!apic_single_cpu_init()) {
         DEBUGBASIC(("APIC not present, using legacy PIC\n"));
     }
-    {
-        const volatile unsigned char *b =
-            (const volatile unsigned char *)
-            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
-        int i;
-        printf("DBGRSDT @ post-apic:");
-        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
-        printf("\n");
-    }
+    DBGRSDT("post-apic");
 #endif
 
     /* Reserve BIOS memory regions. */
     cut_memmap(&kinfo, BIOS_MEM_BEGIN, BIOS_MEM_END);
     cut_memmap(&kinfo, BASE_MEM_TOP,   UPPER_MEM_END);
-    {
-        const volatile unsigned char *b =
-            (const volatile unsigned char *)
-            (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
-        int i;
-        printf("DBGRSDT @ post-arch_init:");
-        for (i = 0; i < 16; i++) printf(" %02x", b[i]);
-        printf("\n");
-    }
+    DBGRSDT("post-arch_init");
 }
 
 /*===========================================================================*
@@ -650,7 +629,7 @@ void restore_user_context(struct proc *p)
                 "RUC#%u DISPATCH (kts=%d → restore_user_context_int)\n",
                 _ruc_int_dispatch, trap_style));
         }
-        {
+        BOOT_VERBOSE({
             /* One-shot dump: only first 30 entries to avoid flooding. */
             static int dumped = 0;
             if (dumped < 30) {
@@ -665,7 +644,7 @@ void restore_user_context(struct proc *p)
                     up[0], up[1], up[2], up[3], up[4], up[5], up[6], up[7]);
                 dumped++;
             }
-        }
+        });
         restore_user_context_int(p);
         NOT_REACHABLE;
     default:

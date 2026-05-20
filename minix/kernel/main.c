@@ -117,16 +117,21 @@ void bsp_finish_booting(void)
 /*===========================================================================*
  *			kmain 	                             		*
  *===========================================================================*/
-/* Emit one byte to COM1 directly, bypassing any kernel state. */
+/* Emit one byte to COM1 directly, bypassing any kernel state.
+ * Used by the early-boot KMAIN markers under BOOT_VERBOSE: cstart()
+ * hasn't run yet, so verboseboot is still 0 and the marks before
+ * KMAIN9 stay silent unless the binary was built without
+ * CONFIG_BOOT_VERBOSE (BOOT_VERBOSE expands to nothing then). */
 static inline void __kmain_com1(char c) {
 #if defined(__x86_64__) || defined(__amd64__)
 	__asm__ __volatile__("outb %0, %1" : : "a"(c), "Nd"((unsigned short)0x3F8));
 #endif
 }
-static inline void __kmain_mark(const char *s) {
+static inline void __kmain_mark_raw(const char *s) {
 	while (*s) __kmain_com1(*s++);
 	__kmain_com1('\r'); __kmain_com1('\n');
 }
+#define __kmain_mark(s) BOOT_VERBOSE(__kmain_mark_raw(s))
 
 void kmain(kinfo_t *local_cbi)
 {
@@ -176,7 +181,7 @@ void kmain(kinfo_t *local_cbi)
   BKL_LOCK();
   __kmain_mark("KMAIN9-after-BKL_LOCK");
 
-  {
+  BOOT_VERBOSE({
     const volatile unsigned char *b =
         (const volatile unsigned char *)
         (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
@@ -184,19 +189,18 @@ void kmain(kinfo_t *local_cbi)
     printf("DBGRSDT @ KMAIN9:");
     for (i = 0; i < 16; i++) printf(" %02x", b[i]);
     printf("\n");
-  }
+  });
 
   /* Emit verboseboot value via COM1 so we can tell if env parsing worked. */
-  {
-    extern int verboseboot;
+  BOOT_VERBOSE({
     char vb = '0' + (verboseboot & 0xf);
     __kmain_com1('v'); __kmain_com1('b'); __kmain_com1('=');
     __kmain_com1(vb); __kmain_com1('\r'); __kmain_com1('\n');
-  }
+  });
 
   /* Dump kinfo.param_buf (NUL-separated key=value list, terminated by extra NUL).
    * Print each entry on its own line so we can see what env the kernel parsed. */
-  {
+  BOOT_VERBOSE({
     const char *pb = kinfo.param_buf;
     int i;
     __kmain_com1('P'); __kmain_com1('B'); __kmain_com1(':');
@@ -214,7 +218,7 @@ void kmain(kinfo_t *local_cbi)
     __kmain_com1('P'); __kmain_com1('B'); __kmain_com1('-');
     __kmain_com1('E'); __kmain_com1('N'); __kmain_com1('D');
     __kmain_com1('\r'); __kmain_com1('\n');
-  }
+  });
 
    DEBUGEXTRA(("main()\n"));
    __kmain_mark("KMAIN10-after-main-print");
@@ -228,7 +232,7 @@ void kmain(kinfo_t *local_cbi)
   IPCF_POOL_INIT();
   __kmain_mark("KMAIN12-after-IPCF_POOL_INIT");
 
-  {
+  BOOT_VERBOSE({
     const volatile unsigned char *b =
         (const volatile unsigned char *)
         (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
@@ -236,7 +240,7 @@ void kmain(kinfo_t *local_cbi)
     printf("DBGRSDT @ KMAIN12:");
     for (i = 0; i < 16; i++) printf(" %02x", b[i]);
     printf("\n");
-  }
+  });
 
    if(NR_BOOT_MODULES != kinfo.mbi.mi_mods_count)
    	panic("expecting %d boot processes/modules, found %d",
@@ -355,7 +359,7 @@ void kmain(kinfo_t *local_cbi)
   /* update boot procs info for VM */
   memcpy(kinfo.boot_procs, image, sizeof(kinfo.boot_procs));
 
-  {
+  BOOT_VERBOSE({
     const volatile unsigned char *b =
         (const volatile unsigned char *)
         (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
@@ -363,7 +367,7 @@ void kmain(kinfo_t *local_cbi)
     printf("DBGRSDT @ post-bootproc-loop:");
     for (i = 0; i < 16; i++) printf(" %02x", b[i]);
     printf("\n");
-  }
+  });
 
 #define IPCNAME(n) { \
 	assert((n) >= 0 && (n) <= IPCNO_HIGHEST); \

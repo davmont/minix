@@ -1,6 +1,11 @@
 # /etc/rc.minix - MINIX system startup script
 
-echo "RCMINIX: entry, args=$@, pid=$$" >&2
+# Diagnostic markers — gated on verbose=2+ in the kernel boot command line.
+verbose_level=$(sysenv verbose 2>/dev/null)
+: ${verbose_level:=0}
+rcv() { [ "${verbose_level:-0}" -ge 2 ] 2>/dev/null && echo "$@" >&2; }
+
+rcv "RCMINIX: entry, args=$@, pid=$$"
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 # The normal system boot situation is that init(8) invokes the ramdisk RC
@@ -97,13 +102,13 @@ esac
 
 case $action in
 start)
-    echo "RCMINIX: start branch, bootcd='$bootcd'" >&2
+    rcv "RCMINIX: start branch, bootcd='$bootcd'"
     # If booting from CD, we want some directories to be ramdisks
     if [ ! -z "$bootcd" ]
     then
-	echo "RCMINIX: sourcing /etc/rc.cd" >&2
+	rcv "RCMINIX: sourcing /etc/rc.cd"
 	. /etc/rc.cd
-	echo "RCMINIX: returned from /etc/rc.cd" >&2
+	rcv "RCMINIX: returned from /etc/rc.cd"
     fi
 
     # National keyboard?

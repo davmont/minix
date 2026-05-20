@@ -53,12 +53,18 @@ then	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
 	# Start ACPI before PCI so PCI's APIC-mode init can resolve the
 	# 'acpi' DS label (otherwise pci panics with "Cannot use APIC mode
 	# without ACPI!").  Required in APIC mode; harmless in PIC mode.
-	echo "RDRC: about to start ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
+	# Diagnostic markers — gated on verbose=2+ in the kernel boot
+	# command line.
+	_rdrc_verbose=$(sysenv verbose 2>/dev/null)
+	: ${_rdrc_verbose:=0}
+	rdrcv() { [ "${_rdrc_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
+
+	rdrcv "RDRC: about to start ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
 	if [ -e $ACPI ]
-	then	minix-service -c up $ACPI && echo "RDRC: ACPI started" \
-			|| echo "RDRC: ACPI start FAILED"
+	then	minix-service -c up $ACPI && rdrcv "RDRC: ACPI started" \
+			|| rdrcv "RDRC: ACPI start FAILED"
 	else
-		echo "RDRC: ACPI binary not in ramdisk ($ACPI missing)"
+		rdrcv "RDRC: ACPI binary not in ramdisk ($ACPI missing)"
 	fi
 	minix-service -c up /service/pci -dev /dev/pci
 	minix-service -c up /service/input -dev /dev/kbdmux

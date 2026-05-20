@@ -501,8 +501,8 @@ int libexec_clear_memset(struct exec_info *execi, vir_bytes vaddr, size_t len)
 
 static int libexec_pg_alloc(struct exec_info *execi, vir_bytes vaddr, size_t len)
 {
-    printf("PGAL: vaddr=0x%lx len=%zu (will pg_map+memset)\n",
-        (unsigned long)vaddr, len);
+    BOOT_VERBOSE(printf("PGAL: vaddr=0x%lx len=%zu (will pg_map+memset)\n",
+        (unsigned long)vaddr, len));
     pg_map(PG_ALLOCATEME, vaddr, vaddr + len, &kinfo);
     pg_load();
     memset((char *)vaddr, 0, len);
@@ -584,10 +584,11 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
             size_t mod_len  = execi.hdr_len;
             phys_bytes base;
             base = alloc_lowest(&kinfo, mod_len);
-            printf("VMCOPY: base=0x%lx mod_len=%zu (contig phys [0x%lx, 0x%lx))\n",
+            BOOT_VERBOSE(printf(
+                "VMCOPY: base=0x%lx mod_len=%zu (contig phys [0x%lx, 0x%lx))\n",
                 (unsigned long)base, mod_len,
                 (unsigned long)base,
-                (unsigned long)(base + roundup(mod_len, AMD64_PAGE_SIZE)));
+                (unsigned long)(base + roundup(mod_len, AMD64_PAGE_SIZE))));
             memcpy((void *)(uintptr_t)base, execi.hdr, mod_len);
             execi.hdr     = (char *)(uintptr_t)base;
             execi.filesize = execi.hdr_len = mod_len;
