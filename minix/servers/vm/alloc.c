@@ -30,14 +30,17 @@
 #include "memlist.h"
 
 /*
- * Bitmap describing free physical pages.  Currently sized for a 4 GB
- * physical address space; the system silently drops any RAM above
- * this in mem_init (see number_physical_pages bounds check).  Growing
- * past 4 GB needs more than a bigger bitmap: VM's process map +
- * kernel page-table layout doesn't tolerate the extra BSS yet
- * (pt_ptalloc fails in pt_init under an 11 MB VM BSS).
+ * Bitmap describing free physical pages.  Sized for a static maximum
+ * (one bit per page).  Actual usage is bounded at runtime by
+ * number_physical_pages, set in mem_init from the kernel-provided
+ * memmap; chunks above the bitmap range are silently truncated.
+ *
+ * The 256 GB ceiling costs 8 MB of VM BSS (256 GB / 4 KB / 8).  That
+ * grows VM's PD footprint enough to require more pt_ptalloc spare
+ * pages — see STATIC_SPAREPAGES in pagetable.c.  Bumping past 256 GB
+ * means revisiting both numbers together.
  */
-#define MAX_PHYSICAL_MEMORY (0x100000000ULL)
+#define MAX_PHYSICAL_MEMORY (256ULL * 1024 * 1024 * 1024)
 #define MAX_NUMBER_PHYSICAL_PAGES ((int)(MAX_PHYSICAL_MEMORY/VM_PAGE_SIZE))
 #define MAX_PAGE_BITMAP_CHUNKS BITMAP_CHUNKS(MAX_NUMBER_PHYSICAL_PAGES)
 static bitchunk_t free_pages_bitmap[MAX_PAGE_BITMAP_CHUNKS];

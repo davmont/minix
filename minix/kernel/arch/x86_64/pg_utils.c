@@ -122,10 +122,20 @@ void pg_clear(void)
 }
 
 /* =========================================================================
- * pg_identity — identity-map the first ~4 GB using 2 MB pages.
+ * pg_identity — set up two separate page-table trees:
  *
- * We only need PML4[0] → one PDPT → up to 4 PDs (each covering 1 GB).
- * Non-RAM regions (above cbi->mem_high_phys) are marked cache-disabled.
+ *   PML4[0]              identity map of the first 4 GB using 2 MB pages.
+ *                        Only used during early boot, so 4 GB is plenty.
+ *   PML4[KERN_PHYSMAP]   physmap covering every byte of physical RAM the
+ *                        firmware reported, using 1 GB pages (PDPTE.PS).
+ *                        Lets the kernel reach memory above 4 GB without
+ *                        burning a PD per GB or running afoul of the
+ *                        BOOT_PT_POOL ceiling.
+ *
+ * 1 GB pages have been an AMD64 baseline feature since K10 / Nehalem
+ * (2007-2008); KVM passes them through and the BIOS leaves them enabled.
+ * If a target without them ever appears, fall back to building PDs as in
+ * the original 4-GB-cap version.
  * ========================================================================= */
 
 void pg_identity(kinfo_t *cbi)
@@ -138,8 +148,10 @@ void pg_identity(kinfo_t *cbi)
 
     assert(cbi->mem_high_phys);
 
-    phys_bytes pdpt_ph, physmap_pdpt_ph, physmap_pd_ph;
-    u64_t *physmap_pdpt, *physmap_pd;
+    phys_bytes pdpt_ph, physmap_pdpt_ph;
+    u64_t *physmap_pdpt;
+    phys_bytes physmap_top;
+    int physmap_gbs;
 
     /* Allocate the identity PDPT for PML4[0].  pg_map() will reuse this
      * PDPT and overwrite its PD entries to install 4 KB page tables for
@@ -147,24 +159,10 @@ void pg_identity(kinfo_t *cbi)
     pdpt = alloc_pagetable(&pdpt_ph);
     pml4[0] = (pdpt_ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
 
-    /* Allocate a completely separate PDPT for the kernel physmap (PML4[256]).
-     * Its PDs are also separate so pg_map()'s mutations of the identity PDs
-     * cannot corrupt the physmap's 2 MB bigpage entries. */
-    physmap_pdpt = alloc_pagetable(&physmap_pdpt_ph);
-    pml4[KERN_PHYSMAP_PML4] = (physmap_pdpt_ph & PG_ADDR_MASK)
-                               | PG_PRESENT | PG_WRITE;
-
-    /* Map 4 × 1 GB = 4 GB using 2 MB bigpages.  Each GB gets one PD; the
-     * identity PDs (reachable via pml4[0]) and the physmap PDs (reachable
-     * via pml4[KERN_PHYSMAP_PML4]) are allocated independently. */
+    /* Identity map: 4 × 1 GB = 4 GB using 2 MB bigpages. */
     for (i = 0; i < 4; i++) {
-        /* Identity PD (pml4[0] path). */
         pd = alloc_pagetable(&ph);
         pdpt[i] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
-
-        /* Physmap PD (pml4[KERN_PHYSMAP_PML4] path) — separate allocation. */
-        physmap_pd = alloc_pagetable(&physmap_pd_ph);
-        physmap_pdpt[i] = (physmap_pd_ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
 
         for (j = 0; j < AMD64_ENTRIES; j++) {
             mapped = ((phys_bytes)i * AMD64_HUGE_PAGE_SIZE)
@@ -174,9 +172,31 @@ void pg_identity(kinfo_t *cbi)
             if (mapped >= (cbi->mem_high_phys & ~(AMD64_BIG_PAGE_SIZE - 1)))
                 flags |= PG_PWT | PG_PCD;  /* non-RAM: cache disabled */
 
-            pd[j]         = (mapped & PG_ADDR_MASK) | flags;
-            physmap_pd[j] = (mapped & PG_ADDR_MASK) | flags;
+            pd[j] = (mapped & PG_ADDR_MASK) | flags;
         }
+    }
+
+    /* Physmap (PML4[KERN_PHYSMAP_PML4]): one PDPT, each entry a 1 GB
+     * page covering the corresponding physical GB.  Map enough entries
+     * to span everything firmware reported in mem_high_phys (at least
+     * 4 GB so the legacy 0-4 GB range is always covered, even on
+     * memory-poor configs that round down past it). */
+    physmap_pdpt = alloc_pagetable(&physmap_pdpt_ph);
+    pml4[KERN_PHYSMAP_PML4] = (physmap_pdpt_ph & PG_ADDR_MASK)
+                               | PG_PRESENT | PG_WRITE;
+
+    physmap_top = cbi->mem_high_phys;
+    physmap_gbs = (int)((physmap_top + AMD64_HUGE_PAGE_SIZE - 1)
+                        / AMD64_HUGE_PAGE_SIZE);
+    if (physmap_gbs < 4) physmap_gbs = 4;
+    if (physmap_gbs > AMD64_ENTRIES) physmap_gbs = AMD64_ENTRIES;
+
+    for (i = 0; i < physmap_gbs; i++) {
+        mapped = (phys_bytes)i * AMD64_HUGE_PAGE_SIZE;
+        flags  = PG_PRESENT | PG_WRITE | PG_USER | PG_PS;
+        if (mapped >= (physmap_top & ~(AMD64_HUGE_PAGE_SIZE - 1)))
+            flags |= PG_PWT | PG_PCD;
+        physmap_pdpt[i] = (mapped & PG_ADDR_MASK) | flags;
     }
 }
 

@@ -70,11 +70,22 @@ static u64_t vm_physmap_pml4_entry = 0;
 #else
 #ifdef __arm__
 # define SPAREPAGES 150
-# define STATIC_SPAREPAGES 140 
+# define STATIC_SPAREPAGES 140
+#elif defined(__x86_64__)
+/*
+ * pt_init iterates VM's current PD and pt_ptalloc()s one spare page per
+ * present small-page PDE.  Number of PDEs in use scales with VM's BSS
+ * (one per 2 MB), so 15/20 is enough at a 3 MB BSS (4 GB phys bitmap)
+ * but trips "pt_ptalloc failed" once the bitmap is sized for >32 GB.
+ * 64 covers 128+ MB of BSS, leaving comfortable headroom.  Cost is
+ * ~256 KB of static storage in VM.
+ */
+# define SPAREPAGES 80
+# define STATIC_SPAREPAGES 64
 #else
 # define SPAREPAGES 20
-# define STATIC_SPAREPAGES 15 
-#endif /* __arm__ */
+# define STATIC_SPAREPAGES 15
+#endif /* __arm__ / __x86_64__ */
 #endif
 
 #if defined(__i386__) || defined(__x86_64__)
