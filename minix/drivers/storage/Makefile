@@ -1,11 +1,11 @@
 .include <bsd.own.mk>
 
 .if ${MKIMAGEONLY} == "no"
-.  if ${MACHINE_ARCH} == "i386"
+.  if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 SUBDIR+=	ahci
 SUBDIR+=	fbd
 SUBDIR+=	filter
-.  endif # ${MACHINE_ARCH} == "i386"
+.  endif # i386 || x86_64
 
 .  if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
 SUBDIR+=	virtio_blk

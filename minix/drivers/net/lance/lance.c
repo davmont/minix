@@ -758,10 +758,10 @@ static void lance_init_hw(ether_card_t *ec, netdriver_addr_t *addr,
    /* Allocate memory */
    if ((lance_buf = alloc_contig(LANCE_BUF_SIZE, AC_ALIGN4K|AC_LOWER16M,
      &lance_buf_phys)) == NULL)
-      panic("alloc_contig failed: %d", LANCE_BUF_SIZE);
+      panic("alloc_contig failed: %lu", (unsigned long)LANCE_BUF_SIZE);
 
    l = (vir_bytes)lance_buf;
-   lp = (struct lance_interface *)l;
+   lp = (struct lance_interface *)(uintptr_t)l;
 
    /* disable Tx and Rx */
    lp->init_block.mode = LANCE_CSR15_DTX|LANCE_CSR15_DRX;

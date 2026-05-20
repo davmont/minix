@@ -289,7 +289,7 @@ static ssize_t fbd_transfer_copy(int do_write, u64_t position,
 	assert(count > 0 && count <= SCPVEC_NR);
 
 	if (size > BUF_SIZE) {
-		printf("FBD: allocating memory for %d bytes\n", size);
+		printf("FBD: allocating memory for %zu bytes\n", size);
 
 		ptr = alloc_contig(size, 0, NULL);
 
@@ -431,8 +431,11 @@ static ssize_t fbd_transfer(devminor_t UNUSED(minor), int do_write, u64_t positi
 	}
 	else r = 0;
 
-	if (hooks & POST_HOOK)
-		rule_post_hook(osize, &r);
+	if (hooks & POST_HOOK) {
+		int ir = (int)r;
+		rule_post_hook(osize, &ir);
+		r = ir;
+	}
 
 #if DEBUG
 	printf("FBD: returning %d\n", r);
