@@ -63,15 +63,7 @@ int arch_do_vmctl(
 		m_ptr->SVMCTL_VALUE = (u32_t) p->p_seg.p_cr3;
 		return OK;
 	case VMCTL_SETADDRSPACE:
-		/*
-		 * SVMCTL_PTROOT lives in m1_i3 which is a signed int.  Cast
-		 * through unsigned int first; a plain (u64_t) on a negative
-		 * int sign-extends, turning a >=2 GB CR3 (e.g. 0xbff7b000 on
-		 * a 3-GB system) into 0xffffffffbff7b000 and then #GP-ing in
-		 * write_cr3.  This is the long-standing reason amd64 panics
-		 * around the 2-3 GB boundary.
-		 */
-		setcr3(p, (u64_t)(uint32_t) m_ptr->SVMCTL_PTROOT,
+		setcr3(p, m_ptr->SVMCTL_PTROOT,
 		           (u64_t *) m_ptr->SVMCTL_PTROOT_V);
 		return OK;
 	case VMCTL_FLUSHTLB:
