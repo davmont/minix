@@ -326,10 +326,13 @@ void switch_to_user(void)
 				    _dbg_p ? _dbg_p->p_name : "(null)");
 			}
 		);
-		/* Periodic proc-table dump.  Fires at several checkpoints so
-		 * we can see how state evolves over time on the APIC vs PIC
-		 * paths.
+		/* Periodic proc-table dump (verbose builds only).  Fires at
+		 * several checkpoints so we can see how state evolves over
+		 * time on the APIC vs PIC paths.  Gated like the rest of the
+		 * amd64 bring-up diagnostics (see commit be305b5d6) so it does
+		 * not flood the default boot console.
 		 */
+		BOOT_VERBOSE(
 		if (stu_count == 2000 || stu_count == 5000 ||
 		    stu_count == 10000 || stu_count == 20000 ||
 		    stu_count == 50000) {
@@ -352,6 +355,7 @@ void switch_to_user(void)
 				    (unsigned long long)pp->p_cycles);
 			}
 		}
+		);
 	}
 
 	p = get_cpulocal_var(proc_ptr);

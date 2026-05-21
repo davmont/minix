@@ -21,6 +21,13 @@ _sockfile="/var/run/syslogd.sockets"
 
 syslogd_precmd()
 {
+	#	syslogd bind(2)s its datagram log socket(s) under /var/run
+	#	(/var/run/log and any chroot sockets below).  On a freshly
+	#	created /var ramdisk that directory can be absent, in which
+	#	case the bind fails with "Cannot create `/var/run/log'" and
+	#	syslogd dies.  Make sure it exists before we start.
+	mkdir -p /var/run
+
 	#	Transitional symlink for old binaries
 	#
 	# MINIX 3: unsupported, disabled

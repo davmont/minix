@@ -23,6 +23,13 @@ echo=:
 
 sysdb_start()
 {
+	# The runtime database directories may be missing on a freshly
+	# created /var ramdisk (CD boot) or a minimal install.  The
+	# build_* helpers below write dev.db/utmp into /var/run and
+	# services.cdb/netgroup.db into /var/db, so make sure both exist
+	# first -- otherwise install(1)/*_mkdb fail and sysdb exits non-zero.
+	mkdir -p /var/run /var/db
+
 	echo -n "Building databases:"
 	echo=echo
 	comma=" "
