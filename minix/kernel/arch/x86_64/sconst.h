@@ -6,20 +6,39 @@
 
 /*
  * Offset of the current-process pointer on the kernel stack right after a
- * trap.  On amd64, the CPU pushes SS, RSP, RFLAGS, CS, RIP (5 * 8 bytes)
- * and we additionally push the vector + error code (2 * 8 bytes), giving
- * 7 * 8 = 56 bytes below the saved RBP we push as scratch.
+ * trap, measured from RSP _before_ the SAVE_PROCESS_CTX macro does its
+ * own "push %rbp".
+ *
+ * For a user-mode interrupt (ring 3 → ring 0) the CPU switches to the kernel
+ * stack at tss.rsp0 and pushes SS, RSP, RFLAGS, CS, RIP (5 × 8 = 40 bytes).
+ * The proc pointer was stored at *rsp0 by arch_finish_switch_to_user(), so
+ * it is now 40 bytes above the current RSP, i.e. at (40)(%rsp).
+ *
+ * SAVE_PROCESS_CTX pushes %rbp as a scratch register first (8 more bytes),
+ * so the formula it uses is:
+ *
+ *   (CURR_PROC_PTR + 8 + displ)(%rsp)
+ *
+ * With CURR_PROC_PTR = 40, displ = 0 (hwint stubs, no extra items on stack):
+ *   (40 + 8 + 0) = 48  →  proc_ptr at (48)(%rsp)  ✓
+ *
+ * With displ = 16 (exception_entry, which pre-pushes errcode + vector):
+ *   (40 + 8 + 16) = 64  →  proc_ptr at (64)(%rsp)  ✓  (5+2 items = 56 bytes
+ *                                                        below the saved %rbp)
  */
-#define CURR_PROC_PTR   56
+#define CURR_PROC_PTR   40
 
 /*
  * Test whether the interrupt/exception originated in kernel mode.
- * The CS pushed by the CPU is at (displ)(%rsp) from the current stack top.
- * Kernel CS has the lower 2 RPL bits == 0; user CS has RPL == 3.
+ * The CPU pushes CS in an 8-byte slot; on amd64 the upper 6 bytes are
+ * architecturally implementation-defined (typically zero, but not
+ * guaranteed across all CPUs / KVM combinations).  We can't rely on cmpq
+ * matching the full 8 bytes — testing only the RPL bits is correct and
+ * cheaper.  RPL=0 → kernel; RPL=3 → user.
  */
 #define TEST_INT_IN_KERNEL(displ, label)        \
-	cmpq    $KERN_CS_SELECTOR, displ(%rsp)  ;\
-	je      label                           ;
+	testb   $3, displ(%rsp)                 ;\
+	jz      label                           ;
 
 /*
  * Save all 64-bit general-purpose registers to the process structure pointed
@@ -101,7 +120,9 @@
 	push    %rbp                                                    ;\
 	mov     (CURR_PROC_PTR + 8 + displ)(%rsp), %rbp                ;\
 	SAVE_GP_REGS(%rbp)                                              ;\
-	movq    $trapcode, P_KERN_TRAP_STYLE(%rbp)                      ;\
+	/* p_kern_trap_style is an `int' (4 bytes); use movl so we don't \
+	 * spill 4 bytes of zero into the adjacent p_pcid (u16) field. */\
+	movl    $trapcode, P_KERN_TRAP_STYLE(%rbp)                      ;\
 	pop     %rsi        /* original rbp */                          ;\
 	mov     %rsi, BPREG(%rbp)                                       ;\
 	RESTORE_KERNEL_SEGS                                             ;\

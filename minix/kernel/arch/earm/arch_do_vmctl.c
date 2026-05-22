@@ -43,7 +43,8 @@ int arch_do_vmctl(
 		m_ptr->SVMCTL_VALUE = p->p_seg.p_ttbr;
 		return OK;
 	case VMCTL_SETADDRSPACE:
-		set_ttbr(p, m_ptr->SVMCTL_PTROOT, (u32_t *) m_ptr->SVMCTL_PTROOT_V);
+		set_ttbr(p, (u32_t) m_ptr->SVMCTL_PTROOT,
+			    (u32_t *) m_ptr->SVMCTL_PTROOT_V);
 		return OK;
 	case VMCTL_FLUSHTLB:
 	{

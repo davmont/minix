@@ -33,6 +33,12 @@ build/gas/m68k-parse.c: ${GNUHOSTDIST}/gas/m68k-parse.c
 
 MAKE_ARGS=	MACHINE= MAKEINFO=${TOOL_MAKEINFO:Q}
 
+# Pass HOST_LDFLAGS as a make command-line override so it takes precedence
+# over the LDFLAGS= defined inside the autoconf-generated Makefile.
+.if !empty(HOST_LDFLAGS)
+MAKE_ARGS+=	LDFLAGS=${HOST_LDFLAGS:Q}
+.endif
+
 ALL_TARGET=	all-binutils all-gas all-ld
 INSTALL_TARGET=	install-binutils install-gas install-ld
 .if ${MKCROSSGPROF:Uno} != "no"

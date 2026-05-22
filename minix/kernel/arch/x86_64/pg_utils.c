@@ -64,6 +64,16 @@ static phys_bytes kern_phys_start = (phys_bytes)&_kern_phys_base;
 static phys_bytes kern_kernlen    = (phys_bytes)&_kern_size;
 
 /*
+ * Kernel physical memory map base.  Physical memory is mapped here in every
+ * page table so the kernel can access arbitrary physical addresses even when
+ * a user-process page table (which has no 0-4 GB identity map) is loaded.
+ *
+ * PML4[256] = 0xffff800000000000 — 512 GB range, of which we use 0-4 GB.
+ */
+#define KERN_PHYSMAP        0xffff800000000000ULL
+#define KERN_PHYSMAP_PML4   256
+
+/*
  * Root PML4 table (one per address space; this is the bootstrap copy).
  * During early boot the kernel runs with this table; VM sets up its own later.
  */
@@ -74,7 +84,9 @@ static u64_t pml4[AMD64_ENTRIES] __aligned(AMD64_PAGE_SIZE);
  * After VM is up, all allocation goes through VM's physical allocator.
  * ========================================================================= */
 
-#define BOOT_PT_POOL    16  /* enough for the first 4 GB identity map */
+#define BOOT_PT_POOL    32  /* identity (1 PDPT + 4 PD) + physmap (1 PDPT + 4 PD)
+                             * + kernel mapping (1 PDPT + 1 PD)
+                             * + VM user-space PTs (~10) = ~22 total; 32 gives headroom */
 
 static u64_t boot_pt_pool[BOOT_PT_POOL][AMD64_ENTRIES]
     __aligned(AMD64_PAGE_SIZE);
@@ -110,10 +122,20 @@ void pg_clear(void)
 }
 
 /* =========================================================================
- * pg_identity — identity-map the first ~4 GB using 2 MB pages.
+ * pg_identity — set up two separate page-table trees:
  *
- * We only need PML4[0] → one PDPT → up to 4 PDs (each covering 1 GB).
- * Non-RAM regions (above cbi->mem_high_phys) are marked cache-disabled.
+ *   PML4[0]              identity map of the first 4 GB using 2 MB pages.
+ *                        Only used during early boot, so 4 GB is plenty.
+ *   PML4[KERN_PHYSMAP]   physmap covering every byte of physical RAM the
+ *                        firmware reported, using 1 GB pages (PDPTE.PS).
+ *                        Lets the kernel reach memory above 4 GB without
+ *                        burning a PD per GB or running afoul of the
+ *                        BOOT_PT_POOL ceiling.
+ *
+ * 1 GB pages have been an AMD64 baseline feature since K10 / Nehalem
+ * (2007-2008); KVM passes them through and the BIOS leaves them enabled.
+ * If a target without them ever appears, fall back to building PDs as in
+ * the original 4-GB-cap version.
  * ========================================================================= */
 
 void pg_identity(kinfo_t *cbi)
@@ -126,11 +148,18 @@ void pg_identity(kinfo_t *cbi)
 
     assert(cbi->mem_high_phys);
 
-    /* Allocate the PDPT. */
-    pdpt = alloc_pagetable(&ph);
-    pml4[0] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
+    phys_bytes pdpt_ph, physmap_pdpt_ph;
+    u64_t *physmap_pdpt;
+    phys_bytes physmap_top;
+    int physmap_gbs;
 
-    /* Map 4 × 1 GB = 4 GB total using 2 MB pages per PD. */
+    /* Allocate the identity PDPT for PML4[0].  pg_map() will reuse this
+     * PDPT and overwrite its PD entries to install 4 KB page tables for
+     * user-space sections; those writes must NOT affect the physmap. */
+    pdpt = alloc_pagetable(&pdpt_ph);
+    pml4[0] = (pdpt_ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
+
+    /* Identity map: 4 × 1 GB = 4 GB using 2 MB bigpages. */
     for (i = 0; i < 4; i++) {
         pd = alloc_pagetable(&ph);
         pdpt[i] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE;
@@ -145,6 +174,29 @@ void pg_identity(kinfo_t *cbi)
 
             pd[j] = (mapped & PG_ADDR_MASK) | flags;
         }
+    }
+
+    /* Physmap (PML4[KERN_PHYSMAP_PML4]): one PDPT, each entry a 1 GB
+     * page covering the corresponding physical GB.  Map enough entries
+     * to span everything firmware reported in mem_high_phys (at least
+     * 4 GB so the legacy 0-4 GB range is always covered, even on
+     * memory-poor configs that round down past it). */
+    physmap_pdpt = alloc_pagetable(&physmap_pdpt_ph);
+    pml4[KERN_PHYSMAP_PML4] = (physmap_pdpt_ph & PG_ADDR_MASK)
+                               | PG_PRESENT | PG_WRITE;
+
+    physmap_top = cbi->mem_high_phys;
+    physmap_gbs = (int)((physmap_top + AMD64_HUGE_PAGE_SIZE - 1)
+                        / AMD64_HUGE_PAGE_SIZE);
+    if (physmap_gbs < 4) physmap_gbs = 4;
+    if (physmap_gbs > AMD64_ENTRIES) physmap_gbs = AMD64_ENTRIES;
+
+    for (i = 0; i < physmap_gbs; i++) {
+        mapped = (phys_bytes)i * AMD64_HUGE_PAGE_SIZE;
+        flags  = PG_PRESENT | PG_WRITE | PG_USER | PG_PS;
+        if (mapped >= (physmap_top & ~(AMD64_HUGE_PAGE_SIZE - 1)))
+            flags |= PG_PWT | PG_PCD;
+        physmap_pdpt[i] = (mapped & PG_ADDR_MASK) | flags;
     }
 }
 
@@ -192,7 +244,13 @@ int pg_mapkernel(void)
         pa  += AMD64_BIG_PAGE_SIZE;
     }
 
-    return pml4_idx(kern_vir_start); /* first PML4 index used */
+    /*
+     * Return a freepde_start value for the VM server's single PD (which covers
+     * 0–1 GB).  PD[0..255] are reserved for user-space mappings (0–512 MB) and
+     * PD[256..511] are available for kernel-device and pagedir mappings.
+     */
+    (void)pml4_idx(kern_vir_start); /* suppress unused-variable warning */
+    return 256;
 }
 
 /* =========================================================================
@@ -258,6 +316,7 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
                 pdpt = alloc_pagetable(&ph);
                 pml4[ml4i] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE | PG_USER;
             } else {
+                pml4[ml4i] |= PG_USER;
                 pdpt = (u64_t *)(uintptr_t)(pml4[ml4i] & PG_ADDR_MASK);
             }
 
@@ -266,6 +325,7 @@ void pg_map(phys_bytes phys, vir_bytes vaddr, vir_bytes vaddr_end,
                 pd = alloc_pagetable(&ph);
                 pdpt[dpti] = (ph & PG_ADDR_MASK) | PG_PRESENT | PG_WRITE | PG_USER;
             } else {
+                pdpt[dpti] |= PG_USER;
                 pd = (u64_t *)(uintptr_t)(pdpt[dpti] & PG_ADDR_MASK);
             }
 
@@ -316,16 +376,20 @@ phys_bytes pg_roundup(phys_bytes b)
 
 void vm_enable_paging(void)
 {
-    reg_t cr0, cr4;
+    reg_t cr4;
 
     cr4 = read_cr4();
     cr4 |= CR4_PAE;
     cr4 |= CR4_PGE;     /* global pages */
     write_cr4(cr4);
 
-    cr0 = read_cr0();
-    cr0 |= CR0_PG | CR0_WP;
-    write_cr0(cr0);
+    /*
+     * CR0.PG and CR0.WP are already set by head.S before entering long mode.
+     * Re-issuing write_cr0 with those bits while paging is already on causes
+     * KVM to re-validate the page tables and fault.  Skip the CR0 write here;
+     * prot_init() will call vm_enable_paging() again after paged page tables
+     * are loaded, at which point CR0 is already correct.
+     */
 }
 
 /* =========================================================================
@@ -348,11 +412,21 @@ void cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end)
 {
     int m;
     phys_bytes o;
+    int cuts = 0;
 
     if ((o = start % AMD64_PAGE_SIZE)) start -= o;
     if ((o = end   % AMD64_PAGE_SIZE)) end   += AMD64_PAGE_SIZE - o;
 
     assert(kernel_may_alloc);
+
+    /* Note: this routine is compiled into both the paged and unpaged
+     * namespaces; the unpaged copy can't safely reach `verboseboot`
+     * (a high-virtual symbol unmapped during early boot), so the
+     * CUT: diagnostics here stay unconditional.  They fire only
+     * during early memmap setup and acpi_reserve_tables(), not
+     * continuously — minor noise on the default boot path. */
+    printf("CUT: request [0x%lx, 0x%lx) mmap_size=%d\n",
+        (unsigned long)start, (unsigned long)end, cbi->mmap_size);
 
     for (m = 0; m < cbi->mmap_size; m++) {
         phys_bytes substart = start, subend = end;
@@ -363,11 +437,19 @@ void cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end)
         if (subend   > memend ) subend   = memend;
         if (substart >= subend) continue;
 
+        printf("CUT:   chunk %d [0x%lx, 0x%lx) -> cut [0x%lx, 0x%lx)\n",
+            m, (unsigned long)memaddr, (unsigned long)memend,
+            (unsigned long)substart, (unsigned long)subend);
+        cuts++;
+
         cbi->memmap[m].mm_base_addr = cbi->memmap[m].mm_length = 0;
         if (substart > memaddr)
             add_memmap(cbi, memaddr, substart - memaddr);
         if (subend < memend)
             add_memmap(cbi, subend, memend - subend);
+    }
+    if (cuts == 0) {
+        printf("CUT:   no chunk overlapped — no-op\n");
     }
 }
 
@@ -429,6 +511,7 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
 {
     int m;
     multiboot_memory_map_t *mmap;
+    phys_bytes ret;
 
     assert(kernel_may_alloc);
 
@@ -440,7 +523,20 @@ phys_bytes pg_alloc_page(kinfo_t *cbi)
 
         mmap->mm_length -= AMD64_PAGE_SIZE;
         cbi->kernel_allocated_bytes_dynamic += AMD64_PAGE_SIZE;
-        return mmap->mm_base_addr + mmap->mm_length;
+        ret = mmap->mm_base_addr + mmap->mm_length;
+        /* Diagnostic: log if an allocation hits the ACPI table region.
+         * Unconditional because this routine is compiled into the
+         * unpaged namespace too (where BOOT_VERBOSE / verboseboot
+         * aren't reachable yet).  The check is narrow so the print
+         * fires only when something interesting happens. */
+        if (ret >= 0x3ffe0000 && ret < 0x40000000) {
+            printf("PGALLOC: returning 0x%lx (m=%d chunk[%lx,%lx))\n",
+                (unsigned long)ret, m,
+                (unsigned long)mmap->mm_base_addr,
+                (unsigned long)(mmap->mm_base_addr + mmap->mm_length
+                                + AMD64_PAGE_SIZE));
+        }
+        return ret;
     }
 
     panic("can't find free memory");

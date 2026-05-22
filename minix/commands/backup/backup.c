@@ -144,7 +144,9 @@ int main(int argc, char *argv[])
   }
   for(entries = 0; entries < MAX_ENTRIES && (e=readdir(DIR1)); entries++) {
 	memcpy(&dir_ent[entries].de, e, sizeof(*e));
-	snprintf(dir_ent[entries].d_name, MAXNAMLEN, "%s", e->d_name);
+	if ((size_t)snprintf(dir_ent[entries].d_name, MAXNAMLEN, "%s",
+	    e->d_name) >= MAXNAMLEN)
+		error(FATAL, "file name too long: ", e->d_name, "");
   }
   closedir(DIR1);
   if (entries == MAX_ENTRIES)
@@ -177,8 +179,8 @@ void maketarget(char *dir2)
   if (make_dir(dir2) == 0) return;	/* we just made it */
 
   /* We have to try creating all the higher level directories. */
-  strncpy(dbuf, dir2, sizeof(dbuf) - 1);
-  dbuf[sizeof(dbuf) - 1] = '\0';
+  if (strlcpy(dbuf, dir2, sizeof(dbuf)) >= sizeof(dbuf))
+	error(FATAL, "target directory too long: ", dir2, "");
   p = dbuf + 1;
   while (1) {
 	while (*p != '/' && *p != '\0') p++;
@@ -230,7 +232,12 @@ int stat_all(char *dir1, int n)
 	if (dir_ent[i].de.d_ino == 0) continue;
 
 	/* Stat the file. */
-	snprintf(cbuf, sizeof(cbuf), "%s/%s", dir1, dir_ent[i].d_name);
+	if ((size_t)snprintf(cbuf, sizeof(cbuf), "%s/%s", dir1,
+	    dir_ent[i].d_name) >= sizeof(cbuf)) {
+		error(NONFATAL, "path too long: ", dir1, dir_ent[i].d_name);
+		dir_ent[i].de.d_ino = 0;	/* mark as unusable */
+		continue;
+	}
 	if (stat(cbuf, &s) < 0) {
 		error(NONFATAL, "cannot stat ", cbuf, "");
 		dir_ent[i].de.d_ino = 0;	/* mark as unusable */
@@ -287,12 +294,20 @@ void process(int m, char *dir1, char *dir2)
 	fmode = sp->mode & S_IFMT;
 	if (fmode == S_IFREG) {
 		/* Regular file.  Construct target name and stat it. */
-		snprintf(cbuf, sizeof(cbuf), "%s/%s", dir2, sp->namep);
+		if ((size_t)snprintf(cbuf, sizeof(cbuf), "%s/%s", dir2,
+		    sp->namep) >= sizeof(cbuf)) {
+			error(NONFATAL, "path too long: ", dir2, sp->namep);
+			continue;
+		}
 		namlen = strlen(sp->namep);
 		/* Switch between compressed and uncompressed file names */
 		if (zflag && !rflag && strncmp((sp->namep + namlen - 2), ".Z", (size_t)2)
-				&& (namlen <= (NAME_SIZE - 2)))
-			strncat(cbuf, ".Z", (size_t)2);
+				&& (namlen <= (NAME_SIZE - 2))) {
+			if (strlcat(cbuf, ".Z", sizeof(cbuf)) >= sizeof(cbuf)) {
+				error(NONFATAL, "path too long for .Z: ", cbuf, "");
+				continue;
+			}
+		}
 		if (zflag && rflag && !strncmp((sp->namep + namlen - 2), ".Z", (size_t)2))
 			cbuf[strlen(cbuf) - 2] = '\0';
 		er = stat(cbuf, &s);
@@ -319,7 +334,7 @@ void process(int m, char *dir1, char *dir2)
 		copydir(dir1, dir2, sp->namep);
 	} else if (fmode == S_IFBLK || fmode == S_IFCHR) {
 		/* Special file. */
-		strncpy(cbuf, sp->namep, sizeof(cbuf));
+		strlcpy(cbuf, sp->namep, sizeof(cbuf));
 		printf("%s is special file.  Not backed up.\n", cbuf);
 	}
   }
@@ -369,7 +384,11 @@ int copy(char *dir1, struct sorted *sp, char *cbuf2)
   }
   res = 0;
   if (dflag) return(0);		/* backup -d means only directories */
-  snprintf(cbuf1, sizeof(cbuf1), "%s/%s", dir1, sp->namep);
+  if ((size_t)snprintf(cbuf1, sizeof(cbuf1), "%s/%s", dir1,
+      sp->namep) >= sizeof(cbuf1)) {
+	error(NONFATAL, "source path too long: ", dir1, sp->namep);
+	return(0);
+  }
 
   /* At this point, cbuf1 contains the source file name, cbuf2 the target. */
   fd1 = open(cbuf1, O_RDONLY);
@@ -462,11 +481,8 @@ int zcopy(char *src, char *targ)
   char fbuf[20];
 
   /* These flags go for compress and gzip. */
-  strcpy(fbuf, "-c");
-  if (rflag)
-	strcat(fbuf, "d");
-  else
-	strcat(fbuf, "f");
+  if ((size_t)snprintf(fbuf, sizeof(fbuf), "-c%c", rflag ? 'd' : 'f') >= sizeof(fbuf))
+	error(FATAL, "fbuf too small", "", "");
 
   if ((pid = fork()) < 0) error(FATAL, "cannot fork", "", "");
   if (pid > 0) {
@@ -502,18 +518,23 @@ void copydir(char *dir1, char *dir2, char *namep)
   fbuf[0] = '\0';
 
   /* Handle directory copy by forking off 'backup' ! */
-  if (jflag || mflag || oflag || rflag || sflag || tflag || vflag || zflag)
-	strcpy(fbuf, "-");
-  if (jflag) strcat(fbuf, "j");
-  if (mflag) strcat(fbuf, "m");
-  if (oflag) strcat(fbuf, "o");
-  if (rflag) strcat(fbuf, "r");
-  if (sflag) strcat(fbuf, "s");
-  if (tflag) strcat(fbuf, "t");
-  if (vflag) strcat(fbuf, "v");
-  if (zflag) strcat(fbuf, "z");
-  snprintf(d1buf, sizeof(d1buf), "%s/%s", dir1, namep);
-  snprintf(d2buf, sizeof(d2buf), "%s/%s", dir2, namep);
+  if (jflag || mflag || oflag || rflag || sflag || tflag || vflag || zflag) {
+	if ((size_t)snprintf(fbuf, sizeof(fbuf), "-%s%s%s%s%s%s%s%s",
+	    jflag ? "j" : "", mflag ? "m" : "", oflag ? "o" : "",
+	    rflag ? "r" : "", sflag ? "s" : "", tflag ? "t" : "",
+	    vflag ? "v" : "", zflag ? "z" : "") >= sizeof(fbuf)) {
+		error(NONFATAL, "too many flags", "", "");
+		return;
+	}
+  }
+  if ((size_t)snprintf(d1buf, sizeof(d1buf), "%s/%s", dir1, namep) >= sizeof(d1buf)) {
+	error(NONFATAL, "path too long: ", dir1, namep);
+	return;
+  }
+  if ((size_t)snprintf(d2buf, sizeof(d2buf), "%s/%s", dir2, namep) >= sizeof(d2buf)) {
+	error(NONFATAL, "path too long: ", dir2, namep);
+	return;
+  }
 
   if ((pid = fork()) < 0) error(FATAL, "cannot fork", "", "");
   if (pid > 0) {

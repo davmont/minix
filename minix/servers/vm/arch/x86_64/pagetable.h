@@ -1,6 +1,9 @@
 #ifndef _PAGETABLE_H
 #define _PAGETABLE_H 1
 
+/* Page-table entry type: 64-bit on amd64, 32-bit on i386. */
+typedef u64_t pte_t;
+
 #include <stdint.h>
 #include <machine/vm.h>
 

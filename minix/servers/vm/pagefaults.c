@@ -81,6 +81,28 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	vir_bytes offset;
 	int p, wr = PFERR_WRITE(err);
 	int io = 0;
+	/* Track repeats of (ep,addr) to detect VM never satisfying a fault. */
+	static endpoint_t pfdbg_last_ep = NONE;
+	static vir_bytes pfdbg_last_addr = 0;
+	static unsigned pfdbg_repeat = 0;
+	static unsigned pfdbg_printed = 0;
+	int pfdbg_loud = 0;
+	if (ep == pfdbg_last_ep && addr == pfdbg_last_addr) {
+		pfdbg_repeat++;
+		if ((pfdbg_repeat == 5 || pfdbg_repeat == 50 ||
+		     (pfdbg_repeat % 500) == 0) && pfdbg_printed < 20) {
+			pfdbg_loud = 1;
+			pfdbg_printed++;
+			printf("VM: PFLOOP entry: ep=%d addr=0x%lx err=0x%lx "
+			    "retry=%d repeat=%u\n",
+			    ep, (unsigned long)addr, (unsigned long)err,
+			    retry, pfdbg_repeat);
+		}
+	} else {
+		pfdbg_last_ep = ep;
+		pfdbg_last_addr = addr;
+		pfdbg_repeat = 1;
+	}
 
 	if(vm_isokendpt(ep, &p) != OK)
 		panic("handle_pagefault: endpoint wrong: %d", ep);
@@ -138,6 +160,10 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 		vmp->vm_minor_page_fault++;
 
 	if(result == SUSPEND) {
+		if (pfdbg_loud)
+			printf("VM: PFLOOP exit: SUSPEND ep=%d addr=0x%lx "
+			    "(waiting on async I/O callback)\n",
+			    ep, (unsigned long)addr);
 		return;
 	}
 
@@ -152,6 +178,10 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 
         pt_clearmapcache();
 
+	if (pfdbg_loud)
+		printf("VM: PFLOOP exit: OK ep=%d addr=0x%lx wr=%d io=%d "
+		    "(about to CLEAR_PAGEFAULT)\n",
+		    ep, (unsigned long)addr, wr, io);
 	/* Pagefault is handled, so now reactivate the process. */
 	if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
 		panic("do_pagefaults: sys_vmctl failed: %d", ep);

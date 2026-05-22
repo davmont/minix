@@ -68,7 +68,7 @@ struct gatedesc64_s {
  * ========================================================================= */
 
 /*
- * GDT: null + kern_cs + kern_ds + user_cs + user_ds + per-cpu TSS pairs.
+ * GDT: null + kern_cs + kern_ds + user_cs_compat + user_ds + user_cs64 + per-cpu TSS pairs.
  * Each TSS takes two 8-byte slots (treated as one 16-byte sysdesc_s).
  */
 static struct segdesc_s gdt[GDT_SIZE] __aligned(DESC_SIZE);
@@ -79,6 +79,16 @@ struct tss_s tss[CONFIG_MAX_CPUS];
 
 /* Per-CPU kernel stack top pointers (also stored in TSS.RSP0). */
 u64_t k_percpu_stacks[CONFIG_MAX_CPUS];
+
+/*
+ * Per-CPU GS-base scratch area for the SYSCALL path.
+ * syscall_entry does: swapgs; mov %rsp,%gs:0; mov %gs:8,%rsp
+ * IA32_KERNEL_GS_BASE must point here so that GS:8 == tss[cpu].rsp0.
+ */
+struct percpu_gs_s {
+    u64_t user_rsp;    /* offset 0: scratch for user RSP during SYSCALL */
+    u64_t kernel_rsp;  /* offset 8: kernel RSP (== tss[cpu].rsp0) */
+} percpu_gs[CONFIG_MAX_CPUS];
 
 int prot_init_done = 0;
 
@@ -177,6 +187,29 @@ int tss_init(unsigned cpu, void *kernel_stack)
     *((reg_t *)(uintptr_t)(t->rsp0 + sizeof(reg_t))) = (reg_t)cpu;
 
     /*
+     * Initialize the GS-base scratch area for this cpu.  Its kernel_rsp
+     * mirrors tss[cpu].rsp0 so that syscall_entry's
+     *   swapgs; mov %gs:8, %rsp
+     * loads the right per-cpu kernel stack.
+     *
+     * IA32_KERNEL_GS_BASE is a per-CPU MSR: writing it changes the value
+     * for the CPU currently executing this function, not for `cpu'.  So
+     * we must only program it when initializing the CPU we are running
+     * on.  Initializing TSS data for *other* CPUs (e.g. APs that are not
+     * yet brought up) must not clobber the BSP's MSR -- otherwise
+     * syscall_entry on the BSP would later swapgs to another CPU's
+     * percpu_gs and land on the wrong kernel stack.
+     */
+    percpu_gs[cpu].user_rsp   = 0;
+    percpu_gs[cpu].kernel_rsp = t->rsp0;
+    if (cpu == cpuid) {
+        u64_t gs_base = (u64_t)(uintptr_t)&percpu_gs[cpu];
+        ia32_msr_write(AMD_MSR_KERNEL_GS_BASE,
+                       (u32_t)(gs_base >> 32),
+                       (u32_t)(gs_base & 0xFFFFFFFFU));
+    }
+
+    /*
      * IST1: dedicated double-fault stack so a stack overflow cannot
      * prevent the double-fault handler from running.
      */
@@ -214,12 +247,14 @@ int tss_init(unsigned cpu, void *kernel_stack)
 
         /*
          * STAR: high 32 bits contain selector pair.
-         * Bits[47:32] = KERN_CS_SELECTOR  -> SYSCALL CS.
-         * Bits[63:48] = USER_CS_SELECTOR  -> SYSRET CS.
+         * Bits[47:32] = KERN_CS_SELECTOR        -> SYSCALL CS.
+         * Bits[63:48] = USER_CS_COMPAT_SELECTOR -> SYSRETQ arithmetic base:
+         *               SYSRETQ CS = +16 = USER_CS_SELECTOR (GDT[5])
+         *               SYSRETQ SS = +8  = USER_DS_SELECTOR (GDT[4])
          * Low 32 bits = entry point (ignored in 64-bit mode; use LSTAR).
          */
         star_lo = 0;
-        star_hi = ((u32_t)USER_CS_SELECTOR << 16) | KERN_CS_SELECTOR;
+        star_hi = ((u32_t)USER_CS_COMPAT_SELECTOR << 16) | KERN_CS_SELECTOR;
         ia32_msr_write(AMD_MSR_STAR, star_hi, star_lo);
 
         /* LSTAR = syscall_entry handler address. */
@@ -232,6 +267,14 @@ int tss_init(unsigned cpu, void *kernel_stack)
 
         /* FMASK: clear IF (bit 9) on SYSCALL so interrupts are off. */
         ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)IF_MASK);
+
+        /*
+         * Tell userland that SYSCALL is wired up.  On amd64 SYSCALL is part of
+         * the long-mode ABI and always available, so we set this unconditionally
+         * after the MSRs above are configured.  Without this flag,
+         * arch_phys_map_reply() exposes the slower softint stubs to libc.
+         */
+        minix_feature_flags |= MKF_I386_AMD_SYSCALL;
     }
 
     return (int)SEG_SELECTOR(index);
@@ -397,8 +440,9 @@ void prot_init(void)
     /* Build GDT entries. */
     init_codeseg64(KERN_CS_INDEX, INTR_PRIVILEGE);
     init_dataseg64(KERN_DS_INDEX, INTR_PRIVILEGE);
-    init_codeseg64(USER_CS_INDEX, USER_PRIVILEGE);
+    init_codeseg64(USER_CS_COMPAT_INDEX, USER_PRIVILEGE);
     init_dataseg64(USER_DS_INDEX, USER_PRIVILEGE);
+    init_codeseg64(USER_CS_INDEX, USER_PRIVILEGE);
 
     tss_init(0, &k_boot_stktop);
 
@@ -457,6 +501,8 @@ int libexec_clear_memset(struct exec_info *execi, vir_bytes vaddr, size_t len)
 
 static int libexec_pg_alloc(struct exec_info *execi, vir_bytes vaddr, size_t len)
 {
+    BOOT_VERBOSE(printf("PGAL: vaddr=0x%lx len=%zu (will pg_map+memset)\n",
+        (unsigned long)vaddr, len));
     pg_map(PG_ALLOCATEME, vaddr, vaddr + len, &kinfo);
     pg_load();
     memset((char *)vaddr, 0, len);
@@ -511,6 +557,42 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
         execi.allocmem_prealloc_cleared = libexec_pg_alloc;
         execi.allocmem_ondemand        = libexec_pg_alloc;
         execi.clearproc                = NULL;
+
+        /* Copy the ELF binary to high physical memory (second gigabyte).
+         * libexec_pg_alloc calls pg_map(PG_ALLOCATEME,...) which replaces
+         * 2MB identity-map PD entries for the VM's virtual address range.
+         * This destroys the identity mapping of the original module pages
+         * (physical ~0x7FC000) after the first segment is allocated, making
+         * subsequent reads through execi.hdr return zeros.  Placing the copy
+         * at the top of physical RAM (allocated via pg_alloc_page) puts it in
+         * PDPT[1] (1-2 GB) which none of the low-vaddr allocations touch. */
+#ifndef AMD64_PAGE_SIZE
+#define AMD64_PAGE_SIZE 4096UL
+#endif
+        {
+            /* Use alloc_lowest() to get a CONTIGUOUS phys range.  The
+             * previous code (loop calling pg_alloc_page n_pages times +
+             * memcpy from "lowest base") was buggy because pg_alloc_page
+             * doesn't guarantee allocations come from the same chunk —
+             * when the highest-index chunk runs dry it falls back to
+             * another chunk, and the resulting `base = lowest of N
+             * scattered pages` doesn't actually own the contiguous N×4KB
+             * range that memcpy then writes.  In practice that monolithic
+             * memcpy clobbered the ACPI tables at phys 0x3ffe2335 and
+             * broke the userspace ACPI service. */
+            extern phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
+            size_t mod_len  = execi.hdr_len;
+            phys_bytes base;
+            base = alloc_lowest(&kinfo, mod_len);
+            BOOT_VERBOSE(printf(
+                "VMCOPY: base=0x%lx mod_len=%zu (contig phys [0x%lx, 0x%lx))\n",
+                (unsigned long)base, mod_len,
+                (unsigned long)base,
+                (unsigned long)(base + roundup(mod_len, AMD64_PAGE_SIZE))));
+            memcpy((void *)(uintptr_t)base, execi.hdr, mod_len);
+            execi.hdr     = (char *)(uintptr_t)base;
+            execi.filesize = execi.hdr_len = mod_len;
+        }
 
         if (libexec_load_elf(&execi) != OK)
             panic("VM loading failed");

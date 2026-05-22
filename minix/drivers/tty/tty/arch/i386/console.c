@@ -944,6 +944,12 @@ tty_t *tp;
 	if ((s=sys_readbios(VDU_FONTLINES_ADDR, &bios_fontlines, VDU_FONTLINES_SIZE)) != OK)
 		panic("sys_readbios failed for VDU_FONTLINES: %d", s);
 
+	/* Fall back to standard 80x25 VGA text mode defaults. */
+	if (!bios_columns)   bios_columns   = 80;
+	if (!bios_crtbase)   bios_crtbase   = 0x3D4;
+	if (!bios_rows)      bios_rows      = 24;
+	if (!bios_fontlines) bios_fontlines = 16;
+
   	vid_port = bios_crtbase;
   	scr_width = bios_columns;
   	font_lines = bios_fontlines;

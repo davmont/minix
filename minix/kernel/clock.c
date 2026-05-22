@@ -78,6 +78,20 @@ int timer_int_handler(void)
 
 	struct proc * p, * billp;
 
+	{
+		static unsigned tih_count = 0;
+		static unsigned tih_last_printed = 0;
+		tih_count++;
+		/* Print every 100th fire so we can see frequency without flood. */
+		BOOT_VERBOSE(
+			if (tih_count <= 10 ||
+			    (tih_count - tih_last_printed) >= 100) {
+				printf("tih#%u\n", tih_count);
+				tih_last_printed = tih_count;
+			}
+		);
+	}
+
 	/* FIXME watchdog for slave cpus! */
 #ifdef USE_WATCHDOG
 	/*

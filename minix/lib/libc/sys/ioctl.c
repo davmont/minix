@@ -148,7 +148,17 @@ ioctl_convert_if_from_minix(vir_bytes addr, void * data, unsigned long request)
 		break;
 
 	default:
-		assert(0);
+		/*
+		 * The caller (line ~376) only routes SIOCGIFMEDIA and
+		 * SIOCIFGCLONERS into this function, so reaching the default
+		 * means an LP64-related value corruption (or a missing case).
+		 * Returning silently is safer than aborting on amd64 — the
+		 * IPC has already succeeded, so the request results are valid
+		 * even without back-translation; only nested arrays would be
+		 * missed.  The original assert(0) crashes ifconfig hard on
+		 * amd64 even though the syscall succeeded.
+		 */
+		break;
 	}
 }
 

@@ -39,8 +39,9 @@ cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
 banner=Welcome to the MINIX 3 installation CD
 banner================================================================================
 banner=
-menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1
-menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes
+menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1
+menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 ahci=yes
+menu=MINIX 3 (serial console, verbose):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 console=tty00 verbose=3
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
@@ -64,6 +65,14 @@ add_file_spec "boot.cfg" extra.cdfiles
 # set correct message of the day (log in and install tip)
 cp releasetools/release/cd/etc/issue ${ROOT_DIR}/etc/issue
 add_file_spec "etc/issue" extra.cdfiles
+
+# /CD marker — etc/usr/rc tests `[ ! -f /CD ]` to skip cron and bind
+# /var/log into /tmp on CD boots.  release.sh creates this for full
+# release images; we need it here too so amd64_cdimage.sh ISOs behave
+# the same way.  Without it the CD boot tries to start cron, which
+# isn't useful from a read-only root anyway.
+date > ${ROOT_DIR}/CD
+add_file_spec "CD" extra.cdfiles
 
 echo "Bundling packages..."
 bundle_packages "$BUNDLE_PACKAGES"

@@ -258,7 +258,7 @@ void makecontext(ucontext_t *ucp, void (*func)(void), int argc, ...)
 
 	/* If we ran out of stack space, invalidate stack pointer. */
 	if (gr[_REG_RSP] == 0 ||
-	    (uintptr_t)sp >= (uintptr_t)ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size) {
+	    (uintptr_t)sp > (uintptr_t)ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size) {
 		gr[_REG_RSP] = 0;
 	}
 	}

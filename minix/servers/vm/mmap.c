@@ -357,6 +357,15 @@ int do_map_phys(message *m)
 
 	m->m_lsys_vm_map_phys.reply = (void *) (vr->vaddr + offset);
 
+	/* Diagnostic: log high-phys directphys mappings. */
+	if (startaddr >= 0x10000000) {
+		printf("VM: do_map_phys ep=%d startaddr=0x%lx len=%lu offset=%zu "
+		    "vr->vaddr=0x%lx reply=%p\n",
+		    target, (unsigned long)startaddr, (unsigned long)len,
+		    offset, (unsigned long)vr->vaddr,
+		    m->m_lsys_vm_map_phys.reply);
+	}
+
 	return OK;
 }
 

@@ -49,11 +49,20 @@
  * process cycle counter, dispatch the handler, send EOI, and jump to
  * switch_to_user().  When nested (kernel was already running) we save
  * a minimal frame, handle it, and return with IRETQ.
+ *
+ * TEST_INT_IN_KERNEL checks CS (at RSP+8 after the CPU-pushed frame with no
+ * extra stub items):
+ *   RSP+0 = RIP, RSP+8 = CS, RSP+16 = RFLAGS, [RSP+24=RSP, RSP+32=SS for ring-3]
+ *
+ * In the kernel-nested path (0:) we push 9 caller-saved regs (72 bytes).
+ * For a ring-0 interrupt (3 CPU items): RFLAGS is at RSP+(9+2)*8 = 11*8
+ * after those pushes, so CLEAR_IF uses offset 11*8.
  */
 #define hwint_master(irq)                                               \
-    TEST_INT_IN_KERNEL(0, 0f)                                           ;\
+    TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
+    mov     %rbp, %rdi      /* context_stop(proc) arg, amd64 ABI */     ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -76,7 +85,7 @@
     call    _C_LABEL(bkl_unlock_after_intr)                             ;\
     movb    $END_OF_INT, %al                                            ;\
     outb    $INT_CTL                                                    ;\
-    CLEAR_IF(9*8(%rsp))     /* clear IF in saved RFLAGS */              ;\
+    CLEAR_IF(11*8(%rsp))    /* clear IF in saved RFLAGS (ring-0: 9+2=11 slots) */;\
     pop     %r11                                                        ;\
     pop     %r10                                                        ;\
     pop     %r9                                                         ;\
@@ -90,9 +99,10 @@
 
 /* Slave PIC interrupts (IRQ 8-15) — same but also send EOI to slave. */
 #define hwint_slave(irq)                                                \
-    TEST_INT_IN_KERNEL(0, 0f)                                           ;\
+    TEST_INT_IN_KERNEL(8, 0f)                                           ;\
     SAVE_PROCESS_CTX(0, KTS_INT_HARD)                                   ;\
     push    %rbp                                                        ;\
+    mov     %rbp, %rdi      /* context_stop(proc) arg, amd64 ABI */     ;\
     xor     %rbp, %rbp                                                  ;\
     call    _C_LABEL(context_stop)                                      ;\
     pop     %rbp                                                        ;\
@@ -117,7 +127,7 @@
     movb    $END_OF_INT, %al                                            ;\
     outb    $INT_CTL                                                    ;\
     outb    $INT2_CTL                                                   ;\
-    CLEAR_IF(9*8(%rsp))                                                 ;\
+    CLEAR_IF(11*8(%rsp))                                                ;\
     pop     %r11                                                        ;\
     pop     %r10                                                        ;\
     pop     %r9                                                         ;\
@@ -176,13 +186,32 @@ ENTRY(syscall_entry)
     mov     %rsp, %gs:0             /* stash user RSP in per-cpu scratch */
     mov     %gs:8, %rsp             /* load kernel RSP */
 
+    /*
+     * Save user RBP before clobbering it.  The proc pointer lives at the
+     * top of the kernel stack; after push it is at 8(%rsp).
+     */
+    push    %rbp
+
     /* Retrieve the current process pointer. */
-    mov     (%rsp), %rbp            /* proc ptr at top of kernel stack */
+    mov     8(%rsp), %rbp           /* proc ptr (skip our saved rbp) */
 
-    /* Record that we entered via SYSCALL. */
-    movq    $KTS_SYSCALL, P_KERN_TRAP_STYLE(%rbp)
+    /* Record that we entered via SYSCALL.  p_kern_trap_style is `int' (4
+     * bytes); movq would spill into the adjacent p_pcid field. */
+    movl    $KTS_SYSCALL, P_KERN_TRAP_STYLE(%rbp)
 
-    /* Save user RSP and RIP. */
+    /*
+     * Save all user GPRs.  At this point RBP holds the proc ptr so BPREG
+     * is wrong; we fix it immediately after.  RCX = user return RIP and
+     * R11 = user RFLAGS (both set by the SYSCALL instruction) are saved
+     * correctly into CXREG / R11REG.
+     */
+    SAVE_GP_REGS(%rbp)
+
+    /* Fix BPREG with the real user RBP that we pushed above. */
+    pop     %rsi
+    mov     %rsi, BPREG(%rbp)
+
+    /* Save user RSP, RIP, and RFLAGS (PCREG/PSWREG mirror CXREG/R11REG). */
     mov     %gs:0, %rsi
     mov     %rsi, SPREG(%rbp)       /* user RSP */
     mov     %rcx, PCREG(%rbp)       /* user RIP (RCX after SYSCALL) */
@@ -216,16 +245,21 @@ ENTRY(ipc_entry_softint_um)
 ENTRY(ipc_entry_common)
     push    %rbp
 
-    /* Pass syscall arguments (RBX=call, RAX=src_dest, R10=msg_ptr). */
-    mov     %rbx, %rdi
-    mov     %rax, %rsi
-    mov     %r10, %rdx
-
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp
 
+    /*
+     * Load do_ipc(call_nr, src_dest, msg_ptr) args from the proc struct.
+     * SAVE_GP_REGS saved user registers before RESTORE_KERNEL_SEGS corrupted
+     * RAX, and context_stop clobbers all caller-saved regs (RSI, RDX, RDI).
+     * Reading from the proc struct is safe for both INT and SYSCALL paths.
+     */
+    mov     BXREG(%rbp), %rdi   /* call_nr  = user RBX */
+    mov     AXREG(%rbp), %rsi   /* src_dest = user RAX (original, not clobbered) */
+    mov     R10REG(%rbp), %rdx  /* msg_ptr  = user R10 */
     call    _C_LABEL(do_ipc)
 
     pop     %rsi
@@ -246,14 +280,20 @@ ENTRY(kernel_call_entry_um)
 ENTRY(kernel_call_entry_common)
     push    %rbp
 
-    /* RAX = message pointer (first argument in 64-bit SysV ABI: RDI). */
-    mov     %rax, %rdi
-
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp
 
+    /*
+     * Load kernel_call(m_user, caller) args after context_stop.
+     * RAX was corrupted by RESTORE_KERNEL_SEGS (lower 16 bits set to
+     * KERN_DS_SELECTOR); read the original user RAX from the proc struct.
+     * The caller (second arg) is the proc pointer in RBP.
+     */
+    mov     AXREG(%rbp), %rdi   /* m_user  = message ptr (user RAX, original) */
+    mov     %rbp, %rsi          /* caller  = proc ptr */
     call    _C_LABEL(kernel_call)
 
     pop     %rbp
@@ -271,21 +311,24 @@ ENTRY(kernel_call_entry_common)
 ENTRY(restore_user_context_syscall)
     mov     %rdi, %rbp          /* proc ptr passed as first argument */
 
-    /* Restore user RFLAGS -> R11 (SYSRET uses R11). */
-    mov     PSWREG(%rbp), %r11
-
-    /* Restore user RIP -> RCX (SYSRET uses RCX). */
-    mov     PCREG(%rbp), %rcx
-
     /* Restore return value. */
     mov     AXREG(%rbp), %rax
 
     /* Restore user stack. */
     mov     SPREG(%rbp), %rsp
 
-    /* Restore remaining GPRs. */
+    /* Restore remaining GPRs (includes rcx and r11 from proc struct). */
     RESTORE_GP_REGS(%rbp)
-    mov     BPREG(%rbp), %rbp
+
+    /*
+     * SYSRETQ requires RCX=return RIP, R11=return RFLAGS.
+     * Override the just-restored rcx/r11 with the canonical PCREG/PSWREG
+     * values, which is where syscall_entry stored them.
+     */
+    mov     PCREG(%rbp), %rcx
+    mov     PSWREG(%rbp), %r11
+
+    mov     BPREG(%rbp), %rbp   /* restore user RBP last (lose proc ptr) */
 
     sysretq
 
@@ -336,15 +379,18 @@ ENTRY(restore_user_context_int)
  *   RSP
  *   SS
  */
+/* After the exception stubs push errcode + vector (2 × 8 = 16 bytes),
+ * the CPU-pushed CS is at RSP+24 (vector=RSP+0, errcode=RSP+8, RIP=RSP+16, CS=RSP+24). */
 .balign 16
 exception_entry:
-    TEST_INT_IN_KERNEL(16, exception_entry_nested)
+    TEST_INT_IN_KERNEL(24, exception_entry_nested)
 
 exception_entry_from_user:
     /* displ=16: skip over [vector, errcode] already on stack */
     SAVE_PROCESS_CTX(16, KTS_INT_HARD)
 
     push    %rbp
+    mov     %rbp, %rdi
     xor     %rbp, %rbp
     call    _C_LABEL(context_stop)
     pop     %rbp

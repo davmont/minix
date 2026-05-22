@@ -746,9 +746,10 @@ int main(int argc, char **argv)
         assert(progname);	/* an absolute path was required */
         progname++;	/* skip last slash */
       }
-      strcpy(command, req_path);
-      command[strlen(req_path)] = ' ';
-      strcpy(command+strlen(req_path)+1, req_args);
+      if (snprintf(command, sizeof(command), "%s %s", req_path, req_args) >= sizeof(command)) {
+          fprintf(stderr, "%s: command line too long\n", argv[ARG_NAME]);
+          exit(E2BIG);
+      }
 
       if (req_config) {
 	assert(progname);

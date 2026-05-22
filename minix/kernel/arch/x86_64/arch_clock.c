@@ -71,6 +71,23 @@ void stop_8253A_timer(void)
 
 void arch_timer_int_handler(void)
 {
+	/*
+	 * Re-arm the LAPIC one-shot timer from the timer ISR itself.
+	 *
+	 * The normal path is: HW IRQ from user mode → apic/lapic_intr stub
+	 * → handler → jmp switch_to_user → restart_local_timer (re-arms).
+	 * But if the LAPIC timer fires while we are in KERNEL mode (e.g.
+	 * during a printf right before IRETQ), the kernel-context branch
+	 * of lapic_intr() runs the handler, EOIs, then iretq's back —
+	 * without going through switch_to_user, so the one-shot never
+	 * gets re-armed and we permanently lose preemption.  Re-arming
+	 * here makes the timer self-sustaining regardless of which entry
+	 * path serviced it.
+	 */
+#ifdef USE_APIC
+	if (lapic_addr)
+		lapic_restart_timer();
+#endif
 }
 
 void bkl_unlock_after_intr(void)
@@ -159,6 +176,14 @@ int init_local_timer(unsigned freq)
 		tsc_per_ms[cpu] = (unsigned)(cpu_get_freq(cpu) / 1000);
 		tsc_per_tick[cpu] = (unsigned)(cpu_get_freq(cpu) / system_hz);
 		lapic_set_timer_one_shot(1000000 / system_hz);
+		BOOT_VERBOSE(printf(
+		    "init_local_timer: armed for %u us; LVTTR=0x%x ICR=0x%x "
+		    "CCR=0x%x DCR=0x%x\n",
+		    1000000U / system_hz,
+		    lapic_read(LAPIC_LVTTR),
+		    lapic_read(LAPIC_TIMER_ICR),
+		    lapic_read(LAPIC_TIMER_CCR),
+		    lapic_read(LAPIC_TIMER_DCR)));
 	} else {
 		DEBUGBASIC(("Initiating legacy i8253 timer\n"));
 #else
