@@ -144,8 +144,9 @@ int main(int argc, char *argv[])
   }
   for(entries = 0; entries < MAX_ENTRIES && (e=readdir(DIR1)); entries++) {
 	memcpy(&dir_ent[entries].de, e, sizeof(*e));
-	if ((size_t)snprintf(dir_ent[entries].d_name, MAXNAMLEN, "%s",
-	    e->d_name) >= MAXNAMLEN)
+	if ((size_t)snprintf(dir_ent[entries].d_name,
+	    sizeof(dir_ent[entries].d_name), "%s", e->d_name) >=
+	    sizeof(dir_ent[entries].d_name))
 		error(FATAL, "file name too long: ", e->d_name, "");
   }
   closedir(DIR1);
