@@ -93,3 +93,5 @@ vers.c
 i386
 machine
 x86
+minix_amd64.iso
+minix_amd64.iso.bak
