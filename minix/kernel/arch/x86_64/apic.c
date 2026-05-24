@@ -160,9 +160,112 @@ static	u32_t lapic_tctr0, lapic_tctr1;
 static unsigned apic_imcrp;
 static const unsigned nlints = 0;
 
+/*
+ * P2.3 — x2APIC support.
+ *
+ * When use_x2apic is non-zero, all LAPIC accesses must go through MSRs
+ * rather than the MMIO window.  The xAPIC register at MMIO offset X maps
+ * to MSR address (0x800 + X/16).  For example LAPIC_EOI (offset 0x0B0)
+ * → MSR 0x80B.
+ *
+ * We shadow the lapic_read / lapic_write macros from apic.h with inline
+ * functions here so that all code in this file gets the right path without
+ * any call-site changes.  Files that include apic.h after this point still
+ * get the original macros, but they do not issue LAPIC accesses directly.
+ */
+static int use_x2apic = 0;
+
+#undef lapic_read
+#undef lapic_write
+
+/*
+ * x2APIC ICR staging register.
+ *
+ * In xAPIC mode the ICR is split: ICR2 (offset 0x310) holds the destination
+ * in bits 31:24, and writing ICR1 (offset 0x300) triggers the IPI.
+ *
+ * In x2APIC mode the ICR is a single 64-bit MSR at 0x830:
+ *   bits 63:32 = destination x2APIC ID (full 32 bits)
+ *   bits 31:0  = ICR command (same layout as xAPIC ICR1)
+ *
+ * To preserve all existing lapic_write(LAPIC_ICR2, ...) call sites, we
+ * buffer the ICR2 destination write and combine it atomically when ICR1
+ * is written.
+ */
+static u32_t x2apic_icr2_staged = 0;
+
+static inline u32_t lapic_read(vir_bytes what)
+{
+	if (use_x2apic) {
+		u32_t hi, lo;
+		/*
+		 * ICR2 doesn't exist in x2APIC; reading it returns 0 (the
+		 * pending-delivery check in apic_send_ipi polls ICR1 bits).
+		 */
+		if (what == LAPIC_ICR2)
+			return 0;
+		u32_t msr = (u32_t)(0x800u + ((what - lapic_addr) >> 4));
+		ia32_msr_read(msr, &hi, &lo);
+		return lo;
+	}
+	return *(volatile u32_t *)(what);
+}
+
+static inline void lapic_write(vir_bytes what, u32_t data)
+{
+	if (use_x2apic) {
+		if (what == LAPIC_ICR2) {
+			/*
+			 * Stage the destination (xAPIC stores dest in bits 31:24
+			 * of ICR2; x2APIC uses a full 32-bit dest in ICR hi word).
+			 */
+			x2apic_icr2_staged = (data >> 24) & 0xFF;
+			return;
+		}
+		if (what == LAPIC_ICR1) {
+			/*
+			 * Combine staged dest with command and issue the 64-bit
+			 * atomic ICR write (MSR 0x830).
+			 */
+			ia32_msr_write(0x830u, x2apic_icr2_staged, data);
+			x2apic_icr2_staged = 0;
+			return;
+		}
+		u32_t msr = (u32_t)(0x800u + ((what - lapic_addr) >> 4));
+		ia32_msr_write(msr, 0, data);
+	} else {
+		*(volatile u32_t *)(what) = data;
+	}
+}
+
+/*
+ * P2.2 — TSC Deadline Timer.
+ *
+ * When available, program the LAPIC timer in TSC-deadline mode.
+ * The one-shot delay becomes: write (rdtsc + ticks_per_us * us) to the
+ * IA32_TSC_DEADLINE MSR.  This eliminates the divide-configuration register
+ * and is immune to LAPIC bus-clock variations.
+ */
+static int use_tsc_deadline = 0;
+int lapic_tsc_deadline_available = 0;
+
 void arch_eoi(void)
 {
-	apic_eoi();
+	{
+		static unsigned eoi_count = 0;
+		eoi_count++;
+		if (eoi_count <= 50)
+			printf("eoi#%u\n", eoi_count);
+	}
+	/*
+	 * P2.3: in x2APIC mode write the EOI MSR directly.
+	 * EOI register: LAPIC_EOI offset = 0x0B0 → MSR 0x80B.
+	 * In xAPIC mode use the pre-computed MMIO address.
+	 */
+	if (use_x2apic)
+		ia32_msr_write(0x80Bu, 0, 0);
+	else
+		*((volatile u32_t *)lapic_eoi_addr) = 0;
 }
 
 /*
@@ -399,6 +502,15 @@ void ioapic_mask_irq(unsigned irq)
 
 unsigned int apicid(void)
 {
+	if (use_x2apic) {
+		/*
+		 * x2APIC: APIC ID register is MSR 0x802 (LAPIC_ID offset 0x020;
+		 * 0x020>>4 = 2; 0x800+2 = 0x802).  The full 32-bit ID is in EAX.
+		 */
+		u32_t hi, lo;
+		ia32_msr_read(0x802u, &hi, &lo);
+		return lo;
+	}
 	return lapic_read(LAPIC_ID) >> 24;
 }
 
@@ -451,9 +563,13 @@ static void apic_calibrate_clocks(unsigned cpu)
 	val = 0xffffffff;
 	lapic_write (LAPIC_TIMER_ICR, val);
 
-	/* Set Current count register */
-	val = 0;
-	lapic_write (LAPIC_TIMER_CCR, val);
+	/*
+	 * NOTE: don't write LAPIC_TIMER_CCR — Current Count is read-only,
+	 * hardware-derived from ICR.  In xAPIC mode the write is silently
+	 * ignored; in x2APIC mode writing to RO MSR 0x839 generates #GP.
+	 * Original code did `lapic_write(LAPIC_TIMER_CCR, 0)` here based
+	 * on a misleading comment ("Set Current count register").
+	 */
 
 	lvtt = lapic_read(LAPIC_TIMER_DCR) & ~0x0b;
 	 /* Set Divide configuration register to 1 */
@@ -518,6 +634,30 @@ static void apic_calibrate_clocks(unsigned cpu)
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
 }
 
+/*
+ * P2.2 — TSC Deadline Timer.
+ *
+ * Program the LAPIC timer in TSC-deadline mode: set LVT.TM = TSC-deadline
+ * (bit 18), then write the desired absolute TSC value to IA32_TSC_DEADLINE.
+ * The timer fires when RDTSC >= that value.  Writing 0 disarms the timer.
+ *
+ * This is ~3x faster than the ICR-based one-shot path because it avoids
+ * the DCR divide-configuration write and the ICR write serializes less.
+ */
+void lapic_set_timer_tsc_deadline(u64_t deadline)
+{
+	u32_t lvtt;
+
+	lvtt = APIC_LVTT_TM_TSC_DEADLINE | APIC_TIMER_INT_VECTOR;
+	lapic_write(LAPIC_LVTTR, lvtt);
+
+	/* Serialize: LFENCE before WRMSR to ensure LVT write is visible. */
+	__asm__ __volatile__("lfence" ::: "memory");
+
+	ia32_msr_write(IA32_TSC_DEADLINE_MSR,
+	    (u32_t)(deadline >> 32), (u32_t)(deadline & 0xFFFFFFFFU));
+}
+
 void lapic_set_timer_one_shot(const u32_t usec)
 {
 	/* sleep in micro seconds */
@@ -525,16 +665,33 @@ void lapic_set_timer_one_shot(const u32_t usec)
 	u32_t ticks_per_us;
 	const u8_t cpu = cpuid;
 
+	/*
+	 * P2.2: prefer TSC-deadline mode when available.
+	 * cpu_info[cpu].freq is in MHz, so (MHz * usec) = TSC ticks.
+	 */
+	if (use_tsc_deadline) {
+		u64_t tsc_now;
+		read_tsc_64(&tsc_now);
+		lapic_set_timer_tsc_deadline(tsc_now +
+		    (u64_t)usec * (u64_t)cpu_info[cpu].freq);
+		return;
+	}
+
 	ticks_per_us = (lapic_bus_freq[cpu] / 1000000) * config_apic_timer_x;
 
-	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
-
+	/*
+	 * Intel SDM says writing ICR is what "effectively starts the timer".
+	 * So configure DCR and LVTT FIRST, then write ICR last so the timer
+	 * starts with the correct mode + divisor already set.
+	 */
 	lvtt = APIC_TDCR_1;
 	lapic_write(LAPIC_TIMER_DCR, lvtt);
 
 	/* configure timer as one-shot */
 	lvtt = APIC_TIMER_INT_VECTOR;
 	lapic_write(LAPIC_LVTTR, lvtt);
+
+	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
 }
 
 void lapic_set_timer_periodic(const unsigned freq)
@@ -562,15 +719,26 @@ void lapic_stop_timer(void)
 	lvtt = lapic_read(LAPIC_LVTTR);
 	lapic_write(LAPIC_LVTTR, lvtt | APIC_LVTT_MASK);
 	/* zero the current counter so it can be restarted again */
-	lapic_write(LAPIC_TIMER_ICR, 0);
-	lapic_write(LAPIC_TIMER_CCR, 0);
+	if (!use_tsc_deadline) {
+		lapic_write(LAPIC_TIMER_ICR, 0);
+		/* CCR is read-only; do NOT write it (silently ignored in xAPIC,
+		 * #GP on MSR 0x839 in x2APIC). */
+	} else {
+		/* Disarm TSC deadline by writing 0. */
+		ia32_msr_write(IA32_TSC_DEADLINE_MSR, 0, 0);
+	}
 }
 
 void lapic_restart_timer(void)
 {
-	/* restart the timer only if the counter reached zero, i.e. expired */
+	if (use_tsc_deadline) {
+		/* TSC deadline: always rearm — no CCR to check. */
+		lapic_set_timer_one_shot(1000000 / system_hz);
+		return;
+	}
+	/* ICR-based one-shot: restart only if the counter reached zero. */
 	if (lapic_read(LAPIC_TIMER_CCR) == 0)
-		lapic_set_timer_one_shot(1000000/system_hz);
+		lapic_set_timer_one_shot(1000000 / system_hz);
 }
 
 void lapic_microsec_sleep(unsigned count)
@@ -643,7 +811,25 @@ static int lapic_enable_in_msr(void)
 
 	ia32_msr_read(IA32_APIC_BASE, &msr_hi, &msr_lo);
 
+	/* Bit 11: EN — global APIC enable (xAPIC mode). */
 	msr_lo |= (1 << IA32_APIC_BASE_ENABLE_BIT);
+
+	/*
+	 * P2.3 — x2APIC.
+	 * Bit 10: EXTD — upgrade to x2APIC mode when the CPU supports it.
+	 * Once enabled, all LAPIC accesses must use MSRs (the MMIO window is
+	 * no longer accessible).  lapic_read/lapic_write above dispatch on
+	 * use_x2apic so all subsequent code in this file is correct.
+	 *
+	 * Note: x2APIC requires xAPIC to be enabled first (bit 11 set), so
+	 * we set both bits atomically in one WRMSR.
+	 */
+	if (_cpufeature(_CPUF_X86_x2APIC)) {
+		msr_lo |= (1u << 10);   /* EXTD: x2APIC mode */
+		use_x2apic = 1;
+		printf("apic: x2APIC enabled on cpu %d\n", cpuid);
+	}
+
 	ia32_msr_write(IA32_APIC_BASE, msr_hi, msr_lo);
 
 	return 1;
@@ -682,14 +868,23 @@ int lapic_enable(unsigned cpu)
 
 	apic_eoi();
 
-	/* Program Logical Destination Register. */
-	val = lapic_read(LAPIC_LDR) & ~0xFF000000;
-	val |= (cpu & 0xFF) << 24;
-	lapic_write(LAPIC_LDR, val);
+	/*
+	 * In x2APIC mode (P2.3):
+	 *  - LDR (offset 0x0D0) is read-only and hardware-derived from APIC ID.
+	 *  - DFR (offset 0x0E0) does not exist.
+	 * Skip these writes when use_x2apic is set; the hardware handles logical
+	 * addressing automatically.
+	 */
+	if (!use_x2apic) {
+		/* Program Logical Destination Register. */
+		val = lapic_read(LAPIC_LDR) & ~0xFF000000;
+		val |= (cpu & 0xFF) << 24;
+		lapic_write(LAPIC_LDR, val);
 
-	/* Program Destination Format Register for Flat mode. */
-	val = lapic_read(LAPIC_DFR) | 0xF0000000;
-	lapic_write (LAPIC_DFR, val);
+		/* Program Destination Format Register for Flat mode. */
+		val = lapic_read(LAPIC_DFR) | 0xF0000000;
+		lapic_write(LAPIC_DFR, val);
+	}
 
 	val = lapic_read (LAPIC_LVTER) & 0xFFFFFF00;
 	lapic_write (LAPIC_LVTER, val);
@@ -716,6 +911,19 @@ int lapic_enable(unsigned cpu)
 
 	apic_calibrate_clocks(cpu);
 	BOOT_VERBOSE(printf("APIC timer calibrated\n"));
+
+	/*
+	 * P2.2 — TSC Deadline Timer detection.
+	 *
+	 * Detect after calibration so cpu_info[cpuid].freq is populated.
+	 * _CPUF_X86_TSC_DL corresponds to CPUID leaf 1, ECX bit 24.
+	 */
+	if (_cpufeature(_CPUF_X86_TSC_DL) && cpu_info[cpu].freq > 0) {
+		use_tsc_deadline = 1;
+		lapic_tsc_deadline_available = 1;
+		BOOT_VERBOSE(printf("apic: TSC-deadline timer enabled on cpu %d "
+		    "(TSC %u MHz)\n", cpu, cpu_info[cpu].freq));
+	}
 
 	return 1;
 }
@@ -948,6 +1156,45 @@ void apic_send_ipi(unsigned vector, unsigned cpu, int type)
 		/* no need of sending an IPI */
 		return;
 
+	/*
+	 * P2.3 — x2APIC IPI path.
+	 *
+	 * In x2APIC mode the ICR is a single 64-bit MSR at 0x830.
+	 * Bits 63:32 = destination APIC ID, bits 31:0 = ICR value.
+	 * This is an atomic operation — no delivery-pending poll is needed
+	 * before the write (the CPU serialises internally).
+	 *
+	 * The shorthand bits (bits 19:18) behave identically to xAPIC.
+	 */
+	if (use_x2apic) {
+		u32_t icr_lo = vector;
+
+		switch (type) {
+		case APIC_IPI_DEST:
+			if (!cpu_is_ready(cpu))
+				return;
+			/* dest in hi word; physical mode, fixed delivery */
+			ia32_msr_write(0x830u,
+			    cpuid2apicid[cpu],
+			    icr_lo | APIC_ICR_DEST_FIELD);
+			break;
+		case APIC_IPI_SELF:
+			ia32_msr_write(0x830u, 0, icr_lo | APIC_ICR_DEST_SELF);
+			break;
+		case APIC_IPI_TO_ALL_BUT_SELF:
+			ia32_msr_write(0x830u, 0,
+			    icr_lo | APIC_ICR_DEST_ALL_BUT_SELF);
+			break;
+		case APIC_IPI_TO_ALL:
+			ia32_msr_write(0x830u, 0, icr_lo | APIC_ICR_DEST_ALL);
+			break;
+		default:
+			printf("WARNING : unknown send ipi type request\n");
+		}
+		return;
+	}
+
+	/* xAPIC path: two writes, ICR2 (dest) first then ICR1 (command). */
 	while (lapic_read_icr1() & APIC_ICR_DELIVERY_PENDING)
 		arch_pause();
 

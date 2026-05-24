@@ -37,9 +37,9 @@ static int vm_self_pages;
 #define MAX_PAGEDIR_PDES 5
 static struct pdm {
 	int		pdeno;
-	u32_t		val;
+	pte_t		val;
 	phys_bytes	phys;
-	u32_t		*page_directories;
+	pte_t		*page_directories;
 } pagedir_mappings[MAX_PAGEDIR_PDES];
 
 static multiboot_module_t *kern_mb_mod = NULL;
@@ -52,6 +52,14 @@ static int bigpage_ok = 1;
 /* Our process table entry. */
 struct vmproc *vmprocess = &vmproc[VM_PROC_NR];
 
+#if defined(__x86_64__)
+/* PML4[511] — shared kernel mapping.  PML4[256] — physmap (phys 0-4 GB at
+ * VA 0xffff800000000000).  Both captured from bootstrap and written into
+ * every new process's PML4 by pt_mapkernel(). */
+static u64_t vm_kernel_pml4_entry  = 0;
+static u64_t vm_physmap_pml4_entry = 0;
+#endif
+
 /* Spare memory, ready to go after initialization, to avoid a
  * circular dependency on allocating memory and writing it into VM's
  * page table.
@@ -62,15 +70,26 @@ struct vmproc *vmprocess = &vmproc[VM_PROC_NR];
 #else
 #ifdef __arm__
 # define SPAREPAGES 150
-# define STATIC_SPAREPAGES 140 
+# define STATIC_SPAREPAGES 140
+#elif defined(__x86_64__)
+/*
+ * pt_init iterates VM's current PD and pt_ptalloc()s one spare page per
+ * present small-page PDE.  Number of PDEs in use scales with VM's BSS
+ * (one per 2 MB), so 15/20 is enough at a 3 MB BSS (4 GB phys bitmap)
+ * but trips "pt_ptalloc failed" once the bitmap is sized for >32 GB.
+ * 64 covers 128+ MB of BSS, leaving comfortable headroom.  Cost is
+ * ~256 KB of static storage in VM.
+ */
+# define SPAREPAGES 80
+# define STATIC_SPAREPAGES 64
 #else
 # define SPAREPAGES 20
-# define STATIC_SPAREPAGES 15 
-#endif /* __arm__ */
+# define STATIC_SPAREPAGES 15
+#endif /* __arm__ / __x86_64__ */
 #endif
 
 #if defined(__i386__) || defined(__x86_64__)
-static u32_t global_bit = 0;
+static pte_t global_bit = 0;
 #endif
 
 #define SPAREPAGEDIRS 1
@@ -496,7 +515,7 @@ static int pt_ptalloc(pt_t *pt, int pde, u32_t flags)
 /* Allocate a page table and write its address into the page directory. */
 	int i;
 	phys_bytes pt_phys;
-	u32_t *p;
+	pte_t *p;
 
 	/* Argument must make sense. */
 	assert(pde >= 0 && pde < ARCH_VM_DIR_ENTRIES);
@@ -584,7 +603,7 @@ int pt_ptalloc_in_range(pt_t *pt, vir_bytes start, vir_bytes end,
 	return OK;
 }
 
-static const char *ptestr(u32_t pte)
+static const char *ptestr(pte_t pte)
 {
 #define FLAG(constant, name) {						\
 	if(pte & (constant)) { strcat(str, name); strcat(str, " "); }	\
@@ -760,7 +779,7 @@ void pt_clearmapcache(void)
 
 int pt_writable(struct vmproc *vmp, vir_bytes v)
 {
-	u32_t entry;
+	pte_t entry;
 	pt_t *pt = &vmp->vm_pt;
 	assert(!(v % VM_PAGE_SIZE));
 	int pde = ARCH_VM_PDE(v);
@@ -836,7 +855,7 @@ int pt_writemap(struct vmproc * vmp,
 
 	/* Now write in them. */
 	for(p = 0; p < pages; p++) {
-		u32_t entry;
+		pte_t entry;
 		int pde = ARCH_VM_PDE(v);
 		int pte = ARCH_VM_PTE(v);
 
@@ -873,9 +892,17 @@ int pt_writemap(struct vmproc * vmp,
 #elif defined(__arm__)
 		entry = (physaddr & ARM_VM_PTE_MASK) | flags;
 #endif
+		/* Diagnostic for amd64 directphys debugging — silenced; the
+		 * APIC/ACPI investigation is resolved.  Keep just for any
+		 * unexpected high-phys directphys mapping (none should occur
+		 * after the alloc_lowest fix in arch_boot_proc). */
+		if (physaddr >= 0x3ffe0000 && physaddr <= 0x40000000) {
+			printf("VM: pt_writemap UNEXPECTED phys=0x%lx (ACPI region)\n",
+			    (unsigned long)physaddr);
+		}
 
 		if(verify) {
-			u32_t maskedentry;
+			pte_t maskedentry;
 			maskedentry = pt->pt_pt[pde][pte];
 #if defined(__i386__) || defined(__x86_64__)
 			maskedentry &= ~(I386_VM_ACC|I386_VM_DIRTY);
@@ -910,8 +937,9 @@ int pt_writemap(struct vmproc * vmp,
 				printf(" masked %s; ",
 					ptestr(maskedentry));
 				printf(" expected %s\n", ptestr(entry));
-				printf("found 0x%x, wanted 0x%x\n", 
-					pt->pt_pt[pde][pte], entry);
+				printf("found 0x%lx, wanted 0x%lx\n",
+					(unsigned long)pt->pt_pt[pde][pte],
+					(unsigned long)entry);
 				ret = EFAULT;
 				goto resume_exit;
 			}
@@ -1008,12 +1036,34 @@ int pt_new(pt_t *pt)
 		return ENOMEM;
 	}
 
-	assert(!((u32_t)pt->pt_dir_phys % ARCH_PAGEDIR_SIZE));
+#if defined(__x86_64__)
+	if(!pt->pt_pml4 &&
+	  !(pt->pt_pml4 = vm_allocpages((phys_bytes *)&pt->pt_pml4_phys,
+		VMP_PAGEDIR, 1))) {
+		return ENOMEM;
+	}
+	if(!pt->pt_pdpt &&
+	  !(pt->pt_pdpt = vm_allocpages((phys_bytes *)&pt->pt_pdpt_phys,
+		VMP_PAGEDIR, 1))) {
+		return ENOMEM;
+	}
+#endif
+
+	assert(!(pt->pt_dir_phys % ARCH_PAGEDIR_SIZE));
 
 	for(i = 0; i < ARCH_VM_DIR_ENTRIES; i++) {
 		pt->pt_dir[i] = 0; /* invalid entry (PRESENT bit = 0) */
 		pt->pt_pt[i] = NULL;
 	}
+
+#if defined(__x86_64__)
+	memset(pt->pt_pml4, 0, VM_PAGE_SIZE);
+	memset(pt->pt_pdpt, 0, VM_PAGE_SIZE);
+	pt->pt_pml4[0] = (pt->pt_pdpt_phys & ARCH_VM_ADDR_MASK) |
+		ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW | ARCH_VM_PTE_USER;
+	pt->pt_pdpt[0] = (pt->pt_dir_phys & ARCH_VM_ADDR_MASK) |
+		ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW | ARCH_VM_PTE_USER;
+#endif
 
 	/* Where to start looking for free virtual address space? */
 	pt->pt_virtop = 0;
@@ -1094,11 +1144,11 @@ void pt_init(void)
 #if defined(__arm__)
 	vir_bytes sparepagedirs_mem;
 #endif
-	static u32_t currentpagedir[ARCH_VM_DIR_ENTRIES];
+	static pte_t currentpagedir[ARCH_VM_DIR_ENTRIES];
 	int m = kernel_boot_info.kern_mod;
 #if defined(__i386__) || defined(__x86_64__)
 	int global_bit_ok = 0;
-	u32_t mypdbr; /* Page Directory Base Register (cr3) value */
+	u32_t mypdbr; /* CR3 / PML4 phys (low 32b; tables always live below 4 GB) */
 #elif defined(__arm__)
 	u32_t myttbr;
 #endif
@@ -1111,7 +1161,14 @@ void pt_init(void)
 	kern_size = kern_mb_mod->mod_end - kern_mb_mod->mod_start;
 	assert(!(kern_mb_mod->mod_start % ARCH_BIG_PAGE_SIZE));
 	assert(!(kernel_boot_info.vir_kern_start % ARCH_BIG_PAGE_SIZE));
+#if defined(__x86_64__)
+	/* PD[0..255] = user space (0-512 MB); PD[256..511] = kernel/pagedir mappings.
+	 * pt_copy and pt_ptmap must not touch 256+: those PDEs are managed by
+	 * pt_mapkernel/pt_bind and have pt_dir set but pt_pt NULL. */
+	kern_start_pde = kernel_boot_info.freepde_start; /* = 256 */
+#else
 	kern_start_pde = kernel_boot_info.vir_kern_start / ARCH_BIG_PAGE_SIZE;
+#endif
 
         /* Get ourselves spare pages. */
         sparepages_mem = (vir_bytes) static_sparepages;
@@ -1242,6 +1299,34 @@ void pt_init(void)
 
 	pt_allocate_kernel_mapped_pagetables();
 
+#if defined(__x86_64__)
+	/* On x86-64 we must capture vm_kernel_pml4_entry and fill currentpagedir
+	 * with the bootstrap PD _before_ calling pt_new(), so that pt_mapkernel()
+	 * can install the kernel PML4 entry immediately.
+	 */
+	{
+		phys_bytes pdpt_phys, pd_phys;
+		if(sys_vmctl_get_pdbr(SELF, &mypdbr) != OK)
+			panic("VM: sys_vmctl_get_pdbr failed");
+		/* Copy PML4 (512 × 8 B = one page). */
+		if(sys_vircopy(NONE, mypdbr, SELF,
+			(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
+			panic("VM: sys_vircopy (PML4) failed");
+		vm_kernel_pml4_entry  = currentpagedir[511];
+		vm_physmap_pml4_entry = currentpagedir[256];
+		pdpt_phys = currentpagedir[0] & ARCH_VM_ADDR_MASK;
+		/* Copy user PDPT. */
+		if(sys_vircopy(NONE, pdpt_phys, SELF,
+			(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
+			panic("VM: sys_vircopy (PDPT) failed");
+		pd_phys = currentpagedir[0] & ARCH_VM_ADDR_MASK;
+		/* Copy the PD — this is what the loop below processes. */
+		if(sys_vircopy(NONE, pd_phys, SELF,
+			(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
+			panic("VM: sys_vircopy (PD) failed");
+	}
+#endif
+
 	/* Allright. Now. We have to make our own page directory and page tables,
 	 * that the kernel has already set up, accessible to us. It's easier to
 	 * understand if we just copy all the required pages (i.e. page directory
@@ -1255,28 +1340,27 @@ void pt_init(void)
 		panic("vm pt_new failed");
 
 	/* Get our current pagedir so we can see it. */
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__)
 	if(sys_vmctl_get_pdbr(SELF, &mypdbr) != OK)
-#elif defined(__arm__)
-	if(sys_vmctl_get_pdbr(SELF, &myttbr) != OK)
-#endif
-
 		panic("VM: sys_vmctl_get_pdbr failed");
-#if defined(__i386__) || defined(__x86_64__)
 	if(sys_vircopy(NONE, mypdbr, SELF,
 		(vir_bytes) currentpagedir, VM_PAGE_SIZE, 0) != OK)
+		panic("VM: sys_vircopy failed");
 #elif defined(__arm__)
+	if(sys_vmctl_get_pdbr(SELF, &myttbr) != OK)
+		panic("VM: sys_vmctl_get_pdbr failed");
 	if(sys_vircopy(NONE, myttbr, SELF,
 		(vir_bytes) currentpagedir, ARCH_PAGEDIR_SIZE, 0) != OK)
-#endif
 		panic("VM: sys_vircopy failed");
+#endif
+	/* On x86-64, currentpagedir already contains the bootstrap PD (done above). */
 
 	/* We have mapped in kernel ourselves; now copy mappings for VM
 	 * that kernel made, including allocations for BSS. Skip identity
 	 * mapping bits; just map in VM.
 	 */
 	for(p = 0; p < ARCH_VM_DIR_ENTRIES; p++) {
-		u32_t entry = currentpagedir[p];
+		pte_t entry = currentpagedir[p];
 		phys_bytes ptaddr_kern, ptaddr_us;
 
 		/* BIGPAGEs are kernel mapping (do ourselves) or boot
@@ -1303,11 +1387,9 @@ void pt_init(void)
                 if(sys_abscopy(ptaddr_kern, ptaddr_us, VM_PAGE_SIZE) != OK)
 			panic("pt_init: abscopy failed");
 	}
-
 	/* Inform kernel vm has a newly built page table. */
 	assert(vmproc[VM_PROC_NR].vm_endpoint == VM_PROC_NR);
 	pt_bind(newpt, &vmproc[VM_PROC_NR]);
-
 	pt_init_done = 1;
 
 	/* VM is now fully functional in that it can dynamically allocate memory
@@ -1358,7 +1440,7 @@ void pt_init(void)
 int pt_bind(pt_t *pt, struct vmproc *who)
 {
 	int procslot, pdeslot;
-	u32_t phys;
+	phys_bytes phys;
 	void *pdes;
 	int pagedir_pde;
 	int slots_per_pde;
@@ -1418,7 +1500,11 @@ int pt_bind(pt_t *pt, struct vmproc *who)
 #endif
 
 	/* Tell kernel about new page table root. */
-	return sys_vmctl_set_addrspace(who->vm_endpoint, pt->pt_dir_phys , pdes);
+#if defined(__x86_64__)
+	return sys_vmctl_set_addrspace(who->vm_endpoint, pt->pt_pml4_phys, pdes);
+#else
+	return sys_vmctl_set_addrspace(who->vm_endpoint, pt->pt_dir_phys, pdes);
+#endif
 }
 
 /*===========================================================================*
@@ -1449,34 +1535,45 @@ int pt_mapkernel(pt_t *pt)
 	assert(bigpage_ok);
 	assert(kern_pde >= 0);
 
+#if defined(__x86_64__)
+	/* PML4[511]: shared kernel mapping (high canonical range).
+	 * PML4[256]: physmap — phys 0-4 GB at VA 0xffff800000000000.
+	 * Both must be in every address space so the kernel can access physical
+	 * memory and its own code/data regardless of which CR3 is loaded. */
+	pt->pt_pml4[511] = vm_kernel_pml4_entry;
+	pt->pt_pml4[256] = vm_physmap_pml4_entry;
+#else
 	/* pt_init() has made sure this is ok. */
 	addr = kern_mb_mod->mod_start;
 
 	/* Actually mapping in kernel */
 	while(mapped < kern_size) {
-#if defined(__i386__) || defined(__x86_64__)
+# if defined(__i386__)
 		pt->pt_dir[kern_pde] = addr | ARCH_VM_PDE_PRESENT |
 			ARCH_VM_BIGPAGE | ARCH_VM_PTE_RW | global_bit;
-#elif defined(__arm__)
+# elif defined(__arm__)
 		pt->pt_dir[kern_pde] = (addr & ARM_VM_SECTION_MASK)
 			| ARM_VM_SECTION
 			| ARM_VM_SECTION_DOMAIN
 			| ARM_VM_SECTION_CACHED
 			| ARM_VM_SECTION_SUPER;
-#endif
+# endif
 		kern_pde++;
 		mapped += ARCH_BIG_PAGE_SIZE;
 		addr += ARCH_BIG_PAGE_SIZE;
 	}
+#endif /* !__x86_64__ */
 
 	/* Kernel also wants to know about all page directories. */
 	{
 		int pd;
 		for(pd = 0; pd < MAX_PAGEDIR_PDES; pd++) {
 			struct pdm *pdm = &pagedir_mappings[pd];
-			
+
 			assert(pdm->pdeno > 0);
+#if !defined(__x86_64__)
 			assert(pdm->pdeno > kern_pde);
+#endif
 			pt->pt_dir[pdm->pdeno] = pdm->val;
 		}
 	}

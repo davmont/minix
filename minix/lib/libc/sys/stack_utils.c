@@ -65,7 +65,7 @@
  * ps_strings struct. */
 #define STACK_MIN_SZ \
 ( \
-	sizeof(int) + sizeof(void *) * 2 + \
+	sizeof(void *) + sizeof(void *) * 2 + \
 	sizeof(AuxInfo) * PMEF_AUXVECTORS + PMEF_EXECNAMELEN1 + \
 	sizeof(struct ps_strings) \
 )
@@ -103,9 +103,12 @@ void minix_stack_params(const char *path, char * const *argv, char * const *envp
 		(*envc)++;
 	}
 
-	/* Compute the aligned frame size. */
-	*stack_size = (*stack_size + sizeof(void *) - 1) &
-		 ~(sizeof(void *) - 1);
+	/* Compute the aligned frame size.  The frame is placed at the very top
+	 * of the user stack (vsp = user_sp - stack_size), and argc sits at vsp.
+	 * The SysV ABI requires %rsp to be 16-byte aligned at process entry, so
+	 * the frame size must be a multiple of 16 — not just sizeof(void *).
+	 * Otherwise amd64 binaries fault on the first movaps to a stack slot. */
+	*stack_size = (*stack_size + 16 - 1) & ~(size_t)(16 - 1);
 
 	if (*stack_size < min_size) {
 		/* This is possible only in case of overflow. */
@@ -165,7 +168,7 @@ void minix_stack_fill(const char *path, int argc, char * const *argv,
 	/* Fill in the ps_string struct*/
 	*psp = (struct ps_strings *) fp;
 
-	(*psp)->ps_argvstr = (char **)(*vsp + sizeof(argc));
+	(*psp)->ps_argvstr = (char **)(*vsp + sizeof(void *));
 	(*psp)->ps_nargvstr = argc;
 	(*psp)->ps_envstr = (*psp)->ps_argvstr + argc + 1;
 	(*psp)->ps_nenvstr = envc;

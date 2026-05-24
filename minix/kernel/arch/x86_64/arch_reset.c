@@ -116,6 +116,36 @@ __dead void arch_shutdown(int how)
 		;
 
 	if(kinfo.minix_panicing) {
+		/* Always dump diagnostics buffer to COM1 serial for debugging. */
+		{
+			const char *p;
+			const char hdr[] = "\r\n[MINIX panic] diagnostics:\r\n";
+			for(p = hdr; *p; p++) {
+				int i;
+				for(i = 0; i < 100000; i++)
+					if(inb(0x3F8+5) & 0x20) break;
+				outb(0x3F8, *p);
+			}
+			for(p = kmess.kmess_buf; *p; p++) {
+				int i;
+				if(*p == '\n') {
+					for(i = 0; i < 100000; i++)
+						if(inb(0x3F8+5) & 0x20) break;
+					outb(0x3F8, '\r');
+				}
+				for(i = 0; i < 100000; i++)
+					if(inb(0x3F8+5) & 0x20) break;
+				outb(0x3F8, *p);
+			}
+			const char tail[] = "\r\n[end of diagnostics]\r\n";
+			for(p = tail; *p; p++) {
+				int i;
+				for(i = 0; i < 100000; i++)
+					if(inb(0x3F8+5) & 0x20) break;
+				outb(0x3F8, *p);
+			}
+		}
+
 		/* Printing is done synchronously over serial. */
 		if (kinfo.do_serial_debug)
 			reset();

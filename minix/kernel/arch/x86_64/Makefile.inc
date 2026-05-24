@@ -48,6 +48,26 @@ CFLAGS+=	${${ACTIVE_CC} == "gcc":? -m64:} -mcmodel=kernel -mno-red-zone -mno-mmx
 CPPFLAGS+=	-D__amd64__ -D_LP64
 
 #
+# P3.2 — x86-64-v2 micro-architecture level opt-in.
+#
+# x86-64-v2 adds POPCNT, SSE4.1, SSE4.2, SSSE3, CX16 (LOCK CMPXCHG16B)
+# and guarantees all CPUs in the Nehalem / Phenom II era (2008+).
+# It allows the compiler to emit faster string and memory instructions
+# without producing illegal-instruction traps on supported hardware.
+#
+# To enable, pass KERNEL_MARCH=x86-64-v2 on the make command line:
+#   make KERNEL_MARCH=x86-64-v2
+#
+# The default (KERNEL_MARCH unset) stays at the baseline x86-64 level for
+# maximum compatibility.  Never enable v3/v4 here — those require AVX/AVX-512
+# which the kernel explicitly disables with -mno-sse / -mno-mmx.
+#
+.if defined(KERNEL_MARCH) && ${KERNEL_MARCH} == "x86-64-v2"
+CFLAGS+=	-march=x86-64-v2
+CPPFLAGS+=	-DKERNEL_MARCH_V2
+.endif
+
+#
 # Objects that must be built in the unpaged (pre-paging) namespace.
 # The build system prefixes their symbols with __k_unpaged_ so the linker
 # can place them in the low-mapped .unpaged section.
@@ -119,7 +139,7 @@ CPPFLAGS+= -DUSE_ACPI
 .endif
 
 .if ${USE_APIC} != "no"
-SRCS+= apic.c apic_asm.S arch_smp.c
+SRCS+= apic.c apic_asm.S arch_smp.c trampoline.S
 CPPFLAGS+= -DUSE_APIC
 .endif
 

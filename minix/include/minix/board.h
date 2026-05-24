@@ -60,10 +60,12 @@
 /* We want to make it possible to use masks and therefore only try to use bits */
 #define MINIX_BOARD_ARCH_X86 MINIX_MK_BOARD_ARCH(1 << 0)
 #define MINIX_BOARD_ARCH_ARM MINIX_MK_BOARD_ARCH(1 << 1)
+#define MINIX_BOARD_ARCH_AMD64 MINIX_MK_BOARD_ARCH(1 << 2)
 
 #define MINIX_BOARD_ARCH_VARIANT_X86_GENERIC MINIX_MK_BOARD_ARCH_VARIANT(1<<0)
 #define MINIX_BOARD_ARCH_VARIANT_ARM_ARMV6 MINIX_MK_BOARD_ARCH_VARIANT(1<<1)
 #define MINIX_BOARD_ARCH_VARIANT_ARM_ARMV7 MINIX_MK_BOARD_ARCH_VARIANT(1<<2)
+#define MINIX_BOARD_ARCH_VARIANT_AMD64_GENERIC MINIX_MK_BOARD_ARCH_VARIANT(1<<3)
 
 #define MINIX_BOARD_VENDOR_INTEL MINIX_MK_BOARD_VENDOR(1<<0)
 #define MINIX_BOARD_VENDOR_TI MINIX_MK_BOARD_VENDOR(1<<1)
@@ -84,6 +86,14 @@
 #define BOARD_ID_INTEL \
 	( MINIX_BOARD_ARCH_X86 \
 	| MINIX_BOARD_ARCH_VARIANT_X86_GENERIC \
+	| MINIX_BOARD_VENDOR_INTEL \
+	| MINIX_BOARD_GENERIC \
+	| MINIX_BOARD_VARIANT_GENERIC\
+	)
+
+#define BOARD_ID_INTEL_AMD64 \
+	( MINIX_BOARD_ARCH_AMD64 \
+	| MINIX_BOARD_ARCH_VARIANT_AMD64_GENERIC \
 	| MINIX_BOARD_VENDOR_INTEL \
 	| MINIX_BOARD_GENERIC \
 	| MINIX_BOARD_VARIANT_GENERIC\
@@ -159,6 +169,7 @@ struct board_id2name
 /* how to convert a BOARD id to a board name */
 static struct board_id2name board_id2name[] = {
 	{.id = BOARD_ID_INTEL,.name = "X86-I586-GENERIC-GENERIC-GENERIC"},
+	{.id = BOARD_ID_INTEL_AMD64,.name = "AMD64-GENERIC-INTEL-GENERIC-GENERIC"},
 	{.id = BOARD_ID_BBXM,.name = "ARM-ARMV7-TI-BBXM-GENERIC"},
 	{.id = BOARD_ID_BBW,.name = "ARM-ARMV7-TI-BB-WHITE"},
 	{.id = BOARD_ID_BBB,.name = "ARM-ARMV7-TI-BB-BLACK"},
@@ -173,6 +184,7 @@ struct board_arch2arch
 static struct board_arch2arch board_arch2arch[] = {
 	{.board_arch = MINIX_BOARD_ARCH_ARM ,.arch = "earm"},
 	{.board_arch = MINIX_BOARD_ARCH_X86 ,.arch = "i386"},
+	{.board_arch = MINIX_BOARD_ARCH_AMD64 ,.arch = "amd64"},
 };
 
 /* returns 0 if no board was found that match that id */

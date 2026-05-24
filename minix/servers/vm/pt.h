@@ -9,18 +9,31 @@
 
 /* A pagetable. */
 typedef struct {
-	/* Directory entries in VM addr space - root of page table.  */
-	u32_t *pt_dir;		/* page aligned (ARCH_VM_DIR_ENTRIES) */
-	u32_t pt_dir_phys;	/* physical address of pt_dir */
+#if defined(__x86_64__)
+	/* Root of the four-level page-table hierarchy (CR3 points here). */
+	u64_t		*pt_pml4;	/* PML4 virtual pointer (512 entries) */
+	phys_bytes	 pt_pml4_phys;	/* PML4 physical address (= CR3 value) */
 
-	/* Pointers to page tables in VM address space. */
-	u32_t *pt_pt[ARCH_VM_DIR_ENTRIES];
+	/* User-space PDPT: PML4[0] → this table (512 entries). */
+	u64_t		*pt_pdpt;
+	phys_bytes	 pt_pdpt_phys;
 
-	/* When looking for a hole in virtual address space, start
-	 * looking here. This is in linear addresses, i.e.,
-	 * not as the process sees it but the position in the page
-	 * page table. This is just a hint.
-	 */
+	/* Page directory (PD, level 2): PDPT[0] → this table (512 entries).
+	 * This is what the VM server calls the "page directory"; it covers
+	 * 0–1 GB of virtual address space with 2 MB granularity.        */
+	pte_t		*pt_dir;	/* page aligned (ARCH_VM_DIR_ENTRIES) */
+	phys_bytes	 pt_dir_phys;	/* physical address of pt_dir */
+
+	/* Page tables (PT, level 1): one per present PD entry. */
+	pte_t		*pt_pt[ARCH_VM_DIR_ENTRIES];
+#else
+	/* i386 two-level page table. */
+	u32_t		*pt_dir;	/* page aligned (ARCH_VM_DIR_ENTRIES) */
+	u32_t		 pt_dir_phys;	/* physical address of pt_dir */
+	u32_t		*pt_pt[ARCH_VM_DIR_ENTRIES];
+#endif
+
+	/* Hint for findhole(): start scanning here (linear address). */
 	u32_t pt_virtop;
 } pt_t;
 

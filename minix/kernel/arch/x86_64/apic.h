@@ -14,10 +14,14 @@
 #define APIC_TDCR_128	0x0a
 #define APIC_TDCR_1	0x0b
 
-#define APIC_LVTT_VECTOR_MASK	0x000000FF
-#define APIC_LVTT_DS_PENDING	(1 << 12)
-#define APIC_LVTT_MASK		(1 << 16)
-#define APIC_LVTT_TM		(1 << 17)
+#define APIC_LVTT_VECTOR_MASK		0x000000FF
+#define APIC_LVTT_DS_PENDING		(1 << 12)
+#define APIC_LVTT_MASK			(1 << 16)
+#define APIC_LVTT_TM			(1 << 17)  /* bit 17: periodic mode */
+#define APIC_LVTT_TM_TSC_DEADLINE	(1 << 18)  /* bit 18: TSC-deadline mode */
+
+/* P2.2: IA32_TSC_DEADLINE MSR — written with absolute TSC value to arm timer */
+#define IA32_TSC_DEADLINE_MSR		0x6E0u
 
 #define APIC_LVT_IIPP_MASK	0x00002000
 #define APIC_LVT_IIPP_AH	0x00002000
@@ -153,14 +157,23 @@ int apic_single_cpu_init(void);
 
 void lapic_set_timer_periodic(const unsigned freq);
 void lapic_set_timer_one_shot(const u32_t value);
+void lapic_set_timer_tsc_deadline(u64_t deadline);
 void lapic_stop_timer(void);
 void lapic_restart_timer(void);
+
+/* P2.2: non-zero when TSC-deadline timer mode is active on this CPU */
+EXTERN int lapic_tsc_deadline_available;
 
 void ioapic_set_irq(unsigned irq);
 void ioapic_unset_irq(unsigned irq);
 
-/* signal the end of interrupt handler to apic */
-#define apic_eoi() do { *((volatile u32_t *) lapic_eoi_addr) = 0; } while(0)
+/*
+ * Signal end-of-interrupt to the APIC.
+ * P2.3: arch_eoi() (defined in apic.c) dispatches between xAPIC MMIO and
+ * x2APIC MSR paths based on use_x2apic.
+ */
+void arch_eoi(void);
+#define apic_eoi() arch_eoi()
 
 void ioapic_eoi(int irq);
 

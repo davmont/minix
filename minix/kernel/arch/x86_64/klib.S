@@ -125,12 +125,16 @@ ENTRY(x86_load_ss)
 /*
  * void ia32_msr_read(u32_t reg, u32_t *hi, u32_t *lo)
  *                    RDI         RSI          RDX
+ *
+ * IMPORTANT: rdmsr overwrites RDX with the MSR high bits, destroying the
+ * *lo pointer passed in RDX.  Save it in R8 (caller-saved) before rdmsr.
  */
 ENTRY(ia32_msr_read)
 	mov	%edi, %ecx      /* MSR number */
+	mov	%rdx, %r8       /* save *lo pointer — rdmsr will clobber RDX */
 	rdmsr                   /* result: EDX=hi, EAX=lo */
 	mov	%edx, (%rsi)    /* store hi */
-	mov	%eax, (%rdx)    /* store lo */
+	mov	%eax, (%r8)     /* store lo (using saved pointer) */
 	ret
 
 /*
@@ -215,6 +219,69 @@ ENTRY(__frstor_failure)
 	mov	$1, %eax
 	ret
 
+/*
+ * XSAVE family — RDI = 64-byte-aligned save buffer.
+ * EDX:EAX = RFBM (request feature bitmap); we always pass -1:-1 to
+ * save/restore all state components enabled in XCR0.
+ */
+
+/* void xsave_asm(void *buf) */
+ENTRY(xsave_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xsave	(%rdi)
+	ret
+
+/* void xsaveopt_asm(void *buf) */
+ENTRY(xsaveopt_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xsaveopt (%rdi)
+	ret
+
+/*
+ * int xrstor_asm(void *buf) — returns 0 on success, 1 on fault.
+ * The exception.c #GP/#XM handler redirects RIP to __xrstor_failure
+ * if the fault occurs between xrstor_asm and __xrstor_end.
+ */
+ENTRY(xrstor_asm)
+	mov	$-1, %eax
+	mov	$-1, %edx
+	xrstor	(%rdi)
+ENTRY(__xrstor_end)
+	xor	%eax, %eax
+	ret
+
+ENTRY(__xrstor_failure)
+	mov	$1, %eax
+	ret
+
+/*===========================================================================*
+ *  FSGSBASE helpers (require CR4.FSGSBASE; all amd64 CPUs in 64-bit mode    *
+ *  that support the feature can execute these from ring 0 unconditionally). *
+ *  RDI = new base value (write), RAX = base value returned (read).         *
+ *===========================================================================*/
+
+/* u64_t read_fsbase(void) */
+ENTRY(read_fsbase)
+	rdfsbase	%rax
+	ret
+
+/* void write_fsbase(u64_t base) */
+ENTRY(write_fsbase)
+	wrfsbase	%rdi
+	ret
+
+/* u64_t read_gsbase(void) */
+ENTRY(read_gsbase)
+	rdgsbase	%rax
+	ret
+
+/* void write_gsbase(u64_t base) */
+ENTRY(write_gsbase)
+	wrgsbase	%rdi
+	ret
+
 /*===========================================================================*
  *  Misc                                                                     *
  *===========================================================================*/
@@ -267,8 +334,10 @@ ENTRY(refresh_tlb)
 /*===========================================================================*
  *  phys_copy(phys_bytes src, phys_bytes dst, phys_bytes n)                 *
  *  RDI=src, RSI=dst, RDX=n                                                 *
+ *  movsq copies FROM rsi TO rdi, so swap to get RSI=src, RDI=dst           *
  *===========================================================================*/
 ENTRY(phys_copy)
+	xchg	%rdi, %rsi          /* RSI=src, RDI=dst for rep movsq */
 	cld
 	mov	%rdx, %rcx
 	shr	$3, %rcx            /* qword count */
@@ -309,7 +378,9 @@ LABEL(memset_fault_in_kernel)
  *  copy_msg_from_user(message *user_src, message *dst)                     *
  *  RDI = user source, RSI = kernel destination                             *
  *                                                                           *
- *  A Minix message is 64 bytes (MESSAGE_SIZE).  Copy it as 8 qwords.       *
+ *  On amd64 a Minix message is 104 bytes: 4-byte m_source + 4-byte m_type  *
+ *  + 96-byte payload union (LP64 grows the per-call structs).  Copy it as  *
+ *  13 qwords (last qword starts at offset 96, covers bytes 96..103).       *
  *  The exception handler redirects to __user_copy_msg_pointer_failure      *
  *  if a page fault or GP fires during the copy.                             *
  *===========================================================================*/
@@ -322,6 +393,11 @@ ENTRY(copy_msg_from_user)
 	mov	 40(%rdi), %rax ;  mov %rax,  40(%rsi)
 	mov	 48(%rdi), %rax ;  mov %rax,  48(%rsi)
 	mov	 56(%rdi), %rax ;  mov %rax,  56(%rsi)
+	mov	 64(%rdi), %rax ;  mov %rax,  64(%rsi)
+	mov	 72(%rdi), %rax ;  mov %rax,  72(%rsi)
+	mov	 80(%rdi), %rax ;  mov %rax,  80(%rsi)
+	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
+	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_from_user_end)
 	xor	%eax, %eax
 	ret
@@ -329,6 +405,7 @@ LABEL(__copy_msg_from_user_end)
 /*===========================================================================*
  *  copy_msg_to_user(message *src, message *user_dst)                       *
  *  RDI = kernel source, RSI = user destination                             *
+ *  Same 104-byte (13-qword) layout as copy_msg_from_user.                  *
  *===========================================================================*/
 ENTRY(copy_msg_to_user)
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
@@ -339,6 +416,11 @@ ENTRY(copy_msg_to_user)
 	mov	 40(%rdi), %rax ;  mov %rax,  40(%rsi)
 	mov	 48(%rdi), %rax ;  mov %rax,  48(%rsi)
 	mov	 56(%rdi), %rax ;  mov %rax,  56(%rsi)
+	mov	 64(%rdi), %rax ;  mov %rax,  64(%rsi)
+	mov	 72(%rdi), %rax ;  mov %rax,  72(%rsi)
+	mov	 80(%rdi), %rax ;  mov %rax,  80(%rsi)
+	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
+	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_to_user_end)
 	xor	%eax, %eax
 	ret
@@ -346,21 +428,6 @@ LABEL(__copy_msg_to_user_end)
 ENTRY(__user_copy_msg_pointer_failure)
 	mov	$-1, %rax
 	ret
-
-/*===========================================================================*
- *  __switch_address_space(struct proc *p, struct proc **ptproc)            *
- *  RDI = proc ptr, RSI = pointer-to-ptproc                                 *
- *===========================================================================*/
-ENTRY(__switch_address_space)
-	mov	P_CR3(%rdi), %rax       /* load new CR3 value */
-	test	%rax, %rax
-	jz	0f
-	mov	%cr3, %rcx
-	cmp	%rcx, %rax
-	je	0f
-	mov	%rax, %cr3              /* switch address space */
-	mov	%rdi, (%rsi)            /* *ptproc = p */
-0:	ret
 
 /*===========================================================================*
  *  switch_k_stack(void *rsp, void (*cont)(void))                           *

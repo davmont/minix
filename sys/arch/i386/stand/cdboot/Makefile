@@ -41,7 +41,7 @@ CPPFLAGS+=	-DDISABLE_KEYPRESS
 
 .if ${MACHINE_ARCH} == "x86_64"
 LDFLAGS+=	-Wl,-m,elf_i386
-AFLAGS+=	-m32
+AFLAGS+=	--target=i586-elf32-minix
 .endif
 
 BUILDSYMLINKS+=	$S/arch/i386/include	machine \
@@ -63,7 +63,7 @@ ${PROG}: ${OBJS}
 	@ set -- $$( ${NM} -t d ${PROG}.tmp | grep '\<free_space\>' \
 		| ${TOOL_SED} 's/^0*//'  ); \
 		echo "#### There are $$1 free bytes in ${PROG}"
-	${OBJCOPY} -O binary ${PROG}.tmp ${PROG}
+	${OBJCOPY} -R .note.gnu.property -O binary ${PROG}.tmp ${PROG}
 	rm -f ${PROG}.tmp
 
 .include <bsd.prog.mk>

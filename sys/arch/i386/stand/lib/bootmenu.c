@@ -103,14 +103,16 @@ getchoicefrominput(char *input, int def)
 static void
 docommandchoice(int choice)
 {
-	char input[80], *ic, *oc;
+	char input[512], *ic, *oc;
 
 	ic = bootcfg_info.command[choice];
 	/* Split command string at ; into separate commands */
 	do {
 		oc = input;
-		/* Look for ; separator */
-		for (; *ic && *ic != COMMAND_SEPARATOR; ic++)
+		/* Look for ; separator, with bounds check to avoid stack overflow
+		 * on long menu commands (e.g. multiboot with many kernel args). */
+		for (; *ic && *ic != COMMAND_SEPARATOR &&
+		    (size_t)(oc - input) < sizeof(input) - 1; ic++)
 			*oc++ = *ic;
 		if (*input == '\0')
 			continue;

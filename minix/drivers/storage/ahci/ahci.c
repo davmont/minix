@@ -2084,7 +2084,7 @@ static void ahci_init(int devind)
 	hba_state.nr_ports = (size - AHCI_MEM_BASE_SIZE) / AHCI_MEM_PORT_SIZE;
 
 	/* Map the register area into local memory. */
-	hba_state.base = (u32_t *) vm_map_phys(SELF, (void *) base, size);
+	hba_state.base = (u32_t *) vm_map_phys(SELF, (void *)(uintptr_t) base, size);
 	hba_state.size = size;
 	if (hba_state.base == MAP_FAILED)
 		panic("unable to map HBA memory");

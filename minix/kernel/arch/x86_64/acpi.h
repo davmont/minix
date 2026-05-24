@@ -147,6 +147,7 @@ struct acpi_madt_nmi {
 };
 
 void acpi_init(void);
+void acpi_reserve_tables(void);
 
 void acpi_poweroff(void);
 

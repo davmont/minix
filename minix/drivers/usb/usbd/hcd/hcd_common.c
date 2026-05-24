@@ -10,7 +10,9 @@
 
 #include <ddekit/interrupt.h>		/* DDEKit based interrupt handling */
 
+#ifdef __arm__
 #include <minix/clkconf.h>		/* clkconf_* */
+#endif
 #include <minix/syslib.h>		/* sys_privctl */
 
 #include <usbd/hcd_common.h>
@@ -154,11 +156,16 @@ hcd_os_clkconf(unsigned long clk, unsigned long mask, unsigned long value)
 {
 	DEBUG_DUMP;
 
+#ifdef __arm__
 	/* Apparently clkconf_init may be called more than once anyway */
 	if ((0 == clkconf_init()) && (0 == clkconf_set(clk, mask, value)))
 		return EXIT_SUCCESS;
 	else
 		return EXIT_FAILURE;
+#else
+	/* Clock configuration is not applicable on this architecture */
+	return EXIT_SUCCESS;
+#endif
 }
 
 
@@ -169,7 +176,11 @@ int
 hcd_os_clkconf_release(void)
 {
 	DEBUG_DUMP;
+#ifdef __arm__
 	return clkconf_release();
+#else
+	return EXIT_SUCCESS;
+#endif
 }
 
 

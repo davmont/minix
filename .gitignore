@@ -40,8 +40,8 @@ tools/**/obj/
 external/*/dist/
 external/*/dist-*/
 gnu/dist/*/
-!/.gitignore
 .gitignore
+!/.gitignore
 .svn
 *.worldstone.log
 .worldstone*
@@ -95,3 +95,37 @@ machine
 x86
 minix_amd64.iso
 minix_amd64.iso.bak
+machines.lo.o
+
+# Bootxx build artifacts
+sys/arch/i386/stand/bootxx/bootxx*.o
+sys/arch/i386/stand/bootxx/bootxx*.d
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3.sym
+sys/arch/i386/stand/bootxx/bootxx_minixfs3/bootxx_minixfs3.map
+sys/arch/i386/stand/cdboot/cdboot
+
+# BIOS boot artifacts
+sys/arch/i386/stand/boot/biosboot/boot_monitor
+sys/arch/i386/stand/boot/biosboot/boot_monitor.map
+sys/arch/i386/stand/boot/biosboot/boot_monitor.sym
+sys/arch/i386/stand/boot/biosboot/vers.c
+sys/arch/i386/stand/cdboot/bootxx_cd9660
+
+# nbmake creates machine/x86/i386 include-dir symlinks in-tree during cross-build
+sys/arch/i386/stand/**/machine
+sys/arch/i386/stand/**/x86
+sys/arch/i386/stand/**/i386
+boot/minix/.temp/kernel
+boot/minix/.temp/mod01_ds
+boot/minix/.temp/mod02_rs
+boot/minix/.temp/mod03_pm
+boot/minix/.temp/mod04_sched
+boot/minix/.temp/mod05_vfs
+boot/minix/.temp/mod06_memory
+boot/minix/.temp/mod07_tty
+boot/minix/.temp/mod08_mib
+boot/minix/.temp/mod09_vm
+boot/minix/.temp/mod10_pfs
+boot/minix/.temp/mod11_mfs
+boot/minix/.temp/mod12_init

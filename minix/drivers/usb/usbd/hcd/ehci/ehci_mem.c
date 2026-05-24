@@ -83,9 +83,10 @@ ehci_mem_init(void)
 	}
 	memset(xfer_buf_base, 0, MAX_WTOTALLENGTH);
 
-	/* All qTD slots start free */
+	/* All qTD slots start free.  Use 64-bit shift to avoid shift-count-
+	 * overflow when EHCI_NUM_QTD == 32 (1u << 32 is UB on 32-bit types). */
 	qtd_free_mask = (EHCI_NUM_QTD < 32)
-			? ((1u << EHCI_NUM_QTD) - 1u)
+			? (uint32_t)((1ULL << EHCI_NUM_QTD) - 1ULL)
 			: 0xFFFFFFFFu;
 
 	USB_MSG("EHCI mem: QH pool  virt=%p phys=0x%lx (%zu B)",

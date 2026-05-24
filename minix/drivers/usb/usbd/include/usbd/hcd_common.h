@@ -14,6 +14,7 @@
 #include <minix/usb.h>				/* for setup structures */
 #include <minix/usb_ch9.h>			/* for descriptor structures */
 
+#include <stdint.h>				/* for uint32_t */
 #include <sys/cdefs.h>				/* for __aligned() */
 
 
@@ -26,8 +27,9 @@
 /* Unsigned type that can hold all possible addresses */
 typedef unsigned long				hcd_addr;
 
-/* Register types */
-typedef unsigned long				hcd_reg4;
+/* Register types — hcd_reg4 is always 32-bit (EHCI hardware registers are
+ * 32 bits wide on all supported architectures). */
+typedef uint32_t				hcd_reg4;
 typedef unsigned short				hcd_reg2;
 typedef unsigned char				hcd_reg1;
 

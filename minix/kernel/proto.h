@@ -58,6 +58,7 @@ void bsp_finish_booting(void);
 
 int do_ipc(reg_t r1, reg_t r2, reg_t r3);
 void proc_init(void);
+void copr_not_available_handler(void);
 int cancel_async(struct proc *src, struct proc *dst);
 int has_pending_notify(struct proc * caller, int src_p);
 int has_pending_asend(struct proc * caller, int src_p);
@@ -199,8 +200,13 @@ void halt_cpu(void);
 void arch_init(void);
 void arch_boot_proc(struct boot_image *b, struct proc *p);
 void cpu_identify(void);
+void cpu_enable_features(void);
+/* P2.1 / P2.4 feature flags — set by cpu_enable_features() on each CPU */
+extern int use_fsgsbase;
+extern int use_pcid;
 /* arch dependent FPU initialization per CPU */
-void fpu_init(void);
+void   fpu_init(void);
+size_t fpu_get_save_size(void);
 /* returns true if pfu is present and initialized */
 int is_fpu(void);
 void ser_putc(char);
@@ -214,7 +220,7 @@ void do_ser_debug(void);
 int arch_get_params(char *parm, int max);
 void memory_init(void);
 void mem_clear_mapcache(void);
-void arch_proc_init(struct proc *pr, u32_t, u32_t, u32_t, char *);
+void arch_proc_init(struct proc *pr, vir_bytes, vir_bytes, vir_bytes, char *);
 int arch_do_vmctl(message *m_ptr, struct proc *p);
 int vm_contiguous(const struct proc *targetproc, vir_bytes vir_buf,
 	size_t count);

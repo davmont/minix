@@ -326,7 +326,7 @@ static int dev_probe(void) {
 			/* printf("SDR: PCI BAR %d is not for memory\n", i); */
 			continue;
 		}
-		if ((reg = vm_map_phys(SELF, (void *)base, size)) == MAP_FAILED) {
+		if ((reg = vm_map_phys(SELF, (void *)(uintptr_t)base, size)) == MAP_FAILED) {
 			printf("SDR: Fail to map hardware registers from PCI\n");
 			return -EIO;
 		}

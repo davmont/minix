@@ -378,7 +378,12 @@
 #define	SVMCTL_MRG_ADDR2	m2_l2	/* MEMREQ_GET reply: source address */
 #define SVMCTL_MRG_REQUESTOR	m2_p1	/* MEMREQ_GET reply: requestor */
 #define SVMCTL_MAP_VIR_ADDR	m1_p1
-#define SVMCTL_PTROOT		m1_i3
+/* SVMCTL_PTROOT lives in the 64-bit slot of mess_1 so amd64 process
+ * PML4 phys addresses above 4 GB survive the SETADDRSPACE round-trip;
+ * the int-sized SVMCTL_VALUE (m1_i3) sign-extended them and tripped a
+ * #GP in write_cr3.  i386 / earm cast back to their u32_t setcr3
+ * signatures at the receive side. */
+#define SVMCTL_PTROOT		m1_ull1
 #define SVMCTL_PTROOT_V		m1_p1
 
 /* Reply message for VMCTL_KERN_PHYSMAP */

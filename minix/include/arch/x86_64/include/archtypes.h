@@ -35,6 +35,7 @@ typedef struct segframe {
 	u64_t	*p_cr3_v;
 	char	*fpu_state;
 	int	p_kern_trap_style;
+	u16_t	p_pcid;		/* P2.4: Process-Context Identifier (0 = kernel) */
 } segframe_t;
 
 struct cpu_info {

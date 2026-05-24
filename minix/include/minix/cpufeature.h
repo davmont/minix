@@ -27,6 +27,21 @@
 
 #define _CPUF_I386_PAE		18	/* Page Address Extension */
 
+/* Modern x86-64 features (CPUID leaf 1, ECX) */
+#define _CPUF_X86_PCID		19	/* Process-Context Identifiers (CR4.PCIDE) */
+#define _CPUF_X86_x2APIC	20	/* x2APIC MSR-based interface */
+#define _CPUF_X86_TSC_DL	21	/* TSC Deadline APIC timer mode */
+#define _CPUF_X86_XSAVE		22	/* XSAVE/XRSTOR/XSETBV/XGETBV */
+#define _CPUF_X86_AVX		23	/* AVX (256-bit) instructions */
+
+/* Modern x86-64 features (CPUID leaf 7, subleaf 0, EBX) */
+#define _CPUF_X86_FSGSBASE	24	/* RDFSBASE/WRFSBASE/RDGSBASE/WRGSBASE */
+#define _CPUF_X86_AVX2		25	/* AVX2 (256-bit integer) instructions */
+
+/* XSAVE sub-features (CPUID leaf 0xD, subleaf 1, EAX) */
+#define _CPUF_X86_XSAVEOPT	26	/* XSAVEOPT: save only modified state */
+#define _CPUF_X86_XSAVEC	27	/* XSAVEC: compacted save form */
+
 int _cpufeature(int featureno);
 
 #endif
