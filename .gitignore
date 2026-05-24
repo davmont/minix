@@ -82,3 +82,14 @@ build_stdout.log
 build_error.log
 minix/drivers/storage/memory/imgrd.mfs
 minix/drivers/storage/ramdisk/image
+
+# Additional build artifacts
+a.out
+boot/
+*.map
+*.sym
+vers.c
+# Generated architecture symlink directories
+i386
+machine
+x86
