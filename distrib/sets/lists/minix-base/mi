@@ -555,6 +555,9 @@
 ./usr/bin/sed                                           minix-base
 ./usr/bin/seq                                           minix-base
 ./usr/bin/sha1                                          minix-base
+./usr/bin/sha256                                        minix-base
+./usr/bin/sha384                                        minix-base
+./usr/bin/sha512                                        minix-base
 ./usr/bin/shar                                          minix-base
 ./usr/bin/shlock                                        minix-base
 ./usr/bin/shuffle                                       minix-base
@@ -575,6 +578,7 @@
 ./usr/bin/swifi                                         minix-base
 ./usr/bin/synctree                                      minix-base
 ./usr/bin/sz                                            minix-base
+./usr/bin/tac                                           minix-base
 ./usr/bin/tail                                          minix-base
 ./usr/bin/tar                                           minix-base
 ./usr/bin/tcpd                                          minix-base      obsolete

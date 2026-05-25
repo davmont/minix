@@ -1511,6 +1511,7 @@
 ./usr/include/protocols/rwhod.h                         minix-comp
 ./usr/include/protocols/talkd.h                         minix-comp
 ./usr/include/protocols/timed.h                         minix-comp
+./usr/include/pthread_types.h                           minix-comp
 ./usr/include/puffs.h                                   minix-comp
 ./usr/include/pwd.h                                     minix-comp
 ./usr/include/quota.h                                   minix-comp
