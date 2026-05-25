@@ -1216,7 +1216,7 @@
 ./usr/include/minix/ipc.h                               minix-comp
 ./usr/include/minix/ipc_filter.h                        minix-comp
 ./usr/include/minix/ipcconst.h                          minix-comp
-./usr/include/minix/kernel_const.h                      minix-comp
+./usr/include/minix/kernel_const.h                      minix-comp      obsolete
 ./usr/include/minix/keymap.h                            minix-comp
 ./usr/include/minix/libminixfs.h                        minix-comp
 ./usr/include/minix/log.h                               minix-comp
