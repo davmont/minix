@@ -80,7 +80,8 @@ STRING		[a-zA-Z][a-zA-Z0-9_]*
 				return NL;
 			}
 
-			for (i = 0; i < strlen(p); i++) {
+			size_t len = strlen(p);
+			for (i = 0; i < len; i++) {
 				if (isupper((unsigned char)p[i]))
 					p[i] = tolower((unsigned char)p[i]);
 			}
