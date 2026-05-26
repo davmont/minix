@@ -29,15 +29,22 @@ static int nfreepdes = 0;
 static int freepdes[MAXFREEPDES];
 
 /*
+ * Kernel physmap base — physical memory is mapped here in all page tables
+ * (including per-process ones), so the kernel can access physical addresses
+ * even when a user-process page table is active.  Matches KERN_PHYSMAP in
+ * pg_utils.c.
+ */
+#define KERN_PHYSMAP ((phys_bytes)0xffff800000000000ULL)
+
+/*
  * phys_get64 - read a 64-bit value from a physical address.
  *
- * On amd64 we have an identity map covering all physical RAM (set up by
- * pg_identity()), so physical == virtual in that range.  This function is
- * used by vm_lookup() to walk process page tables without switching CR3.
+ * Access via the kernel physmap (PML4[256]) so this works in any address
+ * space, not just the bootstrap page table that has the 0-4 GB identity map.
  */
 static u64_t phys_get64(phys_bytes addr)
 {
-	return *(const u64_t *)(uintptr_t)addr;
+	return *(const u64_t *)(uintptr_t)(addr + KERN_PHYSMAP);
 }
 
 void mem_clear_mapcache(void)
@@ -150,29 +157,33 @@ static phys_bytes createpde(
 {
 	*changed = 0;
 
-	if (pr && (pr == get_cpulocal_var(ptproc) || iskernelp(pr))) {
-		/* Already in current address space — return as-is. */
-		return linaddr;
-	}
-
 	if (pr) {
-		phys_bytes phys;
 		phys_bytes off   = linaddr % AMD64_PAGE_SIZE;
 		phys_bytes chunk = MIN(*bytes, AMD64_PAGE_SIZE - off);
 
+		if (iskernelp(pr)) {
+			/* Kernel task: VA is already in the PML4[511] kernel range.
+			 * Return it directly — no physmap offset needed. */
+			*bytes = chunk;
+			return linaddr;
+		}
+
+		phys_bytes phys;
 		if (vm_lookup(pr, linaddr, &phys, NULL) != OK) {
 			/* Page not mapped — signal zero bytes available. */
 			*bytes = 0;
 			return 0;
 		}
+		/* Return physical address offset into physmap so it is accessible
+		 * from any address space (PML4[256] is present in all page tables). */
 		*bytes = chunk;
-		return phys;
+		return phys + KERN_PHYSMAP;
 	} else {
-		/* Physical address — accessible via identity map.
+		/* Physical address — access via the kernel physmap (PML4[256]).
 		 * Truncate to stay within the current 2 MB window. */
 		phys_bytes offset = linaddr & AMD64_VM_OFFSET_MASK_2MB;
 		*bytes = MIN(*bytes, (phys_bytes)AMD64_BIG_PAGE_SIZE - offset);
-		return linaddr;
+		return linaddr + KERN_PHYSMAP;
 	}
 }
 
@@ -218,12 +229,13 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
 #endif
 
 		srcptr = createpde(srcproc, srclinaddr, &chunk, 0, &changed);
+		if (chunk == 0)
+			return EFAULT_SRC;
 		dstptr = createpde(dstproc, dstlinaddr, &chunk, 1, &changed);
 		if (changed)
 			reload_cr3();
-
 		if (chunk == 0)
-			return EFAULT_SRC;
+			return EFAULT_DST;
 
 		/* Overflow check. */
 		if (srcptr + chunk < srcptr) return EFAULT_SRC;
@@ -469,7 +481,10 @@ int virtual_copy_f(
 		}
 
 		assert(caller);
-		assert(target);
+		/* target is NULL when the faulting endpoint is NONE (physical
+		 * address).  vm_suspend requires a real process; just return
+		 * the fault code so the caller can handle it. */
+		if (!target) return r;
 		vm_suspend(caller, target, lin, bytes, VMSTYPE_KERNELCALL, writeflag);
 		return VMSUSPEND;
 	}
@@ -537,8 +552,8 @@ void memory_init(void)
 /*===========================================================================*
  *                              arch_proc_init                               *
  *===========================================================================*/
-void arch_proc_init(struct proc *pr, const u32_t ip, const u32_t sp,
-	const u32_t ps_str, char *name)
+void arch_proc_init(struct proc *pr, const vir_bytes ip, const vir_bytes sp,
+	const vir_bytes ps_str, char *name)
 {
 	arch_proc_reset(pr);
 	strlcpy(pr->p_name, name, sizeof(pr->p_name));
@@ -659,7 +674,9 @@ int arch_phys_map_reply(const int index, const vir_bytes addr)
 		                            minix_ipcvecs_softint;
 		vir_bytes usermapped_offset;
 
-		assert(addr > (vir_bytes)&usermapped_start);
+		/* On amd64, user-space addr < kernel addr — unsigned wrap-around
+		 * in the subtraction is intentional and correct. */
+		assert(addr != 0);
 		usermapped_offset = addr - (vir_bytes)&usermapped_start;
 #define FIXEDPTR(ptr)  ((void *)((vir_bytes)(ptr) + usermapped_offset))
 #define FIXPTR(ptr)    (ptr) = FIXEDPTR(ptr)

@@ -114,35 +114,43 @@ struct multiboot_info {
 	uint8_t		mi_boot_device_part1;
 	uint8_t		mi_boot_device_drive;
 
+	/*
+	 * All address fields below are uint32_t. Multiboot 1 is a 32-bit
+	 * protocol: every bootloader-provided address is a 32-bit physical
+	 * address. Using native pointer or vaddr_t types here doubles their
+	 * size on amd64, misaligning every subsequent field and causing the
+	 * kernel to dereference garbage addresses.
+	 */
+
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_CMDLINE. */
-	char *		mi_cmdline;
+	uint32_t	mi_cmdline;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_MODS. */
 	uint32_t	mi_mods_count;
-	vaddr_t		mi_mods_addr;
+	uint32_t	mi_mods_addr;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_{AOUT,ELF}_SYMS. */
 	uint32_t	mi_elfshdr_num;
 	uint32_t	mi_elfshdr_size;
-	vaddr_t		mi_elfshdr_addr;
+	uint32_t	mi_elfshdr_addr;
 	uint32_t	mi_elfshdr_shndx;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_MMAP. */
 	uint32_t	mi_mmap_length;
-	vaddr_t		mi_mmap_addr;
+	uint32_t	mi_mmap_addr;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_DRIVES. */
 	uint32_t	mi_drives_length;
-	vaddr_t		mi_drives_addr;
+	uint32_t	mi_drives_addr;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_CONFIG_TABLE. */
-	void *		unused_mi_config_table;
+	uint32_t	unused_mi_config_table;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_LOADER_NAME. */
-	char *		mi_loader_name;
+	uint32_t	mi_loader_name;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_APM. */
-	void *		unused_mi_apm_table;
+	uint32_t	unused_mi_apm_table;
 
 	/* Valid if mi_flags sets MULTIBOOT_INFO_HAS_VBE. */
 	uint32_t vbe_control_info;
@@ -214,7 +222,7 @@ struct multiboot_mmap {
 	uint64_t	mm_base_addr;
 	uint64_t	mm_length;
 	uint32_t	mm_type;
-};
+} __attribute__((packed));
 
 /*
  * Modules. This describes an entry in the modules table as pointed
@@ -224,7 +232,7 @@ struct multiboot_mmap {
 struct multiboot_module {
 	uint32_t	mmo_start;
 	uint32_t	mmo_end;
-	char *		mmo_string;
+	uint32_t	mmo_string;	/* 32-bit physical address, see note above */
 	uint32_t	mmo_reserved;
 };
 

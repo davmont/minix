@@ -125,12 +125,16 @@ ENTRY(x86_load_ss)
 /*
  * void ia32_msr_read(u32_t reg, u32_t *hi, u32_t *lo)
  *                    RDI         RSI          RDX
+ *
+ * IMPORTANT: rdmsr overwrites RDX with the MSR high bits, destroying the
+ * *lo pointer passed in RDX.  Save it in R8 (caller-saved) before rdmsr.
  */
 ENTRY(ia32_msr_read)
 	mov	%edi, %ecx      /* MSR number */
+	mov	%rdx, %r8       /* save *lo pointer — rdmsr will clobber RDX */
 	rdmsr                   /* result: EDX=hi, EAX=lo */
 	mov	%edx, (%rsi)    /* store hi */
-	mov	%eax, (%rdx)    /* store lo */
+	mov	%eax, (%r8)     /* store lo (using saved pointer) */
 	ret
 
 /*
@@ -330,8 +334,10 @@ ENTRY(refresh_tlb)
 /*===========================================================================*
  *  phys_copy(phys_bytes src, phys_bytes dst, phys_bytes n)                 *
  *  RDI=src, RSI=dst, RDX=n                                                 *
+ *  movsq copies FROM rsi TO rdi, so swap to get RSI=src, RDI=dst           *
  *===========================================================================*/
 ENTRY(phys_copy)
+	xchg	%rdi, %rsi          /* RSI=src, RDI=dst for rep movsq */
 	cld
 	mov	%rdx, %rcx
 	shr	$3, %rcx            /* qword count */
@@ -372,7 +378,9 @@ LABEL(memset_fault_in_kernel)
  *  copy_msg_from_user(message *user_src, message *dst)                     *
  *  RDI = user source, RSI = kernel destination                             *
  *                                                                           *
- *  A Minix message is 64 bytes (MESSAGE_SIZE).  Copy it as 8 qwords.       *
+ *  On amd64 a Minix message is 104 bytes: 4-byte m_source + 4-byte m_type  *
+ *  + 96-byte payload union (LP64 grows the per-call structs).  Copy it as  *
+ *  13 qwords (last qword starts at offset 96, covers bytes 96..103).       *
  *  The exception handler redirects to __user_copy_msg_pointer_failure      *
  *  if a page fault or GP fires during the copy.                             *
  *===========================================================================*/
@@ -385,6 +393,11 @@ ENTRY(copy_msg_from_user)
 	mov	 40(%rdi), %rax ;  mov %rax,  40(%rsi)
 	mov	 48(%rdi), %rax ;  mov %rax,  48(%rsi)
 	mov	 56(%rdi), %rax ;  mov %rax,  56(%rsi)
+	mov	 64(%rdi), %rax ;  mov %rax,  64(%rsi)
+	mov	 72(%rdi), %rax ;  mov %rax,  72(%rsi)
+	mov	 80(%rdi), %rax ;  mov %rax,  80(%rsi)
+	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
+	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_from_user_end)
 	xor	%eax, %eax
 	ret
@@ -392,6 +405,7 @@ LABEL(__copy_msg_from_user_end)
 /*===========================================================================*
  *  copy_msg_to_user(message *src, message *user_dst)                       *
  *  RDI = kernel source, RSI = user destination                             *
+ *  Same 104-byte (13-qword) layout as copy_msg_from_user.                  *
  *===========================================================================*/
 ENTRY(copy_msg_to_user)
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
@@ -402,6 +416,11 @@ ENTRY(copy_msg_to_user)
 	mov	 40(%rdi), %rax ;  mov %rax,  40(%rsi)
 	mov	 48(%rdi), %rax ;  mov %rax,  48(%rsi)
 	mov	 56(%rdi), %rax ;  mov %rax,  56(%rsi)
+	mov	 64(%rdi), %rax ;  mov %rax,  64(%rsi)
+	mov	 72(%rdi), %rax ;  mov %rax,  72(%rsi)
+	mov	 80(%rdi), %rax ;  mov %rax,  80(%rsi)
+	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
+	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_to_user_end)
 	xor	%eax, %eax
 	ret

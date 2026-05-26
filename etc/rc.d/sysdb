@@ -23,6 +23,15 @@ echo=:
 
 sysdb_start()
 {
+	# The runtime database directories may be missing on a freshly
+	# created /var ramdisk (CD boot) or a minimal install.  The
+	# build_* helpers below write dev.db/utmp into /var/run and
+	# services.cdb/netgroup.db into /var/db, so make sure both exist
+	# first -- otherwise install(1)/*_mkdb fail and sysdb exits non-zero.
+	# Also create /var/log so the syslogd rc.d that follows can write
+	# /var/log/syslog and /var/log/messages without errors.
+	mkdir -p /var/run /var/db /var/log
+
 	echo -n "Building databases:"
 	echo=echo
 	comma=" "
@@ -69,6 +78,13 @@ build_devdb()
 build_password()
 {
 	local p=/etc/master.passwd
+	# Skip the rebuild if the root filesystem is read-only (e.g. CD boot
+	# via isofs).  pwd_mkdb would otherwise abort with ENOSYS because
+	# isofs has no fdr_create and we'd noisily fail every boot.
+	if ! { : > /etc/.pwd_mkdb.probe; } 2>/dev/null; then
+		return 0
+	fi
+	rm -f /etc/.pwd_mkdb.probe
 	check_file $p /etc/spwd.db pwd_mkdb -w $p
 }
 

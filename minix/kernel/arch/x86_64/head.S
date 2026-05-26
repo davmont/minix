@@ -39,7 +39,7 @@ multiboot_magic_val:
 multiboot_flags_val:
     .long   (MULTIBOOT_HEADER_WANT_MEMORY | MULTIBOOT_HEADER_MODS_ALIGNED)
 multiboot_checksum_val:
-    .long   -(MULTIBOOT_HEADER_MAGIC | \
+    .long   -(MULTIBOOT_HEADER_MAGIC + \
               (MULTIBOOT_HEADER_WANT_MEMORY | MULTIBOOT_HEADER_MODS_ALIGNED))
     /* unused fields */
     .long 0, 0, 0, 0, 0
@@ -65,10 +65,14 @@ bootstrap32:
      *   EAX = MULTIBOOT_BOOTLOADER_MAGIC  (0x2BADB002)
      *   EBX = physical address of multiboot_info_t
      *
-     * Save them; we pass them to pre_init() later.
+     * Carry magic in EBX and info ptr in ESI through the page-table setup.
+     * EDI and ESI would seem natural, but the page-table zeroing loops use
+     * EDI as the rep-stosl destination pointer, clobbering it immediately.
+     * EBX is not touched anywhere between here and the 64-bit call to
+     * pre_init(), so it is the safe register for the magic value.
      */
-    mov     %eax, %edi          /* magic in EDI */
-    mov     %ebx, %esi          /* info ptr in ESI */
+    mov     %ebx, %esi          /* info ptr → ESI (not clobbered by PT setup) */
+    mov     %eax, %ebx          /* magic  → EBX (not clobbered by PT setup) */
 
     /* Set up a small temporary stack. */
     mov     $(_C_LABEL(boot32_stktop)), %esp
@@ -90,19 +94,19 @@ bootstrap32:
     /* Zero PML4 table. */
     mov     $(_C_LABEL(boot_pml4)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx             /* 4096 bytes / 4 bytes per stosl */
     rep stosl
 
     /* Zero PDPT. */
     mov     $(_C_LABEL(boot_pdpt)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx
     rep stosl
 
     /* Zero PD. */
     mov     $(_C_LABEL(boot_pd)), %edi
     xor     %eax, %eax
-    mov     $4096, %ecx
+    mov     $1024, %ecx
     rep stosl
 
     /* PML4[0] -> PDPT (present + writable) */
@@ -188,15 +192,37 @@ ENTRY(longmode_start)
     mov     %ax, %fs
     mov     %ax, %gs
 
+    /* Initialize COM1 at 115200 8N1 so the kernel's later printf path can
+     * write to the serial port (used when cttyline=0 is set in boot args). */
+    movw    $0x3FB, %dx; movb $0x80, %al; outb %al, %dx  /* DLAB=1 */
+    movw    $0x3F8, %dx; movb $0x01, %al; outb %al, %dx  /* DLL=1 (115200) */
+    movw    $0x3F9, %dx; movb $0x00, %al; outb %al, %dx  /* DLM=0 */
+    movw    $0x3FB, %dx; movb $0x03, %al; outb %al, %dx  /* 8N1, DLAB=0 */
+    movw    $0x3FA, %dx; movb $0xC7, %al; outb %al, %dx  /* FIFO enable */
+    movw    $0x3FC, %dx; movb $0x0B, %al; outb %al, %dx  /* RTS+DTR */
+
+    /* Emit "HEAD64\r\n" directly via COM1 to confirm we got here.
+     * (Diagnostic to localize early-boot hangs that occur before printf.) */
+    movw    $0x3F8, %dx
+    movb    $'H', %al; outb %al, %dx
+    movb    $'E', %al; outb %al, %dx
+    movb    $'A', %al; outb %al, %dx
+    movb    $'D', %al; outb %al, %dx
+    movb    $'6', %al; outb %al, %dx
+    movb    $'4', %al; outb %al, %dx
+    movb    $'\r', %al; outb %al, %dx
+    movb    $'\n', %al; outb %al, %dx
+
     /* Set up the initial 64-bit stack. */
     movabs  $(_C_LABEL(k_initial_stktop)), %rsp
     xor     %rbp, %rbp
 
-    /* Pass multiboot magic (RDI) and info pointer (RSI) to pre_init().
-     * On amd64 the first two integer arguments go in RDI, RSI — they were
-     * already placed there by the 32-bit stub above via EDI/ESI, which the
-     * CPU zero-extends to RDI/RSI on the transition.
+    /* pre_init(u32_t magic, u32_t ebx): SysV AMD64 ABI — RDI, RSI.
+     * magic was carried in EBX/RBX (zero-extended on any 32-bit write);
+     * info ptr was carried in ESI/RSI.  Move magic into RDI now.
      */
+    mov     %rbx, %rdi          /* magic (RBX) → first arg (RDI) */
+    /* RSI already holds the multiboot info pointer */
     call    _C_LABEL(pre_init)
 
     /* pre_init() returns the kinfo_t * boot pointer in RAX.
@@ -204,7 +230,22 @@ ENTRY(longmode_start)
     movabs  $(_C_LABEL(k_initial_stktop)), %rsp
     xor     %rbp, %rbp
     push    $0              /* terminate stack traces */
-    mov     %rax, %rdi      /* pass boot info to kmain */
+
+    mov     %rax, %rdi      /* pass boot info to kmain (first arg) */
+
+    /* Save RDI across COM1 emit. */
+    push    %rdi
+    /* Emit "KMAIN\r\n" via COM1 — confirms pre_init returned cleanly. */
+    movw    $0x3F8, %dx
+    movb    $'K', %al; outb %al, %dx
+    movb    $'M', %al; outb %al, %dx
+    movb    $'A', %al; outb %al, %dx
+    movb    $'I', %al; outb %al, %dx
+    movb    $'N', %al; outb %al, %dx
+    movb    $'\r', %al; outb %al, %dx
+    movb    $'\n', %al; outb %al, %dx
+    pop     %rdi
+
     call    _C_LABEL(kmain)
 
     /* Not reached. */

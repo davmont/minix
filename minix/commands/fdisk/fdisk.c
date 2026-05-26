@@ -343,7 +343,7 @@ void dpl_partitions(int rawflag)
 {
 /* Display partition table */
 
-  char active[5];
+  char active[16];
   char basefootnote;
   int cyl_mask;
   int devnum;
@@ -355,7 +355,7 @@ void dpl_partitions(int rawflag)
   struct part_entry *pe1;
   int sec_mask;
   char sizefootnote;
-  char type[10];
+  char type[32];
 
   badbases = 0;
   badsizes = 0;
@@ -380,11 +380,11 @@ void dpl_partitions(int rawflag)
   pe = (struct part_entry *) &secbuf[PART_TABLE_OFF];
   for (i = 1; i <= NR_PARTITIONS; i++, pe++) {
 	if (rawflag) {
-		sprintf(active, "0x%02x", pe->bootind);
-		sprintf(type, "0x%02x", pe->sysind);
+		snprintf(active, sizeof(active), "0x%02x", pe->bootind);
+		snprintf(type, sizeof(type), "0x%02x", pe->sysind);
 	} else {
-		sprintf(active, "%s", pe->bootind == ACTIVE_FLAG ? "A  " : "");
-		sprintf(type, "%s", systype(pe->sysind));
+		snprintf(active, sizeof(active), "%s", pe->bootind == ACTIVE_FLAG ? "A  " : "");
+		snprintf(type, sizeof(type), "%s", systype(pe->sysind));
 	}
 
 	/* Prepare warnings about confusing setups from old versions. */

@@ -102,6 +102,33 @@ static void pagefault(struct proc *pr, struct exception_frame *frame,
         panic("pagefault in VM");
     }
 
+    {
+        /* Detect a process page-faulting on the same address repeatedly
+         * (would indicate VM never cleared RTS_PAGEFAULT or never mapped
+         * the page).  Print details every Nth repeat to expose the loop
+         * without flooding. */
+        static endpoint_t last_ep = NONE;
+        static reg_t last_addr = 0;
+        static unsigned same_count = 0;
+        static unsigned printed = 0;
+        if (pr->p_endpoint == last_ep && pagefaultcr2 == last_addr) {
+            same_count++;
+            if ((same_count == 5 || same_count == 50 ||
+                 (same_count % 500) == 0) && printed < 20) {
+                printf("PFLOOP: proc=%d addr=0x%lx err=0x%lx repeat=%u "
+                       "rip=0x%lx\n",
+                       pr->p_endpoint, (unsigned long)pagefaultcr2,
+                       (unsigned long)frame->errcode, same_count,
+                       (unsigned long)frame->rip);
+                printed++;
+            }
+        } else {
+            last_ep = pr->p_endpoint;
+            last_addr = pagefaultcr2;
+            same_count = 1;
+        }
+    }
+
     RTS_SET(pr, RTS_PAGEFAULT);
 
     m_pagefault.m_source  = pr->p_endpoint;
@@ -156,6 +183,12 @@ void exception_handler(int is_nested, struct exception_frame *frame)
 {
     struct ex_s *ep;
     struct proc *saved_proc;
+
+    BOOT_VERBOSE(printf(
+        "exc: vec=%lu err=0x%lx rip=0x%lx cs=0x%lx is_nested=%d cr2=0x%lx\n",
+        (unsigned long)frame->vector, (unsigned long)frame->errcode,
+        (unsigned long)frame->rip, (unsigned long)frame->cs, is_nested,
+        (unsigned long)read_cr2()));
 
     saved_proc = get_cpulocal_var(proc_ptr);
     ep = (frame->vector < (reg_t)(sizeof(ex_data) / sizeof(ex_data[0])))
@@ -218,6 +251,23 @@ void exception_handler(int is_nested, struct exception_frame *frame)
     }
 
     if (is_nested == 0 && !iskernelp(saved_proc)) {
+        /* #NM (Device Not Available): lazy FPU context switch. */
+        if (frame->vector == COPROC_NOT_VECTOR) {
+            copr_not_available_handler();
+            NOT_REACHABLE;
+        }
+        printf("exception: proc=%s/%d vec=%d (%s) rip=0x%lx rsp=0x%lx err=0x%lx sig=%d\n",
+               saved_proc->p_name, saved_proc->p_endpoint,
+               (int)frame->vector,
+               (ep && ep->msg) ? ep->msg : "?",
+               (unsigned long)frame->rip,
+               (unsigned long)frame->rsp,
+               (unsigned long)frame->errcode,
+               ep ? ep->signum : SIGILL);
+        if (frame->vector == 6) {
+            printf("  #UD cr0=0x%lx cr4=0x%lx\n",
+                   (unsigned long)read_cr0(), (unsigned long)read_cr4());
+        }
         cause_sig(proc_nr(saved_proc), ep ? ep->signum : SIGILL);
         return;
     }

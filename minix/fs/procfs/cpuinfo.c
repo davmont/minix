@@ -4,13 +4,15 @@
 
 #if defined(__i386__)
 #include "../../kernel/arch/i386/include/archconst.h"
+#elif defined(__x86_64__)
+#include "../../kernel/arch/x86_64/include/archconst.h"
 #endif
 
 #ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
 #endif
 
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 static const char * x86_flag[] = {
 	"fpu",
 	"vme",
@@ -80,17 +82,25 @@ static const char * x86_flag[] = {
 
 /*
  * Output a space-separated list of supported CPU flags.  x86 only.
+ *
+ * cpu_identify() stores CPUID.01H:ECX in flags[0] and CPUID.01H:EDX in
+ * flags[1].  x86_flag[0..31] are the EDX bit names and x86_flag[32..63] the
+ * ECX bit names, so pair flags[1] with the low half and flags[0] with the
+ * high half.  (The original i386 code paired them the other way around,
+ * which silently mislabelled every flag.)
  */
 static void
 print_x86_cpu_flags(u32_t * flags)
 {
-	int i, j;
+	int j;
 
-	for (i = 0; i < 2; i++) {
-		for (j = 0; j < 32; j++) {
-			if (flags[i] & (1 << j) && x86_flag[i * 32 + j][0])
-				buf_printf("%s ", x86_flag[i * 32 + j]);
-		}
+	for (j = 0; j < 32; j++) {
+		if ((flags[1] & (1U << j)) && x86_flag[j][0])
+			buf_printf("%s ", x86_flag[j]);
+	}
+	for (j = 0; j < 32; j++) {
+		if ((flags[0] & (1U << j)) && x86_flag[32 + j][0])
+			buf_printf("%s ", x86_flag[32 + j]);
 	}
 	buf_printf("\n");
 }
@@ -105,7 +115,7 @@ print_cpu(struct cpu_info * cpu_info, unsigned id)
 
 	buf_printf("%-16s: %d\n", "processor", id);
 
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 	switch (cpu_info->vendor) {
 	case CPU_VENDOR_INTEL:
 		buf_printf("%-16s: %s\n", "vendor_id", "GenuineIntel");

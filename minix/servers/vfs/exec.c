@@ -480,14 +480,11 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 	AUXINFO(aux_vec, AT_BASE, execi->args.load_base);
 	AUXINFO(aux_vec, AT_ENTRY, execi->args.pc);
 	AUXINFO(aux_vec, AT_EXECFD, execi->elf_main_fd);
-#if 0
-	AUXINFO(aux_vec, AT_PHDR, XXX ); /* should be &phdr[0] */
+	AUXINFO(aux_vec, AT_PHDR, execi->args.phdr);
 	AUXINFO(aux_vec, AT_PHENT, elf_header->e_phentsize);
 	AUXINFO(aux_vec, AT_PHNUM, elf_header->e_phnum);
-
-	AUXINFO(aux_vec, AT_RUID, XXX);
-	AUXINFO(aux_vec, AT_RGID, XXX);
-#endif
+	AUXINFO(aux_vec, AT_RUID, fp->fp_realuid);
+	AUXINFO(aux_vec, AT_RGID, fp->fp_realgid);
 	AUXINFO(aux_vec, AT_EUID, execi->args.new_uid);
 	AUXINFO(aux_vec, AT_EGID, execi->args.new_gid);
 	AUXINFO(aux_vec, AT_PAGESZ, PAGE_SIZE);

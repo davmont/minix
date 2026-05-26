@@ -28,7 +28,10 @@
 #include "region.h"
 #include "sanitycheck.h"
 
-#define STATELEN 70
+/* The largest 'state' blob handed to vfs_request() is a full message struct
+ * (mmap.c passes one).  sizeof(message) is 64 on i386 but 104 on amd64 due to
+ * LP64 type sizes, so derive STATELEN from it instead of hardcoding 70. */
+#define STATELEN sizeof(message)
 
 static struct vfs_request_node {
 	message			reqmsg;

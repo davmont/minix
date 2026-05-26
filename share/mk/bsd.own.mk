@@ -97,6 +97,15 @@ CPPFLAGS+= -D__minix=3 -D__minix__=3 -D__ELF__=1
 CFLAGS+= -mno-unaligned-access
 .endif
 
+# KVM's x86 instruction emulator does not support SSE2 (XMM) memory stores
+# when handling EPT write violations on lazily-mapped pages.  Disable the
+# auto-vectorizers for all amd64 guest code to prevent the compiler from
+# emitting xorps+movups / movq-xmm patterns for struct initialization.
+# -mno-sse/-mno-sse2 would also work but breaks the ABI for double returns.
+.if ${MACHINE_ARCH} == "x86_64" && defined(__MINIX) && !defined(HOSTPROG) && !defined(HOSTLIB)
+CFLAGS+= -fno-slp-vectorize -fno-vectorize
+.endif
+
 __uname_s!= uname -s
 .if ${__uname_s:Uunknown} == "Minix" 
 USETOOLS?=	never

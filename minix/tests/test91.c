@@ -2998,13 +2998,31 @@ get_buf_sizes(int type, int * sndbufp, int * rcvbufp)
 }
 
 /*
- * The following constant should be set to the window size used within lwIP.
- * There is currently no way to obtain this constant from the LWIP service, nor
- * would that be information that should ever be used by general applications,
- * but we need it to fill socket receive queues in a reliable way.  TODO: find
- * a better solution for this general problem.
+ * Determine the minimum receive buffer size for a TCP socket, which
+ * happens to be the TCP window size used within lwIP.  This is a
+ * slightly hacky way to obtain the window size without adding sysctls
+ * or making other lwIP service modifications.
  */
-#define WINDOW_SIZE	16384	/* TCP_WND in lwipopt.h, keep in sync! */
+static int
+get_window_size(void)
+{
+	int fd, rcvbuf;
+	socklen_t len;
+
+	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) e(0);
+
+	rcvbuf = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) != 0)
+		e(0);
+
+	len = sizeof(rcvbuf);
+	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &len) != 0) e(0);
+	if (len != sizeof(rcvbuf)) e(0);
+
+	if (close(fd) != 0) e(0);
+
+	return rcvbuf;
+}
 
 #define CHUNK		4096	/* base I/O chunk size */
 #define USLEEP_TIME	250000	/* increase on wimpy platforms if needed */
@@ -3061,7 +3079,7 @@ fill_tcp_bufs(int sfd, int rfd, int fill_send, int delta)
 	 * algorithm, it sets the receive queue to the window size, thereby
 	 * avoiding the need for this more complicated algorithm.
 	 */
-	for (left = rcvbuf - WINDOW_SIZE; left > 0; left -= chunk) {
+	for (left = rcvbuf - get_window_size(); left > 0; left -= chunk) {
 		chunk = (left % mss != 0) ? (left % mss) : mss;
 		assert(chunk <= left);
 
@@ -3077,7 +3095,7 @@ fill_tcp_bufs(int sfd, int rfd, int fill_send, int delta)
 	if (fill_send)
 		delta = sndbuf;
 
-	for (left = WINDOW_SIZE + delta; left > 0; left -= res) {
+	for (left = get_window_size() + delta; left > 0; left -= res) {
 		chunk = MIN(left, sizeof(buf));
 
 		res = send(sfd, buf, chunk, 0);
@@ -4930,7 +4948,7 @@ test91z(void)
 	 * pairs in the other direction--something for which we do provision.
 	 */
 	sndlen = 131072;
-	rcvlen = 16384;
+	rcvlen = get_window_size();
 
 	/*
 	 * Unfortunately, filling up receive queues is not easy, and for any
@@ -4940,7 +4958,6 @@ test91z(void)
 	 * complicate the implementation of this subtest.  For now, make sure
 	 * that inconsistent internal changes will trigger this assert.
 	 */
-	assert(rcvlen == WINDOW_SIZE);
 
 	if ((lfd = socket(AF_INET6, SOCK_STREAM, 0)) < 0) e(0);
 

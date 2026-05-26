@@ -367,7 +367,38 @@ AcpiOsMapMemory (
     ACPI_PHYSICAL_ADDRESS   where,  /* not page aligned */
     ACPI_SIZE               length) /* in bytes, not page-aligned */
 {
-	return vm_map_phys(SELF, (void *) where, length);
+	void *vaddr = vm_map_phys(SELF, (void *) where, length);
+	if (vaddr == (void *)-1) {		/* MAP_FAILED */
+		printf("acpi: AcpiOsMapMemory(phys=0x%llx len=%llu) "
+		    "FAILED (vm_map_phys returned -1)\n",
+		    (unsigned long long)where,
+		    (unsigned long long)length);
+		return NULL;
+	}
+	{
+		volatile const unsigned char *b = (volatile const unsigned char *)vaddr;
+		int dumplen = (length < 32) ? (int)length : 32;
+		int i;
+		/* Touch each byte to force pagefault + mapping completion BEFORE
+		 * we print, so kernel debug messages from VM don't interleave
+		 * with our hex dump.
+		 */
+		unsigned sum = 0;
+		for (i = 0; i < dumplen; i++) sum += b[i];
+		printf("acpi: AcpiOsMapMemory(phys=0x%llx len=%llu) = %p sum=0x%x\n",
+		    (unsigned long long)where, (unsigned long long)length,
+		    vaddr, sum);
+		/* Build the hex string in a buffer to print as one line. */
+		{
+			char buf[200];
+			int off = 0;
+			for (i = 0; i < dumplen && off < (int)sizeof(buf) - 4; i++)
+				off += snprintf(buf + off, sizeof(buf) - off,
+				    " %02x", b[i]);
+			printf("acpi:   bytes:%s\n", buf);
+		}
+	}
+	return vaddr;
 }
 
 

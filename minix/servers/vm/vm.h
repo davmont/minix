@@ -82,7 +82,14 @@
 extern char _end;
 #define VM_OWN_HEAPSTART ((vir_bytes) (&_end))
 #define VM_OWN_HEAPBASE   roundup(VM_OWN_HEAPSTART, VM_PAGE_SIZE)
+#ifdef __x86_64__
+/* On amd64 the entire process virtual space fits within 0-512 MB.
+ * Fix VM's mmap window at 128-256 MB so it stays within the 1-GB PD. */
+#define VM_OWN_MMAPBASE ((vir_bytes)0x08000000)   /* 128 MB */
+#define VM_OWN_MMAPTOP  ((vir_bytes)0x10000000)   /* 256 MB */
+#else
 #define VM_OWN_MMAPBASE (VM_OWN_HEAPBASE+1024*1024*1024)
 #define VM_OWN_MMAPTOP   (VM_OWN_MMAPBASE+100 * 1024 * 1024)
+#endif
 
 #endif

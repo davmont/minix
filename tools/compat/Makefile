@@ -142,8 +142,12 @@ include/.stamp:
 	@printf '#ifndef __RENAME\n# define __RENAME(x)\n#endif\n' >> include/sys/cdefs.h
 	@printf '#ifndef __constfunc\n# define __constfunc __attribute__((__const__))\n#endif\n' \
 	    >> include/sys/cdefs.h
+	@# On glibc/Linux, __unused is a struct field name in bits/struct_mutex.h.
+	@# Defining it as a macro here breaks PTHREAD_MUTEX_INITIALIZER expansion.
+	@printf '#if !defined(__linux__) && !defined(__GLIBC__)\n' >> include/sys/cdefs.h
 	@printf '#ifndef __unused\n# define __unused __attribute__((__unused__))\n#endif\n' \
 	    >> include/sys/cdefs.h
+	@printf '#endif\n' >> include/sys/cdefs.h
 	@printf '#ifndef __pure\n# define __pure __attribute__((__pure__))\n#endif\n' \
 	    >> include/sys/cdefs.h
 	@printf '#ifndef __BEGIN_PUBLIC_DECLS\n' >> include/sys/cdefs.h

@@ -77,7 +77,14 @@
 #endif
 
 #ifdef CONFIG_BOOT_VERBOSE
-#define BOOT_VERBOSE(x)	x
+/* Gated on the runtime verbosity level set from the boot env "verbose=N":
+ * silent by default, shown at verbose>=2 (the "serial console, verbose"
+ * boot menu entries pass verbose=3).  This lets diagnostics stay in tree
+ * without flooding the default boot path.
+ */
+#define BOOT_VERBOSE(x)	do { \
+	if (verboseboot >= VERBOSEBOOT_EXTRA) { x; } \
+} while (0)
 #else
 #define BOOT_VERBOSE(x)
 #endif

@@ -71,12 +71,15 @@ void bsp_finish_booting(void)
    */
   cycles_accounting_init();
 
+  printf("bsp: pre boot_cpu_init_timer\n");
   if (boot_cpu_init_timer(system_hz)) {
 	  panic("FATAL : failed to initialize timer interrupts, "
 			  "cannot continue without any clock source!");
   }
+  printf("bsp: post boot_cpu_init_timer\n");
 
   fpu_init();
+  printf("bsp: post fpu_init\n");
 
 /* Warnings for sanity checks that take time. These warnings are printed
  * so it's a clear warning no full release should be done with them
@@ -105,6 +108,7 @@ void bsp_finish_booting(void)
   /* Kernel may no longer use bits of memory as VM will be running soon */
   kernel_may_alloc = 0;
 
+  printf("bsp: about to switch_to_user\n");
   switch_to_user();
   NOT_REACHABLE;
 }
@@ -113,6 +117,22 @@ void bsp_finish_booting(void)
 /*===========================================================================*
  *			kmain 	                             		*
  *===========================================================================*/
+/* Emit one byte to COM1 directly, bypassing any kernel state.
+ * Used by the early-boot KMAIN markers under BOOT_VERBOSE: cstart()
+ * hasn't run yet, so verboseboot is still 0 and the marks before
+ * KMAIN9 stay silent unless the binary was built without
+ * CONFIG_BOOT_VERBOSE (BOOT_VERBOSE expands to nothing then). */
+static inline void __kmain_com1(char c) {
+#if defined(__x86_64__) || defined(__amd64__)
+	__asm__ __volatile__("outb %0, %1" : : "a"(c), "Nd"((unsigned short)0x3F8));
+#endif
+}
+static inline void __kmain_mark_raw(const char *s) {
+	while (*s) __kmain_com1(*s++);
+	__kmain_com1('\r'); __kmain_com1('\n');
+}
+#define __kmain_mark(s) BOOT_VERBOSE(__kmain_mark_raw(s))
+
 void kmain(kinfo_t *local_cbi)
 {
 /* Start the ball rolling. */
@@ -121,42 +141,106 @@ void kmain(kinfo_t *local_cbi)
   register int i, j;
   static int bss_test;
 
+  __kmain_mark("KMAIN0");
+
   /* bss sanity check */
   assert(bss_test == 0);
   bss_test = 1;
 
+  __kmain_mark("KMAIN1");
+
   /* save a global copy of the boot parameters */
   memcpy(&kinfo, local_cbi, sizeof(kinfo));
+  __kmain_mark("KMAIN2");
   memcpy(&kmess, kinfo.kmess, sizeof(kmess));
+  __kmain_mark("KMAIN3");
 
    /* We have done this exercise in pre_init so we expect this code
       to simply work! */
    machine.board_id = get_board_id_by_name(env_get(BOARDVARNAME));
+   __kmain_mark("KMAIN4");
 #ifdef __arm__
   /* We want to initialize serial before we do any output */
   arch_ser_init();
 #endif
   /* We can talk now */
+  __kmain_mark("KMAIN5-pre-DEBUGBASIC");
   DEBUGBASIC(("MINIX booting\n"));
+  __kmain_mark("KMAIN6-after-DEBUGBASIC");
 
   /* Kernel may use bits of main memory before VM is started */
   kernel_may_alloc = 1;
 
   assert(sizeof(kinfo.boot_procs) == sizeof(image));
   memcpy(kinfo.boot_procs, image, sizeof(kinfo.boot_procs));
+  __kmain_mark("KMAIN7-pre-cstart");
 
   cstart();
+  __kmain_mark("KMAIN8-after-cstart");
 
   BKL_LOCK();
- 
+  __kmain_mark("KMAIN9-after-BKL_LOCK");
+
+  BOOT_VERBOSE({
+    const volatile unsigned char *b =
+        (const volatile unsigned char *)
+        (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+    int i;
+    printf("DBGRSDT @ KMAIN9:");
+    for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+    printf("\n");
+  });
+
+  /* Emit verboseboot value via COM1 so we can tell if env parsing worked. */
+  BOOT_VERBOSE({
+    char vb = '0' + (verboseboot & 0xf);
+    __kmain_com1('v'); __kmain_com1('b'); __kmain_com1('=');
+    __kmain_com1(vb); __kmain_com1('\r'); __kmain_com1('\n');
+  });
+
+  /* Dump kinfo.param_buf (NUL-separated key=value list, terminated by extra NUL).
+   * Print each entry on its own line so we can see what env the kernel parsed. */
+  BOOT_VERBOSE({
+    const char *pb = kinfo.param_buf;
+    int i;
+    __kmain_com1('P'); __kmain_com1('B'); __kmain_com1(':');
+    __kmain_com1('\r'); __kmain_com1('\n');
+    for (i = 0; i < (int)sizeof(kinfo.param_buf) - 1; i++) {
+      char c = pb[i];
+      if (c == 0) {
+        if (pb[i+1] == 0) break; /* double NUL: end of list */
+        __kmain_com1('\r'); __kmain_com1('\n');
+        continue;
+      }
+      __kmain_com1(c);
+    }
+    __kmain_com1('\r'); __kmain_com1('\n');
+    __kmain_com1('P'); __kmain_com1('B'); __kmain_com1('-');
+    __kmain_com1('E'); __kmain_com1('N'); __kmain_com1('D');
+    __kmain_com1('\r'); __kmain_com1('\n');
+  });
+
    DEBUGEXTRA(("main()\n"));
+   __kmain_mark("KMAIN10-after-main-print");
 
   /* Clear the process table. Anounce each slot as empty and set up mappings
    * for proc_addr() and proc_nr() macros. Do the same for the table with
    * privilege structures for the system processes and the ipc filter pool.
    */
   proc_init();
+  __kmain_mark("KMAIN11-after-proc_init");
   IPCF_POOL_INIT();
+  __kmain_mark("KMAIN12-after-IPCF_POOL_INIT");
+
+  BOOT_VERBOSE({
+    const volatile unsigned char *b =
+        (const volatile unsigned char *)
+        (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+    int i;
+    printf("DBGRSDT @ KMAIN12:");
+    for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+    printf("\n");
+  });
 
    if(NR_BOOT_MODULES != kinfo.mbi.mi_mods_count)
    	panic("expecting %d boot processes/modules, found %d",
@@ -275,6 +359,16 @@ void kmain(kinfo_t *local_cbi)
   /* update boot procs info for VM */
   memcpy(kinfo.boot_procs, image, sizeof(kinfo.boot_procs));
 
+  BOOT_VERBOSE({
+    const volatile unsigned char *b =
+        (const volatile unsigned char *)
+        (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+    int i;
+    printf("DBGRSDT @ post-bootproc-loop:");
+    for (i = 0; i < 16; i++) printf(" %02x", b[i]);
+    printf("\n");
+  });
+
 #define IPCNAME(n) { \
 	assert((n) >= 0 && (n) <= IPCNO_HIGHEST); \
 	assert(!ipc_call_names[n]);	\
@@ -317,7 +411,7 @@ void kmain(kinfo_t *local_cbi)
 	  bsp_finish_booting();
   }
 #else
-  /* 
+  /*
    * if configured for a single CPU, we are already on the kernel stack which we
    * are going to use everytime we execute kernel code. We finish booting and we
    * never return here

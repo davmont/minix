@@ -16,9 +16,17 @@
  */
 #define KERN_CS_INDEX        1
 #define KERN_DS_INDEX        2
-#define USER_CS_INDEX        3
+/*
+ * GDT layout for SYSRETQ selector arithmetic:
+ *   SYSRETQ sets CS = STAR[63:48]+16, SS = STAR[63:48]+8.
+ *   With STAR[63:48] = USER_CS_COMPAT_SELECTOR (0x1b):
+ *     SS = 0x1b+8  = 0x23 → GDT[4] = user_ds  ✓
+ *     CS = 0x1b+16 = 0x2b → GDT[5] = user_cs64 ✓
+ */
+#define USER_CS_COMPAT_INDEX 3   /* compat placeholder; SYSRETQ arithmetic base */
 #define USER_DS_INDEX        4
-#define TSS_INDEX_FIRST      5
+#define USER_CS_INDEX        5   /* 64-bit user CS — SYSRETQ lands here */
+#define TSS_INDEX_FIRST      6   /* moved from 5 to make room for user_cs64 */
 /* Each TSS occupies 2 GDT slots in long mode (16-byte system descriptor) */
 #define TSS_INDEX(cpu)       (TSS_INDEX_FIRST + 2 * (cpu))
 #define GDT_SIZE             (TSS_INDEX(CONFIG_MAX_CPUS))
@@ -26,6 +34,7 @@
 #define SEG_SELECTOR(i)          ((i) * 8)
 #define KERN_CS_SELECTOR         SEG_SELECTOR(KERN_CS_INDEX)
 #define KERN_DS_SELECTOR         SEG_SELECTOR(KERN_DS_INDEX)
+#define USER_CS_COMPAT_SELECTOR  (SEG_SELECTOR(USER_CS_COMPAT_INDEX) | USER_PRIVILEGE)
 #define USER_CS_SELECTOR         (SEG_SELECTOR(USER_CS_INDEX) | USER_PRIVILEGE)
 #define USER_DS_SELECTOR         (SEG_SELECTOR(USER_DS_INDEX) | USER_PRIVILEGE)
 #define TSS_SELECTOR(cpu)        SEG_SELECTOR(TSS_INDEX(cpu))
@@ -92,6 +101,7 @@
 #define AMD_MSR_STAR        0xC0000081  /* SYSCALL CS/SS selectors */
 #define AMD_MSR_LSTAR       0xC0000082  /* SYSCALL 64-bit entry RIP */
 #define AMD_MSR_FMASK       0xC0000084  /* SYSCALL RFLAGS mask */
+#define AMD_MSR_KERNEL_GS_BASE  0xC0000102  /* swapgs target (kernel per-CPU base) */
 
 /* CR4 bits needed for Long Mode */
 #define CR4_PAE             (1 << 5)   /* Physical Address Extension */

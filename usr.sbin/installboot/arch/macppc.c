@@ -63,6 +63,7 @@ static struct bbinfo_params bbparams = {
 };
 
 static int writeapplepartmap(ib_params *, struct bbinfo_params *, uint8_t *);
+static int clearapplepartmap(ib_params *, struct bbinfo_params *, uint8_t *);
 
 static int macppc_clearboot(ib_params *);
 static int macppc_setboot(ib_params *);
@@ -81,8 +82,7 @@ macppc_clearboot(ib_params *params)
 
 	assert(params != NULL);
 
-		/* XXX: maybe clear the apple partition map too? */
-	return (shared_bbinfo_clearboot(params, &bbparams, NULL));
+	return (shared_bbinfo_clearboot(params, &bbparams, clearapplepartmap));
 }
 
 static int
@@ -179,6 +179,80 @@ writeapplepartmap(ib_params *params, struct bbinfo_params *bb_params,
 	pme.pmBootLoad =	htobe32(0x4000);
 	pme.pmBootEntry =	htobe32(0x4000);
 	strlcpy(pme.pmProcessor, "PowerPC", sizeof(pme.pmProcessor));
+	if (pwrite(params->fsfd, &pme, MACPPC_BOOT_BLOCK_BLOCKSIZE,
+	    2 * MACPPC_BOOT_BLOCK_BLOCKSIZE) != MACPPC_BOOT_BLOCK_BLOCKSIZE) {
+		warn("Can't write Apple Partition Map into sector 2 of `%s'",
+		    params->filesystem);
+		return (0);
+	}
+
+	return (1);
+}
+
+static int
+clearapplepartmap(ib_params *params, struct bbinfo_params *bb_params,
+    uint8_t *bb)
+{
+	struct apple_drvr_map dm;
+	struct apple_part_map_entry pme;
+	int rv;
+
+	assert (params != NULL);
+	assert (bb_params != NULL);
+	assert (bb != NULL);
+
+	if (params->flags & IB_NOWRITE)
+		return (1);
+
+		/* block 0: driver map  */
+	if (pread(params->fsfd, &dm, MACPPC_BOOT_BLOCK_BLOCKSIZE, 0) !=
+	    MACPPC_BOOT_BLOCK_BLOCKSIZE) {
+		warn("Can't read sector 0 of `%s'", params->filesystem);
+		return (0);
+	}
+	dm.sbSig =		0;
+	dm.sbBlockSize =	0;
+	dm.sbBlkCount =		0;
+
+	rv = pwrite(params->fsfd, &dm, MACPPC_BOOT_BLOCK_BLOCKSIZE, 0);
+#ifdef DIOCWLABEL
+	if (rv == -1 && errno == EROFS) {
+		/*
+		 * block 0 is LABELSECTOR which might be protected by
+		 * bounds_check_with_label(9).
+		 */
+		int enable;
+
+		enable = 1;
+		rv = ioctl(params->fsfd, DIOCWLABEL, &enable);
+		if (rv != 0) {
+			warn("Cannot enable writes to the label sector");
+			return 0;
+		}
+
+		rv = pwrite(params->fsfd, &dm, MACPPC_BOOT_BLOCK_BLOCKSIZE, 0);
+
+		/* Reset write-protect. */
+		enable = 0;
+		(void)ioctl(params->fsfd, DIOCWLABEL, &enable);
+	}
+#endif
+	if (rv != MACPPC_BOOT_BLOCK_BLOCKSIZE) {
+		warn("Can't write sector 0 of `%s'", params->filesystem);
+		return (0);
+	}
+
+		/* block 1: Apple Partition Map */
+	memset(&pme, 0, sizeof(pme));
+	if (pwrite(params->fsfd, &pme, MACPPC_BOOT_BLOCK_BLOCKSIZE,
+	    1 * MACPPC_BOOT_BLOCK_BLOCKSIZE) != MACPPC_BOOT_BLOCK_BLOCKSIZE) {
+		warn("Can't write Apple Partition Map into sector 1 of `%s'",
+		    params->filesystem);
+		return (0);
+	}
+
+		/* block 2: NetBSD partition */
+	memset(&pme, 0, sizeof(pme));
 	if (pwrite(params->fsfd, &pme, MACPPC_BOOT_BLOCK_BLOCKSIZE,
 	    2 * MACPPC_BOOT_BLOCK_BLOCKSIZE) != MACPPC_BOOT_BLOCK_BLOCKSIZE) {
 		warn("Can't write Apple Partition Map into sector 2 of `%s'",

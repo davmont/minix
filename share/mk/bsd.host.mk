@@ -16,6 +16,19 @@ HOST_CC?=   gcc
 .endif
 .endif # ${HOST_OSTYPE:C/\-.*//:U} == "Minix"
 
+# On Linux, prefer clang++ over g++ to avoid GCC 15 / glibc 2.41+ header
+# incompatibilities in ext/concurrence.h that break old C++11 LLVM code.
+# Also disable PIE for host tools: old LLVM/binutils objects use absolute
+# 32-bit relocations and cannot be linked as position-independent executables.
+.if ${HOST_OSTYPE:C/\-.*//:U} == "Linux"
+.if exists(/usr/bin/clang++)
+HOST_CXX?=	clang++
+.elif exists(/usr/local/bin/clang++)
+HOST_CXX?=	clang++
+.endif
+HOST_LDFLAGS?=	-no-pie
+.endif # ${HOST_OSTYPE:C/\-.*//:U} == "Linux"
+
 # Helpers for cross-compiling
 HOST_CC?=	cc
 HOST_CFLAGS?=	-O

@@ -38,6 +38,8 @@
 #include "opt_inet.h"
 #endif
 
+#include <netinet/tcpip.h>
+
 struct	tcp_debug {
 	n_time	td_time;
 	short	td_act;

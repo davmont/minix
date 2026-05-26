@@ -133,7 +133,11 @@
 
 #define ACPI_FLUSH_CPU_CACHE()
 
+#if defined(__x86_64__)
+#define ACPI_MACHINE_WIDTH          64
+#else
 #define ACPI_MACHINE_WIDTH          32
+#endif
 #define COMPILER_DEPENDENT_INT64    long long
 #define COMPILER_DEPENDENT_UINT64   unsigned long long
 

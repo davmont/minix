@@ -52,8 +52,8 @@ int _cpufeature(int cpufeature)
 
 	/* Leaf 7, subleaf 0: structured extended feature flags. */
 	if(max_leaf >= 7) {
-		u32_t l7_eax = 7, l7_ecx = 0;
-		_cpuid(&l7_eax, &l7_ebx, &l7_ecx, &edx);
+		u32_t l7_eax = 7, l7_ecx = 0, l7_edx = 0;
+		_cpuid(&l7_eax, &l7_ebx, &l7_ecx, &l7_edx);
 	}
 
 	/* Leaf 0xD, subleaf 1: XSAVE extended features. */

@@ -251,6 +251,12 @@ int lapic_tsc_deadline_available = 0;
 
 void arch_eoi(void)
 {
+	{
+		static unsigned eoi_count = 0;
+		eoi_count++;
+		if (eoi_count <= 50)
+			printf("eoi#%u\n", eoi_count);
+	}
 	/*
 	 * P2.3: in x2APIC mode write the EOI MSR directly.
 	 * EOI register: LAPIC_EOI offset = 0x0B0 → MSR 0x80B.
@@ -557,9 +563,13 @@ static void apic_calibrate_clocks(unsigned cpu)
 	val = 0xffffffff;
 	lapic_write (LAPIC_TIMER_ICR, val);
 
-	/* Set Current count register */
-	val = 0;
-	lapic_write (LAPIC_TIMER_CCR, val);
+	/*
+	 * NOTE: don't write LAPIC_TIMER_CCR — Current Count is read-only,
+	 * hardware-derived from ICR.  In xAPIC mode the write is silently
+	 * ignored; in x2APIC mode writing to RO MSR 0x839 generates #GP.
+	 * Original code did `lapic_write(LAPIC_TIMER_CCR, 0)` here based
+	 * on a misleading comment ("Set Current count register").
+	 */
 
 	lvtt = lapic_read(LAPIC_TIMER_DCR) & ~0x0b;
 	 /* Set Divide configuration register to 1 */
@@ -669,14 +679,19 @@ void lapic_set_timer_one_shot(const u32_t usec)
 
 	ticks_per_us = (lapic_bus_freq[cpu] / 1000000) * config_apic_timer_x;
 
-	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
-
+	/*
+	 * Intel SDM says writing ICR is what "effectively starts the timer".
+	 * So configure DCR and LVTT FIRST, then write ICR last so the timer
+	 * starts with the correct mode + divisor already set.
+	 */
 	lvtt = APIC_TDCR_1;
 	lapic_write(LAPIC_TIMER_DCR, lvtt);
 
 	/* configure timer as one-shot */
 	lvtt = APIC_TIMER_INT_VECTOR;
 	lapic_write(LAPIC_LVTTR, lvtt);
+
+	lapic_write(LAPIC_TIMER_ICR, usec * ticks_per_us);
 }
 
 void lapic_set_timer_periodic(const unsigned freq)
@@ -706,7 +721,8 @@ void lapic_stop_timer(void)
 	/* zero the current counter so it can be restarted again */
 	if (!use_tsc_deadline) {
 		lapic_write(LAPIC_TIMER_ICR, 0);
-		lapic_write(LAPIC_TIMER_CCR, 0);
+		/* CCR is read-only; do NOT write it (silently ignored in xAPIC,
+		 * #GP on MSR 0x839 in x2APIC). */
 	} else {
 		/* Disarm TSC deadline by writing 0. */
 		ia32_msr_write(IA32_TSC_DEADLINE_MSR, 0, 0);

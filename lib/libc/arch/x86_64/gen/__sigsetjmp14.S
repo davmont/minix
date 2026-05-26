@@ -72,11 +72,19 @@ ENTRY(__sigsetjmp14)
 	xorl	%edi,%edi
 	xorq	%rsi,%rsi
 
+	/*
+	 * The SysV amd64 ABI requires %rsp to be 16-byte aligned at a call
+	 * site.  This function makes no stack adjustment between its entry
+	 * (where %rsp is 8 mod 16) and the call below, so align it here;
+	 * otherwise __sigprocmask14's movaps to a stack slot #GPs.
+	 */
+	subq	$8,%rsp
 #ifdef __PIC__
 	call	PIC_PLT(_C_LABEL(__sigprocmask14))
 #else
 	call	_C_LABEL(__sigprocmask14)
 #endif
+	addq	$8,%rsp
 2:	xorl	%eax,%eax
 	ret
 END(__sigsetjmp14)

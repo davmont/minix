@@ -123,15 +123,22 @@ crc32(uint32_t crc, const uint8_t *const buf, size_t len)
 void *
 zcalloc(void *opaque, unsigned int items, unsigned int size)
 {
+	unsigned int *p;
+	unsigned int totalsize = items * size;
 
-	return alloc(items * size);
+	p = alloc(totalsize + sizeof(*p));
+	if (p != NULL)
+		*p++ = totalsize;
+	return p;
 }
 
 void
 zcfree(void *opaque, void *ptr)
 {
+	unsigned int *p = ptr;
 
-	dealloc(ptr, 0); /* XXX works only with modified allocator */
+	p--;
+	dealloc(p, *p + sizeof(*p));
 }
 
 void

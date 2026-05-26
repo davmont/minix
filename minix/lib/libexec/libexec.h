@@ -49,6 +49,7 @@ struct exec_info {
     /* Filled in by libexec load function */
     vir_bytes load_base;		/* Where executable is loaded */
     vir_bytes pc;                       /* Entry point of exec file */
+    vir_bytes phdr;                     /* Program header address */
     vir_bytes stack_high;		/* High stack addr */
 };
 

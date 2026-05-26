@@ -40,13 +40,29 @@ int arch_do_vmctl(
   struct proc *p
 )
 {
+  /* Diagnostic (verbose builds only): dump bytes at phys 0x3ffe2335 via
+   * the kernel's linear physmap (pml4[256]) once per 200 vmctls.  Was
+   * used to track ACPI-table corruption during the amd64 bring-up. */
+  BOOT_VERBOSE({
+	static unsigned vmctl_dump_count = 0;
+	if ((++vmctl_dump_count) % 200 == 1) {
+		const volatile unsigned char *bp =
+		    (const volatile unsigned char *)
+		    (((char *)0xffff800000000000UL) + 0x3ffe2335UL);
+		int i;
+		printf("KDMP@vmctl#%u physmap:", vmctl_dump_count);
+		for (i = 0; i < 16; i++)
+			printf(" %02x", bp[i]);
+		printf("\n");
+	}
+  });
   switch(m_ptr->SVMCTL_PARAM) {
 	case VMCTL_GET_PDBR:
 		/* Get process page directory base reg (CR3). */
 		m_ptr->SVMCTL_VALUE = (u32_t) p->p_seg.p_cr3;
 		return OK;
 	case VMCTL_SETADDRSPACE:
-		setcr3(p, (u64_t) m_ptr->SVMCTL_PTROOT,
+		setcr3(p, m_ptr->SVMCTL_PTROOT,
 		           (u64_t *) m_ptr->SVMCTL_PTROOT_V);
 		return OK;
 	case VMCTL_FLUSHTLB:
