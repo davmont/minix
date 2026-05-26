@@ -284,6 +284,19 @@ void smp_init(void)
 #if 0
 	smp_start_aps();
 #endif
+	/*
+	 * APs are not actually brought up yet (smp_start_aps above is #if 0),
+	 * but discover_cpus() has already incremented ncpus to match the ACPI
+	 * MADT count.  Leaving ncpus > 1 means main.c will publish
+	 * machine.processors_count > 1 to userland, and the sched server will
+	 * happily assign user processes (including init) to APs that never
+	 * boot.  The kernel then rejects sys_schedule with EBADCPU
+	 * ("PM: An error occurred when trying to schedule 11: -217") and init
+	 * never gets to run, hanging the boot.
+	 *
+	 * Force ncpus back to 1 until smp_start_aps actually works.
+	 */
+	ncpus = 1;
 
 	bsp_finish_booting();
 	NOT_REACHABLE;

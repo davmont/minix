@@ -57,14 +57,6 @@ static int phys_pagefault(struct vmproc *vmp, struct vir_region *region,
 	phmem = arg + ph->offset;
 	assert(phmem != MAP_NONE);
 	ph->ph->phys = phmem;
-	/* Diagnostic: log directphys pagefaults for high addresses to see if
-	 * the ACPI table mapping path actually faults. */
-	if (arg >= 0x10000000) {
-		printf("VM: phys_pagefault ep=%d region->phys=0x%lx ph->offset=0x%lx -> phmem=0x%lx\n",
-		    vmp ? vmp->vm_endpoint : -1,
-		    (unsigned long)arg, (unsigned long)ph->offset,
-		    (unsigned long)phmem);
-	}
 	return OK;
 }
 

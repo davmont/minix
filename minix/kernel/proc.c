@@ -522,11 +522,44 @@ check_misc_flags:
 
 	context_stop(proc_addr(KERNEL));
 
+#if defined(__x86_64__)
+	/*
+	 * amd64: switch FPU state eagerly on every dispatch.
+	 *
+	 * Lazy switching (CR0.TS=1 → #NM → copr_not_available_handler) has
+	 * been broken: userspace SSE instructions re-trap #NM forever, no
+	 * forward progress through early boot.  Each new process tries to
+	 * use SSE on startup and never gets past it.  See the
+	 * amd64-boot-regression memory for the diagnostic trace.
+	 *
+	 * The eager-switch approach matches modern x86 kernels (Linux since
+	 * 2018, also closes LazyFP CVE-2018-3665): always save the previous
+	 * owner's state, restore the incoming proc's state, and leave CR0.TS
+	 * cleared so SSE just works.  Cost is negligible — SSE2 is part of
+	 * the amd64 baseline, so virtually every userspace process uses it,
+	 * which means the lazy save we used to skip would happen anyway.
+	 */
+	{
+		struct proc ** owner = get_cpulocal_var_ptr(fpu_owner);
+		if (*owner != p) {
+			if (*owner != NULL)
+				save_local_fpu(*owner, FALSE /*retain*/);
+			if (restore_fpu(p) == OK) {
+				*owner = p;
+			} else {
+				*owner = NULL;
+				cause_sig(proc_nr(p), SIGFPE);
+			}
+		}
+	}
+	disable_fpu_exception();
+#else
 	/* If the process isn't the owner of FPU, enable the FPU exception */
 	if (get_cpulocal_var(fpu_owner) != p)
 		enable_fpu_exception();
 	else
 		disable_fpu_exception();
+#endif
 
 	/* If MF_CONTEXT_SET is set, don't clobber process state within
 	 * the kernel. The next kernel entry is OK again though.
