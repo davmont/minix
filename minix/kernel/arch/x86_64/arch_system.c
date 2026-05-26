@@ -649,22 +649,6 @@ void restore_user_context(struct proc *p)
                         up[4], up[5], up[6], up[7]);
                     dumped++;
                 }
-                /* Short proc-name marker for the first 500 dispatches so we
-                 * can see who the kernel is alternating between as boot
-                 * settles. Serial may drop bursty output; spacing helps. */
-                static unsigned named = 0;
-                if (named < 500u) {
-                    printf("[%s]", p->p_name);
-                    named++;
-                }
-                /* Periodic "who's running" sample: print proc name every
-                 * 10000 interrupt-return dispatches so we can see who's
-                 * looping in post-boot debug builds. */
-                if ((_ruc_int_dispatch % 10000u) == 0u) {
-                    printf("ruc-sample: #%u name='%s' ep=%d pc=0x%lx\n",
-                        _ruc_int_dispatch, p->p_name, p->p_endpoint,
-                        (unsigned long)p->p_reg.pc);
-                }
             });
         }
         restore_user_context_int(p);

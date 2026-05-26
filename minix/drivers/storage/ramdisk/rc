@@ -6,6 +6,14 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 FSCK=/bin/fsck_mfs
 ACPI=/service/acpi
 
+# Diagnostic markers — gated on verbose=2+ in the kernel boot command line.
+# Defined here (before the per-arch blocks) so they can be used uniformly.
+_rdrc_verbose=$(sysenv verbose 2>/dev/null)
+: ${_rdrc_verbose:=0}
+rdrcv() { [ "${_rdrc_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
+
+rdrcv "RDRC: ENTER ramdisk rc, arch=`sysenv arch 2>&1`"
+
 if [ X`sysenv arch` = Xi386 ]
 then	if [ -e $ACPI -a -n "`sysenv acpi`" ]
 	then
@@ -49,26 +57,25 @@ then	echo Starting the mmc driver
 fi
 
 if [ X`sysenv arch` = Xamd64 ]
-then	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
+then	rdrcv "RDRC: amd64 branch entered"
+	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
 	# Start ACPI before PCI so PCI's APIC-mode init can resolve the
 	# 'acpi' DS label (otherwise pci panics with "Cannot use APIC mode
 	# without ACPI!").  Required in APIC mode; harmless in PIC mode.
-	# Diagnostic markers — gated on verbose=2+ in the kernel boot
-	# command line.
-	_rdrc_verbose=$(sysenv verbose 2>/dev/null)
-	: ${_rdrc_verbose:=0}
-	rdrcv() { [ "${_rdrc_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
-
-	rdrcv "RDRC: about to start ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
+	rdrcv "RDRC: pre-ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
 	if [ -e $ACPI ]
 	then	minix-service -c up $ACPI && rdrcv "RDRC: ACPI started" \
 			|| rdrcv "RDRC: ACPI start FAILED"
 	else
 		rdrcv "RDRC: ACPI binary not in ramdisk ($ACPI missing)"
 	fi
+	rdrcv "RDRC: starting PCI"
 	minix-service -c up /service/pci -dev /dev/pci
+	rdrcv "RDRC: starting input"
 	minix-service -c up /service/input -dev /dev/kbdmux
+	rdrcv "RDRC: starting pckbd"
 	minix-service -c up /service/pckbd || :
+	rdrcv "RDRC: pckbd done"
 
 	# Start procfs so we can access /proc/pci for virtio detection.
 	mount -t procfs none /proc >/dev/null

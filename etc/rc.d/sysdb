@@ -28,7 +28,9 @@ sysdb_start()
 	# build_* helpers below write dev.db/utmp into /var/run and
 	# services.cdb/netgroup.db into /var/db, so make sure both exist
 	# first -- otherwise install(1)/*_mkdb fail and sysdb exits non-zero.
-	mkdir -p /var/run /var/db
+	# Also create /var/log so the syslogd rc.d that follows can write
+	# /var/log/syslog and /var/log/messages without errors.
+	mkdir -p /var/run /var/db /var/log
 
 	echo -n "Building databases:"
 	echo=echo
