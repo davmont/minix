@@ -28,6 +28,21 @@ syslogd_precmd()
 	#	syslogd dies.  Make sure it exists before we start.
 	mkdir -p /var/run
 
+	#	syslogd opens its log files with O_WRONLY|O_APPEND but does
+	#	NOT pass O_CREAT.  On a CD/ramdisk boot /var/log is symlinked
+	#	to a freshly-created /tmp/log (see /usr/etc/rc), so the log
+	#	files don't exist yet and syslogd reports
+	#	  "/var/log/syslog: No such file or directory"
+	#	for each entry in /etc/syslog.conf.  Pre-create them here so
+	#	the first messages have somewhere to land.  Use install(1)
+	#	with mode 600 to match syslogd's expected ownership/perms;
+	#	fall back silently if the destination is read-only.
+	mkdir -p /var/log 2>/dev/null || :
+	for _f in /var/log/syslog /var/log/messages; do
+		[ -e "$_f" ] || install -c -m 600 /dev/null "$_f" 2>/dev/null || :
+	done
+	unset _f
+
 	#	Transitional symlink for old binaries
 	#
 	# MINIX 3: unsupported, disabled
