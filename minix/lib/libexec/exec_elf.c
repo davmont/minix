@@ -318,6 +318,14 @@ int libexec_load_elf(struct exec_info *execi)
 	/* record entry point and lowest load vaddr for caller */
 	execi->pc = saved_entry + execi->load_offset;
 	execi->load_base = startv;
+	execi->phdr = 0;
+	for (i = 0; i < hdr->e_phnum; i++) {
+		if (phdr[i].p_type == PT_PHDR) {
+			execi->phdr = phdr[i].p_vaddr + execi->load_offset;
+			break;
+		}
+	}
+	if (execi->phdr == 0) execi->phdr = execi->load_base + hdr->e_phoff;
 
 	return OK;
 }
