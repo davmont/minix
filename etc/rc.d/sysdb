@@ -80,8 +80,15 @@ build_password()
 	local p=/etc/master.passwd
 	# Skip the rebuild if the root filesystem is read-only (e.g. CD boot
 	# via isofs).  pwd_mkdb would otherwise abort with ENOSYS because
-	# isofs has no fdr_create and we'd noisily fail every boot.
-	if ! { : > /etc/.pwd_mkdb.probe; } 2>/dev/null; then
+	# isofs has no fdr_create.
+	#
+	# The probe MUST run in a subshell (parens), not a brace group:
+	# MINIX's /bin/sh treats a failed `>` redirection on a simple
+	# command in the current shell as a fatal error and terminates the
+	# script with exit 2 — even with `2>/dev/null`, which only silences
+	# stderr.  A subshell isolates the death so the outer `if !` can
+	# observe the non-zero exit and take the then-branch (skip).
+	if ! ( : > /etc/.pwd_mkdb.probe ) 2>/dev/null; then
 		return 0
 	fi
 	rm -f /etc/.pwd_mkdb.probe
