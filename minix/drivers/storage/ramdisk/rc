@@ -8,9 +8,24 @@ ACPI=/service/acpi
 
 # Diagnostic markers — gated on verbose=2+ in the kernel boot command line.
 # Defined here (before the per-arch blocks) so they can be used uniformly.
-_rdrc_verbose=$(sysenv verbose 2>/dev/null)
+#
+# `sysenv verbose` exits non-zero when the verbose env var is not set on
+# the kernel command line (e.g. boot menu option 1).  Under `set -e` the
+# non-zero exit of the command substitution would otherwise kill the
+# script before it ever reaches the per-arch blocks.  Default to 0 on
+# any failure.
+_rdrc_verbose=$(sysenv verbose 2>/dev/null || echo 0)
 : ${_rdrc_verbose:=0}
-rdrcv() { [ "${_rdrc_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
+rdrcv() {
+	# Print only when kernel verbose level >= 2.  Implemented as a case
+	# expression on the literal verbose digit so neither branch can ever
+	# return non-zero and trip `set -e` at the call site.
+	case "${_rdrc_verbose:-0}" in
+	[2-9]|[1-9][0-9]*)
+		echo "$@"
+		;;
+	esac
+}
 
 rdrcv "RDRC: ENTER ramdisk rc, arch=`sysenv arch 2>&1`"
 
