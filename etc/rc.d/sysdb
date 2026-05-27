@@ -71,7 +71,13 @@ build_netgroup()
 
 build_devdb()
 {
-	check_file /dev /var/run/dev.db dev_mkdb
+	# dev_mkdb without flags writes the new constant-database format
+	# (/var/run/dev.cdb).  The legacy Berkeley DB format
+	# (/var/run/dev.db) requires the -c (compat) flag.  Without it the
+	# first check_file invocation triggers a no-op rebuild of dev.cdb
+	# and dev.db never gets created at all — matching NetBSD upstream,
+	# the first invocation passes -c.
+	check_file /dev /var/run/dev.db dev_mkdb -c
 	check_file /dev /var/run/dev.cdb dev_mkdb
 }
 
