@@ -71,13 +71,15 @@ build_netgroup()
 
 build_devdb()
 {
-	# dev_mkdb without flags writes the new constant-database format
-	# (/var/run/dev.cdb).  The legacy Berkeley DB format
-	# (/var/run/dev.db) requires the -c (compat) flag.  Without it the
-	# first check_file invocation triggers a no-op rebuild of dev.cdb
-	# and dev.db never gets created at all — matching NetBSD upstream,
-	# the first invocation passes -c.
-	check_file /dev /var/run/dev.db dev_mkdb -c
+	# Only build the new constant-database format (/var/run/dev.cdb);
+	# nothing on modern MINIX consumes the legacy Berkeley DB
+	# (/var/run/dev.db).  We can't easily produce dev.db here anyway:
+	# `dev_mkdb -c` uses compat_open() which passes O_EXLOCK to
+	# dbopen(), and MINIX's filesystem layer returns EINVAL on
+	# unsupported open(2) flags — so the temp file creation fails
+	# with `dev_mkdb: failed to create temporary database
+	# /var/run/dev.db.XXXXXXX: Invalid argument`.  Skip the .db
+	# rebuild entirely.
 	check_file /dev /var/run/dev.cdb dev_mkdb
 }
 
