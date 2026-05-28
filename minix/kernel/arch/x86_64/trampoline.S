@@ -78,13 +78,15 @@ _C_LABEL(trampoline):
 	mov	%eax, %cr0
 
 	/*
-	 * The ljmpl operand encoding takes a 48-bit ptr16:32 (or 16:16).  We
-	 * use a 16:32 form pointing into the trampoline's own .code64 stub.
-	 * The selector is our 64-bit code segment in ap_gdt (index 1).  The
-	 * offset is the physical address of long_mode_entry, which the BSP
-	 * patches into ap_ljmp_off.
+	 * Far jump into long mode, reading the ptr16:32 from `ap_ljmp_ptr`
+	 * inside the trampoline blob.  Hand-encoded with both 66h (data32)
+	 * AND 67h (addr32) prefixes so the disp32 is taken as an absolute
+	 * address — `ljmpl *(...)` from gas in .code16 only emits 66h and
+	 * the resulting ModRM `2d` would mean `[DI]` in real mode (DI
+	 * undefined → ljmp reads garbage).
 	 */
-	ljmpl	*(ap_ljmp_ptr - _C_LABEL(trampoline))
+	.byte	0x66, 0x67, 0xff, 0x2d
+	.long	ap_ljmp_ptr - _C_LABEL(trampoline)
 
 /*
  * 64-bit entry.  We are now in long mode but still on the temporary
@@ -97,6 +99,8 @@ _C_LABEL(trampoline):
  */
 .code64
 .balign 8
+.globl _C_LABEL(__long_mode_entry)
+_C_LABEL(__long_mode_entry) = long_mode_entry
 long_mode_entry:
 	/* Load data segment selectors to KERN_DS. */
 	mov	$KERN_DS_SELECTOR, %ax
@@ -191,6 +195,8 @@ _C_LABEL(__ap_ljmp_off) = ap_ljmp_off
  * ===========================================================================
  */
 .balign 16
+.globl _C_LABEL(__ap_gdt)
+_C_LABEL(__ap_gdt) = ap_gdt
 ap_gdt:
 	.quad	0x0000000000000000	/* index 0: null */
 	.quad	0x00209A0000000000	/* index 1: 64-bit code, KERN_CS */

@@ -23,6 +23,18 @@
 
 #include "glo.h"
 
+/* Raw COM1 print bypassing kernel console state — same trick as main.c's
+ * __kmain_mark, used for early SMP debug since printf goes to VGA before the
+ * serial console is wired up. */
+static inline void __smp_com1(char c) {
+	__asm__ __volatile__("outb %0, %1" : : "a"(c),
+	    "Nd"((unsigned short)0x3F8));
+}
+static inline void __smp_mark(const char *s) {
+	while (*s) __smp_com1(*s++);
+	__smp_com1('\r'); __smp_com1('\n');
+}
+
 /* there can be at most 255 local APIC ids, each fits in 8 bits */
 static unsigned char apicid2cpuid[255];
 unsigned char cpuid2apicid[CONFIG_MAX_CPUS];
@@ -114,15 +126,22 @@ exit_shutdown_aps:
  * BSP doesn't disturb its APIC state issuing IPIs to APs that immediately
  * triple-fault.
  */
-#if 0
+extern char trampoline[], __trampoline_end[];
+extern char __long_mode_entry[], __ap_gdt[], __ap_gdt_descr[];
+extern u32_t __ap_id, __ap_pml4, __ap_ljmp_off;
+extern u64_t __ap_stack, __ap_entry;
+
 static int volatile ap_cpu_ready;
 static phys_bytes trampoline_base;
 
-static u32_t ap_lin_addr(void *vaddr)
+void smp_ap_boot(void);
+static void ap_finish_booting(void);
+
+static u32_t blob_phys_of(const void *kva)
 {
 	assert(trampoline_base);
-	return (u32_t)((phys_bytes)(uintptr_t)vaddr -
-	    (phys_bytes)(uintptr_t)&trampoline + trampoline_base);
+	return (u32_t)(trampoline_base +
+	    ((phys_bytes)(uintptr_t)kva - (phys_bytes)(uintptr_t)&trampoline));
 }
 
 static void copy_trampoline(void)
@@ -137,20 +156,29 @@ static void copy_trampoline(void)
 	assert(trampoline_base + tramp_size < (1U << 20));
 	assert(!(trampoline_base & 0xFFF));
 
-	phys_copy((phys_bytes)(uintptr_t)&trampoline, trampoline_base, tramp_size);
+	__ap_ljmp_off = blob_phys_of(__long_mode_entry);
+	*(u32_t *)&__ap_gdt_descr[2] = blob_phys_of(__ap_gdt);
+	__ap_pml4 = (u32_t)(read_cr3() & ~(reg_t)0xFFF);
+
+	phys_copy((phys_bytes)(uintptr_t)&trampoline, trampoline_base,
+	    tramp_size);
 }
 
 static void smp_start_aps(void)
 {
 	unsigned cpu;
 
+	__smp_mark("START_APS-entry");
 	__ap_pml4 = (u32_t)(read_cr3() & ~(reg_t)0xFFF);
+	__smp_mark("START_APS-post-cr3");
 
 	copy_trampoline();
+	__smp_mark("START_APS-post-copy_trampoline");
 
 	for (cpu = 0; cpu < ncpus; cpu++) {
 		if (cpu == bsp_cpu_id)
 			continue;
+		__smp_mark("START_APS-loop");
 
 		ap_cpu_ready = -1;
 		__ap_id    = cpu;
@@ -164,23 +192,43 @@ static void smp_start_aps(void)
 			       (uintptr_t)&trampoline));
 
 		mfence();
+		__smp_mark("START_APS-pre-init_ipi");
 
 		if (apic_send_init_ipi(cpu, trampoline_base) ||
 		    apic_send_startup_ipi(cpu, trampoline_base)) {
-			printf("WARNING cannot boot cpu %d\n", cpu);
+			__smp_mark("START_APS-ipi-FAIL");
 			continue;
 		}
+		__smp_mark("START_APS-post-startup_ipi");
 
-		lapic_set_timer_one_shot(5000000);
-		while (lapic_read(LAPIC_TIMER_CCR)) {
-			if (ap_cpu_ready == (int)cpu) {
-				cpu_set_flag(cpu, CPU_IS_READY);
-				break;
+		/*
+		 * Wait up to ~500 ms for the AP to report ready.  Using TSC
+		 * directly because the i386-style LAPIC_TIMER_CCR poll doesn't
+		 * work on amd64 when TSC-deadline mode is in use (ICR/CCR are
+		 * stale from apic_calibrate_clocks and never get rearmed).
+		 */
+		{
+			u64_t tsc_now, tsc_deadline;
+			u64_t mhz = (u64_t)cpu_info[bsp_cpu_id].freq;
+			if (mhz == 0) mhz = 1000;	/* safe fallback */
+
+			read_tsc_64(&tsc_now);
+			tsc_deadline = tsc_now + mhz * 500000ULL;	/* 0.5 s */
+
+			while (ap_cpu_ready != (int)cpu) {
+				read_tsc_64(&tsc_now);
+				if (tsc_now >= tsc_deadline)
+					break;
 			}
 		}
 		if (ap_cpu_ready != (int)cpu)
-			printf("WARNING : CPU %u didn't boot\n", cpu);
+			__smp_mark("START_APS-CPU-NO-BOOT");
+		else {
+			cpu_set_flag(cpu, CPU_IS_READY);
+			__smp_mark("START_APS-CPU-UP");
+		}
 	}
+	__smp_mark("START_APS-done");
 }
 
 static void ap_finish_booting(void)
@@ -217,27 +265,33 @@ void smp_ap_boot(void)
 	switch_k_stack((char *)get_k_stack_top(__ap_id) -
 	    X86_STACK_TOP_RESERVED, ap_finish_booting);
 }
-#endif /* AP-bringup scaffold (disabled) */
+/* end of un-#if-0'd scaffold */
 
 void smp_init(void)
 {
+	__smp_mark("SMP_INIT-entry");
 	/* Read the MP configuration. */
 	if (!discover_cpus()) {
+		__smp_mark("SMP_INIT-no_cpus");
 		ncpus = 1;
 		goto uniproc_fallback;
 	}
+	__smp_mark("SMP_INIT-post-discover");
 
 	lapic_addr = LOCAL_APIC_DEF_ADDR;
 	ioapic_enabled = 0;
 
 	tss_init_all();
+	__smp_mark("SMP_INIT-post-tss_init_all");
 
 	bsp_cpu_id = apicid2cpuid[apicid()];
 
 	if (!lapic_enable(bsp_cpu_id)) {
+		__smp_mark("SMP_INIT-bsp_lapic_FAILED");
 		printf("ERROR : failed to initialize BSP Local APIC\n");
 		goto uniproc_fallback;
 	}
+	__smp_mark("SMP_INIT-post-lapic_enable");
 
 	bsp_lapic_id = apicid();
 
@@ -250,12 +304,15 @@ void smp_init(void)
 	 */
 
 	if (!detect_ioapics()) {
+		__smp_mark("SMP_INIT-no_ioapic");
 		lapic_disable();
 		lapic_addr = 0x0;
 		goto uniproc_fallback;
 	}
+	__smp_mark("SMP_INIT-post-detect_ioapics");
 
 	ioapic_enable_all();
+	__smp_mark("SMP_INIT-post-ioapic_enable_all");
 
 	if (ioapic_enabled)
 		machine.apic_enabled = 1;
@@ -263,39 +320,26 @@ void smp_init(void)
 	/* Set SMP IDT entries. */
 	apic_idt_init(0); /* not a reset */
 	idt_reload();
+	__smp_mark("SMP_INIT-post-idt_reload");
 
 	BOOT_VERBOSE(printf("SMP initialized for %u CPUs (BSP only — AP "
 	    "trampoline is a first-draft scaffold, not yet enabled)\n", ncpus));
 
 	/*
-	 * TODO(SMP-AP): re-enable when the real-mode → long-mode trampoline
-	 * is verified to work end-to-end on KVM.  Outstanding items in
-	 * trampoline.S / smp_start_aps():
-	 *   - patch ap_ljmp_off with the phys address of long_mode_entry
-	 *     before each SIPI (it currently stays 0, so APs jump to RIP=0)
-	 *   - phys_copy() needs the *physical* address of &trampoline, not
-	 *     its kernel-VA (subtract _kern_offset)
-	 *   - verify the ljmpl encoding produces the operand-size prefix in
-	 *     .code16 (clang/gas behaviour may differ)
-	 * Calling smp_start_aps() with these unresolved breaks APs and the
-	 * BSP's APIC state, which (observed) destabilises userland IPC and
-	 * crashes cron during multiuser startup.
+	 * TODO(SMP-AP): re-enable when the trampoline is fully verified on KVM.
+	 * Current state: ap_ljmp_off patching, phys_copy and ljmpl encoding
+	 * fixes are in, but APs still NO-BOOT and BSP triple-faults shortly
+	 * after smp_init returns.  Need to instrument the trampoline (raw COM1
+	 * writes from .code16) to see where the AP dies.
 	 */
 #if 0
+	__smp_mark("SMP_INIT-pre-start_aps");
 	smp_start_aps();
+	__smp_mark("SMP_INIT-post-start_aps");
 #endif
-	/*
-	 * APs are not actually brought up yet (smp_start_aps above is #if 0),
-	 * but discover_cpus() has already incremented ncpus to match the ACPI
-	 * MADT count.  Leaving ncpus > 1 means main.c will publish
-	 * machine.processors_count > 1 to userland, and the sched server will
-	 * happily assign user processes (including init) to APs that never
-	 * boot.  The kernel then rejects sys_schedule with EBADCPU
-	 * ("PM: An error occurred when trying to schedule 11: -217") and init
-	 * never gets to run, hanging the boot.
-	 *
-	 * Force ncpus back to 1 until smp_start_aps actually works.
-	 */
+	/* Force ncpus back to 1 until smp_start_aps actually works (otherwise
+	 * sched will try to assign processes to APs that never came up and
+	 * sys_schedule rejects with EBADCPU, hanging init). */
 	ncpus = 1;
 
 	bsp_finish_booting();

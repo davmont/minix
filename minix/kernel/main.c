@@ -375,7 +375,9 @@ void kmain(kinfo_t *local_cbi)
 	ipc_call_names[n] = #n; \
 }
 
+  __kmain_mark("KMAIN13-pre-arch_post_init");
   arch_post_init();
+  __kmain_mark("KMAIN14-post-arch_post_init");
 
   IPCNAME(SEND);
   IPCNAME(RECEIVE);
@@ -385,15 +387,19 @@ void kmain(kinfo_t *local_cbi)
   IPCNAME(SENDA);
 
   /* System and processes initialization */
+  __kmain_mark("KMAIN15-pre-memory_init");
   memory_init();
+  __kmain_mark("KMAIN16-post-memory_init");
   DEBUGEXTRA(("system_init()... "));
   system_init();
+  __kmain_mark("KMAIN17-post-system_init");
   DEBUGEXTRA(("done\n"));
 
   /* The bootstrap phase is over, so we can add the physical
    * memory used for it to the free list.
    */
   add_memmap(&kinfo, kinfo.bootstrap_start, kinfo.bootstrap_len);
+  __kmain_mark("KMAIN18-post-add_memmap");
 
 #ifdef CONFIG_SMP
   if (config_no_apic) {
@@ -403,7 +409,9 @@ void kmain(kinfo_t *local_cbi)
 	  DEBUGBASIC(("SMP disabled, using legacy PIC\n"));
 	  smp_single_cpu_fallback();
   } else {
+	  __kmain_mark("KMAIN19-pre-smp_init");
 	  smp_init();
+	  __kmain_mark("KMAIN20-post-smp_init-FALLBACK");
 	  /*
 	   * if smp_init() returns it means that it failed and we try to finish
 	   * single CPU booting
