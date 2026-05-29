@@ -1821,7 +1821,7 @@ static int XRotPaintAlignedString(Display *dpy, XFontStruct *font, float angle, 
     if(text==NULL)
         return 0;
     
-    if(strlen(text)==0)
+    if(text[0]=='\0')
 	return 0;
 
     /* manipulate angle to 0<=angle<360 degrees */
@@ -2061,10 +2061,12 @@ static int XRotDrawHorizontalString(Display *dpy, XFontStruct *font, Drawable dr
 	
     /* count number of sections in string */
     if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
-	    if(text[i]=='\n')
-		nl++;
+	int text_len = strlen(text);
+	if(text_len > 0) {
+	    for(i=0; i<text_len-1; i++)
+		if(text[i]=='\n')
+		    nl++;
+	}
     }
     
     /* ignore newline characters if not doing alignment */
@@ -2307,10 +2309,12 @@ static RotatedTextItem *XRotCreateTextItem(Display *dpy, XFontStruct *font, floa
     /* count number of sections in string */
     item->nl=1;
     if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
-	    if(text[i]=='\n')
-		item->nl++;
+	int text_len = strlen(text);
+	if(text_len > 0) {
+	    for(i=0; i<text_len-1; i++)
+		if(text[i]=='\n')
+		    item->nl++;
+	}
     }
     
     /* ignore newline characters if not doing alignment */
@@ -2844,10 +2848,12 @@ XPoint *XRotTextExtents(Display *dpy, XFontStruct *font, float angle, int x, int
     /* count number of sections in string */
     nl=1;
     if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
-	    if(text[i]=='\n')
-		nl++;
+	int text_len = strlen(text);
+	if(text_len > 0) {
+	    for(i=0; i<text_len-1; i++)
+		if(text[i]=='\n')
+		    nl++;
+	}
     }
     
     /* ignore newline characters if not doing alignment */
