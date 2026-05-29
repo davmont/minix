@@ -95,7 +95,11 @@ void prot_init(void);
 void prot_load_selectors(void);
 void idt_init(void);
 void idt_reload(void);
+void ap_set_kernel_gs_base(unsigned cpu);
+void ap_setup_syscall_msrs(void);
 void int_gate_idt(unsigned vec_nr, vir_bytes offset, unsigned dpl_type);
+
+extern struct desctableptr_s gdt_desc;
 
 struct gate_table_s {
 	void (*gate)(void);

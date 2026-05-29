@@ -239,6 +239,24 @@ static void ap_finish_booting(void)
 	cpu = cpuid;
 	__smp_com1('1');
 
+	/*
+	 * Per-CPU setup that the trampoline doesn't do: replace the temporary
+	 * trampoline GDT with the kernel GDT, load the IDT, point TR at this
+	 * AP's TSS, and program IA32_KERNEL_GS_BASE for the SYSCALL path.
+	 * Must happen BEFORE ap_cpu_ready is set so the BSP can't send us an
+	 * IPI before we have an IDT.
+	 */
+	x86_lgdt(&gdt_desc);
+	__smp_com1('g');
+	idt_reload();
+	__smp_com1('i');
+	x86_ltr(TSS_SELECTOR(cpu));
+	__smp_com1('t');
+	ap_set_kernel_gs_base(cpu);
+	__smp_com1('s');
+	ap_setup_syscall_msrs();
+	__smp_com1('y');
+
 	ap_cpu_ready = cpu;
 	__smp_com1('2');
 
@@ -251,6 +269,8 @@ static void ap_finish_booting(void)
 
 	cpu_identify();
 	__smp_com1('5');
+	cpu_enable_features();	/* NXE, FSGSBASE, PCIDE — must match BSP */
+	__smp_com1('e');
 	lapic_enable(cpu);
 	__smp_com1('6');
 	fpu_init();
@@ -342,16 +362,6 @@ void smp_init(void)
 	__smp_mark("SMP_INIT-pre-start_aps");
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
-
-	/*
-	 * APs successfully reach ap_finish_booting and call switch_to_user.
-	 * However, exposing them to the scheduler currently hangs the BSP in
-	 * bsp_finish_booting — APs are missing per-CPU IDT/TSS/LIDT/GS-base
-	 * setup, so any interrupt on an AP triple-faults and stalls the
-	 * system.  Clamp ncpus back to 1 so userland sees a single-CPU
-	 * machine until that wiring is in place.
-	 */
-	ncpus = 1;
 
 	bsp_finish_booting();
 	NOT_REACHABLE;

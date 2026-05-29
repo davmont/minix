@@ -396,6 +396,50 @@ void idt_reload(void)
     x86_lidt(&idt_desc);
 }
 
+/*
+ * ap_set_kernel_gs_base — program IA32_KERNEL_GS_BASE for the CURRENT CPU.
+ *
+ * tss_init only programs the MSR when `cpu == cpuid` (the BSP path),
+ * because the MSR is per-CPU and must be written FROM the target CPU.
+ * APs call this from ap_finish_booting after we know their cpuid.
+ */
+void ap_set_kernel_gs_base(unsigned cpu)
+{
+    u64_t gs_base = (u64_t)(uintptr_t)&percpu_gs[cpu];
+    ia32_msr_write(AMD_MSR_KERNEL_GS_BASE,
+                   (u32_t)(gs_base >> 32),
+                   (u32_t)(gs_base & 0xFFFFFFFFU));
+}
+
+/*
+ * ap_setup_syscall_msrs — program EFER.SCE, STAR, LSTAR and FMASK on the
+ * CURRENT CPU.  These are per-CPU MSRs that BSP programs once for itself
+ * inside tss_init; APs must call this from their own context so the
+ * SYSCALL instruction in userland doesn't #UD.  Mirrors the SYSCALL/SYSRET
+ * block in tss_init().
+ */
+void ap_setup_syscall_msrs(void)
+{
+    u32_t efer_hi, efer_lo;
+    u32_t star_lo, star_hi;
+    u64_t lstar;
+
+    ia32_msr_read(AMD_MSR_EFER, &efer_hi, &efer_lo);
+    efer_lo |= AMD_EFER_SCE;
+    ia32_msr_write(AMD_MSR_EFER, efer_hi, efer_lo);
+
+    star_lo = 0;
+    star_hi = ((u32_t)USER_CS_COMPAT_SELECTOR << 16) | KERN_CS_SELECTOR;
+    ia32_msr_write(AMD_MSR_STAR, star_hi, star_lo);
+
+    lstar = (u64_t)(uintptr_t)syscall_entry;
+    ia32_msr_write(AMD_MSR_LSTAR,
+                   (u32_t)(lstar >> 32),
+                   (u32_t)(lstar & 0xFFFFFFFF));
+
+    ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)IF_MASK);
+}
+
 /* =========================================================================
  * prot_load_selectors — load GDT, IDT, LDT, TSS and segment registers
  * ========================================================================= */
