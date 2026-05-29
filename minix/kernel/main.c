@@ -35,6 +35,24 @@ char *** _penviron;
 /* Prototype declarations for PRIVATE functions. */
 static void announce(void);
 
+/* Emit one byte to COM1 directly, bypassing any kernel state.
+ * Used by the early-boot KMAIN markers under BOOT_VERBOSE: cstart()
+ * hasn't run yet, so verboseboot is still 0 and the marks before
+ * KMAIN9 stay silent unless the binary was built without
+ * CONFIG_BOOT_VERBOSE (BOOT_VERBOSE expands to nothing then).
+ *
+ * Forward-declared here so that bsp_finish_booting() can use them too. */
+static inline void __kmain_com1(char c) {
+#if defined(__x86_64__) || defined(__amd64__)
+	__asm__ __volatile__("outb %0, %1" : : "a"(c), "Nd"((unsigned short)0x3F8));
+#endif
+}
+static inline void __kmain_mark_raw(const char *s) {
+	while (*s) __kmain_com1(*s++);
+	__kmain_com1('\r'); __kmain_com1('\n');
+}
+#define __kmain_mark(s) BOOT_VERBOSE(__kmain_mark_raw(s))
+
 void bsp_finish_booting(void)
 {
   int i;
@@ -42,21 +60,26 @@ void bsp_finish_booting(void)
   sprofiling = 0;      /* we're not profiling until instructed to */
 #endif /* SPROFILE */
 
+  __kmain_mark_raw("BSP-finish-entry");
   cpu_identify();
+  __kmain_mark_raw("BSP-post-cpu_identify");
   cpu_enable_features();
+  __kmain_mark_raw("BSP-post-cpu_enable_features");
 
   vm_running = 0;
   krandom.random_sources = RANDOM_SOURCES;
   krandom.random_elements = RANDOM_ELEMENTS;
 
   /* MINIX is now ready. All boot image processes are on the ready queue.
-   * Return to the assembly code to start running the current process. 
+   * Return to the assembly code to start running the current process.
    */
-  
+
   /* it should point somewhere */
   get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
   get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
+  __kmain_mark_raw("BSP-pre-announce");
   announce();				/* print MINIX startup banner */
+  __kmain_mark_raw("BSP-post-announce");
 
   /*
    * we have access to the cpu local run queue, only now schedule the processes.
@@ -65,11 +88,13 @@ void bsp_finish_booting(void)
   for (i=0; i < NR_BOOT_PROCS - NR_TASKS; i++) {
 	RTS_UNSET(proc_addr(i), RTS_PROC_STOP);
   }
+  __kmain_mark_raw("BSP-post-RTS_UNSET-loop");
   /*
    * Enable timer interrupts and clock task on the boot CPU.  First reset the
    * CPU accounting values, as the timer initialization (indirectly) uses them.
    */
   cycles_accounting_init();
+  __kmain_mark_raw("BSP-post-cycles_accounting");
 
   printf("bsp: pre boot_cpu_init_timer\n");
   if (boot_cpu_init_timer(system_hz)) {
@@ -77,9 +102,11 @@ void bsp_finish_booting(void)
 			  "cannot continue without any clock source!");
   }
   printf("bsp: post boot_cpu_init_timer\n");
+  __kmain_mark_raw("BSP-post-boot_cpu_init_timer");
 
   fpu_init();
   printf("bsp: post fpu_init\n");
+  __kmain_mark_raw("BSP-post-fpu_init");
 
 /* Warnings for sanity checks that take time. These warnings are printed
  * so it's a clear warning no full release should be done with them
@@ -109,6 +136,7 @@ void bsp_finish_booting(void)
   kernel_may_alloc = 0;
 
   printf("bsp: about to switch_to_user\n");
+  __kmain_mark_raw("BSP-pre-switch_to_user");
   switch_to_user();
   NOT_REACHABLE;
 }
@@ -117,22 +145,6 @@ void bsp_finish_booting(void)
 /*===========================================================================*
  *			kmain 	                             		*
  *===========================================================================*/
-/* Emit one byte to COM1 directly, bypassing any kernel state.
- * Used by the early-boot KMAIN markers under BOOT_VERBOSE: cstart()
- * hasn't run yet, so verboseboot is still 0 and the marks before
- * KMAIN9 stay silent unless the binary was built without
- * CONFIG_BOOT_VERBOSE (BOOT_VERBOSE expands to nothing then). */
-static inline void __kmain_com1(char c) {
-#if defined(__x86_64__) || defined(__amd64__)
-	__asm__ __volatile__("outb %0, %1" : : "a"(c), "Nd"((unsigned short)0x3F8));
-#endif
-}
-static inline void __kmain_mark_raw(const char *s) {
-	while (*s) __kmain_com1(*s++);
-	__kmain_com1('\r'); __kmain_com1('\n');
-}
-#define __kmain_mark(s) BOOT_VERBOSE(__kmain_mark_raw(s))
-
 void kmain(kinfo_t *local_cbi)
 {
 /* Start the ball rolling. */

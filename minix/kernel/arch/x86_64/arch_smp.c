@@ -363,6 +363,18 @@ void smp_init(void)
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
 
+	/*
+	 * Per-CPU AP init (GDT/IDT/LTR/GS-base/SYSCALL MSRs/NXE) is in
+	 * place and APs traverse ap_finish_booting end-to-end.  However,
+	 * BSP and APs both reach switch_to_user and then USERSPACE does
+	 * not progress — VFS workers start (sometimes) but boot never
+	 * reaches login.  Likely cause: sched is assigning processes to
+	 * APs but the cross-CPU IPC / sched IPI / VM mappings aren't
+	 * fully wired up.  Clamp ncpus to 1 for now so userland boots; the
+	 * APs remain alive but unused until that work is done.
+	 */
+	ncpus = 1;
+
 	bsp_finish_booting();
 	NOT_REACHABLE;
 
