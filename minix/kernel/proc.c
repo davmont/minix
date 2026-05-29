@@ -425,6 +425,15 @@ not_runnable_pick_new:
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;
 
+#if defined(__x86_64__) || defined(__amd64__)
+	/* DBG: when AP runs a non-idle proc, emit '@' so we can confirm
+	 * the AP actually got past pick_proc and is switching to user. */
+	if (cpuid != bsp_cpu_id && p->p_endpoint != IDLE) {
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $'@', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+	}
+#endif
+
 #ifdef CONFIG_SMP
 	if (p->p_misc_flags & MF_FLUSH_TLB && get_cpulocal_var(ptproc) == p)
 		tlb_must_refresh = 1;
@@ -1789,6 +1798,37 @@ void enqueue(
    * process
    */
   else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
+#if defined(__x86_64__) || defined(__amd64__)
+	  /* DBG: emit 'E<sign><digit>...:<name>' so we see which proc is
+	   * being woken cross-cpu via IPI. */
+	  {
+		int _e = rp->p_endpoint;
+		int _v = _e < 0 ? -_e : _e;
+		char _buf[8];
+		int _n = 0, _i;
+		const char *_nm = rp->p_name;
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $'E', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+		if (_e < 0)
+		    __asm__ __volatile__("mov $0x3F8, %%dx; mov $'-', %%al; outb %%al, %%dx"
+		        : : : "rax", "rdx");
+		do { _buf[_n++] = '0' + (_v % 10); _v /= 10; } while (_v && _n < 8);
+		for (_i = _n - 1; _i >= 0; _i--) {
+			char _c = _buf[_i];
+			__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+			    : : "a"(_c) : "rdx");
+		}
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $':', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+		while (_nm && *_nm) {
+			char _c = *_nm++;
+			__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+			    : : "a"(_c) : "rdx");
+		}
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $' ', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+	  }
+#endif
 	  smp_schedule(rp->p_cpu);
   }
 #endif

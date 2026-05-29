@@ -195,6 +195,19 @@ void smp_ipi_sched_handler(void)
 {
 	struct proc * curr;
 
+	/* DBG: emit '<' on receipt + current cpuid digit so we can confirm
+	 * the AP actually receives sched IPIs from the BSP. */
+#if defined(__x86_64__) || defined(__amd64__)
+	__asm__ __volatile__("mov $0x3F8, %%dx; mov $'<', %%al; outb %%al, %%dx"
+	    : : : "rax", "rdx");
+	{
+		unsigned _c = cpuid;
+		char _d = '0' + (char)(_c & 0xf);
+		__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+		    : : "a"(_d) : "rdx");
+	}
+#endif
+
 	ipi_ack();
 
 	curr = get_cpulocal_var(proc_ptr);
