@@ -7,9 +7,17 @@
 
 #ifndef __ASSEMBLY__
 
-/* returns the current cpu id */
+/*
+ * Returns the current cpu id.
+ *
+ * tss_init writes the cpu id as a reg_t (8 bytes) at rsp0 + sizeof(reg_t),
+ * which is K_STACK_TOP - 8.  The i386-style `[-1]` of a `u32_t *` reads
+ * K_STACK_TOP - 4 — that is the UPPER 4 bytes of the 8-byte cpu id store,
+ * which is always 0.  Use `[-2]` to read K_STACK_TOP - 8 = the actual cpu id
+ * (its low 32 bits, which is more than enough for CONFIG_MAX_CPUS).
+ */
 #define cpuid	(((u32_t *)(((u64_t)get_stack_frame() + (K_STACK_SIZE - 1)) \
-						& ~(K_STACK_SIZE - 1)))[-1])
+						& ~(K_STACK_SIZE - 1)))[-2])
 
 /*
  * in case apic or smp is disabled in boot monitor, we need to finish single cpu

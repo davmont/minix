@@ -233,28 +233,41 @@ static void smp_start_aps(void)
 
 static void ap_finish_booting(void)
 {
-	unsigned cpu = cpuid;
+	unsigned cpu;
+	__smp_com1('f');
+
+	cpu = cpuid;
+	__smp_com1('1');
 
 	ap_cpu_ready = cpu;
+	__smp_com1('2');
 
 	spinlock_lock(&boot_lock);
+	__smp_com1('3');
 	BKL_LOCK();
+	__smp_com1('4');
 
 	BOOT_VERBOSE(printf("CPU %u is up\n", cpu));
 
 	cpu_identify();
+	__smp_com1('5');
 	lapic_enable(cpu);
+	__smp_com1('6');
 	fpu_init();
+	__smp_com1('7');
 
 	if (app_cpu_init_timer(system_hz))
 		panic("FATAL : failed to initialize timer interrupts CPU %u",
 		    cpu);
+	__smp_com1('8');
 
 	get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
 	get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
+	__smp_com1('9');
 
 	ap_boot_finished(cpu);
 	spinlock_unlock(&boot_lock);
+	__smp_com1('!');
 
 	switch_to_user();
 	NOT_REACHABLE;
@@ -262,6 +275,7 @@ static void ap_finish_booting(void)
 
 void smp_ap_boot(void)
 {
+	__smp_com1('b');
 	switch_k_stack((char *)get_k_stack_top(__ap_id) -
 	    X86_STACK_TOP_RESERVED, ap_finish_booting);
 }
@@ -325,21 +339,18 @@ void smp_init(void)
 	BOOT_VERBOSE(printf("SMP initialized for %u CPUs (BSP only — AP "
 	    "trampoline is a first-draft scaffold, not yet enabled)\n", ncpus));
 
-	/*
-	 * TODO(SMP-AP): re-enable when the trampoline is fully verified on KVM.
-	 * Current state: ap_ljmp_off patching, phys_copy and ljmpl encoding
-	 * fixes are in, but APs still NO-BOOT and BSP triple-faults shortly
-	 * after smp_init returns.  Need to instrument the trampoline (raw COM1
-	 * writes from .code16) to see where the AP dies.
-	 */
-#if 0
 	__smp_mark("SMP_INIT-pre-start_aps");
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
-#endif
-	/* Force ncpus back to 1 until smp_start_aps actually works (otherwise
-	 * sched will try to assign processes to APs that never came up and
-	 * sys_schedule rejects with EBADCPU, hanging init). */
+
+	/*
+	 * APs successfully reach ap_finish_booting and call switch_to_user.
+	 * However, exposing them to the scheduler currently hangs the BSP in
+	 * bsp_finish_booting — APs are missing per-CPU IDT/TSS/LIDT/GS-base
+	 * setup, so any interrupt on an AP triple-faults and stalls the
+	 * system.  Clamp ncpus back to 1 so userland sees a single-CPU
+	 * machine until that wiring is in place.
+	 */
 	ncpus = 1;
 
 	bsp_finish_booting();
