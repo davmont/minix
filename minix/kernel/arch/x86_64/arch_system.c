@@ -561,6 +561,13 @@ struct proc *arch_finish_switch_to_user(void)
     p = get_cpulocal_var(proc_ptr);
     *stk = (reg_t)(uintptr_t)p;
 
+    /* DBG: '%' = AP about to iretq into a non-IDLE proc. */
+    if (cpuid != bsp_cpu_id && p->p_endpoint != IDLE) {
+        __asm__ __volatile__(
+            "mov $0x3F8, %%dx; mov $'%%', %%al; outb %%al, %%dx"
+            : : : "rax", "rdx");
+    }
+
     /* Ensure IF is set so the process runs with interrupts enabled. */
     p->p_reg.psw |= IF_MASK;
 
