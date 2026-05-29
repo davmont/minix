@@ -363,6 +363,17 @@ void smp_init(void)
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
 
+	/*
+	 * AP plumbing works: IPI delivery, AP picks init, AP iretqs to
+	 * userland — but init makes no observable progress and eventually
+	 * the AP stops receiving IPIs entirely.  Suspect an IPI / BKL race
+	 * or stale per-CPU state.  Until that's understood, clamp ncpus
+	 * back to 1 so userland boots reliably.  See debug markers throughout
+	 * for the diagnostic plumbing (>,<,@,%,E<ep>:name) that needs to
+	 * stay in until the cross-CPU race is fixed.
+	 */
+	ncpus = 1;
+
 	bsp_finish_booting();
 	NOT_REACHABLE;
 
