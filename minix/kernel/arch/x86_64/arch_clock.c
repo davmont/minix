@@ -405,7 +405,29 @@ void context_stop_idle(void)
 	is_idle = get_cpu_var(cpu, cpu_is_idle);
 	get_cpu_var(cpu, cpu_is_idle) = 0;
 
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+	/*
+	 * Nested IPI path: skip context_stop()'s BKL_LOCK when the AP isn't
+	 * already holding BKL.  See spinlock.h for the matching conditional
+	 * BKL_UNLOCK that makes this safe.  Without this skip, the AP spins
+	 * against BSP (which holds BKL for longer kernel paths on amd64) and
+	 * userland deadlocks after ~46 init bounces.
+	 */
+	if (!bkl_held_by_cpu[cpu]) {
+		struct proc *idle_p = get_cpulocal_var_ptr(idle_proc);
+		u64_t *__tsc_ctr_switch =
+		    get_cpulocal_var_ptr(tsc_ctr_switch);
+		u64_t tsc;
+
+		read_tsc_64(&tsc);
+		idle_p->p_cycles += tsc - *__tsc_ctr_switch;
+		*__tsc_ctr_switch = tsc;
+	} else {
+		context_stop(get_cpulocal_var_ptr(idle_proc));
+	}
+#else
 	context_stop(get_cpulocal_var_ptr(idle_proc));
+#endif
 
 	if (is_idle)
 		restart_local_timer();

@@ -42,7 +42,27 @@ void arch_spinlock_unlock(atomic_t * sl);
 
 #endif /* CONFIG_SMP */
 
+/*
+ * BKL with per-CPU "I hold it" tracking.  BKL_UNLOCK becomes a no-op
+ * when the calling CPU's flag is clear, so the nested-IPI path can
+ * skip BKL_LOCK without the trailing context_stop(KERNEL) BKL_UNLOCK
+ * releasing a lock the CPU never acquired (which would corrupt BSP's
+ * critical section).
+ */
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+#define BKL_LOCK() do {							\
+	spinlock_lock(&big_kernel_lock);				\
+	bkl_held_by_cpu[cpuid] = 1;					\
+} while (0)
+#define BKL_UNLOCK() do {						\
+	if (bkl_held_by_cpu[cpuid]) {					\
+		bkl_held_by_cpu[cpuid] = 0;				\
+		spinlock_unlock(&big_kernel_lock);			\
+	}								\
+} while (0)
+#else
 #define BKL_LOCK()	spinlock_lock(&big_kernel_lock)
 #define BKL_UNLOCK()	spinlock_unlock(&big_kernel_lock)
+#endif
 
 #endif /* __SPINLOCK_H__ */

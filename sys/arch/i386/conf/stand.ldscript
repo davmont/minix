@@ -1,7 +1,12 @@
 /*	$NetBSD: stand.ldscript,v 1.5 2015/08/22 23:49:54 uebayasi Exp $	*/
 
-OUTPUT_FORMAT("elf32-i386-minix", "elf32-i386-minix",
-	      "elf32-i386-minix")
+/* OUTPUT_FORMAT intentionally omitted — different toolchains use
+ * different BFD target names for i386 (`elf32-i386` for the amd64
+ * cross-binutils, `elf32-i386-minix` for the native i386 binutils).
+ * Both Makefile.booters etc. pass `-Wl,-m,elf_i386` which selects
+ * the right output format from the linker's command line, making
+ * the script-level OUTPUT_FORMAT redundant and a portability issue.
+ */
 OUTPUT_ARCH(i386)
 ENTRY(_start)
 SECTIONS

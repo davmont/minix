@@ -27,6 +27,16 @@ static volatile unsigned ap_cpus_booted;
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
 
+/*
+ * Per-CPU "I hold the BKL" flag.  Lets BKL_UNLOCK() be a no-op when this
+ * CPU never acquired the BKL — required so the nested-IPI path on amd64
+ * can safely skip BKL_LOCK without making the trailing context_stop(KERNEL)
+ * UNLOCK release a lock the CPU never acquired.
+ *
+ * Reads/writes are per-CPU, so no atomicity needed.
+ */
+volatile int bkl_held_by_cpu[CONFIG_MAX_CPUS] = { 0 };
+
 void wait_for_APs_to_finish_booting(void)
 {
 	unsigned n = 0;
