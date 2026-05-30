@@ -63,8 +63,10 @@ void bsp_finish_booting(void)
   __kmain_mark_raw("BSP-finish-entry");
   cpu_identify();
   __kmain_mark_raw("BSP-post-cpu_identify");
+#if defined(__x86_64__) || defined(__amd64__)
   cpu_enable_features();
   __kmain_mark_raw("BSP-post-cpu_enable_features");
+#endif
 
   vm_running = 0;
   krandom.random_sources = RANDOM_SOURCES;

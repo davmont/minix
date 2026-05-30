@@ -65,7 +65,11 @@ int do_fork(struct proc * caller, message * m_ptr)
    */
   rpc->p_seg.fpu_state = old_fpu_save_area_p;
   if (proc_used_fpu(rpp))
+#if defined(__x86_64__) || defined(__amd64__)
 	memcpy(rpc->p_seg.fpu_state, rpp->p_seg.fpu_state, fpu_get_save_size());
+#else
+	memcpy(rpc->p_seg.fpu_state, rpp->p_seg.fpu_state, FPU_XFP_SIZE);
+#endif
   if(++gen >= _ENDPOINT_MAX_GENERATION)	/* increase generation */
 	gen = 1;			/* generation number wraparound */
   rpc->p_nr = m_ptr->m_lsys_krn_sys_fork.slot;	/* this was obliterated by copy */

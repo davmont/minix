@@ -7,6 +7,10 @@
 
 #include "vm.h"
 
+/* Page-table entry type: 32-bit on i386 (matches amd64's pte_t naming
+ * so shared code in pagetable.c can use pte_t* without #ifdef). */
+typedef u32_t pte_t;
+
 /* Mapping flags. */
 #define PTF_WRITE	I386_VM_WRITE
 #define PTF_READ	I386_VM_READ
