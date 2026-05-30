@@ -187,18 +187,6 @@ ENTRY(apic_error_intr)
 #ifdef CONFIG_SMP
 
 ENTRY(apic_ipi_sched_intr)
-	/* DBG: '*' = CPU hardware delivered the sched IPI vector.  If this
-	 * appears in the serial output but the '<' marker (inside
-	 * smp_ipi_sched_handler) does not, then we're stuck in
-	 * lapic_intr's context_stop()/BKL_LOCK and the issue is BKL
-	 * contention rather than LAPIC delivery. */
-	push	%rax
-	push	%rdx
-	mov	$0x3F8, %dx
-	mov	$'*', %al
-	out	%al, %dx
-	pop	%rdx
-	pop	%rax
 	lapic_intr(smp_ipi_sched_handler)
 
 ENTRY(apic_ipi_halt_intr)

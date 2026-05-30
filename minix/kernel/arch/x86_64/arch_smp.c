@@ -363,16 +363,7 @@ void smp_init(void)
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
 
-	/*
-	 * Cross-CPU stall (see project_amd64_smp_state memory):
-	 *   - IPI vector IS delivered to AP (asm '*' marker fires)
-	 *   - AP stalls in lapic_intr -> context_stop -> BKL_LOCK
-	 *   - BKL acquire/release flood (320k+/sec) makes per-op
-	 *     instrumentation unworkable
-	 * Until we have a cheaper way to detect BKL contention, keep the
-	 * clamp so userland boots.
-	 */
-	ncpus = 1;
+	ncpus = 1;	/* BKL contention deadlock — see memory */
 
 	bsp_finish_booting();
 	NOT_REACHABLE;
