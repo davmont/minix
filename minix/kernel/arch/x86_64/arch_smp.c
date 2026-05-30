@@ -364,13 +364,11 @@ void smp_init(void)
 	__smp_mark("SMP_INIT-post-start_aps");
 
 	/*
-	 * AP plumbing works: IPI delivery, AP picks init, AP iretqs to
-	 * userland — but init makes no observable progress and eventually
-	 * the AP stops receiving IPIs entirely.  Suspect an IPI / BKL race
-	 * or stale per-CPU state.  Until that's understood, clamp ncpus
-	 * back to 1 so userland boots reliably.  See debug markers throughout
-	 * for the diagnostic plumbing (>,<,@,%,E<ep>:name) that needs to
-	 * stay in until the cross-CPU race is fixed.
+	 * BKL contention deadlock — see notes in smp_ipi_sched_handler
+	 * (smp.c) and arch_clock.c context_stop().  The AP-side IPI
+	 * handler stalls in context_stop()'s BKL_LOCK after ~46 init
+	 * bounces; BSP fails to release BKL in time.  Clamp ncpus=1 so
+	 * userland boots until this is resolved.
 	 */
 	ncpus = 1;
 
