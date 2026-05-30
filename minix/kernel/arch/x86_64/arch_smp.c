@@ -364,11 +364,13 @@ void smp_init(void)
 	__smp_mark("SMP_INIT-post-start_aps");
 
 	/*
-	 * BKL contention deadlock — see notes in smp_ipi_sched_handler
-	 * (smp.c) and arch_clock.c context_stop().  The AP-side IPI
-	 * handler stalls in context_stop()'s BKL_LOCK after ~46 init
-	 * bounces; BSP fails to release BKL in time.  Clamp ncpus=1 so
-	 * userland boots until this is resolved.
+	 * Cross-CPU stall (see project_amd64_smp_state memory):
+	 *   - IPI vector IS delivered to AP (asm '*' marker fires)
+	 *   - AP stalls in lapic_intr -> context_stop -> BKL_LOCK
+	 *   - BKL acquire/release flood (320k+/sec) makes per-op
+	 *     instrumentation unworkable
+	 * Until we have a cheaper way to detect BKL contention, keep the
+	 * clamp so userland boots.
 	 */
 	ncpus = 1;
 
