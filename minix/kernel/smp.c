@@ -88,6 +88,7 @@ static void smp_schedule_sync(struct proc * p, unsigned task)
 	unsigned mycpu = cpuid;
 
 	assert(cpu != mycpu);
+
 	/*
 	 * if some other cpu made a request to the same cpu, wait until it is
 	 * done before proceeding
@@ -104,7 +105,7 @@ static void smp_schedule_sync(struct proc * p, unsigned task)
 		BKL_LOCK();
 	}
 
-	sched_ipi_data[cpu].data = (u32_t) p;
+	sched_ipi_data[cpu].data = (uintptr_t) p;
 	sched_ipi_data[cpu].flags |= task;
 	__insn_barrier();
 	arch_send_smp_schedule_ipi(cpu);

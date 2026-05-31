@@ -407,23 +407,36 @@ void context_stop_idle(void)
 
 #if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
 	/*
-	 * Nested IPI path: skip context_stop()'s BKL_LOCK when the AP isn't
-	 * already holding BKL.  See spinlock.h for the matching conditional
-	 * BKL_UNLOCK that makes this safe.  Without this skip, the AP spins
-	 * against BSP (which holds BKL for longer kernel paths on amd64) and
-	 * userland deadlocks after ~46 init bounces.
+	 * Nested IPI path needs to process smp_sched_handler() WITH BKL —
+	 * the handler dequeues processes, and without serialization we
+	 * corrupt the run queue (BSP may be concurrently enqueuing).
+	 *
+	 * Two cases:
+	 *   - bkl_held_by_cpu[cpu] == 1: we were in kernel work holding BKL
+	 *     when IPI fired.  Calling context_stop(idle_proc) would
+	 *     BKL_LOCK an already-held lock and self-deadlock.  Account
+	 *     inline and call smp_sched_handler with already-held BKL.
+	 *   - bkl_held_by_cpu[cpu] == 0: we were halted in idle (idle drops
+	 *     BKL via context_stop(KERNEL) before halt_cpu).  Take BKL,
+	 *     account inline, process flags, release BKL.
+	 *
+	 * Either way the BKL state on return matches the state on entry,
+	 * so the trailing iretq lands in a context with consistent locking.
 	 */
-	if (!bkl_held_by_cpu[cpu]) {
+	{
 		struct proc *idle_p = get_cpulocal_var_ptr(idle_proc);
-		u64_t *__tsc_ctr_switch =
-		    get_cpulocal_var_ptr(tsc_ctr_switch);
+		u64_t *__tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
 		u64_t tsc;
+		int held = bkl_held_by_cpu[cpu];
 
+		if (!held)
+			BKL_LOCK();
 		read_tsc_64(&tsc);
 		idle_p->p_cycles += tsc - *__tsc_ctr_switch;
 		*__tsc_ctr_switch = tsc;
-	} else {
-		context_stop(get_cpulocal_var_ptr(idle_proc));
+		smp_sched_handler();
+		if (!held)
+			BKL_UNLOCK();
 	}
 #else
 	context_stop(get_cpulocal_var_ptr(idle_proc));

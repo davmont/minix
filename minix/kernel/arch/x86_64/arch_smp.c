@@ -363,15 +363,6 @@ void smp_init(void)
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
 
-	/*
-	 * Per-CPU bkl_held_by_cpu flag + context_stop_idle skip + conditional
-	 * BKL_UNLOCK make the IPI path safer (no spurious unlock), but init
-	 * still stops bouncing after ~46 cycles for reasons that look
-	 * userspace-side (IPC queue / fork limit?).  Keep clamp until we
-	 * understand and fix that.
-	 */
-	ncpus = 1;
-
 	bsp_finish_booting();
 	NOT_REACHABLE;
 

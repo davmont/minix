@@ -1940,7 +1940,6 @@ void dequeue(struct proc *rp)
       prev_xp = *xpp;				/* save previous in chain */
   }
 
-	
   /* Process accounting for scheduling */
   rp->p_accounting.dequeues++;
 
