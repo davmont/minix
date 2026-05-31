@@ -25,7 +25,9 @@
 
 /* Raw COM1 print bypassing kernel console state — same trick as main.c's
  * __kmain_mark, used for early SMP debug since printf goes to VGA before the
- * serial console is wired up. */
+ * serial console is wired up.  Compiled to no-op when CONFIG_SMP_VERBOSE
+ * is undefined (see kernel.h). */
+#ifdef CONFIG_SMP_VERBOSE
 static inline void __smp_com1(char c) {
 	__asm__ __volatile__("outb %0, %1" : : "a"(c),
 	    "Nd"((unsigned short)0x3F8));
@@ -34,6 +36,10 @@ static inline void __smp_mark(const char *s) {
 	while (*s) __smp_com1(*s++);
 	__smp_com1('\r'); __smp_com1('\n');
 }
+#else
+static inline void __smp_com1(char c) { (void)c; }
+static inline void __smp_mark(const char *s) { (void)s; }
+#endif
 
 /* there can be at most 255 local APIC ids, each fits in 8 bits */
 static unsigned char apicid2cpuid[255];

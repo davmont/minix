@@ -425,7 +425,7 @@ not_runnable_pick_new:
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;
 
-#if defined(__x86_64__) || defined(__amd64__)
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
 	/* DBG: when AP runs a non-idle proc, emit '@' so we can confirm
 	 * the AP actually got past pick_proc and is switching to user. */
 	if (cpuid != bsp_cpu_id && p->p_endpoint != IDLE) {
@@ -1798,7 +1798,7 @@ void enqueue(
    * process
    */
   else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
-#if defined(__x86_64__) || defined(__amd64__)
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
 	  /* DBG: emit 'E<sign><digit>...:<name>' so we see which proc is
 	   * being woken cross-cpu via IPI. */
 	  {

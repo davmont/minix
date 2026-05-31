@@ -208,7 +208,7 @@ void smp_ipi_sched_handler(void)
 
 	/* DBG: emit '<' on receipt + current cpuid digit so we can confirm
 	 * the AP actually receives sched IPIs from the BSP. */
-#if defined(__x86_64__) || defined(__amd64__)
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
 	__asm__ __volatile__("mov $0x3F8, %%dx; mov $'<', %%al; outb %%al, %%dx"
 	    : : : "rax", "rdx");
 	{

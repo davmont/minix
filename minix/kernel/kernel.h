@@ -4,6 +4,17 @@
 /* boot verbose */
 #define CONFIG_BOOT_VERBOSE
 
+/*
+ * SMP verbose: emit single-character COM1 markers on every cross-CPU
+ * sched IPI, every cross-cpu enqueue, every AP iretq to user, and at
+ * various AP-bringup stages.  Off by default — the markers were
+ * invaluable while debugging the amd64 SMP bringup and we keep them
+ * compiled out for production because at ~10 KB/s of marker traffic
+ * they saturate the 115200-baud serial line and slow real workloads
+ * to a crawl.  Re-enable to diagnose future SMP regressions.
+ */
+/* #define CONFIG_SMP_VERBOSE */
+
 #ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
 #endif
