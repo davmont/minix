@@ -1,9 +1,11 @@
 # amd64 SMP — implementation notes
 
-State: **functional**.  `-smp 2` boots cleanly to the getty login
-prompt on QEMU.  The `ncpus = 1` clamp that previous sessions added
-to `arch/x86_64/arch_smp.c` (right after `smp_start_aps()`) is no
-longer needed and has been removed.
+State: **functional**.  `-smp 2`, `-smp 4`, and `-smp 8` all boot
+cleanly to the getty login prompt on QEMU, with processes happily
+distributed across all CPUs (e.g. on `-smp 8`, getty lands on cpu=6
+and devmand on cpu=4).  The `ncpus = 1` clamp that previous sessions
+added to `arch/x86_64/arch_smp.c` (right after `smp_start_aps()`) is
+no longer needed and has been removed.
 
 ## The bug that gated everything
 
@@ -96,7 +98,6 @@ grep -c login: /tmp/serial.log    # expect 1
 
 ## Still to do
 
-- Validate `-smp 4` and `-smp 8` (only `-smp 2` exercised so far).
 - Bench/measure: is there real parallelism, or do APs spend most of
   their time waiting on BKL?  The handler-WITH-BKL design means
   cross-CPU IPC is still serialized; longer-term option-4 work
