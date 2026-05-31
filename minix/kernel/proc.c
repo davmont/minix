@@ -443,7 +443,17 @@ not_runnable_pick_new:
 check_misc_flags:
 
 	assert(p);
-	assert(proc_is_runnable(p));
+	/*
+	 * p may have become not-runnable between pick_proc() and here:
+	 * another CPU's smp_sched_handler can RTS_SET(p, RTS_PROC_STOP|
+	 * RTS_VMINHIBIT) while we are still in switch_address_space.  When
+	 * that happens, restart the picking — don't assert.  Without this
+	 * recheck, -smp 4 boots are flaky in 2026-05-31 builds where the
+	 * COM1 marker emissions used to slow the window enough to hide the
+	 * race (see CONFIG_SMP_VERBOSE in kernel.h).
+	 */
+	if (!proc_is_runnable(p))
+		goto not_runnable_pick_new;
 	while (p->p_misc_flags &
 		(MF_KCALL_RESUME | MF_DELIVERMSG |
 		 MF_SC_DEFER | MF_SC_TRACE | MF_SC_ACTIVE)) {
