@@ -323,7 +323,7 @@ phys_bytes umap_virtual(
  *                              vm_lookup                                    *
  *===========================================================================*/
 int vm_lookup(const struct proc *proc, const vir_bytes virtual,
- phys_bytes *physical, u32_t *ptent)
+ phys_bytes *physical, u64_t *ptent)
 {
 	u32_t *root, *pt;
 	int pde, pte;
