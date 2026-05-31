@@ -7,17 +7,29 @@ and devmand on cpu=4).  The `ncpus = 1` clamp that previous sessions
 added to `arch/x86_64/arch_smp.c` (right after `smp_start_aps()`) is
 no longer needed and has been removed.
 
-## The bug that gated everything
+## The two bugs that gated everything
 
-`smp_schedule_sync()` in `kernel/smp.c` stored the target process
-pointer as `(u32_t) p` even though the storage field is `uintptr_t`.
-On i386 this is a no-op widening; on amd64 it silently truncated
-64-bit kernel-virtual proc pointers (~`0xFFFFFFFF8XXXXXXX`) to 32
-bits, and the receiving CPU dereferenced into bogus memory the
-first time any cross-CPU FPU-save / proc-stop request fired —
-which happens almost immediately, during init's first fork.
+**1. 64-bit pointer truncation in smp_schedule_sync (acdc2c942).**
+`kernel/smp.c` stored the target process pointer as `(u32_t) p`
+even though the storage field is `uintptr_t`.  On i386 this is a
+no-op widening; on amd64 it silently truncated 64-bit kernel-
+virtual proc pointers (~`0xFFFFFFFF8XXXXXXX`) to 32 bits, and the
+receiving CPU dereferenced into bogus memory the first time any
+cross-CPU FPU-save / proc-stop request fired — which happens
+almost immediately, during init's first fork.  One-line cast fix.
 
-Fix is a one-line cast change.  Commit acdc2c942.
+**2. switch_to_user runnability race (add25f594).**
+Once the marker traffic was gated behind `CONFIG_SMP_VERBOSE`
+(70afc90f2), cold boots became flaky (~1 in 3 failures, either an
+`assert "proc_is_runnable(p)" failed` panic or a silent hang at
+BSP-pre-switch_to_user).  Cause: after `pick_proc()` returns a
+runnable p, another CPU's `smp_sched_handler` can race in and
+`RTS_SET(p, RTS_PROC_STOP | RTS_VMINHIBIT)` while we're still in
+`switch_address_space`.  The pre-existing COM1 marker busy-waits
+masked the race by widening the window enough that the receiving
+CPU completed before the BSP reached its assert.  Fix: at
+`check_misc_flags`, recheck `proc_is_runnable(p)` and goto
+`not_runnable_pick_new` rather than asserting.
 
 Past sessions chased this as a "structural BKL deadlock" and built
 several layers of workaround (per-CPU bkl_held_by_cpu flag,
