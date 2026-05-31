@@ -75,9 +75,20 @@ enough for APs to get fair share.
 - **Lost-wakeup race in `enqueue()`** — `else if
   (get_cpu_var(rp->p_cpu, cpu_is_idle))` gates IPI on cpu_is_idle;
   classic race window between AP's `pick_proc` returning NULL and
-  setting `cpu_is_idle = 1`.  Tried always sending IPI: more IPIs,
-  more BKL contention, **slower** progress (1 byte per 13 s vs 1
-  per second).  Race may exist but isn't the dominant problem.
+  setting `cpu_is_idle = 1`.  Tried always sending IPI: more IPIs
+  initially, then progress effectively stops.  Race may exist but
+  isn't the dominant problem.
+
+  **Long-run test (25 min) confirms the deadlock is STRUCTURAL, not
+  just slow.**  Stats with always-IPI + per-CPU BKL flag + no clamp:
+  - 4 min  → 79 IPIs sent/recv, bytes 8917
+  - 10 min → 86 IPIs, bytes 8945
+  - 25 min → 87 IPIs, bytes 8949
+  Progress effectively zero past the 10-min mark.  Whatever's
+  blocking is a hard circular wait, not BKL fairness starvation.
+  Suspect candidates: PM/VFS reply blocked behind some sync we don't
+  see (smp_schedule_sync?), VM mapping path that requires AP+BSP
+  cooperation, or a deeper IPC delivery bug.
 
 ## Real fix (option 4)
 
