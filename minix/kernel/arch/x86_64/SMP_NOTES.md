@@ -1,151 +1,106 @@
-# amd64 SMP — diagnostic notes
+# amd64 SMP — implementation notes
 
-State: not yet shippable.  `arch/x86_64/arch_smp.c` clamps `ncpus = 1`
-right after `smp_start_aps()` because exposing APs to the scheduler
-deadlocks userspace.  The clamp can be removed only after BKL
-contention is addressed (see "Real fix" below).
+State: **functional**.  `-smp 2` boots cleanly to the getty login
+prompt on QEMU.  The `ncpus = 1` clamp that previous sessions added
+to `arch/x86_64/arch_smp.c` (right after `smp_start_aps()`) is no
+longer needed and has been removed.
 
-This file collects everything learned across sessions 1-10 of the
-SMP-AP bringup work so the next developer doesn't have to rediscover
-it.
+## The bug that gated everything
 
-## What works today
+`smp_schedule_sync()` in `kernel/smp.c` stored the target process
+pointer as `(u32_t) p` even though the storage field is `uintptr_t`.
+On i386 this is a no-op widening; on amd64 it silently truncated
+64-bit kernel-virtual proc pointers (~`0xFFFFFFFF8XXXXXXX`) to 32
+bits, and the receiving CPU dereferenced into bogus memory the
+first time any cross-CPU FPU-save / proc-stop request fired —
+which happens almost immediately, during init's first fork.
 
-- Trampoline (real-mode → long-mode → `smp_ap_boot`) — `trampoline.S`
-  with hand-encoded `66 67 ff 2d disp32` far-jump (gas in `.code16`
-  emits only 66h, missing 67h; the resulting ModRM 2d means `[DI]`
-  in real mode → garbage).
+Fix is a one-line cast change.  Commit acdc2c942.
+
+Past sessions chased this as a "structural BKL deadlock" and built
+several layers of workaround (per-CPU bkl_held_by_cpu flag,
+conditional BKL_UNLOCK, context_stop_idle skip path).  The
+workarounds were sound on their own, but the real bug was the
+pointer truncation; the workarounds couldn't help because the AP
+was page-faulting silently inside `smp_sched_handler` before it
+could ever clear the sched_ipi_data flags BSP was waiting on.
+
+## What's in place now
+
+- Trampoline (real-mode → long-mode → `smp_ap_boot`) in
+  `trampoline.S` with hand-encoded `66 67 ff 2d disp32` far-jump
+  (gas in `.code16` emits only the 66h prefix and silently produces
+  a real-mode `jmp [DI]` that lands in garbage).
 - Per-CPU AP init in `ap_finish_booting()` — kernel GDT load, IDT
   reload, LTR for this CPU's TSS, `ap_set_kernel_gs_base()`,
-  `ap_setup_syscall_msrs()` (EFER.SCE+STAR+LSTAR+FMASK),
-  `cpu_enable_features()`.
-- TSC-deadline-aware AP wait loop in `smp_start_aps()` — the i386-style
-  `while (lapic_read(LAPIC_TIMER_CCR))` doesn't work on amd64 when
-  TSC-deadline mode is in use; replaced with TSC-based 500 ms timeout.
-- Per-CPU `bkl_held_by_cpu` flag (in `kernel/smp.c` + `kernel/smp.h`)
-  with conditional `BKL_UNLOCK()` macro (in `kernel/spinlock.h`).
-  Lets the nested-IPI path safely skip `BKL_LOCK` without the
-  trailing `context_stop(KERNEL) -> BKL_UNLOCK` releasing a lock the
-  CPU never acquired.
-- `context_stop_idle()` (in `arch_clock.c`) skips `context_stop()`
-  call when the AP isn't holding BKL, doing time accounting inline.
+  `ap_setup_syscall_msrs()`, `cpu_enable_features()`.
+- TSC-deadline-aware AP wait loop in `smp_start_aps()` (i386's
+  LAPIC_TIMER_CCR poll doesn't work on amd64 when TSC-deadline mode
+  is active).
+- Per-CPU `bkl_held_by_cpu` flag (`kernel/smp.c` + `kernel/smp.h`)
+  with conditional `BKL_UNLOCK()` macro in `kernel/spinlock.h`.
+- `context_stop_idle()` (`arch_clock.c`) nested-IPI path: detects
+  whether this CPU already holds BKL.  If yes, accounts inline and
+  calls `smp_sched_handler()` with the already-held lock.  If no
+  (AP was halted in idle), takes BKL, processes, releases.  Either
+  way the BKL state on return matches the state on entry.
 
-## What doesn't work, and why
+## Things that turned out NOT to be the problem
 
-When `ncpus = 1` clamp is removed and APs are exposed to userland
-scheduling, init bounces between AP and BSP for ~46 cycles then the
-boot stops progressing.  Login never appears.
+- **Double-EOI in `smp_ipi_sched_handler`** — i386 has the same
+  pattern and i386 SMP works.
+- **cpuid macro reading wrong offset** — was fixed but wasn't the
+  blocker.  Genuine bug from amd64 storing cpu id as `reg_t` (8 b)
+  not `u32_t` (4 b).
+- **com1_byte clobbering AL between movabs and jmp** — also a real
+  bug but only affected debug output, not control flow.
+- **Lost-wakeup race in enqueue()** — the `cpu_is_idle` gate may
+  still be racy in theory but doesn't matter in practice on amd64.
+- **"Structural BKL deadlock"** — was the previous hypothesis after
+  a 25-minute test showed only 87 IPIs total.  Wrong direction —
+  AP was alive but page-faulting silently on the truncated pointer.
 
-The bottleneck is **BKL contention magnitude on amd64**.  Same code
-runs on i386 with `-smp 2` and reaches login fine (commit 586521031
-verified after the i386 catch-up build fixes).  The difference is
-purely in kernel path lengths:
+## Debug infrastructure currently in tree
 
-- amd64 SYSCALL/SYSRET + swapgs + IA32_KERNEL_GS_BASE is longer than
-  i386 sysenter/int 0x80.
-- amd64 4-level page table walks are deeper than i386 2-level.
-- amd64 XSAVE state save/restore is bigger than i386 FXSAVE.
-- amd64 process-context-identifiers (PCID) add CR3 work.
-
-The cumulative effect: every kernel entry holds BKL for ~2× longer
-on amd64 than on i386.  With BSP+APs all contending the single BKL,
-APs eventually starve.  i386 escapes because BSP releases BKL fast
-enough for APs to get fair share.
-
-## Things tried (and ruled out)
-
-- **Double-EOI in `smp_ipi_sched_handler`** — `lapic_intr` macro calls
-  `arch_eoi` after the handler, and `smp_ipi_sched_handler` also calls
-  `ipi_ack()`.  Removing one didn't help; i386 has the same pattern
-  and i386 SMP works.
-- **`cpuid` macro reading wrong offset on amd64** — was reading
-  `[-1]` of a `u32_t *` (= top - 4) but `tss_init` writes the cpu id
-  as `reg_t` (8 bytes) at top - 8.  Fixed in `include/arch_smp.h` to
-  read `[-2]`.
-- **`com1_byte` clobbering AL between `movabs` and `jmp *(%rax)`** —
-  in `long_mode_entry`, debug marker after `movabs $ap_entry_kvirt,
-  %rax` then `jmp *(%rax)` corrupted RAX's low byte.  Fixed by
-  putting the marker before the movabs and using a register-direct
-  jump (`movabs $_C_LABEL(smp_ap_boot), %rax; jmp *%rax`) since
-  ap_entry is always smp_ap_boot anyway.
-- **Skipping `BKL_LOCK` in `context_stop_idle`** without the
-  per-CPU flag — broke BKL pairing (the trailing
-  `context_stop(KERNEL)` BKL_UNLOCK released BSP's lock).  Fixed by
-  the `bkl_held_by_cpu` flag.
-- **Lost-wakeup race in `enqueue()`** — `else if
-  (get_cpu_var(rp->p_cpu, cpu_is_idle))` gates IPI on cpu_is_idle;
-  classic race window between AP's `pick_proc` returning NULL and
-  setting `cpu_is_idle = 1`.  Tried always sending IPI: more IPIs
-  initially, then progress effectively stops.  Race may exist but
-  isn't the dominant problem.
-
-  **Long-run test (25 min) confirms the deadlock is STRUCTURAL, not
-  just slow.**  Stats with always-IPI + per-CPU BKL flag + no clamp:
-  - 4 min  → 79 IPIs sent/recv, bytes 8917
-  - 10 min → 86 IPIs, bytes 8945
-  - 25 min → 87 IPIs, bytes 8949
-  Progress effectively zero past the 10-min mark.  Whatever's
-  blocking is a hard circular wait, not BKL fairness starvation.
-  Suspect candidates: PM/VFS reply blocked behind some sync we don't
-  see (smp_schedule_sync?), VM mapping path that requires AP+BSP
-  cooperation, or a deeper IPC delivery bug.
-
-## Real fix (option 4)
-
-Replace BKL with finer-grained locks for the subsystems init
-touches most:
-1. **proc table lock** — protects `struct proc` modifications
-   (RTS flags, p_misc_flags, p_delivermsg).  This is the highest-
-   traffic path.
-2. **per-CPU run-queue lock** — already mostly per-CPU but
-   `enqueue()` reaches across CPUs; needs a dispatch lock.
-3. **VM/PM IPC reply lock** — server replies must reach the right
-   blocked proc atomically.
-4. **fpu_owner lock** — currently protected by BKL; per-CPU.
-
-Realistic timeline: multi-session.  FreeBSD took 10+ years to mostly
-remove `Giant`.  Linux took 5+.  But MINIX's kernel is small (~6 kLOC
-of actually-contended code), so a focused refactor of ~3-4 locks
-could be done in days, not years.
-
-## Debug infrastructure currently in the kernel
-
-The following single-character raw-COM1 markers are still in the
-tree — invaluable for the next round of work:
+Single-character raw-COM1 markers, retained because they were
+invaluable for diagnosing this bug and will be again:
 
 | Marker | Where | Meaning |
 |--------|-------|---------|
 | `R g G P C E M L D S J` | `trampoline.S` | trampoline stages |
 | `b` | `smp_ap_boot()` | AP entered C land |
-| `f 1 g i t s y 2 3 4 5 e 6 7 8 9 !` | `ap_finish_booting()` | per-CPU init stages |
-| `SMP_INIT-* START_APS-* BSP-finish-*` | various | high-level boot stages |
+| `f 1 g i t s y 2 3 4 5 e 6 7 8 9 !` | `ap_finish_booting()` | per-CPU init |
+| `SMP_INIT-* START_APS-* BSP-finish-*` | various | high-level boot |
 | `>N` | `arch_send_smp_schedule_ipi` | BSP sends sched IPI to CPU N |
 | `<N` | `smp_ipi_sched_handler` | CPU N entered C IPI handler |
 | `E<endpoint>:<name>` | `enqueue` (cross-cpu) | proc being woken |
 | `@` | `switch_to_user` | AP picked non-idle proc |
 | `%` | `arch_finish_switch_to_user` | AP about to iretq to user |
 
-Strip these before final SMP merge.
+These should come out before any final upstream-style merge but
+are worth keeping while we're still validating SMP correctness on
+heavier workloads (>2 CPUs, real apps, etc.).
 
 ## How to test SMP boot
 
 ```sh
-# build
 sh ./build.sh -m amd64 -j24 -O ../build.amd64 -U distribution \
   && OBJ=../build.amd64 bash ./releasetools/amd64_cdimage.sh
 
-# run -smp 4 headless, capture serial
-timeout 180 qemu-system-x86_64 --enable-kvm -cpu kvm64 -m 256 -smp 4 \
+timeout 180 qemu-system-x86_64 --enable-kvm -cpu kvm64 -m 256 -smp 2 \
     -cdrom minix_amd64.iso -device pci-ohci,id=ohci1 \
     -nographic -serial file:/tmp/serial.log -monitor null
 
-# with clamp in place: login should appear in ~180 s
-# without clamp: trace ends with `45e6789!345e6789!345e6789!` + IPI cycles
-grep -c login /tmp/serial.log
+grep -c login: /tmp/serial.log    # expect 1
 ```
 
-## i386 SMP for comparison
+## Still to do
 
-i386 SMP works with `-smp 2` (reaches login).  Use it as the
-behavioural reference when comparing kernel paths.  i386 build
-needed three catch-up fixes (commit 586521031); see git log.
+- Validate `-smp 4` and `-smp 8` (only `-smp 2` exercised so far).
+- Bench/measure: is there real parallelism, or do APs spend most of
+  their time waiting on BKL?  The handler-WITH-BKL design means
+  cross-CPU IPC is still serialized; longer-term option-4 work
+  (finer-grained locks) is still relevant for performance, just no
+  longer needed for correctness.
+- Strip debug markers before any clean SMP merge.
+- Re-verify i386 SMP didn't regress.
