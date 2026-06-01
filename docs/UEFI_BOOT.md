@@ -213,8 +213,8 @@ disturbs later mappings and breaks ACPI/PCI bring-up.  The console belongs in
 
 ### q35 (typical UEFI hardware) status
 
-Full boot to login is verified on `-machine pc` (legacy IDE).  On
-`-machine q35` (SATA/AHCI, no legacy IDE) three blockers have been **fixed**:
+`-machine q35` (SATA/AHCI, no legacy IDE) — the usual UEFI shape — now boots
+to login.  Four blockers were **fixed**:
 
 1. **`at_wini` panic** (`no matching device found`) when there is no IDE
    controller — now prints a notice and exits with ENODEV so the CD probe can
@@ -228,20 +228,23 @@ Full boot to login is verified on `-machine pc` (legacy IDE).  On
    now honours `ahci=yes` and `/service/ahci` is included in the amd64 boot
    ramdisk.  (`minix/drivers/storage/ramdisk/{rc,Makefile,proto}`)
 
-With these, q35 now boots through full ACPI enumeration (no assert), `at_wini`
-exits cleanly (no panic), and the **AHCI driver starts and maps its
-controller**.
+4. **AHCI spin-up timeout** — the AHCI port state machine only left
+   `STATE_SPIN_UP` on a device-connect (PCS) interrupt.  QEMU's q35 ich9-ahci
+   presents a *cold-plugged* device in `SSTS.DET` (DET=3) without ever setting
+   PCS (no connection *change* for a device already attached at reset), so
+   every port hit "spin-up timeout" and the SATA boot CD was never found.  On
+   timeout the driver now also treats a device that is present per `SSTS.DET`
+   as connected and polls it (extending the existing VirtualBox `IS.PCS`
+   workaround).  (`minix/drivers/storage/ahci/ahci.c`)
 
-**Remaining q35 blocker (separate, deeper):** the AHCI driver, although
-running, does not surface the boot CD to `cdprobe` — every `/dev/c0d*` probe
-comes back empty and cdprobe reports "No CD found", so the ISO-9660 root is
-never mounted.  This is an AHCI/ATAPI CD-ROM detection issue in
-`minix/drivers/storage/ahci` on QEMU q35 SATA (the driver does implement
-ATAPI, so it is a detection/enumeration problem, not a missing feature).  It
-is unrelated to the boot loader or the two driver panics above and is the next
-item for full q35-UEFI install-CD support.  Until then, boot UEFI on
-`-machine pc`, or from a GPT disk/USB image whose root is on a supported
-controller.
+With these, **q35 boots to a login prompt on the framebuffer console**: ACPI
+enumerates (no assert), `at_wini` exits cleanly (no panic), the AHCI driver
+detects the ATAPI CD on its SATA port (`ATAPI, QEMU DVD-ROM ... medium
+detected`), `cdprobe` finds `/dev/c0d2`, the ISO-9660 root mounts, and
+multiuser startup reaches `login:`.
+
+Verified end to end: BIOS → VGA-text login; UEFI on `-machine pc` (IDE) →
+framebuffer login; UEFI on `-machine q35` (SATA/AHCI) → framebuffer login.
 
 Until these are hardened, boot UEFI on `-machine pc`, or with the AHCI menu
 entry on hardware whose CD/disk is reachable without the IDE probe panicking.
