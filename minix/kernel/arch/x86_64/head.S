@@ -50,6 +50,45 @@ multiboot_checksum_val:
     .long 0
 
 /*===========================================================================*
+ *  Multiboot2 header                                                         *
+ *                                                                            *
+ *  A second, independent OS-image header so a Multiboot2-capable loader      *
+ *  (GRUB under UEFI) can boot the same kernel.  The legacy Multiboot1 header *
+ *  above still serves the BIOS / NetBSD boot path.  The bootloader leaves    *
+ *  0x36D76289 in EAX and a pointer to the tag-based information block in EBX; *
+ *  pre_init() detects the magic and parses the tags (see pre_init.c).        *
+ *                                                                            *
+ *  Both headers live in the .multiboot section, which the kernel link keeps  *
+ *  within the first page of the file (-z max-page-size=0x1000), well inside  *
+ *  the 8 KB / 32 KB windows the loaders scan.                                *
+ *===========================================================================*/
+.align 8
+mb2_header_start:
+    .long   0xE85250D6              /* MULTIBOOT2_HEADER_MAGIC */
+    .long   0                       /* architecture: 0 = i386 (32-bit) */
+    .long   mb2_header_end - mb2_header_start          /* header length */
+    .long   -(0xE85250D6 + 0 + (mb2_header_end - mb2_header_start)) /* checksum */
+
+    /* Framebuffer request tag: ask the loader for a linear framebuffer.
+     * width/height/depth = 0 means "no preference" (use the firmware's
+     * current GOP mode under UEFI).  Without this, UEFI has no VGA text
+     * mode and the kernel would have no console at all. */
+    .align 8
+    .short  5                       /* MULTIBOOT2_HEADER_TAG_FRAMEBUFFER */
+    .short  0                       /* flags: 0 = required */
+    .long   20                      /* tag size */
+    .long   0                       /* width  */
+    .long   0                       /* height */
+    .long   0                       /* depth  */
+
+    /* End tag. */
+    .align 8
+    .short  0                       /* type 0 */
+    .short  0                       /* flags  */
+    .long   8                       /* size   */
+mb2_header_end:
+
+/*===========================================================================*
  *  32-bit bootstrap code                                                     *
  *===========================================================================*/
 .code32

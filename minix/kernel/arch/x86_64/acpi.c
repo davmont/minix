@@ -283,6 +283,24 @@ static int acpi_rsdp_test(void * buff)
 static int get_acpi_rsdp(void)
 {
 	u16_t ebda;
+	extern kinfo_t kinfo;
+
+	/*
+	 * Under UEFI the RSDP is not in the legacy BIOS area at all -- it is
+	 * published via the EFI configuration table.  When the kernel was
+	 * booted through Multiboot2 (GRUB/UEFI), pre_init captured the RSDP
+	 * address from the mb2 ACPI tag into kinfo.acpi_rsdp; use it directly
+	 * and skip the BIOS scan, which would otherwise fail and leave SMP/APIC
+	 * bring-up with no MADT.
+	 */
+	if (kinfo.acpi_rsdp) {
+		acpi_phys_copy(kinfo.acpi_rsdp, &acpi_rsdp, sizeof(acpi_rsdp));
+		if (acpi_rsdp_test(&acpi_rsdp)) {
+			machine.acpi_rsdp = kinfo.acpi_rsdp;
+			return 1;
+		}
+	}
+
 	/*
 	 * Read 40:0Eh - to find the starting address of the EBDA.
 	 */
