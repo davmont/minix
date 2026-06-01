@@ -124,22 +124,62 @@ qemu-system-x86_64 --enable-kvm \
    The multiboot hand-off is 32-bit protected mode regardless of EFI bitness,
    which is exactly what `head.S` expects, so a single kernel image serves both.
 
-## multiboot2 upgrade path (optional)
+## Multiboot header placement (required kernel change)
 
-This implementation uses GRUB's `multiboot` (v1) command, which works with the
-**existing, unmodified** kernel — `minix/kernel/arch/x86_64/head.S` already has
-a v1 `.multiboot` header (magic `0x1BADB002`). nnonaka's branch used
-multiboot2; to match that exactly you would:
+GRUB's `multiboot` command scans only the **first 8192 bytes** of the kernel
+file for the `0x1BADB002` magic (`multiboot2`: first 32 KB).  The x86 kernel
+links at 2 MB and the default linker max-page-size of 2 MB padded the first
+`PT_LOAD`'s *file* offset out to 2 MB, so `.multiboot` landed at file offset
+`0x200000` — far past GRUB's window.  The lenient NetBSD BIOS loader coped, but
+GRUB failed with `no multiboot header found`.
+
+Fix (committed in `minix/kernel/Makefile`): link x86 kernels with
+`-Wl,-z,max-page-size=0x1000`.  This changes only ELF *file* layout —
+`p_paddr`/`p_vaddr` are unchanged — so BIOS boot is unaffected.  The magic
+moves to file offset `0x1000` and the image shrinks ~2.6 MB → ~0.3 MB.
+
+## Verification status (QEMU 10.2 + edk2/OVMF, KVM)
+
+Verified end to end with this branch:
+
+| Stage | BIOS (SeaBIOS) | UEFI (OVMF) |
+|-------|----------------|-------------|
+| Firmware loads boot entry | El Torito i386 → `bootxx_cd9660` ✓ | El Torito EFI (0xEF) → `BOOTX64.EFI` ✓ |
+| Loader runs | NetBSD `boot` ✓ | GRUB 2.14 ✓ |
+| Menu / config | `boot.cfg` ✓ | `grub.cfg` from ISO9660 ✓ |
+| Kernel multiboot handoff | ✓ | ✓ (`HEAD64` → `KMAIN` reached) |
+| SMP / ACPI bring-up | ✓ (CPU discovery, LAPIC, IOAPIC) | ✗ stops at `SMP_INIT-no_cpus` |
+| Userland → `login:` | ✓ **boots to login** | ✗ no console output |
+
+So BIOS boot is fully working (regression-clean after the linker change) and
+the UEFI chain now boots the kernel into `kmain()` — previously impossible.
+
+### Remaining work for a full UEFI boot to login
+
+Two deeper kernel issues remain (both beyond the boot-media/loader layer, and
+the point where the nnonaka reference also stopped):
+
+1. **ACPI RSDP discovery under UEFI.**  The kernel finds the ACPI RSDP by
+   scanning the legacy BIOS area (`0xE0000–0xFFFFF`).  Under UEFI the RSDP is
+   published in the **EFI System Table configuration table** instead, so the
+   scan fails and CPU/APIC enumeration finds nothing (`SMP_INIT-no_cpus`).
+   The RSDP address must be obtained from firmware and handed to the kernel.
+2. **Console under UEFI.**  MINIX writes to the VGA text buffer (`0xB8000`),
+   which does not exist in UEFI graphics mode — hence GRUB's "no console will
+   be available to OS".  A UEFI boot needs either a GOP/linear-framebuffer
+   console in the kernel or a forced serial console.
+
+The cleanest way to deliver both is the **multiboot2 upgrade path**, which
+nnonaka used:
 
 1. Add a second header in a `.multiboot2` section of `head.S` (magic
-   `0xE85250D6`, architecture 0, with the required end tag), keeping the v1
-   header for BIOS compatibility.
+   `0xE85250D6`, architecture 0, with the required end tag and a framebuffer
+   request tag), keeping the v1 header for BIOS.
 2. Teach `pre_init` to detect the multiboot2 magic in EAX (`0x36D76289`) and
-   parse the **tag-based** mb2 information structure (different layout from
-   `multiboot_info_t`) for the memory map and modules.
-3. Change `multiboot`/`module` to `multiboot2`/`module2` in
-   `releasetools/grub.cfg`.
+   parse the tag-based mb2 info for the memory map, the **ACPI RSDP tag**, and
+   the **EFI framebuffer tag**.
+3. Switch `multiboot`/`module` to `multiboot2`/`module2` in
+   `releasetools/grub.cfg` (GRUB's `multiboot2` already requests these tags).
 
-v1 is sufficient for a working hybrid CD and is the lower-risk default; the
-mb2 path is only needed if you want the EFI system table / EFI memory map
-passed through to the kernel.
+Until then, the hybrid ISO boots fully on BIOS and brings the kernel up to
+`kmain()` on UEFI.
