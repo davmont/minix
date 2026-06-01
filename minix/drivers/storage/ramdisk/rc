@@ -101,7 +101,14 @@ then	rdrcv "RDRC: amd64 branch entered"
 	then	virtio_blk=yes
 	fi
 
-	if [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
+	if [ X`sysenv ahci` = Xyes ] && [ -x /service/ahci ]
+	then
+		# UEFI/q35-class machines expose the CD/disk on a SATA (AHCI)
+		# controller with no legacy IDE, so at_wini would find nothing.
+		# Honour the 'ahci=yes' boot option here (as the i386 branch
+		# does) and bring up the AHCI driver for the boot device.
+		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
+	elif [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
 	then	minix-service -c up /service/virtio_blk -dev /dev/c0d0 -label virtio_blk_0 -args instance=0
 	elif [ -x /service/at_wini ]
 	then
