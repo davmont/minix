@@ -87,6 +87,18 @@ add_file_spec "CD" extra.cdfiles
 echo "Bundling packages..."
 bundle_packages "$BUNDLE_PACKAGES"
 
+# Place grub.cfg on the ISO-9660 volume for the UEFI boot path.  When booted
+# via EFI El Torito the firmware does not expose the embedded ESP as a GRUB
+# filesystem, so GRUB's baked-in early config locates the menu here instead
+# (see releasetools/efiboot.functions).  This must happen before
+# create_input_spec so the file is included in the ISO tree.
+if [ "${UEFI}" = "yes" ]; then
+	mkdir -p ${ROOT_DIR}/boot/grub
+	cp releasetools/grub.cfg ${ROOT_DIR}/boot/grub/grub.cfg
+	add_dir_spec "boot/grub" extra.cdfiles
+	add_file_spec "boot/grub/grub.cfg" extra.cdfiles
+fi
+
 echo "Creating specification files..."
 create_input_spec
 create_protos
@@ -98,7 +110,9 @@ then
 fi
 
 # Assemble the EFI System Partition image (GRUB + grub.cfg) for the UEFI
-# El Torito entry.  See releasetools/efiboot.functions and docs/UEFI_BOOT.md.
+# El Torito entry.  The on-ISO grub.cfg was already placed and registered in
+# the input spec above (before create_input_spec); here we only build the FAT
+# ESP image and append the second boot-catalog entry.
 EFI_BOOTIMAGE=""
 if [ "${UEFI}" = "yes" ]; then
 	echo "Building EFI System Partition image..."

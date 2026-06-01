@@ -63,19 +63,50 @@ efi_check_tools()
 }
 
 # _efi_mkimage <grub-target-dir> <efi-target> <output.efi>
-#   Build one standalone GRUB EFI binary.  GRUB's $prefix is set to
-#   /EFI/BOOT so it loads /EFI/BOOT/grub.cfg from the ESP it booted off.
+#   Build one standalone GRUB EFI binary.  We cannot rely on $prefix alone:
+#   "--prefix=/EFI/BOOT" carries no device, and not every GRUB build resolves
+#   $root to the ESP it was loaded from, leaving GRUB at the rescue/normal
+#   shell with no config.  So we bake in an early config (the distro-standard
+#   approach) that locates grub.cfg by content, fixes up $root/$prefix, and
+#   hands off to it.
 _efi_mkimage()
 {
 	local gdir="$1" target="$2" out="$3"
+	local early="${WORK_DIR}/grub-early.cfg"
 
 	if [ ! -d "${GRUB_LIBDIR}/${gdir}" ]; then
 		echo "WARNING: ${GRUB_LIBDIR}/${gdir} missing; skipping ${out##*/}" >&2
 		return 0
 	fi
 
+	# Baked-in early config.  Note: GRUB's minimal early-config parser does
+	# NOT accept '#' comment lines (they raise "Unknown command").
+	#
+	# When the firmware boots the EFI El Torito entry it reads this binary
+	# out of the embedded FAT ESP but exposes only the ISO-9660 volume
+	# (cd0) as a GRUB filesystem -- the ESP itself is NOT mounted -- so we
+	# cannot rely on /EFI/BOOT/grub.cfg being reachable.  Locate grub.cfg on
+	# the ISO-9660 volume first (it is dropped at /boot/grub/grub.cfg by
+	# amd64_cdimage.sh), then fall back to the ESP copy for the USB/disk
+	# case where the FAT volume *is* the boot device.
+	# Note: the early-config context has no 'if'/'test' (those arrive with
+	# normal mode), so this is a straight-line search+configfile sequence.
+	# The ISO-9660 copy (/boot/grub/grub.cfg) is tried first for the hybrid
+	# CD; the ESP copy (/EFI/BOOT/grub.cfg) is the fallback for a USB/disk
+	# boot where the FAT volume is the boot device.  configfile on a missing
+	# path is a harmless no-op that falls through to the next pair.
+	cat > "${early}" <<-'EARLY'
+		search --no-floppy --file --set=root /boot/grub/grub.cfg
+		set prefix=($root)/boot/grub
+		configfile ($root)/boot/grub/grub.cfg
+		search --no-floppy --file --set=root /EFI/BOOT/grub.cfg
+		set prefix=($root)/EFI/BOOT
+		configfile ($root)/EFI/BOOT/grub.cfg
+	EARLY
+
 	"${GRUB_MKIMAGE}" \
 		--directory="${GRUB_LIBDIR}/${gdir}" \
+		--config="${early}" \
 		--prefix="/EFI/BOOT" \
 		--output="${out}" \
 		--format="${target}" \
