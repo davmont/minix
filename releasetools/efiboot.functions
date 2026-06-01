@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# $MINIX$
+#
+# efiboot.functions - build the UEFI side of a hybrid MINIX 3 / Atomix CD.
+#
+# These helpers create an EFI System Partition (ESP) image containing a GRUB
+# EFI loader (BOOTX64.EFI for 64-bit firmware, BOOTIA32.EFI for 32-bit firmware
+# such as the one nnonaka originally targeted) plus the GRUB configuration.
+# The resulting FAT image is handed to nbmakefs as a second El Torito boot
+# image with platform id "efi" (0xEF), producing an ISO that boots on both
+# legacy BIOS and UEFI firmware from the same media.
+#
+# Attribution:
+#   The decision to reuse an existing multiboot-capable EFI loader (GRUB) to
+#   bring up the MINIX microkernel, and the EFI El Torito catalog mechanism it
+#   relies on, both originate with Naoaki Nonaka (nnonaka),
+#   <https://github.com/nnonaka/minix> (branch "uefiboot").  The makefs EFI
+#   boot support is his NetBSD work and is preserved verbatim in
+#   usr.sbin/makefs/cd9660/cd9660_eltorito.[ch].  Retained per project policy.
+#
+# This file is meant to be sourced by releasetools/amd64_cdimage.sh after
+# image.defaults / image.functions, so it relies on WORK_DIR, ROOT_DIR and
+# the releasetools helpers being already defined.
+
+# Host tools required (cross GRUB build).  openSUSE package names shown; on
+# Debian/Ubuntu they are grub-efi-amd64-bin / grub-efi-ia32-bin.
+: ${GRUB_MKIMAGE=$(command -v grub2-mkimage || command -v grub-mkimage)}
+: ${GRUB_LIBDIR=/usr/lib/grub}
+
+# GRUB modules baked into the standalone EFI image.  "multiboot" + "multiboot2"
+# cover both handover protocols; the filesystem/partition modules let GRUB read
+# the kernel from the ISO-9660 volume and find itself on the El Torito ESP.
+: ${GRUB_MODULES="part_gpt part_msdos fat iso9660 normal multiboot multiboot2 configfile search search_fs_file echo boot ls test all_video efi_gop efi_uga"}
+
+# efi_check_tools - fail early with an actionable message if GRUB is missing.
+efi_check_tools()
+{
+	if [ -z "${GRUB_MKIMAGE}" ] || [ ! -x "${GRUB_MKIMAGE}" ]; then
+		echo "ERROR: grub2-mkimage/grub-mkimage not found." >&2
+		echo "       Install the GRUB EFI build tools, e.g.:" >&2
+		echo "         openSUSE: zypper in grub2 grub2-x86_64-efi grub2-i386-efi" >&2
+		echo "         Debian:   apt-get install grub-efi-amd64-bin grub-efi-ia32-bin" >&2
+		return 1
+	fi
+	return 0
+}
+
+# _efi_mkimage <grub-target-dir> <efi-target> <output.efi>
+#   Build one standalone GRUB EFI binary.  GRUB's $prefix is set to
+#   /EFI/BOOT so it loads /EFI/BOOT/grub.cfg from the ESP it booted off.
+_efi_mkimage()
+{
+	local gdir="$1" target="$2" out="$3"
+
+	if [ ! -d "${GRUB_LIBDIR}/${gdir}" ]; then
+		echo "WARNING: ${GRUB_LIBDIR}/${gdir} missing; skipping ${out##*/}" >&2
+		return 0
+	fi
+
+	"${GRUB_MKIMAGE}" \
+		--directory="${GRUB_LIBDIR}/${gdir}" \
+		--prefix="/EFI/BOOT" \
+		--output="${out}" \
+		--format="${target}" \
+		${GRUB_MODULES}
+}
+
+# efi_build_esp_image
+#   Assemble the ESP tree, build the GRUB loaders into it, then pack it into a
+#   FAT image with nbmakefs (-t msdos).  Echoes the image path on success.
+#   Result: ${WORK_DIR}/efiboot.img
+efi_build_esp_image()
+{
+	local esp_root="${WORK_DIR}/esp"
+	local esp_img="${WORK_DIR}/efiboot.img"
+
+	rm -rf "${esp_root}" "${esp_img}"
+	mkdir -p "${esp_root}/EFI/BOOT"
+
+	# 64-bit and 32-bit EFI loaders (BOOTIA32.EFI mirrors nnonaka's target).
+	_efi_mkimage "x86_64-efi" "x86_64-efi" "${esp_root}/EFI/BOOT/BOOTX64.EFI"
+	_efi_mkimage "i386-efi"   "i386-efi"   "${esp_root}/EFI/BOOT/BOOTIA32.EFI"
+
+	if [ ! -f "${esp_root}/EFI/BOOT/BOOTX64.EFI" ] && \
+	   [ ! -f "${esp_root}/EFI/BOOT/BOOTIA32.EFI" ]; then
+		echo "ERROR: no GRUB EFI binaries were produced." >&2
+		return 1
+	fi
+
+	cp releasetools/grub.cfg "${esp_root}/EFI/BOOT/grub.cfg"
+
+	# Size the FAT image to the payload plus slack, rounded up to a whole
+	# 512-byte sector.  makefs -s takes a byte count (strsuftoll), so pass
+	# bytes directly rather than a sector count.
+	local bytes pad total
+	bytes=$(du -sk "${esp_root}" | awk '{print $1 * 1024}')
+	pad=$((512 * 1024))                 # 512 KiB headroom for FAT metadata
+	total=$(( ((bytes + pad + 511) / 512) * 512 ))
+
+	# FAT12 is the right choice for a small ESP; UEFI accepts FAT12/16/32 on
+	# removable media, and an El Torito boot image is treated as removable.
+	${CROSS_TOOLS}/nbmakefs -t msdos \
+		-s ${total} \
+		-o "fat_type=12,volume_label=EFIBOOT" \
+		"${esp_img}" "${esp_root}" >&2
+
+	echo "${esp_img}"
+}

@@ -24,6 +24,16 @@ fi
 # set up disk creation environment
 . releasetools/image.defaults
 . releasetools/image.functions
+. releasetools/efiboot.functions
+
+# Build a hybrid BIOS+UEFI ISO when the GRUB EFI build tools are available.
+# Falls back to a BIOS-only ISO (the historical behaviour) otherwise, so the
+# build never hard-fails just because GRUB is missing on the build host.
+: ${UEFI=auto}
+case "${UEFI}" in
+yes)	efi_check_tools || exit 1 ;;
+auto)	efi_check_tools 2>/dev/null && UEFI=yes || UEFI=no ;;
+esac
 
 echo "Building work directory..."
 build_workdir "$SETS"
@@ -87,10 +97,25 @@ then
 	rm -f ${IMG}
 fi
 
+# Assemble the EFI System Partition image (GRUB + grub.cfg) for the UEFI
+# El Torito entry.  See releasetools/efiboot.functions and docs/UEFI_BOOT.md.
+EFI_BOOTIMAGE=""
+if [ "${UEFI}" = "yes" ]; then
+	echo "Building EFI System Partition image..."
+	ESP_IMG=$(efi_build_esp_image) || exit 1
+	# Second El Torito entry: platform id 0xEF (EFI), no-emulation.  makefs
+	# groups boot images by platform and emits the proper section headers;
+	# this EFI El Torito support is nonaka's upstream NetBSD makefs work
+	# (usr.sbin/makefs/cd9660/cd9660_eltorito.[ch]).
+	EFI_BOOTIMAGE=",bootimage=efi;${ESP_IMG}"
+fi
+
 echo "Writing ISO..."
-# bootimage platform must be "i386" regardless of kernel arch: bootxx_cd9660
-# is the i386 BIOS El Torito loader and nbmakefs does not accept "amd64".
-${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=i386;${DESTDIR}/usr/mdec/bootxx_cd9660,label=MINIX" ${IMG} ${ROOT_DIR}
+# The BIOS bootimage platform must be "i386" regardless of kernel arch:
+# bootxx_cd9660 is the i386 BIOS El Torito loader and nbmakefs does not accept
+# "amd64".  When UEFI is enabled a second "efi" bootimage is appended, yielding
+# a hybrid catalog that boots on both legacy BIOS and UEFI firmware.
+${CROSS_TOOLS}/nbmakefs -t cd9660 -F ${WORK_DIR}/input -o "rockridge,bootimage=i386;${DESTDIR}/usr/mdec/bootxx_cd9660${EFI_BOOTIMAGE},label=MINIX" ${IMG} ${ROOT_DIR}
 
 echo ""
 echo "ISO image at `pwd`/${IMG}"
