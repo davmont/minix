@@ -25,7 +25,24 @@
 # Host tools required (cross GRUB build).  openSUSE package names shown; on
 # Debian/Ubuntu they are grub-efi-amd64-bin / grub-efi-ia32-bin.
 : ${GRUB_MKIMAGE=$(command -v grub2-mkimage || command -v grub-mkimage)}
-: ${GRUB_LIBDIR=/usr/lib/grub}
+
+# GRUB's per-platform module directory moves around between distributions:
+# Debian/Fedora use /usr/lib/grub, openSUSE uses /usr/share/grub2, etc.  Probe
+# the common locations (one that actually contains an *-efi target wins) and
+# let the environment override.
+_grub_find_libdir()
+{
+	local d
+	for d in /usr/lib/grub /usr/lib/grub2 /usr/share/grub2 /usr/share/grub \
+	         /usr/local/lib/grub; do
+		if [ -d "${d}/x86_64-efi" ] || [ -d "${d}/i386-efi" ]; then
+			echo "${d}"
+			return 0
+		fi
+	done
+	echo /usr/lib/grub
+}
+: ${GRUB_LIBDIR=$(_grub_find_libdir)}
 
 # GRUB modules baked into the standalone EFI image.  "multiboot" + "multiboot2"
 # cover both handover protocols; the filesystem/partition modules let GRUB read
