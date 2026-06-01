@@ -211,17 +211,37 @@ the kernel's `arch_phys_map` mechanism (intended for small MMIO windows)
 disturbs later mappings and breaks ACPI/PCI bring-up.  The console belongs in
 `tty`, in userland.
 
-### Pre-existing bugs to fix for a clean q35 (typical UEFI) boot
+### q35 (typical UEFI hardware) status
 
-Verified on `-machine pc` (legacy IDE).  On `-machine q35` (SATA/AHCI, the
-usual UEFI shape) the boot is blocked by two issues unrelated to the boot
-loader, both of which `panic` instead of degrading gracefully:
+Full boot to login is verified on `-machine pc` (legacy IDE).  On
+`-machine q35` (SATA/AHCI, no legacy IDE) three blockers have been **fixed**:
 
-1. `at_wini` panics with `no matching device found` when there is no legacy
-   IDE controller, instead of exiting cleanly so the CD probe can fall through
-   to AHCI.
-2. The `acpi` driver asserts in `pci.c` (`do_get_irq`: `dev < PCI_MAX_DEVICES
-   && pin < PCI_MAX_PINS`) on some PCI device layouts.
+1. **`at_wini` panic** (`no matching device found`) when there is no IDE
+   controller — now prints a notice and exits with ENODEV so the CD probe can
+   fall through to another driver.  (`minix/drivers/storage/at_wini`)
+2. **`acpi` assert** in `pci.c` (`do_get_irq`/`add_irq`:
+   `dev < PCI_MAX_DEVICES && pin < PCI_MAX_PINS`) on some UEFI/q35 PCI
+   layouts — now returns/skips gracefully (the PCI server already falls back
+   to `derive_irq`).  (`minix/drivers/power/acpi/pci.c`)
+3. **AHCI not started on amd64** — the boot ramdisk rc ignored `ahci=yes` on
+   amd64 and the AHCI driver was i386-only in the ramdisk.  The amd64 branch
+   now honours `ahci=yes` and `/service/ahci` is included in the amd64 boot
+   ramdisk.  (`minix/drivers/storage/ramdisk/{rc,Makefile,proto}`)
+
+With these, q35 now boots through full ACPI enumeration (no assert), `at_wini`
+exits cleanly (no panic), and the **AHCI driver starts and maps its
+controller**.
+
+**Remaining q35 blocker (separate, deeper):** the AHCI driver, although
+running, does not surface the boot CD to `cdprobe` — every `/dev/c0d*` probe
+comes back empty and cdprobe reports "No CD found", so the ISO-9660 root is
+never mounted.  This is an AHCI/ATAPI CD-ROM detection issue in
+`minix/drivers/storage/ahci` on QEMU q35 SATA (the driver does implement
+ATAPI, so it is a detection/enumeration problem, not a missing feature).  It
+is unrelated to the boot loader or the two driver panics above and is the next
+item for full q35-UEFI install-CD support.  Until then, boot UEFI on
+`-machine pc`, or from a GPT disk/USB image whose root is on a supported
+controller.
 
 Until these are hardened, boot UEFI on `-machine pc`, or with the AHCI menu
 entry on hardware whose CD/disk is reachable without the IDE probe panicking.
