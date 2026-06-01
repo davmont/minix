@@ -147,39 +147,69 @@ Verified end to end with this branch:
 | Firmware loads boot entry | El Torito i386 → `bootxx_cd9660` ✓ | El Torito EFI (0xEF) → `BOOTX64.EFI` ✓ |
 | Loader runs | NetBSD `boot` ✓ | GRUB 2.14 ✓ |
 | Menu / config | `boot.cfg` ✓ | `grub.cfg` from ISO9660 ✓ |
-| Kernel multiboot handoff | ✓ | ✓ (`HEAD64` → `KMAIN` reached) |
-| SMP / ACPI bring-up | ✓ (CPU discovery, LAPIC, IOAPIC) | ✗ stops at `SMP_INIT-no_cpus` |
-| Userland → `login:` | ✓ **boots to login** | ✗ no console output |
+| Kernel multiboot handoff | mb1 ✓ | mb2 ✓ (`HEAD64` → `KMAIN`) |
+| SMP / ACPI bring-up | ✓ | ✓ (RSDP from mb2 ACPI tag) |
+| Userland → `login:` | ✓ **boots to login** | ✓ **boots to login** (serial) |
 
-So BIOS boot is fully working (regression-clean after the linker change) and
-the UEFI chain now boots the kernel into `kmain()` — previously impossible.
+Both paths boot to a login prompt.  The UEFI login was verified on the serial
+console (`console=tty00`); see "Console on the physical screen" below for the
+one remaining piece needed to show it on a graphical display.
 
-### Remaining work for a full UEFI boot to login
+## Multiboot2 (implemented)
 
-Two deeper kernel issues remain (both beyond the boot-media/loader layer, and
-the point where the nnonaka reference also stopped):
+Multiboot1 cannot carry the ACPI RSDP, and under UEFI the RSDP is not in the
+legacy BIOS area the kernel scans (`0xE0000–0xFFFFF`) — it is published in the
+EFI configuration table.  Without it, CPU/APIC enumeration finds nothing and
+the kernel hangs after `SMP_INIT-no_cpus`.  The fix is Multiboot2, which hands
+the kernel both the ACPI RSDP and a linear framebuffer:
 
-1. **ACPI RSDP discovery under UEFI.**  The kernel finds the ACPI RSDP by
-   scanning the legacy BIOS area (`0xE0000–0xFFFFF`).  Under UEFI the RSDP is
-   published in the **EFI System Table configuration table** instead, so the
-   scan fails and CPU/APIC enumeration finds nothing (`SMP_INIT-no_cpus`).
-   The RSDP address must be obtained from firmware and handed to the kernel.
-2. **Console under UEFI.**  MINIX writes to the VGA text buffer (`0xB8000`),
-   which does not exist in UEFI graphics mode — hence GRUB's "no console will
-   be available to OS".  A UEFI boot needs either a GOP/linear-framebuffer
-   console in the kernel or a forced serial console.
+1. `head.S` carries a `.multiboot2` OS-image header (magic `0xE85250D6`) next
+   to the v1 header, with a framebuffer-request tag.  Both stay in the first
+   page of the file (`-z max-page-size=0x1000`).
+2. `pre_init.c` detects the mb2 boot magic (`0x36D76289`) and `mb2_to_mb1()`
+   translates the tag-based block into the `multiboot_info_t` that
+   `get_parameters()` already consumes (cmdline/modules/memory map), capturing
+   the **ACPI RSDP** and the **EFI framebuffer** into `kinfo`.
+3. `acpi.c` uses `kinfo.acpi_rsdp` directly when set, skipping the BIOS scan.
+4. `releasetools/grub.cfg` loads the kernel with `multiboot2`/`module2`.
 
-The cleanest way to deliver both is the **multiboot2 upgrade path**, which
-nnonaka used:
+BIOS is unaffected: the NetBSD loader still uses the v1 header and the legacy
+RSDP scan.  Verified: UEFI boots through full ACPI table enumeration → APIC
+mode → multiuser → `login:`; BIOS regression-tested to login with the
+identical SMP bring-up sequence.
 
-1. Add a second header in a `.multiboot2` section of `head.S` (magic
-   `0xE85250D6`, architecture 0, with the required end tag and a framebuffer
-   request tag), keeping the v1 header for BIOS.
-2. Teach `pre_init` to detect the multiboot2 magic in EAX (`0x36D76289`) and
-   parse the tag-based mb2 info for the memory map, the **ACPI RSDP tag**, and
-   the **EFI framebuffer tag**.
-3. Switch `multiboot`/`module` to `multiboot2`/`module2` in
-   `releasetools/grub.cfg` (GRUB's `multiboot2` already requests these tags).
+## Console on the physical screen (follow-up)
 
-Until then, the hybrid ISO boots fully on BIOS and brings the kernel up to
-`kmain()` on UEFI.
+UEFI has no VGA text buffer (`0xB8000`), so console output needs the linear
+framebuffer.  `pre_init` already captures its geometry into
+`kinfo.fb_addr/fb_pitch/fb_width/fb_height/fb_bpp` (32-bpp GOP).  What remains
+is a framebuffer **text** console.  The right layer is the **userland `tty`
+driver** (`minix/drivers/tty/.../console.c`), which renders `/dev/console`
+(boot messages, the login prompt, the shell):
+
+- Get the framebuffer geometry to the driver (via `sys_getmachine`/a sysenv
+  carrying the `kinfo.fb_*` fields), map it with `vm_map_phys` in the driver's
+  own address space, add an 8x16 font + glyph renderer, and route the console
+  output/scroll/cursor path to it when a framebuffer is present.
+
+Note — a *kernel* framebuffer console was prototyped and rejected: the kernel's
+`printf` goes to the `kmess` ring buffer, not `direct_print`, so it would only
+render panics, not the login prompt; and mapping a multi-MB framebuffer through
+the kernel's `arch_phys_map` mechanism (intended for small MMIO windows)
+disturbs later mappings and breaks ACPI/PCI bring-up.  Do it in `tty`, in
+userland, not in the kernel.
+
+### Pre-existing bugs to fix for a clean q35 (typical UEFI) boot
+
+Verified on `-machine pc` (legacy IDE).  On `-machine q35` (SATA/AHCI, the
+usual UEFI shape) the boot is blocked by two issues unrelated to the boot
+loader, both of which `panic` instead of degrading gracefully:
+
+1. `at_wini` panics with `no matching device found` when there is no legacy
+   IDE controller, instead of exiting cleanly so the CD probe can fall through
+   to AHCI.
+2. The `acpi` driver asserts in `pci.c` (`do_get_irq`: `dev < PCI_MAX_DEVICES
+   && pin < PCI_MAX_PINS`) on some PCI device layouts.
+
+Until these are hardened, boot UEFI on `-machine pc`, or with the AHCI menu
+entry on hardware whose CD/disk is reachable without the IDE probe panicking.
