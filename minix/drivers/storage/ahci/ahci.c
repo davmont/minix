@@ -1739,13 +1739,26 @@ static void port_timeout(int arg)
 	 * detection and only look for hot plug events from now on.
 	 */
 	if (ps->state == STATE_SPIN_UP) {
-		/* One exception: if the PCS interrupt bit is set here, then we
-		 * are probably running on VirtualBox, which is currently not
-		 * always raising interrupts when setting interrupt bits (!).
+		/* Normally a device-connect (PCS) interrupt moves us out of
+		 * STATE_SPIN_UP.  Some emulated HBAs never get us there by
+		 * interrupt, so on timeout we look for a device that is in fact
+		 * present and poll it instead of giving up:
+		 *  - VirtualBox sets the PCS interrupt-status bit but does not
+		 *    actually raise the interrupt; and
+		 *  - QEMU's q35 ich9-ahci presents a cold-plugged device in
+		 *    SSTS.DET without ever setting PCS (no connection *change*
+		 *    occurs for a device that was already attached at reset).
+		 * In either case, if a device appears to be present, continue.
 		 */
-		if (port_read(ps, AHCI_PORT_IS) & AHCI_PORT_IS_PCS) {
-			dprintf(V_INFO, ("%s: bad controller, no interrupt\n",
-				ahci_portname(ps)));
+		u32_t det = port_read(ps, AHCI_PORT_SSTS) &
+			AHCI_PORT_SSTS_DET_MASK;
+
+		if ((port_read(ps, AHCI_PORT_IS) & AHCI_PORT_IS_PCS) ||
+			det == AHCI_PORT_SSTS_DET_PHY ||
+			det == AHCI_PORT_SSTS_DET_DET) {
+			dprintf(V_INFO, ("%s: no connect interrupt; device "
+				"present (SSTS.DET %u), polling\n",
+				ahci_portname(ps), det));
 
 			ps->state = STATE_WAIT_DEV;
 			ps->left = ahci_device_checks;
