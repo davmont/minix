@@ -246,5 +246,36 @@ multiuser startup reaches `login:`.
 Verified end to end: BIOS → VGA-text login; UEFI on `-machine pc` (IDE) →
 framebuffer login; UEFI on `-machine q35` (SATA/AHCI) → framebuffer login.
 
-Until these are hardened, boot UEFI on `-machine pc`, or with the AHCI menu
-entry on hardware whose CD/disk is reachable without the IDE probe panicking.
+## GPT USB / disk image (`amd64_gptimage.sh`)
+
+`releasetools/amd64_gptimage.sh` builds a GPT-partitioned, UEFI-bootable disk
+image (for a USB stick) in the spirit of nnonaka's GPT live image.  Since no
+host GPT tool (sgdisk/parted) is assumed and the in-tree `nbpartition` only
+writes MINIX MBR tables, `releasetools/mkgpt.py` constructs a valid GPT by
+hand (protective MBR, primary/backup headers with CRC32s, one EFI System
+Partition entry).  The single ESP (FAT, built with `nbmakefs -t msdos`) holds
+the GRUB EFI loader, `grub.cfg`, the kernel and all boot modules; GRUB loads
+the kernel via Multiboot2.
+
+Verified under QEMU + OVMF: firmware reads the GPT, loads `BOOTX64.EFI` from
+the ESP, GRUB hands off via multiboot2, and the kernel reaches `kmain()`.
+
+**Root-filesystem limitation (amd64).** The script currently boots the
+RAM-disk root model (`bootramdisk=1`): the whole root is embedded in
+`mod06_memory` via `create_ramdisk_image`.  With the full `minix-base` set
+that module is ~366 MB, and boot-image processes are **physically
+pre-allocated** (`MF_PREALLOC` in `vm/main.c:boot_alloc`), so VM panics with
+`exec: map_page_region for boot process failed` — a 366 MB boot process is too
+large to pre-allocate at early boot.  (The amd64 RAM-disk path had never been
+exercised before — `create_ramdisk_image` even passed an invalid objcopy
+`-B x86_64`, now fixed to `i386:x86-64`.)  A usable GPT live image therefore
+needs one of:
+
+1. a **trimmed root set** small enough to pre-allocate as a boot process; or
+2. a **real root partition** instead of a RAM disk — but MINIX reads MBR
+   partition tables, not GPT, so this needs either a *hybrid MBR* (GPT for
+   firmware + an MBR entry so MINIX finds the root partition) or GPT-partition
+   support in the MINIX storage layer.
+
+The GPT/ESP/GRUB/Multiboot2 boot chain itself is proven; the remaining work is
+the root-filesystem strategy above.

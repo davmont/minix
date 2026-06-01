@@ -356,7 +356,9 @@ create_ramdisk_image()
 	# Build image
 	_RAMDISKSIZE=$(${CROSS_TOOLS}/nbmkfs.mfs -d ${RAMSIZE} -I 0 ${WORK_DIR}/imgrd.mfs ${WORK_DIR}/proto.root)
 	if [ "${ARCH}" = "amd64" ]; then
-		_OBJCOPY_BARCH=x86_64; _OBJCOPY_OFMT=x86_64-elf64-minix
+		# BFD architecture name is "i386:x86-64" (matches the memory
+		# driver's own Makefile); plain "x86_64" is rejected by objcopy.
+		_OBJCOPY_BARCH=i386:x86-64; _OBJCOPY_OFMT=x86_64-elf64-minix
 	else
 		_OBJCOPY_BARCH=i386;   _OBJCOPY_OFMT=i586-elf32-minix
 	fi
