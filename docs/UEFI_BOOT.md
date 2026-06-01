@@ -149,11 +149,12 @@ Verified end to end with this branch:
 | Menu / config | `boot.cfg` ✓ | `grub.cfg` from ISO9660 ✓ |
 | Kernel multiboot handoff | mb1 ✓ | mb2 ✓ (`HEAD64` → `KMAIN`) |
 | SMP / ACPI bring-up | ✓ | ✓ (RSDP from mb2 ACPI tag) |
-| Userland → `login:` | ✓ **boots to login** | ✓ **boots to login** (serial) |
+| Userland → `login:` | ✓ **boots to login** (VGA text) | ✓ **boots to login** (GOP framebuffer + serial) |
+| Interactive shell on display | ✓ VGA text | ✓ framebuffer (keyboard echo, scroll, shell) |
 
-Both paths boot to a login prompt.  The UEFI login was verified on the serial
-console (`console=tty00`); see "Console on the physical screen" below for the
-one remaining piece needed to show it on a graphical display.
+Both paths boot to an interactive login.  Under UEFI the console renders on
+the GOP framebuffer (see "Console on the physical screen" below); a serial
+console is also available via the `console=tty00` menu entries.
 
 ## Multiboot2 (implemented)
 
@@ -178,26 +179,37 @@ RSDP scan.  Verified: UEFI boots through full ACPI table enumeration → APIC
 mode → multiuser → `login:`; BIOS regression-tested to login with the
 identical SMP bring-up sequence.
 
-## Console on the physical screen (follow-up)
+## Console on the physical screen (implemented)
 
 UEFI has no VGA text buffer (`0xB8000`), so console output needs the linear
-framebuffer.  `pre_init` already captures its geometry into
-`kinfo.fb_addr/fb_pitch/fb_width/fb_height/fb_bpp` (32-bpp GOP).  What remains
-is a framebuffer **text** console.  The right layer is the **userland `tty`
-driver** (`minix/drivers/tty/.../console.c`), which renders `/dev/console`
-(boot messages, the login prompt, the shell):
+framebuffer.  `pre_init` captures its geometry into
+`kinfo.fb_addr/fb_pitch/fb_width/fb_height/fb_bpp` (32-bpp GOP), and the
+**userland `tty` driver** (`minix/drivers/tty/tty/arch/i386/console.c`) renders
+`/dev/console` into it:
 
-- Get the framebuffer geometry to the driver (via `sys_getmachine`/a sysenv
-  carrying the `kinfo.fb_*` fields), map it with `vm_map_phys` in the driver's
-  own address space, add an 8x16 font + glyph renderer, and route the console
-  output/scroll/cursor path to it when a framebuffer is present.
+- It reads the geometry via `get_minix_kerninfo()->kinfo` (a pointer into
+  mapped kernel memory — no `kinfo` copy, so no `GET_KINFO` size-mismatch
+  hazard) and maps the framebuffer with `vm_map_phys` in its own address space.
+- `console_memory` becomes a RAM shadow of char+attr words; the three video
+  primitives (`mem_vid_copy` / `vid_vid_copy` / `set_6845`) render the touched
+  cells.  An 8x16 cell is drawn from a built-in public-domain 8x8 font (rows
+  doubled); VGA attributes map to a 16-colour palette; the cursor is a software
+  underline.  Virtual consoles share the framebuffer as they share VGA memory
+  (each owns a shadow page, only the visible one is drawn, `select_console`
+  repaints).
+- When `kinfo.fb_addr == 0` (BIOS / Multiboot1) the legacy VGA text path is
+  used unchanged.
+
+Verified under QEMU+OVMF: full boot, `Welcome to MINIX`, login, keyboard echo,
+scrolling and an interactive root shell all render on the UEFI GOP display;
+BIOS keeps the VGA text console (regression-tested to a login prompt).
 
 Note — a *kernel* framebuffer console was prototyped and rejected: the kernel's
 `printf` goes to the `kmess` ring buffer, not `direct_print`, so it would only
 render panics, not the login prompt; and mapping a multi-MB framebuffer through
 the kernel's `arch_phys_map` mechanism (intended for small MMIO windows)
-disturbs later mappings and breaks ACPI/PCI bring-up.  Do it in `tty`, in
-userland, not in the kernel.
+disturbs later mappings and breaks ACPI/PCI bring-up.  The console belongs in
+`tty`, in userland.
 
 ### Pre-existing bugs to fix for a clean q35 (typical UEFI) boot
 
