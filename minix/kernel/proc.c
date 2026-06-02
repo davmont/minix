@@ -63,6 +63,18 @@ static void enqueue_head(struct proc *rp);
 /* all idles share the same idle_priv structure */
 static struct priv idle_priv;
 
+#ifdef CONFIG_SMP
+/* Tier 1 colocation: per-proc-slot IPC-traffic histogram, indexed by
+ * sender's CPU.  Stored outside struct proc so the proc-struct binary
+ * ABI stays stable for the userspace consumers (MIB, IS, VM) that read
+ * GET_PROCTAB and depend on a specific sizeof(struct proc).
+ * Index 0..NR_TASKS-1 is for kernel tasks, NR_TASKS..NR_TASKS+NR_PROCS-1
+ * for user/system procs, matching the proc[] array layout.
+ * Writers all hold BKL, so no atomic needed.
+ */
+u32_t ipc_sender_cpu_count[NR_TASKS + NR_PROCS][CONFIG_MAX_CPUS];
+#endif
+
 static void set_idle_name(char * name, int n)
 {
         int i, c;
@@ -872,11 +884,12 @@ fastpath_sendrec(struct proc *caller, struct proc *dst, message *m_user)
 	IPC_STATUS_ADD_CALL(dst, SENDREC);
 
 #ifdef CONFIG_SMP
-	/* Tier 1 colocation traffic counter.  Bounds-check caller->p_cpu —
-	 * some sender contexts have p_cpu >= CONFIG_MAX_CPUS, and the
-	 * unchecked write corrupts the next proc[] entry. */
+	/* Tier 1 colocation traffic counter.  Stored OUTSIDE struct proc
+	 * (see ipc_sender_cpu_count[][] at file scope) so the proc-struct
+	 * ABI stays stable for userspace consumers (MIB, IS, VM, …) that
+	 * read GET_PROCTAB and expect a specific sizeof(struct proc). */
 	if (caller->p_cpu < CONFIG_MAX_CPUS)
-		dst->p_ipc_sender_cpu_count[caller->p_cpu]++;
+		ipc_sender_cpu_count[dst->p_nr + NR_TASKS][caller->p_cpu]++;
 #endif
 
 #ifdef CONFIG_SMP
@@ -1287,9 +1300,10 @@ int mini_send(
   }
 
 #ifdef CONFIG_SMP
-  /* Tier 1 colocation traffic counter (slow-path side).  Same bounds check. */
+  /* Tier 1 colocation traffic counter (slow-path side).  Stored
+   * outside struct proc — see ipc_sender_cpu_count[][] at file scope. */
   if (caller_ptr->p_cpu < CONFIG_MAX_CPUS)
-    dst_ptr->p_ipc_sender_cpu_count[caller_ptr->p_cpu]++;
+    ipc_sender_cpu_count[dst_ptr->p_nr + NR_TASKS][caller_ptr->p_cpu]++;
 #endif
 
   /* Check if 'dst' is blocked waiting for this message. The destination's
