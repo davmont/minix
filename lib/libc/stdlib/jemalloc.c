@@ -105,6 +105,22 @@
 #  define xutrace(a, b)		utrace((a), (b))
 #endif	/* __NetBSD__ */
 
+#if defined(__minix)
+/*
+ * MINIX libc is built without _REENTRANT, and its <reentrant.h> does not
+ * define mutex_t (that is pthread-only).  MINIX base userland is single-
+ * threaded, so jemalloc's internal locks are compiled out to no-ops (see the
+ * malloc_mutex_* macros below) and mutex_t is only a placeholder for the
+ * unconditional lock fields in the arena/chunk structures.  A future
+ * _REENTRANT MINIX libc can replace these with real locks.
+ */
+typedef int mutex_t;
+#define MUTEX_INITIALIZER 0
+/* MINIX has no utrace(2); compile the allocation-trace hook out to a no-op. */
+#undef xutrace
+#define xutrace(a, b)		((void)(a), (void)(b))
+#endif /* __minix */
+
 /*
  * MALLOC_PRODUCTION disables assertions and statistics gathering.  It also
  * defaults the A and J runtime options to off.  These settings are appropriate
@@ -148,7 +164,9 @@ __RCSID("$NetBSD: jemalloc.c,v 1.38 2015/07/26 17:21:55 martin Exp $");
 
 #include <errno.h>
 #include <limits.h>
-#include <pthread.h>
+#if !defined(__minix)
+#include <pthread.h>		/* MINIX has no <pthread.h>; uses <reentrant.h> */
+#endif
 #include <sched.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -159,7 +177,7 @@ __RCSID("$NetBSD: jemalloc.c,v 1.38 2015/07/26 17:21:55 martin Exp $");
 #include <strings.h>
 #include <unistd.h>
 
-#ifdef __NetBSD__
+#if defined(__NetBSD__) || defined(__minix)
 #  include <reentrant.h>
 #  include "extern.h"
 
@@ -945,6 +963,13 @@ static bool	malloc_init_hard(void);
 #define	malloc_mutex_init(m)	mutex_init(m, NULL)
 #define	malloc_mutex_lock(m)	mutex_lock(m)
 #define	malloc_mutex_unlock(m)	mutex_unlock(m)
+#elif defined(__minix)
+/* Single-threaded base userland: locks are no-ops.  The macro arguments are
+ * intentionally not evaluated, so the _REENTRANT-only mutex objects they
+ * reference need not exist. */
+#define	malloc_mutex_init(m)	((void)0)
+#define	malloc_mutex_lock(m)	((void)0)
+#define	malloc_mutex_unlock(m)	((void)0)
 #else	/* __NetBSD__ */
 static inline void
 malloc_mutex_init(malloc_mutex_t *a_mutex)
@@ -1310,6 +1335,36 @@ pages_map_align(void *addr, size_t size, int align)
 {
 	void *ret;
 
+#if defined(__minix)
+	/*
+	 * MINIX mmap(2) does not honor MAP_ALIGNED for virtual-address
+	 * alignment, so emulate it: over-allocate by the requested alignment,
+	 * then trim the unaligned head and tail with munmap(2).  MINIX supports
+	 * partial (sub-region) unmapping, so this yields an aligned mapping of
+	 * exactly 'size' bytes.  'align' is a power-of-two exponent (0 = none).
+	 */
+	if (align != 0) {
+		size_t alignment = (size_t)1 << align;
+		size_t bigsize = size + alignment;
+		uintptr_t base, aligned, headlen, taillen;
+
+		if (bigsize < size)		/* size_t overflow */
+			return (NULL);
+		base = (uintptr_t)mmap(NULL, bigsize, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANON, -1, 0);
+		if ((void *)base == MAP_FAILED)
+			return (NULL);
+		aligned = (base + alignment - 1) & ~(uintptr_t)(alignment - 1);
+		headlen = aligned - base;
+		taillen = bigsize - headlen - size;
+		if (headlen != 0)
+			(void)munmap((void *)base, headlen);
+		if (taillen != 0)
+			(void)munmap((void *)(aligned + size), taillen);
+		return ((void *)aligned);
+	}
+#endif /* __minix */
+
 	/*
 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
 	 * of existing mappings, and we only want to create new mappings.
@@ -1544,7 +1599,9 @@ chunk_dealloc(void *chunk, size_t size)
 			size_t offset;
 
 			malloc_mutex_unlock(&brk_mtx);
+#if !defined(__minix)	/* MINIX libc has no madvise(2) implementation */
 			madvise(chunk, size, MADV_FREE);
+#endif
 
 			/*
 			 * Iteratively create records of each chunk-sized
@@ -2076,8 +2133,10 @@ arena_run_dalloc(arena_t *arena, arena_run_t *run, size_t size)
 	 * Tell the kernel that we don't need the data in this run, but only if
 	 * requested via runtime configuration.
 	 */
+#if !defined(__minix)	/* MINIX libc has no madvise(2) implementation */
 	if (opt_hint)
 		madvise(run, size, MADV_FREE);
+#endif
 
 	/* Try to coalesce with neighboring runs. */
 	if (run_ind > arena_chunk_header_npages &&
@@ -2951,8 +3010,14 @@ huge_ralloc(void *ptr, size_t size, size_t oldsize)
 		RB_REMOVE(chunk_tree_s, &huge, node);
 		malloc_mutex_unlock(&chunks_mtx);
 
+#if defined(__minix)
+		/* MINIX libc has no mremap(2); fall back to the generic
+		 * allocate-new + copy + free path below by failing here. */
+		newptr = MAP_FAILED;
+#else
 		newptr = mremap(ptr, oldcsize, NULL, newcsize,
 		    MAP_ALIGNED(chunksize_2pow));
+#endif
 		if (newptr == MAP_FAILED) {
 			/* We still own the old region. */
 			malloc_mutex_lock(&chunks_mtx);
