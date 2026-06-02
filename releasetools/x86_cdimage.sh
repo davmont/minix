@@ -39,8 +39,9 @@ cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
 banner=Welcome to the MINIX 3 installation CD
 banner================================================================================
 banner=
-menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1
-menu=Regular MINIX 3 (with AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes
+menu=Regular MINIX 3 (AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes
+menu=Regular MINIX 3 (IDE/Legacy):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1
+menu=MINIX 3 (serial console, AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 ahci=yes console=tty00
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1
