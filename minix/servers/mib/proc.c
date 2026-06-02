@@ -959,6 +959,15 @@ mib_kern_proc_args(struct mib_call * call, struct mib_node * node __unused,
 	if (oldp == NULL && (req == KERN_PROC_NARGV || req == KERN_PROC_NENV))
 		return sizeof(count);
 
+	/* Procs started without an exec frame (RS-spawned drivers like
+	 * at_wini, pckbd, etc.) have mp_frame_addr == 0 and mp_frame_len == 0.
+	 * Without this guard the data-copy address would wrap to a huge
+	 * value (0 + 0 - sizeof(pss)); sys_datacopy may then return OK with
+	 * garbage in pss, which downstream libkvm exposes as dangling argv
+	 * pointers that crash ps when it dereferences them. */
+	if (mp->mp_frame_addr == 0 || mp->mp_frame_len < sizeof(pss))
+		return 0;
+
 	if (sys_datacopy(mp->mp_endpoint,
 	    mp->mp_frame_addr + mp->mp_frame_len - sizeof(pss),
 	    SELF, (vir_bytes)&pss, sizeof(pss)) != OK)
