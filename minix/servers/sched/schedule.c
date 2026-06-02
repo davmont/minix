@@ -353,7 +353,9 @@ void init_scheduling(void)
  */
 #ifdef CONFIG_SMP
 #define COLOC_DOMINANCE_PCT		70  /* threshold % traffic from one CPU */
-#define COLOC_STABLE_INTERVALS		2   /* intervals of dominance before act */
+#define COLOC_STABLE_INTERVALS		1   /* intervals of dominance before act
+					     * (cooldown + exp backoff still
+					     * prevent thrash on transients) */
 #define COLOC_BASE_COOLDOWN		4   /* base intervals between migrations */
 #define COLOC_MIN_TOTAL_TRAFFIC		100 /* min IPCs in window to act on */
 #define COLOC_MIGRATIONS_DECAY_AFTER	8   /* clear migrations_recent after */
