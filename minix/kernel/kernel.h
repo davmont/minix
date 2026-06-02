@@ -15,6 +15,17 @@
  */
 /* #define CONFIG_SMP_VERBOSE */
 
+/*
+ * IPC fastpath (Phase 1): rendezvous-SENDREC specialisation with direct
+ * switch in proc.c.  On by default; comment out to A/B against the
+ * unchanged slow path (the rest of the fastpath code is still compiled,
+ * just unreachable, so binary size and slow-path layout stay identical).
+ */
+#define CONFIG_IPC_FASTPATH
+/* #define CONFIG_IPC_FASTPATH_STATS */  /* per-branch counters + slow-path dump */
+/* #define CONFIG_IPC_FASTPATH_PROBE */  /* nop-loop probe to detect hits */
+#define CONFIG_IPC_FASTPATH_TIMING       /* RDTSC accumulators in kuserinfo */
+
 #ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
 #endif

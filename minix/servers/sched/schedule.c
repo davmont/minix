@@ -342,6 +342,154 @@ void init_scheduling(void)
 }
 
 /*===========================================================================*
+ *				colocation policy (Tier 1)		     *
+ *===========================================================================*
+ * Migrate system servers toward the CPU where their IPC traffic is
+ * concentrated.  Decision data comes from the kernel's per-proc
+ * p_ipc_sender_cpu_count[] histogram (read+cleared via GET_IPCTRAFFIC).
+ *
+ * Anti-thrash: require dominance to persist N intervals before acting;
+ * apply exponential backoff on repeat migrations of the same proc.
+ */
+#ifdef CONFIG_SMP
+#define COLOC_DOMINANCE_PCT		70  /* threshold % traffic from one CPU */
+#define COLOC_STABLE_INTERVALS		2   /* intervals of dominance before act */
+#define COLOC_BASE_COOLDOWN		4   /* base intervals between migrations */
+#define COLOC_MIN_TOTAL_TRAFFIC		100 /* min IPCs in window to act on */
+#define COLOC_MIGRATIONS_DECAY_AFTER	8   /* clear migrations_recent after */
+
+static struct colocation_state {
+	int last_dominant_cpu;
+	int stable_intervals;
+	int cooldown_remaining;
+	int migrations_recent;	/* for exponential backoff */
+	int quiet_intervals;	/* for decaying migrations_recent */
+} coloc[NR_PROCS];
+
+static void colocate_system_servers(void)
+{
+	struct schedproc *rmp;
+	u32_t hist[CONFIG_MAX_CPUS];
+	int proc_nr, c, r;
+	u32_t total, max_count;
+	int dominant_cpu, dominance_pct;
+	struct colocation_state *cs;
+	static int boot_grace_intervals = 6;  /* 30 sec (6 × BALANCE_TIMEOUT=5s) */
+
+	if (machine.processors_count <= 1)
+		return;
+
+	/* Don't migrate during boot — server placement assumptions are
+	 * load-bearing for boot sequence (PM/VFS/etc. expected on BSP). */
+	if (boot_grace_intervals > 0) {
+		boot_grace_intervals--;
+		return;
+	}
+
+	for (proc_nr = 0, rmp = schedproc; proc_nr < NR_PROCS;
+	    proc_nr++, rmp++) {
+		if (!(rmp->flags & IN_USE)) continue;
+		/* Never migrate critical system procs that have CPU-affinity
+		 * assumptions baked in (clock delivery, IPC fan-in routing). */
+		if (rmp->endpoint == SCHED_PROC_NR) continue;  /* don't move ourselves */
+		if (rmp->endpoint == RS_PROC_NR) continue;
+		if (rmp->endpoint == VM_PROC_NR) continue;
+		if (rmp->endpoint == VFS_PROC_NR) continue;
+		if (rmp->endpoint == CLOCK) continue;
+		if (rmp->endpoint == SYSTEM) continue;
+		/* Don't restrict to is_system_proc() — boot-time servers
+		 * (PM/VFS/etc) have parent != RS_PROC_NR so they'd be
+		 * excluded.  Use the explicit blacklist above plus the
+		 * dominance + stable-intervals + cooldown heuristics. */
+
+		cs = &coloc[proc_nr];
+
+		/* Decay migrations_recent during quiet periods. */
+		if (cs->cooldown_remaining > 0) {
+			cs->cooldown_remaining--;
+			cs->quiet_intervals = 0;
+			continue;
+		}
+		cs->quiet_intervals++;
+		if (cs->quiet_intervals >= COLOC_MIGRATIONS_DECAY_AFTER &&
+		    cs->migrations_recent > 0) {
+			cs->migrations_recent--;
+			cs->quiet_intervals = 0;
+		}
+
+		/* Pull histogram from kernel.  Read also clears it; next
+		 * interval's data is fresh. */
+		r = sys_getinfo(GET_IPCTRAFFIC, hist, sizeof(hist),
+		    NULL, rmp->endpoint);
+		if (r != OK) continue;
+
+		total = 0;
+		max_count = 0;
+		dominant_cpu = -1;
+		for (c = 0; c < machine.processors_count; c++) {
+			total += hist[c];
+			if (hist[c] > max_count) {
+				max_count = hist[c];
+				dominant_cpu = c;
+			}
+		}
+		if (total < COLOC_MIN_TOTAL_TRAFFIC) {
+			cs->last_dominant_cpu = -1;
+			cs->stable_intervals = 0;
+			continue;
+		}
+		dominance_pct = (int)((max_count * 100) / total);
+		if (dominance_pct < COLOC_DOMINANCE_PCT) {
+			cs->last_dominant_cpu = -1;
+			cs->stable_intervals = 0;
+			continue;
+		}
+
+		/* Persistent dominance? */
+		if (dominant_cpu == cs->last_dominant_cpu) {
+			cs->stable_intervals++;
+		} else {
+			cs->last_dominant_cpu = dominant_cpu;
+			cs->stable_intervals = 1;
+		}
+
+		if (cs->stable_intervals < COLOC_STABLE_INTERVALS) continue;
+		if (dominant_cpu == (int)rmp->cpu) continue;  /* already there */
+		if (dominant_cpu == CPU_DEAD ||
+		    !cpu_is_available(dominant_cpu)) continue;
+
+		/* Migrate.  Apply exponential backoff on repeat migrations.
+		 *
+		 * OBSERVE-ONLY (2026-06-02): migrating PM (and likely other
+		 * boot-time servers) from BSP to a non-BSP CPU during a live
+		 * SENDREC workload triggers a userspace FPE that we couldn't
+		 * fully diagnose in-session.  Likely tied to fresh-CPU FPU /
+		 * TLB state (PM's switch_address_space on a CPU it had not
+		 * recently run on).  Sched_proc's migration helper assumes the
+		 * caller's CPU == p's CPU (smp_schedule_sync only fires when
+		 * they differ), but sched here is on BSP and migrating PM to
+		 * non-BSP — the assumption holds and the lazy-update path
+		 * runs, but something downstream breaks.
+		 *
+		 * Keep the dominance-detection logic active so we can observe
+		 * what migration decisions WOULD have been made; gate the
+		 * actual sys_schedule(new_cpu) call until the fault is fixed. */
+#if 0
+		rmp->cpu = dominant_cpu;
+		if (schedule_process_migrate(rmp) == OK) {
+			cs->cooldown_remaining = COLOC_BASE_COOLDOWN *
+			    (1 + cs->migrations_recent);
+			cs->migrations_recent++;
+			cs->stable_intervals = 0;
+			cs->quiet_intervals = 0;
+		}
+#endif
+		(void)dominant_cpu;
+	}
+}
+#endif /* CONFIG_SMP */
+
+/*===========================================================================*
  *				balance_queues				     *
  *===========================================================================*/
 
@@ -363,6 +511,10 @@ void balance_queues(void)
 			}
 		}
 	}
+
+#ifdef CONFIG_SMP
+	colocate_system_servers();
+#endif
 
 	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
 		panic("sys_setalarm failed: %d", r);

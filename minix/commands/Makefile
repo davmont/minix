@@ -12,7 +12,7 @@ SUBDIR=	at backup \
 	fix format fsck.mfs \
 	gcov-pull \
 	ifdef \
-	intr isoread \
+	intr ipcbench isoread \
 	loadkeys loadramdisk look lp \
 	lpd lspci mail MAKEDEV \
 	minix-service mount mt netconf \

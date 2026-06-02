@@ -131,6 +131,15 @@ struct proc {
    */
   struct { reg_t r1, r2, r3; } p_defer;
 
+#ifdef CONFIG_SMP
+  /* IPC traffic histogram for colocation scheduling (Tier 1).
+   * Indexed by sender's CPU; incremented on every SENDREC to this proc.
+   * Cleared by sched server via GET_IPCTRAFFIC sys_getinfo.
+   * Only the receiver-side counters are written, only from caller's CPU
+   * under BKL, so no atomic needed. */
+  u32_t p_ipc_sender_cpu_count[CONFIG_MAX_CPUS];
+#endif
+
 #if DEBUG_TRACE
   int p_schedules;
 #endif

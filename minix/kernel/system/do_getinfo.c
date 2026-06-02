@@ -200,6 +200,26 @@ int do_getinfo(struct proc * caller, message * m_ptr)
 	src_vir = (vir_bytes)ticks;
 	break;
     }
+#ifdef CONFIG_SMP
+    case GET_IPCTRAFFIC: {
+	/* Read+clear the p_ipc_sender_cpu_count histogram for one proc.
+	 * Endpoint of target is passed in val_len2_e (SELF for caller).
+	 * Buffer must be sized for CONFIG_MAX_CPUS u32_t entries. */
+	static u32_t hist_copy[CONFIG_MAX_CPUS];
+	int i;
+	nr_e = (m_ptr->m_lsys_krn_sys_getinfo.val_len2_e == SELF) ?
+		caller->p_endpoint : m_ptr->m_lsys_krn_sys_getinfo.val_len2_e;
+	if (!isokendpt(nr_e, &nr)) return EINVAL;
+	p = proc_addr(nr);
+	for (i = 0; i < CONFIG_MAX_CPUS; i++) {
+		hist_copy[i] = p->p_ipc_sender_cpu_count[i];
+		p->p_ipc_sender_cpu_count[i] = 0;
+	}
+	length = sizeof(hist_copy);
+	src_vir = (vir_bytes) hist_copy;
+	break;
+    }
+#endif
     default:
 	printf("do_getinfo: invalid request %d\n",
 		m_ptr->m_lsys_krn_sys_getinfo.request);

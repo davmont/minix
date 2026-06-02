@@ -748,21 +748,244 @@ static int do_sync_ipc(struct proc * caller_ptr, /* who made the call */
   return(result);
 }
 
+/*===========================================================================*
+ *			IPC fastpath (Phase 1)				     *
+ *===========================================================================*
+ * Specialised inline path for the common-case SENDREC where the destination
+ * is already blocked in RECEIVE waiting for the caller (or ANY).  Skips
+ * do_sync_ipc's dispatch / permission re-validation, skips the SEND->RECEIVE
+ * state machine fall-through, and direct-switches to the destination via
+ * proc_ptr without round-tripping the run queue (L4-style lazy scheduling).
+ *
+ * Slow path (do_sync_ipc / mini_send / mini_receive) remains the reference
+ * implementation; any predicate mismatch falls through unchanged.
+ *
+ * Flags that force the slow path.  See proc.h for definitions.  Anything
+ * touching tracing, kernel-call resume, in-flight delivery, or pending TLB
+ * flush is excluded — the slow path handles those correctly today and the
+ * fastpath would have to replicate that logic.
+ */
+#define FAST_BLOCKERS_CALLER \
+	(MF_DELIVERMSG | MF_SC_TRACE | MF_SC_DEFER | MF_KCALL_RESUME)
+#define FAST_BLOCKERS_DST \
+	(MF_DELIVERMSG | MF_MSGFAILED | MF_FLUSH_TLB | \
+	 MF_KCALL_RESUME | MF_SC_DEFER | MF_REPLY_PEND)
+
+#ifdef CONFIG_IPC_FASTPATH_STATS
+/* Diagnostic counters.  Not SMP-safe (no atomics) — orders of magnitude
+ * are what matters.  Dumped periodically from do_ipc. */
+static unsigned long ipcf_hit;
+static unsigned long ipcf_miss_not_sendrec;
+static unsigned long ipcf_miss_endpoint;
+static unsigned long ipcf_miss_dst_state;
+static unsigned long ipcf_miss_getfrom;
+static unsigned long ipcf_miss_filter;
+static unsigned long ipcf_miss_caller_flags;
+static unsigned long ipcf_miss_dst_flags;
+static unsigned long ipcf_miss_perm;
+static unsigned long ipcf_miss_smp;
+
+static void ipcf_dump(void)
+{
+	printf("ipcf: hit=%lu nsr=%lu ep=%lu st=%lu gf=%lu filt=%lu "
+	    "cf=%lu df=%lu perm=%lu smp=%lu\n",
+	    ipcf_hit, ipcf_miss_not_sendrec, ipcf_miss_endpoint,
+	    ipcf_miss_dst_state, ipcf_miss_getfrom, ipcf_miss_filter,
+	    ipcf_miss_caller_flags, ipcf_miss_dst_flags, ipcf_miss_perm,
+	    ipcf_miss_smp);
+}
+# define IPCF_BUMP(c) ((c)++)
+#else
+# define IPCF_BUMP(c) ((void)0)
+#endif
+
+static inline struct proc *
+fastpath_sendrec_eligible(struct proc *caller, endpoint_t dst_e)
+{
+	struct proc *dst;
+	int dst_p;
+
+	/* Decode endpoint without isokendpt's slow checks (revalidated below). */
+	dst_p = _ENDPOINT_P(dst_e);
+	if ((unsigned)(dst_p + NR_TASKS) >= (unsigned)(NR_PROCS + NR_TASKS)) {
+		IPCF_BUMP(ipcf_miss_endpoint);
+		return NULL;
+	}
+	dst = proc_addr(dst_p);
+	if (dst->p_endpoint != dst_e) {		/* generation mismatch */
+		IPCF_BUMP(ipcf_miss_endpoint);
+		return NULL;
+	}
+
+	/* Receiver must be in RECEIVE, not also SENDING (can co-occur during
+	 * the dst's own SENDREC); receive target must match caller or ANY;
+	 * no IPC filter (rare; slow path handles). */
+	if ((dst->p_rts_flags & (RTS_RECEIVING | RTS_SENDING)) != RTS_RECEIVING) {
+		IPCF_BUMP(ipcf_miss_dst_state);
+		return NULL;
+	}
+	if (dst->p_getfrom_e != ANY && dst->p_getfrom_e != caller->p_endpoint) {
+		IPCF_BUMP(ipcf_miss_getfrom);
+		return NULL;
+	}
+	if (priv(dst)->s_ipcf != NULL) {
+		IPCF_BUMP(ipcf_miss_filter);
+		return NULL;
+	}
+
+	if (caller->p_misc_flags & FAST_BLOCKERS_CALLER) {
+		IPCF_BUMP(ipcf_miss_caller_flags);
+		return NULL;
+	}
+	if (dst->p_misc_flags & FAST_BLOCKERS_DST) {
+		IPCF_BUMP(ipcf_miss_dst_flags);
+		return NULL;
+	}
+
+	if (!may_send_to(caller, dst_p)) {
+		IPCF_BUMP(ipcf_miss_perm);
+		return NULL;
+	}
+
+	/* Phase 4a: cross-CPU fastpath enabled.  The fastpath body has two
+	 * variants below — same-CPU does Phase 1 direct switch, cross-CPU
+	 * uses the normal enqueue/IPI handoff (no direct switch possible).
+	 * Both still skip do_sync_ipc dispatch + mini_send/mini_receive bodies.
+	 *
+	 * Safety: dst is in RTS_RECEIVING (predicate guarantee) so its code
+	 * isn't running on its CPU.  Under BKL, no concurrent kernel writer
+	 * touches dst's proc struct.  All cross-CPU writes here mirror what
+	 * mini_send's slow path already does. */
+	return dst;
+}
+
+static inline int
+fastpath_sendrec(struct proc *caller, struct proc *dst, message *m_user)
+{
+	/* Copy caller's userspace message into dst's delivery buffer.
+	 * Same primitive as slow path; Phase 3 will replace this with
+	 * register-passing for short messages. */
+	if (copy_msg_from_user(m_user, &dst->p_delivermsg))
+		return EFAULT;
+	dst->p_delivermsg.m_source = caller->p_endpoint;
+	dst->p_misc_flags |= MF_DELIVERMSG;
+	IPC_STATUS_ADD_CALL(dst, SENDREC);
+
+#if 0  /* Tier 1 colocation counters — see project_ipc_phase1_matrix
+        * memory; instability seen in extended bench runs, parked until
+        * boot-time / migration-stability issues are diagnosed. */
+	if (caller->p_cpu < CONFIG_MAX_CPUS)
+		dst->p_ipc_sender_cpu_count[caller->p_cpu]++;
+#endif
+
+#ifdef CONFIG_SMP
+	if (dst->p_cpu != caller->p_cpu) {
+		/* Cross-CPU (Phase 4a): cannot direct-switch.  Use RTS_UNSET so
+		 * dst gets enqueued on its CPU's run queue + IPI is sent if that
+		 * CPU is idle (see enqueue() in this file, ~L1992).  Caller falls
+		 * through to switch_to_user which picks another proc on this CPU. */
+		RTS_UNSET(dst, RTS_RECEIVING);
+
+		caller->p_getfrom_e = dst->p_endpoint;
+		caller->p_delivermsg_vir = (vir_bytes) m_user;
+		caller->p_misc_flags |= MF_REPLY_PEND;
+		RTS_SET(caller, RTS_RECEIVING);
+		/* No proc_ptr / switch_address_space — caller's CPU stays where
+		 * it is; switch_to_user finds caller non-runnable and picks anew. */
+	} else
+#endif
+	{
+		/* Same-CPU (Phase 1): direct switch with lazy scheduling.
+		 * Wake dst by direct flag write — do NOT RTS_UNSET, which would
+		 * enqueue dst only for us to bypass the queue.  L4 IPC §3. */
+		dst->p_rts_flags &= ~RTS_RECEIVING;
+
+		caller->p_getfrom_e = dst->p_endpoint;
+		caller->p_delivermsg_vir = (vir_bytes) m_user;
+		caller->p_misc_flags |= MF_REPLY_PEND;
+		RTS_SET(caller, RTS_RECEIVING);
+
+		/* CRITICAL: switch_to_user skips switch_address_space() when
+		 * proc_ptr is already runnable (`goto check_misc_flags` at L367).
+		 * We're changing proc_ptr from caller to dst, so we must swap CR3
+		 * ourselves — otherwise delivermsg() copies to dst's user VA with
+		 * caller's CR3 active, faulting on an unmapped address. */
+		get_cpulocal_var(proc_ptr) = dst;
+		switch_address_space(dst);
+	}
+
+	caller->p_accounting.ipc_sync++;
+	kbill_ipc = caller;
+
+	return OK;
+}
+
 int do_ipc(reg_t r1, reg_t r2, reg_t r3)
 {
   struct proc *const caller_ptr = get_cpulocal_var(proc_ptr);	/* get pointer to caller */
   int call_nr = (int) r1;
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+  u64_t t_enter, t_exit;
+  read_tsc_64(&t_enter);
+#endif
 
+#ifdef CONFIG_IPC_FASTPATH
+  /* Phase 1 fastpath: try the rendezvous-SENDREC specialisation first.
+   * Any predicate mismatch falls through to the unchanged slow path. */
+  if (__builtin_expect(call_nr == SENDREC, 1)) {
+    struct proc *dst = fastpath_sendrec_eligible(caller_ptr, (endpoint_t) r2);
+    if (dst != NULL) {
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+      int _is_xcpu = (dst->p_cpu != caller_ptr->p_cpu);
+#endif
+      IPCF_BUMP(ipcf_hit);
+      {
+        int _rv = fastpath_sendrec(caller_ptr, dst, (message *) r3);
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+        read_tsc_64(&t_exit);
+        if (_is_xcpu) {
+          kuserinfo.kui_ipcf_xcpu_cycles += t_exit - t_enter;
+          kuserinfo.kui_ipcf_xcpu_count++;
+        } else {
+          kuserinfo.kui_ipcf_same_cpu_cycles += t_exit - t_enter;
+          kuserinfo.kui_ipcf_same_cpu_count++;
+        }
+#endif
+        return _rv;
+      }
+    }
+  } else {
+    IPCF_BUMP(ipcf_miss_not_sendrec);
+  }
+#endif
+
+#ifdef CONFIG_IPC_FASTPATH_STATS
+  /* Dump counters once after the bench is well underway, from the SLOW
+   * path so the SENDREC hot loop is not affected by printf latency. */
   {
-    static unsigned _n = 0;
-    if (_n < 10) {
-      _n++;
-      printf("do_ipc#%u call=%d src_dest=%lu caller='%s' kts=%d\n",
-        _n, call_nr, (unsigned long)r2,
-        caller_ptr ? caller_ptr->p_name : "?",
-        caller_ptr ? caller_ptr->p_seg.p_kern_trap_style : -1);
+    static int dumped;
+    if (!dumped && ipcf_hit + ipcf_miss_not_sendrec + ipcf_miss_endpoint
+        + ipcf_miss_dst_state + ipcf_miss_getfrom + ipcf_miss_filter
+        + ipcf_miss_caller_flags + ipcf_miss_dst_flags + ipcf_miss_perm
+        + ipcf_miss_smp >= 150000) {
+      dumped = 1;
+      ipcf_dump();
     }
   }
+#endif
+
+  BOOT_VERBOSE(
+    {
+      static unsigned _n = 0;
+      if (_n < 10) {
+        _n++;
+        printf("do_ipc#%u call=%d src_dest=%lu caller='%s' kts=%d\n",
+          _n, call_nr, (unsigned long)r2,
+          caller_ptr ? caller_ptr->p_name : "?",
+          caller_ptr ? caller_ptr->p_seg.p_kern_trap_style : -1);
+      }
+    }
+  );
 
   assert(!RTS_ISSET(caller_ptr, RTS_SLOT_FREE));
 
@@ -816,16 +1039,26 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
    */
   switch(call_nr) {
   	case SENDREC:
-  	case SEND:			
-  	case RECEIVE:			
+  	case SEND:
+  	case RECEIVE:
   	case NOTIFY:
   	case SENDNB:
   	{
   	    /* Process accounting for scheduling */
 	    caller_ptr->p_accounting.ipc_sync++;
 
-  	    return do_sync_ipc(caller_ptr, call_nr, (endpoint_t) r2,
-			    (message *) r3);
+  	    {
+  	      int _rv = do_sync_ipc(caller_ptr, call_nr, (endpoint_t) r2,
+				    (message *) r3);
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+  	      if (call_nr == SENDREC) {
+  	        read_tsc_64(&t_exit);
+  	        kuserinfo.kui_ipcf_slow_cycles += t_exit - t_enter;
+  	        kuserinfo.kui_ipcf_slow_count++;
+  	      }
+#endif
+  	      return _rv;
+  	    }
   	}
   	case SENDA:
   	{
@@ -1052,7 +1285,12 @@ int mini_send(
 	return EDEADSRCDST;
   }
 
-  /* Check if 'dst' is blocked waiting for this message. The destination's 
+#if 0  /* Tier 1 slow-path counter — see fastpath site for status. */
+  if (caller_ptr->p_cpu < CONFIG_MAX_CPUS)
+    dst_ptr->p_ipc_sender_cpu_count[caller_ptr->p_cpu]++;
+#endif
+
+  /* Check if 'dst' is blocked waiting for this message. The destination's
    * RTS_SENDING flag may be set when its SENDREC call blocked while sending.  
    */
   if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, (vir_bytes)m_ptr, NULL)) {
