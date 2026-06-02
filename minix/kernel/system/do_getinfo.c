@@ -64,7 +64,15 @@ int do_getinfo(struct proc * caller, message * m_ptr)
         break;
     }
     case GET_KINFO: {
-        length = sizeof(struct kinfo);
+        /*
+         * Copy only the original kinfo layout to userland.  The UEFI /
+         * Multiboot2 fields appended to struct kinfo (acpi_rsdp, fb_*) are
+         * consumed inside the kernel and through get_minix_kerninfo()'s
+         * mapped pointer, never via SYS_GETINFO.  Copying the full (now
+         * larger) sizeof(struct kinfo) would overflow the smaller kinfo
+         * buffer in userland that was built against the pre-UEFI layout.
+         */
+        length = offsetof(struct kinfo, acpi_rsdp);
         src_vir = (vir_bytes) &kinfo;
         break;
     }

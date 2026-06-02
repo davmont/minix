@@ -278,14 +278,32 @@ panicked with `exec: map_page_region for boot process failed`.  Fixing the
 amd64 RAM-disk path also required correcting `create_ramdisk_image`'s objcopy
 `-B x86_64` to `i386:x86-64`.)
 
-**Remaining issue (MFS root userland).** The boot stalls at the very end of rc
-(after `Starting inetd`, before the login getty), and `ps` segfaults in
-`rc.subr`'s pid check.  This is specific to the freshly-built MFS root image:
-the *same* userland booted from the install ISO (read-only ISO-9660 root)
-reaches `login:` on the same `-machine q35`.  So the GPT/UEFI/hybrid-MBR/boot
-chain is proven end to end; the open item is why the userland is unstable on
-the `nbmkfs.mfs`-built root partition (likely a root-image build or
-writable-root rc interaction), tracked as follow-up.
+**Remaining issue (userland rc, not the boot chain).** The boot stalls at the
+very end of `/etc/rc`, just after the last rc.d service's `Starting ...`
+message and before init spawns the login getty.  It was debugged to two
+*pre-existing userland* problems, both on the writable-root / non-CD rc path
+that the install ISO never exercises (the ISO boots the same userland to
+`login:` on the same `-machine q35`, because its `/CD` marker takes a
+different rc path):
+
+- `ps` segfaults (`bad addr ... nopage write`) when `rc.subr` runs
+  `ps -p <pid>` to check a service — a pre-existing amd64 `ps`/`rc.subr`
+  problem, non-fatal in itself (the boot continues past it).
+- The rc then hangs in the NetBSD rc *finalization* after the last rc.d
+  script: disabling `inetd` simply moves the stall to after the new last
+  service (`syslogd`), so it is the `rc_real_work | rc_postprocess` logging
+  pipe / `end:$(date)` step, not any one service.
+
+Neither is in the GPT/UEFI/hybrid-MBR/Multiboot2/AHCI path, which is proven end
+to end (mounts `/dev/c0d0p1`, runs multiuser, starts the full service stack).
+Fixing them is a separate userland-rc / amd64-`ps` effort.
+
+While debugging this, a real ABI bug was found and fixed: appending fields to
+`struct kinfo` made the kernel's `GET_KINFO` copy more than the (un-rebuilt)
+userland's `kinfo` buffer, overflowing it.  `do_getinfo` now copies only the
+original layout (`offsetof(struct kinfo, acpi_rsdp)`); the appended UEFI fields
+are consumed in-kernel and via `get_minix_kerninfo()`, never through
+`SYS_GETINFO`.
 
 `mkgpt.py` and `amd64_gptimage.sh` are reusable; `nbmkfs.mfs` size/inode
 headroom for the root is configurable via `ROOT_FS_SIZE` / `ROOT_FS_INODES`.
