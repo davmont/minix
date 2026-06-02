@@ -16,15 +16,32 @@
 /* #define CONFIG_SMP_VERBOSE */
 
 /*
- * IPC fastpath (Phase 1): rendezvous-SENDREC specialisation with direct
- * switch in proc.c.  On by default; comment out to A/B against the
- * unchanged slow path (the rest of the fastpath code is still compiled,
- * just unreachable, so binary size and slow-path layout stay identical).
+ * IPC fastpath toggles.
+ *
+ *   CONFIG_IPC_FASTPATH         (on) — Phase 1 + 4a rendezvous-SENDREC
+ *     specialisation in proc.c.  Same-CPU does direct switch via
+ *     proc_ptr+switch_address_space; cross-CPU does the existing enqueue
+ *     +IPI.  Slow path remains the reference implementation; predicate
+ *     misses fall through unchanged.  Comment out to A/B against slow
+ *     path only.
+ *
+ *   CONFIG_IPC_FASTPATH_STATS   (off) — per-branch eligibility-miss
+ *     counters dumped on demand.  Diagnostic only.
+ *
+ *   CONFIG_IPC_FASTPATH_PROBE   (off) — busy-wait probe inserted into
+ *     the fastpath hit path to verify (via p50 delta) that it fires.
+ *     Diagnostic only.
+ *
+ *   CONFIG_IPC_FASTPATH_TIMING  (on) — RDTSC cycle accumulators per
+ *     call-type (xcpu / same-cpu / slow-sr) exposed via kuserinfo for
+ *     userspace analysis (ipcbench reads + prints).  ~5 cycles overhead
+ *     per IPC; useful enough as a regression detector to leave on by
+ *     default.
  */
 #define CONFIG_IPC_FASTPATH
-/* #define CONFIG_IPC_FASTPATH_STATS */  /* per-branch counters + slow-path dump */
-/* #define CONFIG_IPC_FASTPATH_PROBE */  /* nop-loop probe to detect hits */
-#define CONFIG_IPC_FASTPATH_TIMING       /* RDTSC accumulators in kuserinfo */
+/* #define CONFIG_IPC_FASTPATH_STATS */
+/* #define CONFIG_IPC_FASTPATH_PROBE */
+#define CONFIG_IPC_FASTPATH_TIMING
 
 #ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
