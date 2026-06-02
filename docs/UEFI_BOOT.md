@@ -257,25 +257,35 @@ Partition entry).  The single ESP (FAT, built with `nbmakefs -t msdos`) holds
 the GRUB EFI loader, `grub.cfg`, the kernel and all boot modules; GRUB loads
 the kernel via Multiboot2.
 
-Verified under QEMU + OVMF: firmware reads the GPT, loads `BOOTX64.EFI` from
-the ESP, GRUB hands off via multiboot2, and the kernel reaches `kmain()`.
+Two partitions are placed (`mkgpt.py` takes the ESP image and the root image):
+an EFI System Partition (FAT16) with GRUB/kernel/modules, and a **MINIX root
+partition** (MFS) holding the full base.  MINIX reads MBR tables, not GPT, so
+the image carries a **hybrid MBR**: a 0xEE protective entry plus a real MBR
+entry for the root.  `libblockdriver/drvlib.c` *sorts* the MBR primaries by
+start LBA before numbering, so the layout is chosen [protective, root] (the
+ESP is intentionally left out of the MBR, since UEFI finds it via the GPT) to
+make MINIX see the root as `/dev/c0d0p1` (`rootdevname=c0d0p1`).
 
-**Root-filesystem limitation (amd64).** The script currently boots the
-RAM-disk root model (`bootramdisk=1`): the whole root is embedded in
-`mod06_memory` via `create_ramdisk_image`.  With the full `minix-base` set
-that module is ~366 MB, and boot-image processes are **physically
-pre-allocated** (`MF_PREALLOC` in `vm/main.c:boot_alloc`), so VM panics with
-`exec: map_page_region for boot process failed` — a 366 MB boot process is too
-large to pre-allocate at early boot.  (The amd64 RAM-disk path had never been
-exercised before — `create_ramdisk_image` even passed an invalid objcopy
-`-B x86_64`, now fixed to `i386:x86-64`.)  A usable GPT live image therefore
-needs one of:
+Verified under QEMU + OVMF (`-machine q35`): firmware reads the GPT → runs
+`BOOTX64.EFI` → GRUB → multiboot2 → kernel → AHCI brings up the disk → MINIX
+mounts `/dev/c0d0p1` (`fsck` reports it clean) → multiuser startup runs and
+brings up the service stack (network, syslogd, inetd, ...).
 
-1. a **trimmed root set** small enough to pre-allocate as a boot process; or
-2. a **real root partition** instead of a RAM disk — but MINIX reads MBR
-   partition tables, not GPT, so this needs either a *hybrid MBR* (GPT for
-   firmware + an MBR entry so MINIX finds the root partition) or GPT-partition
-   support in the MINIX storage layer.
+(An earlier RAM-disk-root attempt was abandoned: embedding the full base in
+`mod06_memory` makes a ~366 MB boot process, and boot-image processes are
+physically pre-allocated — `MF_PREALLOC` in `vm/main.c:boot_alloc` — so VM
+panicked with `exec: map_page_region for boot process failed`.  Fixing the
+amd64 RAM-disk path also required correcting `create_ramdisk_image`'s objcopy
+`-B x86_64` to `i386:x86-64`.)
 
-The GPT/ESP/GRUB/Multiboot2 boot chain itself is proven; the remaining work is
-the root-filesystem strategy above.
+**Remaining issue (MFS root userland).** The boot stalls at the very end of rc
+(after `Starting inetd`, before the login getty), and `ps` segfaults in
+`rc.subr`'s pid check.  This is specific to the freshly-built MFS root image:
+the *same* userland booted from the install ISO (read-only ISO-9660 root)
+reaches `login:` on the same `-machine q35`.  So the GPT/UEFI/hybrid-MBR/boot
+chain is proven end to end; the open item is why the userland is unstable on
+the `nbmkfs.mfs`-built root partition (likely a root-image build or
+writable-root rc interaction), tracked as follow-up.
+
+`mkgpt.py` and `amd64_gptimage.sh` are reusable; `nbmkfs.mfs` size/inode
+headroom for the root is configurable via `ROOT_FS_SIZE` / `ROOT_FS_INODES`.
