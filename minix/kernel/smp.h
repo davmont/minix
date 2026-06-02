@@ -47,6 +47,11 @@ EXTERN struct cpu cpus[CONFIG_MAX_CPUS];
  */
 SPINLOCK_DECLARE(big_kernel_lock)
 /*
+ * Per-CPU flag: non-zero when this CPU is holding BKL.  Lets BKL_UNLOCK
+ * be a no-op when the CPU never acquired (nested-IPI path).
+ */
+extern volatile int bkl_held_by_cpu[CONFIG_MAX_CPUS];
+/*
  * to sync the booting APs
  */
 SPINLOCK_DECLARE(boot_lock)

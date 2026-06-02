@@ -61,7 +61,7 @@ void mem_clear_mapcache(void)
  *                              vm_lookup                                    *
  *===========================================================================*/
 int vm_lookup(const struct proc *proc, const vir_bytes virtual,
-	phys_bytes *physical, u32_t *ptent)
+	phys_bytes *physical, u64_t *ptent)
 {
 	u64_t pml4e, pdpte, pde, pte;
 	int pml4i, pdpti, pdi, pti;
@@ -93,7 +93,7 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 		phys_bytes base = (phys_bytes)(pdpte & ~(AMD64_HUGE_PAGE_SIZE - 1)
 		                               & AMD64_VM_ADDR_MASK);
 		*physical = base + (virtual & (AMD64_HUGE_PAGE_SIZE - 1));
-		if (ptent) *ptent = (u32_t)pdpte;
+		if (ptent) *ptent = pdpte;
 		return OK;
 	}
 
@@ -108,7 +108,7 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	if (pde & AMD64_VM_PS) {
 		*physical = (pde & AMD64_VM_ADDR_MASK_2MB)
 		          + (virtual & AMD64_VM_OFFSET_MASK_2MB);
-		if (ptent) *ptent = (u32_t)pde;
+		if (ptent) *ptent = pde;
 		return OK;
 	}
 
@@ -120,7 +120,7 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 		return EFAULT;
 
 	*physical = AMD64_VM_PFA(pte) + (virtual % AMD64_PAGE_SIZE);
-	if (ptent) *ptent = (u32_t)pte;
+	if (ptent) *ptent = pte;
 	return OK;
 }
 

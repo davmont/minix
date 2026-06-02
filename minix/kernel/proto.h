@@ -226,7 +226,7 @@ int vm_contiguous(const struct proc *targetproc, vir_bytes vir_buf,
 	size_t count);
 void proc_stacktrace(struct proc *proc);
 int vm_lookup(const struct proc *proc, vir_bytes virtual, phys_bytes
-	*result, u32_t *ptent);
+	*result, u64_t *ptent);
 size_t vm_lookup_range(const struct proc *proc,
        vir_bytes vir_addr, phys_bytes *phys_addr, size_t bytes);
 void arch_do_syscall(struct proc *proc);

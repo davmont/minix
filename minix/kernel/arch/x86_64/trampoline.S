@@ -26,6 +26,25 @@
 #include <machine/asm.h>
 #include "archconst.h"
 
+/*
+ * com1_byte — emit a single byte to COM1 (0x3F8) for trampoline debug.
+ *
+ * Works in both .code16 (real mode) and .code64 (long mode) because the
+ * encoding of `mov $imm, %dx` / `mov $imm, %al` / `out %al, %dx` adapts
+ * to the current mode automatically (gas inserts 66h prefix in long
+ * mode for 16-bit operand size).
+ *
+ * Clobbers AX and DX, which is harmless at every insertion point used
+ * here (the trampoline reloads them before reading them).  No wait for
+ * THR-empty: matches main.c's __kmain_com1; the 16-byte UART FIFO is
+ * enough for a handful of markers per AP.
+ */
+.macro com1_byte ch
+	mov	$0x3F8, %dx
+	mov	$\ch, %al
+	out	%al, %dx
+.endm
+
 .section .text.trampoline, "ax"
 .balign 4096
 .globl _C_LABEL(trampoline)
@@ -40,6 +59,8 @@ _C_LABEL(trampoline):
 	cli
 	cld
 
+	com1_byte 'R'		/* real-mode entry */
+
 	/*
 	 * SIPI loaded CS = (blob_phys >> 4), IP = 0.  Make DS = CS so we can
 	 * access trampoline-local data with offsets relative to the blob base.
@@ -50,25 +71,30 @@ _C_LABEL(trampoline):
 	mov	%ax, %ss
 	xor	%sp, %sp
 
+	com1_byte 'g'		/* pre-lgdtl */
 	/* Load the temporary 32/64-bit GDT.  Its base will be patched at
 	 * runtime by the BSP to be the absolute physical address of ap_gdt
 	 * (computed as blob_phys + (ap_gdt - trampoline)). */
 	lgdtl	ap_gdt_descr - _C_LABEL(trampoline)
+	com1_byte 'G'		/* post-lgdtl */
 
 	/* Enable PAE (required for long mode). */
 	mov	%cr4, %eax
 	or	$0x20, %eax		/* CR4.PAE */
 	mov	%eax, %cr4
+	com1_byte 'P'		/* post-CR4.PAE */
 
 	/* Set CR3 = BSP's PML4 physical address (patched by BSP). */
 	mov	ap_pml4_lo - _C_LABEL(trampoline), %eax
 	mov	%eax, %cr3
+	com1_byte 'C'		/* post-CR3 */
 
 	/* Enable Long Mode in EFER (MSR 0xC0000080), bit 8 (LME). */
 	mov	$0xC0000080, %ecx
 	rdmsr
 	or	$0x100, %eax
 	wrmsr
+	com1_byte 'E'		/* post-EFER.LME */
 
 	/* Switch directly to long mode by setting CR0.PG | CR0.PE in one
 	 * write.  After this we are in compatibility submode of IA-32e; the
@@ -76,6 +102,7 @@ _C_LABEL(trampoline):
 	mov	%cr0, %eax
 	or	$0x80000001, %eax	/* CR0.PG | CR0.PE */
 	mov	%eax, %cr0
+	com1_byte 'M'		/* post-CR0.PG|PE (long compat mode) */
 
 	/*
 	 * Far jump into long mode, reading the ptr16:32 from `ap_ljmp_ptr`
@@ -102,6 +129,8 @@ _C_LABEL(trampoline):
 .globl _C_LABEL(__long_mode_entry)
 _C_LABEL(__long_mode_entry) = long_mode_entry
 long_mode_entry:
+	com1_byte 'L'		/* true 64-bit long mode */
+
 	/* Load data segment selectors to KERN_DS. */
 	mov	$KERN_DS_SELECTOR, %ax
 	mov	%ax, %ds
@@ -109,6 +138,7 @@ long_mode_entry:
 	mov	%ax, %fs
 	mov	%ax, %gs
 	mov	%ax, %ss
+	com1_byte 'D'		/* post-data-segment reload */
 
 	/*
 	 * Switch to the AP's kernel stack (patched by the BSP to point at
@@ -118,13 +148,16 @@ long_mode_entry:
 	movabs	$ap_stack_kvirt, %rax
 	mov	(%rax), %rsp
 	xor	%rbp, %rbp
+	com1_byte 'S'		/* post-stack switch */
 
 	/*
-	 * Call the C entry point.  ap_entry holds the absolute kernel-virtual
-	 * address of smp_ap_boot (set once by the BSP at trampoline-prep time).
+	 * Call the C entry point.  Jump DIRECTLY to smp_ap_boot via movabs,
+	 * skipping the ap_entry_kvirt indirection — if this works but the
+	 * indirection doesn't, the patched value was wrong.
 	 */
-	movabs	$ap_entry_kvirt, %rax
-	jmp	*(%rax)
+	com1_byte 'J'		/* about to jump into smp_ap_boot */
+	movabs	$_C_LABEL(smp_ap_boot), %rax
+	jmp	*%rax
 
 /* ===========================================================================
  * Data area for trampoline.  The BSP patches these before each SIPI.

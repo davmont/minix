@@ -434,6 +434,7 @@
 ./usr/bin/install-info                                  minix-base
 ./usr/bin/install                                       minix-base
 ./usr/bin/ipcrm                                         minix-base
+./usr/bin/ipcbench                                      minix-base
 ./usr/bin/ipcs                                          minix-base
 ./usr/bin/irdpd                                         minix-base      obsolete
 ./usr/bin/isodir                                        minix-base

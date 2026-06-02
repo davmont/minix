@@ -337,6 +337,7 @@
 #   define GET_CPUINFO    23    /* get information about cpus */
 #   define GET_REGS	  24	/* get general process registers */
 #   define GET_CPUTICKS	  25	/* get per-state ticks for a cpu */
+#   define GET_IPCTRAFFIC 26	/* get+clear IPC sender-CPU histogram for proc */
 
 /* Subfunctions for SYS_PRIVCTL */
 #define SYS_PRIV_ALLOW		1	/* Allow process to run */

@@ -27,6 +27,16 @@ static volatile unsigned ap_cpus_booted;
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
 
+/*
+ * Per-CPU "I hold the BKL" flag.  Lets BKL_UNLOCK() be a no-op when this
+ * CPU never acquired the BKL — required so the nested-IPI path on amd64
+ * can safely skip BKL_LOCK without making the trailing context_stop(KERNEL)
+ * UNLOCK release a lock the CPU never acquired.
+ *
+ * Reads/writes are per-CPU, so no atomicity needed.
+ */
+volatile int bkl_held_by_cpu[CONFIG_MAX_CPUS] = { 0 };
+
 void wait_for_APs_to_finish_booting(void)
 {
 	unsigned n = 0;
@@ -78,6 +88,7 @@ static void smp_schedule_sync(struct proc * p, unsigned task)
 	unsigned mycpu = cpuid;
 
 	assert(cpu != mycpu);
+
 	/*
 	 * if some other cpu made a request to the same cpu, wait until it is
 	 * done before proceeding
@@ -94,7 +105,7 @@ static void smp_schedule_sync(struct proc * p, unsigned task)
 		BKL_LOCK();
 	}
 
-	sched_ipi_data[cpu].data = (u32_t) p;
+	sched_ipi_data[cpu].data = (uintptr_t) p;
 	sched_ipi_data[cpu].flags |= task;
 	__insn_barrier();
 	arch_send_smp_schedule_ipi(cpu);
@@ -194,6 +205,19 @@ void smp_sched_handler(void)
 void smp_ipi_sched_handler(void)
 {
 	struct proc * curr;
+
+	/* DBG: emit '<' on receipt + current cpuid digit so we can confirm
+	 * the AP actually receives sched IPIs from the BSP. */
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
+	__asm__ __volatile__("mov $0x3F8, %%dx; mov $'<', %%al; outb %%al, %%dx"
+	    : : : "rax", "rdx");
+	{
+		unsigned _c = cpuid;
+		char _d = '0' + (char)(_c & 0xf);
+		__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+		    : : "a"(_d) : "rdx");
+	}
+#endif
 
 	ipi_ack();
 

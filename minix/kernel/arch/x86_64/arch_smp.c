@@ -25,7 +25,9 @@
 
 /* Raw COM1 print bypassing kernel console state — same trick as main.c's
  * __kmain_mark, used for early SMP debug since printf goes to VGA before the
- * serial console is wired up. */
+ * serial console is wired up.  Compiled to no-op when CONFIG_SMP_VERBOSE
+ * is undefined (see kernel.h). */
+#ifdef CONFIG_SMP_VERBOSE
 static inline void __smp_com1(char c) {
 	__asm__ __volatile__("outb %0, %1" : : "a"(c),
 	    "Nd"((unsigned short)0x3F8));
@@ -34,6 +36,10 @@ static inline void __smp_mark(const char *s) {
 	while (*s) __smp_com1(*s++);
 	__smp_com1('\r'); __smp_com1('\n');
 }
+#else
+static inline void __smp_com1(char c) { (void)c; }
+static inline void __smp_mark(const char *s) { (void)s; }
+#endif
 
 /* there can be at most 255 local APIC ids, each fits in 8 bits */
 static unsigned char apicid2cpuid[255];
@@ -233,28 +239,61 @@ static void smp_start_aps(void)
 
 static void ap_finish_booting(void)
 {
-	unsigned cpu = cpuid;
+	unsigned cpu;
+	__smp_com1('f');
+
+	cpu = cpuid;
+	__smp_com1('1');
+
+	/*
+	 * Per-CPU setup that the trampoline doesn't do: replace the temporary
+	 * trampoline GDT with the kernel GDT, load the IDT, point TR at this
+	 * AP's TSS, and program IA32_KERNEL_GS_BASE for the SYSCALL path.
+	 * Must happen BEFORE ap_cpu_ready is set so the BSP can't send us an
+	 * IPI before we have an IDT.
+	 */
+	x86_lgdt(&gdt_desc);
+	__smp_com1('g');
+	idt_reload();
+	__smp_com1('i');
+	x86_ltr(TSS_SELECTOR(cpu));
+	__smp_com1('t');
+	ap_set_kernel_gs_base(cpu);
+	__smp_com1('s');
+	ap_setup_syscall_msrs();
+	__smp_com1('y');
 
 	ap_cpu_ready = cpu;
+	__smp_com1('2');
 
 	spinlock_lock(&boot_lock);
+	__smp_com1('3');
 	BKL_LOCK();
+	__smp_com1('4');
 
 	BOOT_VERBOSE(printf("CPU %u is up\n", cpu));
 
 	cpu_identify();
+	__smp_com1('5');
+	cpu_enable_features();	/* NXE, FSGSBASE, PCIDE — must match BSP */
+	__smp_com1('e');
 	lapic_enable(cpu);
+	__smp_com1('6');
 	fpu_init();
+	__smp_com1('7');
 
 	if (app_cpu_init_timer(system_hz))
 		panic("FATAL : failed to initialize timer interrupts CPU %u",
 		    cpu);
+	__smp_com1('8');
 
 	get_cpulocal_var(proc_ptr) = get_cpulocal_var_ptr(idle_proc);
 	get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
+	__smp_com1('9');
 
 	ap_boot_finished(cpu);
 	spinlock_unlock(&boot_lock);
+	__smp_com1('!');
 
 	switch_to_user();
 	NOT_REACHABLE;
@@ -262,6 +301,7 @@ static void ap_finish_booting(void)
 
 void smp_ap_boot(void)
 {
+	__smp_com1('b');
 	switch_k_stack((char *)get_k_stack_top(__ap_id) -
 	    X86_STACK_TOP_RESERVED, ap_finish_booting);
 }
@@ -325,22 +365,9 @@ void smp_init(void)
 	BOOT_VERBOSE(printf("SMP initialized for %u CPUs (BSP only — AP "
 	    "trampoline is a first-draft scaffold, not yet enabled)\n", ncpus));
 
-	/*
-	 * TODO(SMP-AP): re-enable when the trampoline is fully verified on KVM.
-	 * Current state: ap_ljmp_off patching, phys_copy and ljmpl encoding
-	 * fixes are in, but APs still NO-BOOT and BSP triple-faults shortly
-	 * after smp_init returns.  Need to instrument the trampoline (raw COM1
-	 * writes from .code16) to see where the AP dies.
-	 */
-#if 0
 	__smp_mark("SMP_INIT-pre-start_aps");
 	smp_start_aps();
 	__smp_mark("SMP_INIT-post-start_aps");
-#endif
-	/* Force ncpus back to 1 until smp_start_aps actually works (otherwise
-	 * sched will try to assign processes to APs that never came up and
-	 * sys_schedule rejects with EBADCPU, hanging init). */
-	ncpus = 1;
 
 	bsp_finish_booting();
 	NOT_REACHABLE;
@@ -364,5 +391,8 @@ void arch_smp_halt_cpu(void)
 
 void arch_send_smp_schedule_ipi(unsigned cpu)
 {
+	/* DBG: emit '>' before sending and the dest cpu digit. */
+	__smp_com1('>');
+	__smp_com1('0' + (cpu & 0xf));
 	apic_send_ipi(APIC_SMP_SCHED_PROC_VECTOR, cpu, APIC_IPI_DEST);
 }
