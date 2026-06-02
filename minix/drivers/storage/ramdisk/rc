@@ -51,10 +51,18 @@ then	if [ -e $ACPI -a -n "`sysenv acpi`" ]
 		virtio_blk=yes
         fi
 
+	# Auto-detect an AHCI/SATA controller (PCI base/sub/prog-if class
+	# 01/06/01, shown as "1/6/1/..." in /proc/pci) so a single boot entry
+	# works on both q35 (AHCI) and i440fx/-machine pc (legacy IDE) without an
+	# explicit ahci= boot option.  An explicit ahci=yes/no still wins.
+	ahci_opt="`sysenv ahci`"
+	if [ -z "$ahci_opt" ] && grep -E '^[^ ]+ 1/6/1/' /proc/pci >/dev/null 2>&1
+	then	ahci_opt=yes
+	fi
+
 	minix-service -cn up /service/floppy -dev /dev/fd0
-	if [ X`sysenv ahci` = Xyes ]
+	if [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
 	then
-		# this is here temporarily, for testing purposes
 		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
 	elif [ X"$virtio_blk" = Xyes ]
 	then
@@ -101,20 +109,23 @@ then	rdrcv "RDRC: amd64 branch entered"
 	then	virtio_blk=yes
 	fi
 
-	if [ X`sysenv ahci` = Xyes ] && [ -x /service/ahci ]
+	# Auto-detect an AHCI/SATA controller (PCI base/sub/prog-if class
+	# 01/06/01, shown as "1/6/1/..." in /proc/pci) and prefer it when present
+	# (q35/UEFI); otherwise fall back to legacy IDE (i440fx/-machine pc, whose
+	# default -cdrom hangs off the PIIX3 IDE controller).  An explicit
+	# ahci=yes/no boot option overrides the probe.
+	ahci_opt="`sysenv ahci`"
+	if [ -z "$ahci_opt" ] && grep -E '^[^ ]+ 1/6/1/' /proc/pci >/dev/null 2>&1
+	then	ahci_opt=yes
+	fi
+
+	if [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
 	then
-		# UEFI/q35-class machines expose the CD/disk on a SATA (AHCI)
-		# controller with no legacy IDE, so at_wini would find nothing.
-		# Honour the 'ahci=yes' boot option here (as the i386 branch
-		# does) and bring up the AHCI driver for the boot device.
 		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
 	elif [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
 	then	minix-service -c up /service/virtio_blk -dev /dev/c0d0 -label virtio_blk_0 -args instance=0
 	elif [ -x /service/at_wini ]
 	then
-		# Default to legacy IDE on amd64.  QEMU's default -cdrom is
-		# attached to the PIIX3 IDE controller, so we need at_wini up
-		# to access the boot CD in cdprobe below.
 		minix-service -c up /service/at_wini -dev /dev/c0d0 -label at_wini_0
 		minix-service -cr up /service/at_wini -dev /dev/c1d0 -label at_wini_1 -args instance=1 2>/dev/null || :
 	fi

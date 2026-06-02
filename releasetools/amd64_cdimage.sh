@@ -45,13 +45,16 @@ workdir_add_cd_files
 workdir_add_kernel minix_default
 
 # add boot.cfg
+# The storage controller (AHCI/SATA vs legacy IDE) is auto-detected at boot
+# by the ramdisk rc via /proc/pci, so a single entry works on both q35-class
+# (AHCI) and i440fx-class (IDE) machines.  To force a choice when debugging,
+# use "Edit menu option" / "Drop to boot prompt" and add ahci=yes or ahci=no.
 cat >${ROOT_DIR}/boot.cfg <<END_BOOT_CFG
 banner=Welcome to the MINIX 3 installation CD
 banner================================================================================
 banner=
-menu=Regular MINIX 3 (AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 ahci=yes
-menu=Regular MINIX 3 (IDE/Legacy):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1
-menu=MINIX 3 (serial console, verbose, AHCI):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 ahci=yes console=tty00 verbose=3
+menu=Regular MINIX 3:multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1
+menu=MINIX 3 (serial console, verbose):multiboot /boot/minix_default/kernel bootcd=1 cdproberoot=1 no_apic=0 acpi=1 console=tty00 verbose=3
 menu=Edit menu option:edit
 menu=Drop to boot prompt:prompt
 clear=1

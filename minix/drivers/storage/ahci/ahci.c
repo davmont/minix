@@ -2336,8 +2336,18 @@ static int sef_cb_init_fresh(int type, sef_init_info_t *UNUSED(info))
 	/* Probe for recognized devices, skipping matches as appropriate. */
 	devind = ahci_probe(ahci_instance);
 
-	if (devind < 0)
-		panic("no matching device found");
+	if (devind < 0) {
+		/*
+		 * No AHCI/SATA controller present (e.g. QEMU's default i440fx
+		 * "-machine pc", which exposes only legacy IDE).  Exit cleanly
+		 * with ENODEV instead of panicking, so a wrong driver/machine
+		 * combination fails gracefully rather than taking the boot
+		 * down.  The boot ramdisk rc auto-detects the controller and
+		 * normally only starts us when an AHCI device is present.
+		 */
+		printf("ahci: no matching AHCI/SATA controller found; exiting\n");
+		return ENODEV;
+	}
 
 	/* Initialize the device we found. */
 	ahci_init(devind);
