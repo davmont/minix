@@ -374,7 +374,7 @@ static void colocate_system_servers(void)
 	u32_t total, max_count;
 	int dominant_cpu, dominance_pct;
 	struct colocation_state *cs;
-	static int boot_grace_intervals = 6;  /* 30 sec (6 × BALANCE_TIMEOUT=5s) */
+	static int boot_grace_intervals = 2;  /* 10 sec (2 × BALANCE_TIMEOUT=5s) */
 
 	if (machine.processors_count <= 1)
 		return;
@@ -460,31 +460,33 @@ static void colocate_system_servers(void)
 
 		/* Migrate.  Apply exponential backoff on repeat migrations.
 		 *
-		 * OBSERVE-ONLY (2026-06-02): migrating PM (and likely other
-		 * boot-time servers) from BSP to a non-BSP CPU during a live
-		 * SENDREC workload triggers a userspace FPE that we couldn't
-		 * fully diagnose in-session.  Likely tied to fresh-CPU FPU /
-		 * TLB state (PM's switch_address_space on a CPU it had not
-		 * recently run on).  Sched_proc's migration helper assumes the
-		 * caller's CPU == p's CPU (smp_schedule_sync only fires when
-		 * they differ), but sched here is on BSP and migrating PM to
-		 * non-BSP — the assumption holds and the lazy-update path
-		 * runs, but something downstream breaks.
+		 * IMPORTANT: schedule_process_migrate(rmp) calls schedule_process
+		 * which calls pick_cpu(rmp) which OVERWRITES rmp->cpu with its
+		 * own load-balancing decision (BSP for system procs, least-loaded
+		 * non-BSP for users).  That clobbers our explicit dominant_cpu
+		 * choice.  Bypass it by calling sys_schedule directly with our
+		 * chosen CPU.
 		 *
-		 * Keep the dominance-detection logic active so we can observe
-		 * what migration decisions WOULD have been made; gate the
-		 * actual sys_schedule(new_cpu) call until the fault is fixed. */
-#if 0
-		rmp->cpu = dominant_cpu;
-		if (schedule_process_migrate(rmp) == OK) {
-			cs->cooldown_remaining = COLOC_BASE_COOLDOWN *
-			    (1 + cs->migrations_recent);
-			cs->migrations_recent++;
-			cs->stable_intervals = 0;
-			cs->quiet_intervals = 0;
+		 * sched_proc's lazy migration path now releases FPU ownership
+		 * and clears MF_FPU_INITIALIZED so the proc gets a fresh xrstor
+		 * on its new CPU — fixes the cross-CPU FPU-restore FPE.
+		 */
+		{
+			int niced_bit = (rmp->max_priority > USER_Q);
+			int r = sys_schedule(rmp->endpoint,
+			    -1 /* prio: no change */,
+			    -1 /* quantum: no change */,
+			    dominant_cpu,
+			    niced_bit);
+			if (r == OK) {
+				rmp->cpu = dominant_cpu;
+				cs->cooldown_remaining = COLOC_BASE_COOLDOWN *
+				    (1 + cs->migrations_recent);
+				cs->migrations_recent++;
+				cs->stable_intervals = 0;
+				cs->quiet_intervals = 0;
+			}
 		}
-#endif
-		(void)dominant_cpu;
 	}
 }
 #endif /* CONFIG_SMP */

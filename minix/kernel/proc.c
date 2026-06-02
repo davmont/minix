@@ -871,9 +871,10 @@ fastpath_sendrec(struct proc *caller, struct proc *dst, message *m_user)
 	dst->p_misc_flags |= MF_DELIVERMSG;
 	IPC_STATUS_ADD_CALL(dst, SENDREC);
 
-#if 0  /* Tier 1 colocation counters — see project_ipc_phase1_matrix
-        * memory; instability seen in extended bench runs, parked until
-        * boot-time / migration-stability issues are diagnosed. */
+#ifdef CONFIG_SMP
+	/* Tier 1 colocation traffic counter.  Bounds-check caller->p_cpu —
+	 * some sender contexts have p_cpu >= CONFIG_MAX_CPUS, and the
+	 * unchecked write corrupts the next proc[] entry. */
 	if (caller->p_cpu < CONFIG_MAX_CPUS)
 		dst->p_ipc_sender_cpu_count[caller->p_cpu]++;
 #endif
@@ -1285,7 +1286,8 @@ int mini_send(
 	return EDEADSRCDST;
   }
 
-#if 0  /* Tier 1 slow-path counter — see fastpath site for status. */
+#ifdef CONFIG_SMP
+  /* Tier 1 colocation traffic counter (slow-path side).  Same bounds check. */
   if (caller_ptr->p_cpu < CONFIG_MAX_CPUS)
     dst_ptr->p_ipc_sender_cpu_count[caller_ptr->p_cpu]++;
 #endif
