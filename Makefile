@@ -227,7 +227,9 @@ BUILDTARGETS+=	do-top-obj
 .if ${MKOBJDIRS} != "no"
 BUILDTARGETS+=	do-tools-obj
 .endif
+.if !defined(NO_DO_TOOLS)
 BUILDTARGETS+=	do-tools
+.endif
 .endif # USETOOLS		# }
 BUILDTARGETS+=	params
 .if ${MKOBJDIRS} != "no"
