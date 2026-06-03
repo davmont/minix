@@ -747,7 +747,32 @@ main(int argc, char *argv[])
 
 	if (uname(&uts) == 0)
 	{
-	    if (strcmp(uts.machine, UNAME_HARDWARE) != 0)
+	    /*
+	     * Accept widely-recognised aliases for the same architecture.
+	     * On Minix/amd64, UNAME_HARDWARE is set from ${MACHINE} (=amd64)
+	     * at build time, but uname(2) returns ${MACHINE_ARCH} (=x86_64).
+	     * Both refer to the same x86-64 binary ABI.  Likewise i386/i686
+	     * on i386 ports.
+	     */
+	    static const char *aliases[][2] = {
+		{ "amd64", "x86_64" },
+		{ "i386",  "i686"   },
+		{ NULL,    NULL     },
+	    };
+	    int compatible = (strcmp(uts.machine, UNAME_HARDWARE) == 0);
+	    if (!compatible) {
+		int i;
+		for (i = 0; aliases[i][0] != NULL; i++) {
+		    if ((strcmp(UNAME_HARDWARE, aliases[i][0]) == 0 &&
+			 strcmp(uts.machine,    aliases[i][1]) == 0) ||
+			(strcmp(UNAME_HARDWARE, aliases[i][1]) == 0 &&
+			 strcmp(uts.machine,    aliases[i][0]) == 0)) {
+			compatible = 1;
+			break;
+		    }
+		}
+	    }
+	    if (!compatible)
 	    {
 		fprintf(stderr, "%s: incompatible hardware platform\n",
 			myname);
