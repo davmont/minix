@@ -1553,17 +1553,41 @@ int mini_notify(
 
   dst_ptr = proc_addr(dst_p);
 
-  /* Check to see if target is blocked waiting for this message. A process 
+  /* Check to see if target is blocked waiting for this message. A process
    * can be both sending and receiving during a SENDREC system call.
+   *
+   * Notify delivery is idempotent w.r.t. the bitmap: HARDWARE/SYSTEM source
+   * data lives in priv(dst)->s_int_pending / s_sig_pending, and the bitmap
+   * fallback below (set_sys_bit on s_notify_pending) tells the receiver to
+   * regenerate the message via BuildNotifyMessage on its next receive.  So
+   * if dst is somehow already holding a queued message (MF_DELIVERMSG set
+   * while also in RTS_RECEIVING — a state we *should* never reach but have
+   * panicked on under sustained fork+exec IRQ storm), skip the in-place
+   * delivery and route via the bitmap instead of clobbering the queued
+   * message.  Previously: assert(!(MF_DELIVERMSG)) → kernel panic.
    */
   if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, 0, &m_notify_buff) &&
+    !(dst_ptr->p_misc_flags & MF_REPLY_PEND) &&
+    (dst_ptr->p_misc_flags & MF_DELIVERMSG)) {
+      /* The invariant-violating state.  Rate-limited diagnostic so this
+       * doesn't escape unnoticed if it starts happening in steady-state
+       * workloads — fall through to the bitmap path below. */
+      static unsigned long mini_notify_collisions;
+      mini_notify_collisions++;
+      if (mini_notify_collisions <= 4 ||
+          (mini_notify_collisions & (mini_notify_collisions - 1)) == 0) {
+        printf("mini_notify: dst %s/%d already has MF_DELIVERMSG; "
+               "routing via bitmap (count=%lu)\n",
+               dst_ptr->p_name, dst_ptr->p_endpoint,
+               mini_notify_collisions);
+      }
+      /* fall through */
+  } else if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, 0, &m_notify_buff) &&
     !(dst_ptr->p_misc_flags & MF_REPLY_PEND)) {
-      /* Destination is indeed waiting for a message. Assemble a notification 
+      /* Destination is indeed waiting for a message. Assemble a notification
        * message and deliver it. Copy from pseudo-source HARDWARE, since the
        * message is in the kernel's address space.
-       */ 
-      assert(!(dst_ptr->p_misc_flags & MF_DELIVERMSG));
-
+       */
       BuildNotifyMessage(&dst_ptr->p_delivermsg, proc_nr(caller_ptr), dst_ptr);
       dst_ptr->p_delivermsg.m_source = caller_ptr->p_endpoint;
       dst_ptr->p_misc_flags |= MF_DELIVERMSG;
@@ -1572,7 +1596,7 @@ int mini_notify(
       RTS_UNSET(dst_ptr, RTS_RECEIVING);
 
       return(OK);
-  } 
+  }
 
   /* Destination is not ready to receive the notification. Add it to the 
    * bit map with pending notifications. Note the indirectness: the privilege id
