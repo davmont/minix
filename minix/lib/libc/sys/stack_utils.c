@@ -162,8 +162,29 @@ void minix_stack_fill(const char *path, int argc, char * const *argv,
 	}
 	*fpw++ = NULL;
 
-	/* Padding, because of the stack alignement. */
-	while ((size_t)fp % sizeof(void *)) *fp++= 0;
+	/* Padding to position ps_strings at exactly stack_size - sizeof(ps_strings).
+	 *
+	 * minix_stack_params rounds stack_size up to a 16-byte multiple (for the
+	 * amd64 SysV ABI's %rsp alignment requirement at process entry), while the
+	 * natural fp position after string writes is only sizeof(void *)-aligned.
+	 * If we just padded to PTRSIZE, ps_strings could sit up to 8 bytes BEFORE
+	 * the frame end, leaving an 8-byte slack at the very top of the frame.
+	 *
+	 * VFS's patch_stack(), used for #! shebang interpreter rewriting, locates
+	 * ps_strings via `frame + frame_len - sizeof(struct ps_strings)`.  If
+	 * libc's actual psp doesn't match that, patch_stack reads/writes the
+	 * wrong bytes — the new process ends up with libc's stale ps_strings,
+	 * pointing into the envp pointer region instead of argv, and either
+	 * faults in _start or sees garbage argc/argv/envp.  The bug only fires
+	 * when argv+envp string lengths land on a (argv_strs+envp_strs) % 8
+	 * residue that causes pad_to_16 > pad_to_8.
+	 *
+	 * Padding fp up to exactly stack_size - sizeof(ps_strings) keeps libc
+	 * and VFS in agreement.  No-op when there is no slack. */
+	{
+		char *psp_target = frame + stack_size - sizeof(struct ps_strings);
+		while (fp < psp_target) *fp++ = 0;
+	}
 
 	/* Fill in the ps_string struct*/
 	*psp = (struct ps_strings *) fp;
