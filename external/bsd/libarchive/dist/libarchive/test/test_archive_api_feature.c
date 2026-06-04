@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: src/lib/libarchive/test/test_archive_api_feature.c,v 1.5 2008/05/26 17:00:24 kientzle Exp $");
 
 DEFINE_TEST(test_archive_api_feature)
 {
@@ -32,45 +31,23 @@ DEFINE_TEST(test_archive_api_feature)
 
 	/* This is the (hopefully) final versioning API. */
 	assertEqualInt(ARCHIVE_VERSION_NUMBER, archive_version_number());
-	sprintf(buff, "libarchive %d.%d.%d",
+	snprintf(buff, sizeof(buff), "libarchive %d.%d.%d",
 	    archive_version_number() / 1000000,
 	    (archive_version_number() / 1000) % 1000,
 	    archive_version_number() % 1000);
 	failure("Version string is: %s, computed is: %s",
 	    archive_version_string(), buff);
-	assert(memcmp(buff, archive_version_string(), strlen(buff)) == 0);
+	assertEqualMem(buff, archive_version_string(), strlen(buff));
 	if (strlen(buff) < strlen(archive_version_string())) {
 		p = archive_version_string() + strlen(buff);
 		failure("Version string is: %s", archive_version_string());
-		assert(*p == 'a' || *p == 'b' || *p == 'c' || *p == 'd');
-		++p;
+		if (p[0] == 'd'&& p[1] == 'e' && p[2] == 'v')
+			p += 3;
+		else {
+			assert(*p == 'a' || *p == 'b' || *p == 'c' || *p == 'd');
+			++p;
+		}
 		failure("Version string is: %s", archive_version_string());
 		assert(*p == '\0');
 	}
-
-/* This is all scheduled to disappear in libarchive 3.0 */
-#if ARCHIVE_VERSION_NUMBER < 3000000
-	assertEqualInt(ARCHIVE_VERSION_STAMP, ARCHIVE_VERSION_NUMBER);
-	assertEqualInt(ARCHIVE_API_FEATURE, archive_api_feature());
-	assertEqualInt(ARCHIVE_API_VERSION, archive_api_version());
-	/*
-	 * Even though ARCHIVE_VERSION_STAMP only appears in
-	 * archive.h after 1.9.0 and 2.2.3, the macro is synthesized
-	 * in test.h, so this test is always valid.
-	 */
-	assertEqualInt(ARCHIVE_VERSION_STAMP / 1000, ARCHIVE_API_VERSION * 1000 + ARCHIVE_API_FEATURE);
-	/*
-	 * The function, however, isn't always available.  It appeared
-	 * sometime in the middle of 2.2.3, but the synthesized value
-	 * never has a release version, so the following conditional
-	 * exactly determines whether the current library has the
-	 * function.
-	 */
-#if ARCHIVE_VERSION_STAMP / 1000 == 1009 || ARCHIVE_VERSION_STAMP > 2002000
-	assertEqualInt(ARCHIVE_VERSION_STAMP, archive_version_stamp());
-#else
-	skipping("archive_version_stamp()");
-#endif
-	assertEqualString(ARCHIVE_LIBRARY_VERSION, archive_version());
-#endif
 }

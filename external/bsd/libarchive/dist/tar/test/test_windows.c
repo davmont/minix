@@ -1,30 +1,13 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2009 Michihiro NAKAJIMA
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
+#include <direct.h>
 #include <windows.h>
 
 static void
@@ -53,7 +36,7 @@ mkfullpath(char **path1, char **path2, const char *tpath, int type)
 	assert(NULL != fp1);
 	fp2 = malloc(l*2);
 	assert(NULL != fp2);
-	l = GetFullPathNameA(tpath, l, fp1, NULL);
+	l = GetFullPathNameA(tpath, (DWORD)l, fp1, NULL);
 	if ((type & 0x01) == 0) {
 		for (p1 = fp1; *p1 != '\0'; p1++)
 			if (*p1 == '\\')
@@ -132,7 +115,7 @@ DEFINE_TEST(test_windows)
 	char *fp1, *fp2;
 
 	/*
-	 * Preparre tests.
+	 * Prepare tests.
 	 * Create directories and files.
 	 */
 	assertMakeDir("tmp", 0775);
@@ -228,7 +211,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive10.tar > ../list10", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list10");
+	assertFileContents(fp2, (int)strlen(fp2), "../list10");
 	free(fp1);
 	free(fp2);
 
@@ -240,7 +223,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive11.tar > ../list11", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list11");
+	assertFileContents(fp2, (int)strlen(fp2), "../list11");
 	free(fp1);
 	free(fp2);
 
@@ -252,7 +235,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive12.tar > ../list12", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list12");
+	assertFileContents(fp2, (int)strlen(fp2), "../list12");
 	free(fp1);
 	free(fp2);
 
@@ -264,7 +247,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive13.tar > ../list13", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list13");
+	assertFileContents(fp2, (int)strlen(fp2), "../list13");
 	free(fp1);
 	free(fp2);
 
@@ -276,7 +259,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive14.tar > ../list14", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list14");
+	assertFileContents(fp2, (int)strlen(fp2), "../list14");
 	free(fp1);
 	free(fp2);
 
@@ -288,7 +271,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive15.tar > ../list15", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list15");
+	assertFileContents(fp2, (int)strlen(fp2), "../list15");
 	free(fp1);
 	free(fp2);
 
@@ -301,7 +284,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive16.tar > ../list16", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list16");
+	assertFileContents(fp2, (int)strlen(fp2), "../list16");
 	free(fp1);
 	free(fp2);
 
@@ -314,7 +297,7 @@ DEFINE_TEST(test_windows)
 	assertEqualInt(0,
 	    systemf("%s -tf ../archive17.tar > ../list17", testprog));
 	/* Check drive letters have been stripped. */
-	assertFileContents(fp2, strlen(fp2), "../list17");
+	assertFileContents(fp2, (int)strlen(fp2), "../list17");
 	free(fp1);
 	free(fp2);
 #else

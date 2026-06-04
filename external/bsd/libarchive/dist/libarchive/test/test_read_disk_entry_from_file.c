@@ -23,10 +23,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_disk_entry_from_file.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 static const char *
-gname_lookup(void *d, gid_t g)
+gname_lookup(void *d, int64_t g)
 {
 	(void)d; /* UNUSED */
 	(void)g; /* UNUSED */
@@ -34,7 +33,7 @@ gname_lookup(void *d, gid_t g)
 }
 
 static const char *
-uname_lookup(void *d, uid_t u)
+uname_lookup(void *d, int64_t u)
 {
 	(void)d; /* UNUSED */
 	(void)u; /* UNUSED */
@@ -66,7 +65,7 @@ DEFINE_TEST(test_read_disk_entry_from_file)
 	entry = archive_entry_new();
 	assert(entry != NULL);
 	archive_entry_copy_pathname(entry, "foo");
-	assertEqualInt(ARCHIVE_OK,
+	assertEqualIntA(a, ARCHIVE_OK,
 	    archive_read_disk_entry_from_file(a, entry, -1, NULL));
 
 	/* Verify the information we got back. */
@@ -76,5 +75,5 @@ DEFINE_TEST(test_read_disk_entry_from_file)
 
 	/* Destroy the archive. */
 	archive_entry_free(entry);
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }

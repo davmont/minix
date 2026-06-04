@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: src/lib/libarchive/test/test_read_format_cpio_bin.c,v 1.2 2008/09/01 05:38:33 kientzle Exp $");
 
 static unsigned char archive[] = {
 199,'q',21,4,177,'y',237,'A',232,3,232,3,2,0,0,0,'p','C',244,'M',2,0,0,0,
@@ -47,18 +46,17 @@ DEFINE_TEST(test_read_format_cpio_bin)
 	struct archive_entry *ae;
 	struct archive *a;
 	assert((a = archive_read_new()) != NULL);
-	assertA(0 == archive_read_support_compression_all(a));
-	assertA(0 == archive_read_support_format_all(a));
-	assertA(0 == archive_read_open_memory(a, archive, sizeof(archive)));
-	assertA(0 == archive_read_next_header(a, &ae));
-	assertA(archive_compression(a) == ARCHIVE_COMPRESSION_NONE);
-	assertA(archive_format(a) == ARCHIVE_FORMAT_CPIO_BIN_LE);
-	assert(0 == archive_read_close(a));
-#if ARCHIVE_VERSION_NUMBER < 2000000
-	archive_read_finish(a);
-#else
-	assert(0 == archive_read_finish(a));
-#endif
+	assertEqualIntA(a, 0, archive_read_support_filter_all(a));
+	assertEqualIntA(a, 0, archive_read_support_format_all(a));
+	assertEqualIntA(a, 0, archive_read_open_memory(a, archive, sizeof(archive)));
+	assertEqualIntA(a, 0, archive_read_next_header(a, &ae));
+	assertEqualInt(1, archive_file_count(a));
+	assertEqualInt(archive_entry_is_encrypted(ae), 0);
+	assertEqualIntA(a, archive_read_has_encrypted_entries(a), ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED);
+	assertEqualIntA(a, ARCHIVE_FILTER_NONE, archive_filter_code(a, 0));
+	assertEqualIntA(a, ARCHIVE_FORMAT_CPIO_BIN_LE, archive_format(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 

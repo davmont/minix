@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_format_cpio_svr4_gzip.c 191183 2009-04-17 01:06:31Z kientzle $");
 
 static unsigned char archive[] = {
 31,139,8,0,236,'c',217,'D',0,3,'3','0','7','0','7','0','4','0','0',181,'0',
@@ -39,23 +38,25 @@ DEFINE_TEST(test_read_format_cpio_svr4_gzip)
 	int r;
 
 	assert((a = archive_read_new()) != NULL);
-	assertEqualInt(ARCHIVE_OK, archive_read_support_compression_all(a));
-	r = archive_read_support_compression_gzip(a);
+	assertEqualInt(ARCHIVE_OK, archive_read_support_filter_all(a));
+	r = archive_read_support_filter_gzip(a);
 	if (r == ARCHIVE_WARN) {
 		skipping("gzip reading not fully supported on this platform");
-		assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+		assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 		return;
 	}
 	assertEqualInt(ARCHIVE_OK, archive_read_support_format_all(a));
 	assertEqualInt(ARCHIVE_OK,
 	    archive_read_open_memory(a, archive, sizeof(archive)));
 	assertEqualInt(ARCHIVE_OK, archive_read_next_header(a, &ae));
-	assertEqualInt(archive_compression(a),
-	    ARCHIVE_COMPRESSION_GZIP);
+	assertEqualInt(archive_filter_code(a, 0),
+	    ARCHIVE_FILTER_GZIP);
 	assertEqualInt(archive_format(a),
 	    ARCHIVE_FORMAT_CPIO_SVR4_NOCRC);
+	assertEqualInt(archive_entry_is_encrypted(ae), 0);
+	assertEqualIntA(a, archive_read_has_encrypted_entries(a), ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED);
 	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 

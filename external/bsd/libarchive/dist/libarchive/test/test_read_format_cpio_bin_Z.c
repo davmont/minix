@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_format_cpio_bin_Z.c 189464 2009-03-07 00:25:33Z kientzle $");
 
 static unsigned char archive[] = {
 31,157,144,199,226,'T',' ',16,'+','O',187,' ',232,6,'$',20,0,160,'!',156,
@@ -37,25 +36,24 @@ DEFINE_TEST(test_read_format_cpio_bin_Z)
 	struct archive *a;
 	assert((a = archive_read_new()) != NULL);
 	assertEqualIntA(a, ARCHIVE_OK,
-	    archive_read_support_compression_all(a));
+	    archive_read_support_filter_all(a));
 	assertEqualIntA(a, ARCHIVE_OK,
 	    archive_read_support_format_all(a));
 	assertEqualIntA(a, ARCHIVE_OK,
 	    archive_read_open_memory(a, archive, sizeof(archive)));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
-	failure("archive_compression_name(a)=\"%s\"",
-	    archive_compression_name(a));
-	assertEqualInt(archive_compression(a), ARCHIVE_COMPRESSION_COMPRESS);
-	assertEqualString(archive_compression_name(a), "compress (.Z)");
+	assertEqualInt(1, archive_file_count(a));
+	failure("archive_filter_name(a, 0)=\"%s\"",
+	    archive_filter_name(a, 0));
+	assertEqualInt(archive_filter_code(a, 0), ARCHIVE_FILTER_COMPRESS);
+	assertEqualString(archive_filter_name(a, 0), "compress (.Z)");
 	failure("archive_format_name(a)=\"%s\"",
 	    archive_format_name(a));
 	assertEqualInt(archive_format(a), ARCHIVE_FORMAT_CPIO_BIN_LE);
+	assertEqualInt(archive_entry_is_encrypted(ae), 0);
+	assertEqualIntA(a, archive_read_has_encrypted_entries(a), ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED);
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-#if ARCHIVE_VERSION_NUMBER < 2000000
-	archive_read_finish(a);
-#else
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
-#endif
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 

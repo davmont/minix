@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_pax_filename_encoding.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 #include <locale.h>
 
@@ -58,7 +57,7 @@ test_pax_filename_encoding_1(void)
 	extract_reference_file(testname);
 	a = archive_read_new();
 	assertEqualInt(ARCHIVE_OK, archive_read_support_format_tar(a));
-	assertEqualInt(ARCHIVE_OK, archive_read_support_compression_all(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_support_filter_all(a));
 	assertEqualInt(ARCHIVE_OK,
 	    archive_read_open_filename(a, testname, 10240));
 	/*
@@ -77,7 +76,7 @@ test_pax_filename_encoding_1(void)
 	    " characters in it without generating a warning");
 	assertEqualInt(ARCHIVE_OK, archive_read_next_header(a, &entry));
 	assertEqualString(filename, archive_entry_pathname(entry));
-	archive_read_finish(a);
+	archive_read_free(a);
 }
 
 /*
@@ -104,19 +103,18 @@ test_pax_filename_encoding_2(void)
 
 	/*
 	 * We need a starting locale which has invalid sequences.
-	 * de_DE.UTF-8 seems to be commonly supported.
+	 * en_US.UTF-8 seems to be commonly supported.
 	 */
 	/* If it doesn't exist, just warn and return. */
-	if (LOCALE_UTF8 == NULL
-	    || NULL == setlocale(LC_ALL, LOCALE_UTF8)) {
+	if (NULL == setlocale(LC_ALL, "en_US.UTF-8")) {
 		skipping("invalid encoding tests require a suitable locale;"
-		    " %s not available on this system", LOCALE_UTF8);
+		    " en_US.UTF-8 not available on this system");
 		return;
 	}
 
 	assert((a = archive_write_new()) != NULL);
 	assertEqualIntA(a, 0, archive_write_set_format_pax(a));
-	assertEqualIntA(a, 0, archive_write_set_compression_none(a));
+	assertEqualIntA(a, 0, archive_write_add_filter_none(a));
 	assertEqualIntA(a, 0, archive_write_set_bytes_per_block(a, 0));
 	assertEqualInt(0,
 	    archive_write_open_memory(a, buff, sizeof(buff), &used));
@@ -151,8 +149,8 @@ test_pax_filename_encoding_2(void)
 	assertEqualInt(ARCHIVE_WARN, archive_write_header(a, entry));
 	archive_entry_free(entry);
 
-	assertEqualInt(0, archive_write_close(a));
-	assertEqualInt(0, archive_write_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/*
 	 * Now read the entries back.
@@ -177,9 +175,11 @@ test_pax_filename_encoding_2(void)
 	assertEqualInt(0, archive_read_next_header(a, &entry));
 	assertEqualString(longname, archive_entry_pathname(entry));
 
-	assertEqualInt(0, archive_read_close(a));
-	assertEqualInt(0, archive_read_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
+
+#if 0 /* Disable this until Tim check out it. */
 
 /*
  * Create an entry starting from a wide-character Unicode pathname,
@@ -233,7 +233,7 @@ test_pax_filename_encoding_3(void)
 
 	assert((a = archive_write_new()) != NULL);
 	assertEqualIntA(a, 0, archive_write_set_format_pax(a));
-	assertEqualIntA(a, 0, archive_write_set_compression_none(a));
+	assertEqualIntA(a, 0, archive_write_add_filter_none(a));
 	assertEqualIntA(a, 0, archive_write_set_bytes_per_block(a, 0));
 	assertEqualInt(0,
 	    archive_write_open_memory(a, buff, sizeof(buff), &used));
@@ -277,8 +277,8 @@ test_pax_filename_encoding_3(void)
 	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
 	archive_entry_free(entry);
 
-	assertEqualInt(0, archive_write_close(a));
-	assertEqualInt(0, archive_write_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/*
 	 * Now read the entries back.
@@ -321,8 +321,415 @@ test_pax_filename_encoding_3(void)
 
 	assertEqualInt(ARCHIVE_EOF, archive_read_next_header(a, &entry));
 
-	assertEqualInt(0, archive_read_close(a));
-	assertEqualInt(0, archive_read_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
+}
+#else
+static void
+test_pax_filename_encoding_3(void)
+{
+}
+#endif
+
+/*
+ * Verify that KOI8-R filenames are correctly translated to Unicode and UTF-8.
+ */
+DEFINE_TEST(test_pax_filename_encoding_KOI8R)
+{
+  	struct archive *a;
+  	struct archive_entry *entry;
+	char buff[4096];
+	size_t used;
+
+	if (NULL == setlocale(LC_ALL, "ru_RU.KOI8-R")) {
+		skipping("KOI8-R locale not available on this system.");
+		return;
+	}
+
+	/* Check if the platform completely supports the string conversion. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	if (archive_write_set_options(a, "hdrcharset=UTF-8") != ARCHIVE_OK) {
+		skipping("This system cannot convert character-set"
+		    " from KOI8-R to UTF-8.");
+		archive_write_free(a);
+		return;
+	}
+	archive_write_free(a);
+
+	/* Re-create a write archive object since filenames should be written
+	 * in UTF-8 by default. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	entry = archive_entry_new2(a);
+	archive_entry_set_pathname(entry, "\xD0\xD2\xC9");
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/* Above three characters in KOI8-R should translate to the following
+	 * three characters (two bytes each) in UTF-8. */
+	assertEqualMem(buff + 512, "15 path=\xD0\xBF\xD1\x80\xD0\xB8\x0A", 15);
+}
+
+/*
+ * Verify that CP1251 filenames are correctly translated to Unicode and UTF-8.
+ */
+DEFINE_TEST(test_pax_filename_encoding_CP1251)
+{
+  	struct archive *a;
+  	struct archive_entry *entry;
+	char buff[4096];
+	size_t used;
+
+	if (NULL == setlocale(LC_ALL, "Russian_Russia") &&
+	    NULL == setlocale(LC_ALL, "ru_RU.CP1251")) {
+		skipping("KOI8-R locale not available on this system.");
+		return;
+	}
+
+	/* Check if the platform completely supports the string conversion. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	if (archive_write_set_options(a, "hdrcharset=UTF-8") != ARCHIVE_OK) {
+		skipping("This system cannot convert character-set"
+		    " from KOI8-R to UTF-8.");
+		archive_write_free(a);
+		return;
+	}
+	archive_write_free(a);
+
+	/* Re-create a write archive object since filenames should be written
+	 * in UTF-8 by default. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	entry = archive_entry_new2(a);
+	archive_entry_set_pathname(entry, "\xef\xf0\xe8");
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/* Above three characters in KOI8-R should translate to the following
+	 * three characters (two bytes each) in UTF-8. */
+	assertEqualMem(buff + 512, "15 path=\xD0\xBF\xD1\x80\xD0\xB8\x0A", 15);
+}
+
+/*
+ * Verify that EUC-JP filenames are correctly translated to Unicode and UTF-8.
+ */
+DEFINE_TEST(test_pax_filename_encoding_EUCJP)
+{
+  	struct archive *a;
+  	struct archive_entry *entry;
+	char buff[4096];
+	size_t used;
+
+	if (NULL == setlocale(LC_ALL, "ja_JP.eucJP")) {
+		skipping("eucJP locale not available on this system.");
+		return;
+	}
+
+	/* Check if the platform completely supports the string conversion. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	if (archive_write_set_options(a, "hdrcharset=UTF-8") != ARCHIVE_OK) {
+		skipping("This system cannot convert character-set"
+		    " from eucJP to UTF-8.");
+		archive_write_free(a);
+		return;
+	}
+	archive_write_free(a);
+
+	/* Re-create a write archive object since filenames should be written
+	 * in UTF-8 by default. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	entry = archive_entry_new2(a);
+	archive_entry_set_pathname(entry, "\xC9\xBD.txt");
+	/* Check the Unicode version. */
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/* Check UTF-8 version. */
+	assertEqualMem(buff + 512, "16 path=\xE8\xA1\xA8.txt\x0A", 16);
+
+}
+
+/*
+ * Verify that CP932/SJIS filenames are correctly translated to Unicode and UTF-8.
+ */
+DEFINE_TEST(test_pax_filename_encoding_CP932)
+{
+  	struct archive *a;
+  	struct archive_entry *entry;
+	char buff[4096];
+	size_t used;
+
+	if (NULL == setlocale(LC_ALL, "Japanese_Japan") &&
+	    NULL == setlocale(LC_ALL, "ja_JP.SJIS")) {
+		skipping("eucJP locale not available on this system.");
+		return;
+	}
+
+	/* Check if the platform completely supports the string conversion. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	if (archive_write_set_options(a, "hdrcharset=UTF-8") != ARCHIVE_OK) {
+		skipping("This system cannot convert character-set"
+		    " from CP932/SJIS to UTF-8.");
+		archive_write_free(a);
+		return;
+	}
+	archive_write_free(a);
+
+	/* Re-create a write archive object since filenames should be written
+	 * in UTF-8 by default. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	entry = archive_entry_new2(a);
+	archive_entry_set_pathname(entry, "\x95\x5C.txt");
+	/* Check the Unicode version. */
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/* Check UTF-8 version. */
+	assertEqualMem(buff + 512, "16 path=\xE8\xA1\xA8.txt\x0A", 16);
+
+}
+
+/*
+ * Verify that KOI8-R filenames are not translated to Unicode and UTF-8
+ * when using hdrcharset=BINARY option.
+ */
+DEFINE_TEST(test_pax_filename_encoding_KOI8R_BINARY)
+{
+  	struct archive *a;
+  	struct archive_entry *entry;
+	char buff[4096];
+	size_t used;
+
+	if (NULL == setlocale(LC_ALL, "ru_RU.KOI8-R")) {
+		skipping("KOI8-R locale not available on this system.");
+		return;
+	}
+
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	/* BINARY mode should be accepted. */
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_set_options(a, "hdrcharset=BINARY"));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	entry = archive_entry_new2(a);
+	archive_entry_set_pathname(entry, "\xD0\xD2\xC9");
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/* "hdrcharset=BINARY" pax attribute should be written. */
+	assertEqualMem(buff + 512, "21 hdrcharset=BINARY\x0A", 21);
+	/* Above three characters in KOI8-R should not translate to any
+	 * character-set. */
+	assertEqualMem(buff + 512+21, "12 path=\xD0\xD2\xC9\x0A", 12);
+}
+
+/*
+ * Pax format writer only accepts both BINARY and UTF-8.
+ * If other character-set name is specified, you will get ARCHIVE_FAILED.
+ */
+DEFINE_TEST(test_pax_filename_encoding_KOI8R_CP1251)
+{
+  	struct archive *a;
+
+	if (NULL == setlocale(LC_ALL, "ru_RU.KOI8-R")) {
+		skipping("KOI8-R locale not available on this system.");
+		return;
+	}
+
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	/* pax format writer only accepts both BINARY and UTF-8. */
+	assertEqualInt(ARCHIVE_FAILED,
+	    archive_write_set_options(a, "hdrcharset=CP1251"));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+}
+
+/*
+ * Verify that unicode filenames are correctly preserved on Windows
+ */
+DEFINE_TEST(test_pax_filename_encoding_UTF16_win)
+{
+#if !defined(_WIN32) || defined(__CYGWIN__)
+	skipping("This test is meant to verify unicode string handling"
+		" on Windows with UTF-16 names");
+	return;
+#else
+	struct archive *a;
+	struct archive_entry *entry;
+	char buff[0x2000];
+	char *p;
+	size_t used;
+
+	/*
+	 * Don't call setlocale because we're verifying that the '_w' functions
+	 * work as expected when 'hdrcharset' is UTF-8
+	 */
+
+	/* Check if the platform completely supports the string conversion. */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	if (archive_write_set_options(a, "hdrcharset=UTF-8") != ARCHIVE_OK) {
+		skipping("This system cannot convert character-set"
+		    " from UTF-16 to UTF-8.");
+		archive_write_free(a);
+		return;
+	}
+	archive_write_free(a);
+
+	/*
+	 * Create a new archive handle with default charset handling
+	 */
+	a = archive_write_new();
+	assertEqualInt(ARCHIVE_OK, archive_write_set_format_pax(a));
+	assertEqualInt(ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	/* Part 1: file */
+	entry = archive_entry_new2(a);
+	archive_entry_copy_pathname_w(entry, L"\u4f60\u597d.txt");
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+
+	/* Part 2: directory */
+	/* NOTE: Explicitly not adding trailing slash to test that code path */
+	archive_entry_copy_pathname_w(entry, L"\u043f\u0440\u0438");
+	archive_entry_set_filetype(entry, AE_IFDIR);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+
+	/* Part 3: symlink */
+	archive_entry_copy_pathname_w(entry, L"\u518d\u89c1.txt");
+	archive_entry_copy_symlink_w(entry, L"\u4f60\u597d.txt");
+	archive_entry_set_filetype(entry, AE_IFLNK);
+	archive_entry_set_symlink_type(entry, AE_SYMLINK_TYPE_FILE);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+
+	/* Part 4: hardlink */
+	archive_entry_copy_pathname_w(entry, L"\u665a\u5b89.txt");
+	archive_entry_copy_hardlink_w(entry, L"\u4f60\u597d.txt");
+	archive_entry_set_filetype(entry, AE_IFREG);
+	archive_entry_set_size(entry, 0);
+	assertEqualInt(ARCHIVE_OK, archive_write_header(a, entry));
+
+	archive_entry_free(entry);
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+
+	/*
+	 * Examine the bytes to ensure the filenames ended up UTF-8
+	 * encoded as we expect.
+	 */
+
+	/* Part 1: file */
+	p = buff + 0;
+	assertEqualString(p + 0, "PaxHeader/\xE4\xBD\xA0\xE5\xA5\xBD.txt"); /* File name */
+	assertEqualInt(p[156], 'x'); /* Pax extension header */
+	p += 512; /* Pax extension body */
+	assertEqualString(p + 0, "19 path=\xE4\xBD\xA0\xE5\xA5\xBD.txt\n");
+	p += 512; /* Ustar header */
+	assertEqualString(p + 0, "\xE4\xBD\xA0\xE5\xA5\xBD.txt"); /* File name */
+	assertEqualInt(p[156], '0');
+
+	/* Part 2: directory */
+	p += 512; /* Pax extension header */
+	assertEqualString(p + 0, "PaxHeader/\xD0\xBF\xD1\x80\xD0\xB8"); /* File name */
+	assertEqualInt(p[156], 'x');
+	p += 512; /* Pax extension body */
+	assertEqualString(p + 0, "16 path=\xD0\xBF\xD1\x80\xD0\xB8/\n");
+	p += 512; /* Ustar header */
+	assertEqualString(p + 0, "\xD0\xBF\xD1\x80\xD0\xB8/"); /* File name */
+	assertEqualInt(p[156], '5'); /* directory */
+
+	/* Part 3: symlink */
+	p += 512; /* Pax Extension Header */
+	assertEqualString(p + 0, "PaxHeader/\xE5\x86\x8D\xE8\xA7\x81.txt"); /* File name */
+	p += 512; /* Pax extension body */
+	assertEqualString(p + 0,
+			  "19 path=\xE5\x86\x8D\xE8\xA7\x81.txt\n"
+			  "23 linkpath=\xE4\xBD\xA0\xE5\xA5\xBD.txt\n"
+			  "31 LIBARCHIVE.symlinktype=file\n");
+	p += 512; /* Ustar header */
+	assertEqualString(p + 0, "\xE5\x86\x8D\xE8\xA7\x81.txt"); /* File name */
+	assertEqualInt(p[156], '2'); /* symlink */
+	assertEqualString(p + 157, "\xE4\xBD\xA0\xE5\xA5\xBD.txt"); /* link name */
+
+	/* Part 4: hardlink */
+	p += 512; /* Pax extension header */
+	assertEqualString(p + 0, "PaxHeader/\xE6\x99\x9A\xE5\xAE\x89.txt"); /* File name */
+	p += 512; /* Pax extension body */
+	assertEqualString(p + 0,
+			  "19 path=\xE6\x99\x9A\xE5\xAE\x89.txt\n"
+			  "23 linkpath=\xE4\xBD\xA0\xE5\xA5\xBD.txt\n"
+			  "31 LIBARCHIVE.symlinktype=file\n");
+	p += 512; /* Ustar header */
+	assertEqualString(p + 0, "\xE6\x99\x9A\xE5\xAE\x89.txt"); /* File name */
+	assertEqualInt(p[156], '1'); /* hard link */
+	assertEqualString(p + 157, "\xE4\xBD\xA0\xE5\xA5\xBD.txt"); /* link name */
+
+	/*
+	 * Read back the archive to see if we get the original names
+	 */
+	a = archive_read_new();
+	archive_read_support_format_all(a);
+	archive_read_support_filter_all(a);
+	assertEqualInt(0, archive_read_open_memory(a, buff, used));
+
+	/* Read part 1: file */
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &entry));
+	assertEqualWString(L"\u4f60\u597d.txt", archive_entry_pathname_w(entry));
+
+	/* Read part 2: directory */
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &entry));
+	assertEqualWString(L"\u043f\u0440\u0438/", archive_entry_pathname_w(entry));
+
+	/* Read part 3: symlink */
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &entry));
+	assertEqualWString(L"\u518d\u89c1.txt", archive_entry_pathname_w(entry));
+	assertEqualWString(L"\u4f60\u597d.txt", archive_entry_symlink_w(entry));
+
+	/* Read part 4: hardlink */
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &entry));
+	assertEqualWString(L"\u665a\u5b89.txt", archive_entry_pathname_w(entry));
+	assertEqualWString(L"\u4f60\u597d.txt", archive_entry_hardlink_w(entry));
+
+	archive_free(a);
+#endif
 }
 
 DEFINE_TEST(test_pax_filename_encoding)

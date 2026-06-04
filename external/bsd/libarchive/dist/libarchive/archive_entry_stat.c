@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_entry_stat.c 201100 2009-12-28 03:05:31Z kientzle $");
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -41,7 +40,7 @@ archive_entry_stat(struct archive_entry *entry)
 {
 	struct stat *st;
 	if (entry->stat == NULL) {
-		entry->stat = malloc(sizeof(*st));
+		entry->stat = calloc(1, sizeof(*st));
 		if (entry->stat == NULL)
 			return (NULL);
 		entry->stat_valid = 0;
@@ -70,12 +69,12 @@ archive_entry_stat(struct archive_entry *entry)
 	st->st_ctime = archive_entry_ctime(entry);
 	st->st_mtime = archive_entry_mtime(entry);
 	st->st_dev = archive_entry_dev(entry);
-	st->st_gid = archive_entry_gid(entry);
-	st->st_uid = archive_entry_uid(entry);
-	st->st_ino = archive_entry_ino64(entry);
+	st->st_gid = (gid_t)archive_entry_gid(entry);
+	st->st_uid = (uid_t)archive_entry_uid(entry);
+	st->st_ino = (ino_t)archive_entry_ino64(entry);
 	st->st_nlink = archive_entry_nlink(entry);
 	st->st_rdev = archive_entry_rdev(entry);
-	st->st_size = archive_entry_size(entry);
+	st->st_size = (off_t)archive_entry_size(entry);
 	st->st_mode = archive_entry_mode(entry);
 
 	/*
@@ -110,7 +109,7 @@ archive_entry_stat(struct archive_entry *entry)
 	/*
 	 * TODO: On Linux, store 32 or 64 here depending on whether
 	 * the cached stat structure is a stat32 or a stat64.  This
-	 * will allow us to support both variants interchangably.
+	 * will allow us to support both variants interchangeably.
 	 */
 	entry->stat_valid = 1;
 

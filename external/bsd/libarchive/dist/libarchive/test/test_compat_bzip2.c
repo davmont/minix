@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_compat_bzip2.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 /*
  * Verify our ability to read sample files compatibly with bunzip2.
@@ -47,7 +46,7 @@ compat_bzip2(const char *name)
 	int i;
 
 	assert((a = archive_read_new()) != NULL);
-	if (ARCHIVE_OK != archive_read_support_compression_bzip2(a)) {
+	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("Unsupported bzip2");
 		return;
 	}
@@ -67,12 +66,16 @@ compat_bzip2(const char *name)
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 
 	/* Verify that the format detection worked. */
-	assertEqualInt(archive_compression(a), ARCHIVE_COMPRESSION_BZIP2);
-	assertEqualString(archive_compression_name(a), "bzip2");
+	assertEqualInt(archive_filter_code(a, 0), ARCHIVE_FILTER_BZIP2);
+	assertEqualString(archive_filter_name(a, 0), "bzip2");
 	assertEqualInt(archive_format(a), ARCHIVE_FORMAT_TAR_USTAR);
 
-	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(archive_filter_code(a, 0), ARCHIVE_FILTER_BZIP2);
+	assertEqualString(archive_filter_name(a, 0), "bzip2");
+	assertEqualInt(archive_format(a), ARCHIVE_FORMAT_TAR_USTAR);
+
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 

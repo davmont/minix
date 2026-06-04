@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_open_file.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 DEFINE_TEST(test_open_file)
 {
@@ -40,7 +39,7 @@ DEFINE_TEST(test_open_file)
 	/* Write an archive through this FILE *. */
 	assert((a = archive_write_new()) != NULL);
 	assertEqualIntA(a, ARCHIVE_OK, archive_write_set_format_ustar(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_write_set_compression_none(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_add_filter_none(a));
 	assertEqualIntA(a, ARCHIVE_OK, archive_write_open_FILE(a, f));
 
 	/*
@@ -67,7 +66,7 @@ DEFINE_TEST(test_open_file)
 
 	/* Close out the archive. */
 	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
-	assertEqualInt(ARCHIVE_OK, archive_write_finish(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 	fclose(f);
 
 	/*
@@ -79,7 +78,7 @@ DEFINE_TEST(test_open_file)
 		return;
 	assert((a = archive_read_new()) != NULL);
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_format_all(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_compression_all(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_filter_all(a));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_open_FILE(a, f));
 
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
@@ -102,7 +101,7 @@ DEFINE_TEST(test_open_file)
 	/* Verify the end of the archive. */
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	fclose(f);
 }
