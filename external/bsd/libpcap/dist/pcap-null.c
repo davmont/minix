@@ -1,4 +1,4 @@
-/*	$NetBSD: pcap-null.c,v 1.2 2014/11/19 19:33:30 christos Exp $	*/
+/*	$NetBSD: pcap-null.c,v 1.5 2019/10/01 16:02:12 christos Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995, 1996
@@ -22,33 +22,49 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: pcap-null.c,v 1.2 2014/11/19 19:33:30 christos Exp $");
+__RCSID("$NetBSD: pcap-null.c,v 1.5 2019/10/01 16:02:12 christos Exp $");
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+#include <config.h>
 #endif
-
-#include <sys/param.h>			/* optionally get BSD define */
 
 #include <string.h>
-
-#ifdef HAVE_OS_PROTO_H
-#include "os-proto.h"
-#endif
 
 #include "pcap-int.h"
 
 static char nosup[] = "live packet capture not supported on this system";
 
 pcap_t *
-pcap_create_interface(const char *device, char *ebuf)
+pcap_create_interface(const char *device _U_, char *ebuf)
 {
-	(void)strlcpy(ebuf, nosup, PCAP_ERRBUF_SIZE);
+	(void)pcap_strlcpy(ebuf, nosup, PCAP_ERRBUF_SIZE);
 	return (NULL);
 }
 
 int
-pcap_platform_finddevs(pcap_if_t **alldevsp, char *errbuf)
+pcap_platform_finddevs(pcap_if_list_t *devlistp _U_, char *errbuf _U_)
 {
+	/*
+	 * There are no interfaces on which we can capture.
+	 */
 	return (0);
+}
+
+#ifdef _WIN32
+int
+pcap_lookupnet(const char *device _U_, bpf_u_int32 *netp _U_,
+    bpf_u_int32 *maskp _U_, char *errbuf)
+{
+	(void)pcap_strlcpy(errbuf, nosup, PCAP_ERRBUF_SIZE);
+	return (-1);
+}
+#endif
+
+/*
+ * Libpcap version string.
+ */
+const char *
+pcap_lib_version(void)
+{
+	return (PCAP_VERSION_STRING);
 }

@@ -1,4 +1,4 @@
-/*	$NetBSD: fad-glifc.c,v 1.2 2014/11/19 19:33:30 christos Exp $	*/
+/*	$NetBSD: fad-glifc.c,v 1.4 2018/09/03 15:26:43 christos Exp $	*/
 
 /* -*- Mode: c; tab-width: 8; indent-tabs-mode: 1; c-basic-offset: 8; -*- */
 /*
@@ -35,10 +35,10 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: fad-glifc.c,v 1.2 2014/11/19 19:33:30 christos Exp $");
+__RCSID("$NetBSD: fad-glifc.c,v 1.4 2018/09/03 15:26:43 christos Exp $");
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+#include <config.h>
 #endif
 
 #include <sys/param.h>
@@ -80,9 +80,9 @@ struct rtentry;		/* declarations in <net/if.h> */
  * SIOCGLIFCONF rather than SIOCGIFCONF in order to get IPv6 addresses.)
  */
 int
-pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
+pcap_findalldevs_interfaces(pcap_if_list_t *devlistp, char *errbuf,
+    int (*check_usable)(const char *), get_if_flags_func get_flags_func)
 {
-	pcap_if_t *devlist = NULL;
 	register int fd4, fd6, fd;
 	register struct lifreq *ifrp, *ifend;
 	struct lifnum ifn;
@@ -102,8 +102,8 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	 */
 	fd4 = socket(AF_INET, SOCK_DGRAM, 0);
 	if (fd4 < 0) {
-		(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-		    "socket: %s", pcap_strerror(errno));
+		pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "socket: AF_INET");
 		return (-1);
 	}
 
@@ -112,8 +112,8 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	 */
 	fd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (fd6 < 0) {
-		(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-		    "socket: %s", pcap_strerror(errno));
+		pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "socket: AF_INET6");
 		(void)close(fd4);
 		return (-1);
 	}
@@ -125,8 +125,8 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	ifn.lifn_flags = 0;
 	ifn.lifn_count = 0;
 	if (ioctl(fd4, SIOCGLIFNUM, (char *)&ifn) < 0) {
-		(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-		    "SIOCGLIFNUM: %s", pcap_strerror(errno));
+		pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "SIOCGLIFNUM");
 		(void)close(fd6);
 		(void)close(fd4);
 		return (-1);
@@ -138,8 +138,8 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	buf_size = ifn.lifn_count * sizeof (struct lifreq);
 	buf = malloc(buf_size);
 	if (buf == NULL) {
-		(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-		    "malloc: %s", pcap_strerror(errno));
+		pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "malloc");
 		(void)close(fd6);
 		(void)close(fd4);
 		return (-1);
@@ -154,8 +154,8 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	ifc.lifc_flags = 0;
 	memset(buf, 0, buf_size);
 	if (ioctl(fd4, SIOCGLIFCONF, (char *)&ifc) < 0) {
-		(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-		    "SIOCGLIFCONF: %s", pcap_strerror(errno));
+		pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "SIOCGLIFCONF");
 		(void)close(fd6);
 		(void)close(fd4);
 		free(buf);
@@ -170,14 +170,6 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 
 	for (; ifrp < ifend; ifrp++) {
 		/*
-		 * IPv6 or not?
-		 */
-		if (((struct sockaddr *)&ifrp->lifr_addr)->sa_family == AF_INET6)
-			fd = fd6;
-		else
-			fd = fd4;
-
-		/*
 		 * Skip entries that begin with "dummy".
 		 * XXX - what are these?  Is this Linux-specific?
 		 * Are there platforms on which we shouldn't do this?
@@ -185,27 +177,23 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 		if (strncmp(ifrp->lifr_name, "dummy", 5) == 0)
 			continue;
 
-#ifdef HAVE_SOLARIS
 		/*
-		 * Skip entries that have a ":" followed by a number
-		 * at the end - those are Solaris virtual interfaces
-		 * on which you can't capture.
+		 * Can we capture on this device?
 		 */
-		p = strchr(ifrp->lifr_name, ':');
-		if (p != NULL) {
+		if (!(*check_usable)(ifrp->lifr_name)) {
 			/*
-			 * We have a ":"; is it followed by a number?
+			 * No.
 			 */
-			while (isdigit((unsigned char)*p))
-				p++;
-			if (*p == '\0') {
-				/*
-				 * All digits after the ":" until the end.
-				 */
-				continue;
-			}
+			continue;
 		}
-#endif
+
+		/*
+		 * IPv6 or not?
+		 */
+		if (((struct sockaddr *)&ifrp->lifr_addr)->sa_family == AF_INET6)
+			fd = fd6;
+		else
+			fd = fd4;
 
 		/*
 		 * Get the flags for this interface.
@@ -215,11 +203,10 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 		if (ioctl(fd, SIOCGLIFFLAGS, (char *)&ifrflags) < 0) {
 			if (errno == ENXIO)
 				continue;
-			(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-			    "SIOCGLIFFLAGS: %.*s: %s",
+			pcap_fmt_errmsg_for_errno(errbuf, PCAP_ERRBUF_SIZE,
+			    errno, "SIOCGLIFFLAGS: %.*s",
 			    (int)sizeof(ifrflags.lifr_name),
-			    ifrflags.lifr_name,
-			    pcap_strerror(errno));
+			    ifrflags.lifr_name);
 			ret = -1;
 			break;
 		}
@@ -238,11 +225,11 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 				 */
 				netmask = NULL;
 			} else {
-				(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-				    "SIOCGLIFNETMASK: %.*s: %s",
+				pcap_fmt_errmsg_for_errno(errbuf,
+				    PCAP_ERRBUF_SIZE, errno,
+				    "SIOCGLIFNETMASK: %.*s",
 				    (int)sizeof(ifrnetmask.lifr_name),
-				    ifrnetmask.lifr_name,
-				    pcap_strerror(errno));
+				    ifrnetmask.lifr_name);
 				ret = -1;
 				break;
 			}
@@ -266,11 +253,11 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 					 */
 					broadaddr = NULL;
 				} else {
-					(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-					    "SIOCGLIFBRDADDR: %.*s: %s",
+					pcap_fmt_errmsg_for_errno(errbuf,
+					    PCAP_ERRBUF_SIZE, errno,
+					    "SIOCGLIFBRDADDR: %.*s",
 					    (int)sizeof(ifrbroadaddr.lifr_name),
-					    ifrbroadaddr.lifr_name,
-					    pcap_strerror(errno));
+					    ifrbroadaddr.lifr_name);
 					ret = -1;
 					break;
 				}
@@ -301,11 +288,11 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 					 */
 					dstaddr = NULL;
 				} else {
-					(void)snprintf(errbuf, PCAP_ERRBUF_SIZE,
-					    "SIOCGLIFDSTADDR: %.*s: %s",
+					pcap_fmt_errmsg_for_errno(errbuf,
+					    PCAP_ERRBUF_SIZE, errno,
+					    "SIOCGLIFDSTADDR: %.*s",
 					    (int)sizeof(ifrdstaddr.lifr_name),
-					    ifrdstaddr.lifr_name,
-					    pcap_strerror(errno));
+					    ifrdstaddr.lifr_name);
 					ret = -1;
 					break;
 				}
@@ -345,8 +332,9 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 		/*
 		 * Add information for this address to the list.
 		 */
-		if (add_addr_to_iflist(&devlist, ifrp->lifr_name,
-		    ifrflags.lifr_flags, (struct sockaddr *)&ifrp->lifr_addr,
+		if (add_addr_to_if(devlistp, ifrp->lifr_name,
+		    ifrflags.lifr_flags, get_flags_func,
+		    (struct sockaddr *)&ifrp->lifr_addr,
 		    sizeof (struct sockaddr_storage),
 		    netmask, sizeof (struct sockaddr_storage),
 		    broadaddr, sizeof (struct sockaddr_storage),
@@ -359,16 +347,5 @@ pcap_findalldevs_interfaces(pcap_if_t **alldevsp, char *errbuf)
 	(void)close(fd6);
 	(void)close(fd4);
 
-	if (ret == -1) {
-		/*
-		 * We had an error; free the list we've been constructing.
-		 */
-		if (devlist != NULL) {
-			pcap_freealldevs(devlist);
-			devlist = NULL;
-		}
-	}
-
-	*alldevsp = devlist;
 	return (ret);
 }
