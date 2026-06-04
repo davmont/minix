@@ -30,7 +30,12 @@
 ./usr/bin/gcov                                          minix-comp      gcccmds
 ./usr/bin/gcpp                                          minix-comp      gcccmds
 ./usr/bin/gprof                                         minix-comp      binutils
+./usr/bin/info                                          minix-comp
+./usr/bin/infokey                                       minix-comp
+./usr/bin/install-info                                  minix-comp
+./usr/bin/ld                                            minix-comp      binutils
 ./usr/bin/llvm-tblgen                                   minix-comp      llvm,llvmcmds
+./usr/bin/makeinfo                                      minix-comp
 ./usr/bin/nm                                            minix-comp      binutils
 ./usr/bin/objcopy                                       minix-comp      binutils
 ./usr/bin/objdump                                       minix-comp      binutils
@@ -2178,9 +2183,39 @@
 ./usr/man/man1/gcov.1                                   minix-comp      gcccmds
 ./usr/man/man1/gcpp.1                                   minix-comp      gcccmds
 ./usr/share                                             minix-comp      gcccmds
+./usr/share/info                                        minix-comp
 ./usr/share/info                                        minix-comp      gcccmds
+./usr/share/info/as.info                                minix-comp      binutils
+./usr/share/info/bfd.info                               minix-comp      binutils
+./usr/share/info/binutils.info                          minix-comp      binutils
 ./usr/share/info/cpp.info                               minix-comp      gcccmds
+./usr/share/info/dir                                    minix-comp
 ./usr/share/info/gcc.info                               minix-comp      gcccmds
+./usr/share/info/gprof.info                             minix-comp      binutils
+./usr/share/info/info-stnd.info                         minix-comp
+./usr/share/info/info.info                              minix-comp
+./usr/share/info/ld.info                                minix-comp      binutils
+./usr/share/info/texinfo.info                           minix-comp
+./usr/share/info/vi.info                                minix-comp
+./usr/share/locale/cs/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/da/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/de/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/de_AT/LC_MESSAGES/texinfo.mo         minix-comp      nls
+./usr/share/locale/eo/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/fr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/he/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/hr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ja/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/nb/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/nl/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/no/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/pl/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ro/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ru/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/sv/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/tr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/zh_CN/LC_MESSAGES/texinfo.mo         minix-comp      nls
+./usr/share/locale/zh_TW/LC_MESSAGES/texinfo.mo         minix-comp      nls
 ./var                                                   minix-comp
 ./var/db                                                minix-comp
 ./var/db/obsolete                                       minix-comp
