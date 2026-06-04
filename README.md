@@ -47,15 +47,28 @@ MINIX 3 is structured in four layers:
 
 ## What's New in This Fork
 
-The headline change is a new **x86-64 (amd64) kernel port** that boots to a
-login prompt under QEMU, with IDE storage, serial console, ACPI/APIC, and
-support for process address spaces above 2 GB. Other highlights since the
-upstream base:
+The headline change is a working **x86-64 (amd64) kernel port** that boots
+to a login prompt on both legacy BIOS and UEFI firmware, with SMP, an IPC
+fastpath, modern CPU features, and most NetBSD userland tools intact.
+Other highlights since the upstream base:
 
-- **Modern CPU features** — NX/XD enforcement, XSAVE/AVX FPU context, SSE4 /
-  AVX2 / AES-NI / RDRAND / x2APIC / PCID detection, SMP limit raised to 32.
+- **amd64 SMP** — full AP bring-up, per-CPU GDT/IDT/TSS, BKL serialization,
+  validated on `-smp 2/4/8` up to 32 CPUs. (See the "amd64 subsystem state"
+  table below.)
+- **IPC fastpath + colocation** — SENDREC same-CPU fastpath plus a Tier 1
+  scheduler that migrates servers to their dominant client's CPU; **4.86×**
+  SMP IPC throughput improvement on `-smp 4` (p50 78k → 16k cycles).
+- **Hybrid BIOS + UEFI boot** — single CD image boots on either firmware via
+  El Torito with a GRUB-built EFI System Partition. Multiboot 2.0 + ACPI
+  RSDP handoff implemented; linear-framebuffer text console for headless
+  UEFI environments.
+- **Modern CPU features** — NX/XD enforcement, XSAVE/AVX FPU context, eager
+  FPU dispatch on amd64, SSE4 / AVX2 / AES-NI / RDRAND / x2APIC / PCID
+  detection.
 - **New drivers** — Intel I225/I226 2.5 GbE (`igc`), EHCI USB host (Phase 1),
-  OHCI scaffolding (Phase 3a), multi-controller `usbd`.
+  OHCI scaffolding (Phase 3a), multi-controller `usbd`, AHCI / legacy IDE
+  auto-detect at boot.
+- **Allocator** — switched libc to `jemalloc`.
 - **Security hardening** — tree-wide audit replacing unsafe `strcpy` /
   `sprintf` / `system()` patterns; buffer-overflow fixes in `kgets`, `backup`,
   `fdisk`, `minix-service`; ELF auxvec UID/GID populated correctly.
@@ -70,18 +83,41 @@ For the full change log, see [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 
 ---
 
+## amd64 Subsystem State
+
+A snapshot of where each piece of the amd64 port stands. ✓ = production-grade,
+↻ = working with caveats, ⌛ = in progress, ✗ = not implemented.
+
+| Subsystem | Status |
+|-----------|--------|
+| Boot (legacy BIOS) | ✓ |
+| Boot (UEFI / GPT, q35) | ✓ via hybrid El Torito; Multiboot 2.0 handoff |
+| SMP | ✓ up to 32 CPUs; validated on `-smp 2/4/8` |
+| IPC fastpath + Tier 1 colocation | ✓ 4.86× SMP win (p50 78k → 16k cycles) |
+| FPU / SSE | ✓ eager dispatch |
+| Storage (AHCI + IDE) | ✓ auto-detect + graceful fallback |
+| Console (serial) | ✓ |
+| Console (linear framebuffer) | ✓ for UEFI / GOP environments |
+| ACPI / APIC | ✓ |
+| Intel `igc` 2.5 GbE | ↻ basic send/receive; no coalescing/multi-queue/stats |
+| USB EHCI (USB 2.0) | ↻ Phase 1 transfer model; no isoch, no suspend/resume |
+| USB OHCI (USB 1.1) | ⌛ Phase 3a scaffolding (PCI + DMA pools); transfer scheduling next |
+| USB UHCI | ✗ |
+| USB xHCI (USB 3.x) | ✗ |
+| UEFI runtime services | ✗ shutdown/reboot via ACPI only |
+| Secure Boot | ✗ |
+
+---
+
 ## Known Limitations
 
 | Area | Status |
 |------|--------|
-| **amd64 SMP** | AP bring-up is disabled; kernel runs single-core (`ncpus = 1`). The i386 SMP path is unaffected. |
-| **EFI / UEFI boot** | Not yet functional. A five-phase implementation plan is documented in `releasetools/EFI_BOOT_PLAN.md`. The existing GRUB scaffolding in the release scripts is disabled (`EFI_SIZE=0`) and references a non-existent GRUB `minix3` module. BIOS boot works normally. |
 | **Intel igc driver** | Initial send/receive only. No interrupt coalescing, multi-queue, or statistics support yet. |
 | **EHCI USB (amd64)** | Phase 1 only. Isochronous transfers and suspend/resume not implemented. |
-| **amd64 USB OHCI** | Phase 3a scaffolding only (PCI discovery + DMA pools). Transfer scheduling not yet wired. |
-| **amd64 USB UHCI** | Not yet wired. |
-| **Multiboot 2.0** | Kernel speaks Multiboot 1.0 only. Multiboot 2.0 would provide a clean EFI memory map and system table pointer when booting via GRUB EFI. |
-| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI/BIOS paths only. |
+| **amd64 USB OHCI** | Phase 3a scaffolding only (PCI discovery + DMA pools). Transfer scheduling next. |
+| **amd64 USB UHCI / xHCI** | Not yet wired. |
+| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI paths only. |
 | **Secure Boot** | Not supported. Requires a signed shim and signed GRUB image. |
 
 ---
