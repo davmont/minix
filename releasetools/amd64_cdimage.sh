@@ -11,7 +11,7 @@ set -e
 : ${TOOLCHAIN_TRIPLET=x86_64-elf64-minix-}
 : ${BUILDSH=build.sh}
 
-: ${SETS="minix-base"}
+: ${SETS="minix-base minix-man"}
 : ${IMG=minix_amd64.iso}
 : ${BUNDLE_SETS=1}
 
