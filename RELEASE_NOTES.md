@@ -1,9 +1,15 @@
 # MINIX 3 — Release Notes (davmont fork)
 
 **Base:** upstream MINIX 3 @ `4db99f4` (November 2018)
-**Period:** March 2026 – May 2026
-**Commits since fork:** 352
-**Branch:** `devel`
+**Period:** March 2026 – June 2026
+**Commits since fork:** 421
+**Branch:** `devel` (at `21c397549`)
+
+The notes below are split into two blocks: the initial "boots to login"
+work (March–May 2026) followed by an "Update — Late May / June 2026"
+section that covers SMP bring-up, the IPC fastpath, hybrid UEFI boot, and
+several follow-up bug fixes.  See [`README.md`](README.md) for a one-page
+summary of where the amd64 port stands today.
 
 ---
 
@@ -90,11 +96,13 @@ ARM targets.
   boot instead of using a compile-time ceiling.
 - **4 GB physical ceiling lifted** in the amd64 VM glue.
 
-**SMP — temporarily single-core**
+**SMP — temporarily single-core** (superseded by the late-May/June work,
+see the "amd64 SMP — now real" update section below)
 
-- `smp_start_aps()` is still `#if 0`'d on amd64. The kernel now clamps
-  `ncpus` to 1 so userspace doesn't get `EBADCPU` trying to schedule init
-  on never-booted APs. Multi-core bring-up is the next step.
+- `smp_start_aps()` is `#if 0`'d on amd64 in this initial release. The
+  kernel clamps `ncpus` to 1 so userspace doesn't get `EBADCPU` trying to
+  schedule init on never-booted APs. (Multi-core bring-up landed in the
+  June 2026 follow-up.)
 
 **Distribution and release tooling**
 
@@ -287,21 +295,126 @@ New tests added:
 ## Documentation
 
 - **`README.md`** — initial project README added.
-- **`releasetools/EFI_BOOT_PLAN.md`** — detailed five-phase plan for adding
-  EFI/UEFI boot support (GRUB-based, targeting both HDD and CD images).
+
+---
+
+## Update — Late May / June 2026
+
+A second wave of amd64 work landed after the initial "boots to login"
+release.  Highlights below; the in-tree notes in
+`minix/kernel/arch/x86_64/SMP_NOTES.md` and the per-feature memory entries
+have the long-form history.
+
+### amd64 SMP — now real
+
+AP bring-up scaffolding (`e51e9c0cd`), trampoline encoding, per-CPU
+GDT/IDT/TSS/GS-base/SYSCALL setup (`c2f338fc0`), and finally a structural
+BKL-reentrancy bug in the nested-IPI path (`dddba40c9`, `f4d2d8bb5`,
+`add25f594`).  SMP now runs reliably on `-smp 2/4/8` up to the configured
+ceiling of 32 CPUs.  Two real bugs surfaced and were fixed along the way:
+
+- **`(u32_t) p` truncating 64-bit proc pointers** in `smp_schedule_sync`
+  (`acdc2c942`) — silent corruption that only showed up under SMP.
+- **`switch_to_user` runnability race** masked by the marker busy-waits, exposed
+  once `CONFIG_SMP_VERBOSE` gated them out (`add25f594`, `5e6de1d98`).
+
+### IPC fastpath + Tier 1 colocation
+
+A SENDREC same-CPU fastpath plus a scheduler change that migrates system
+servers to their dominant client's CPU when traffic is concentrated.
+End-to-end: **p50 78.3k → 16.1k cycles on `-smp 4` (4.86×)**, with mean
+35.2k → 16.9k.  PRs #157 / #158 / #159.
+
+Three pre-existing bugs surfaced during validation:
+
+- **Out-of-bounds counter write** when an IPC path runs with
+  `caller->p_cpu >= CONFIG_MAX_CPUS` (kernel-task slots).  Guarded.
+- **FPU state across lazy migration** — `sched_proc` didn't release the FPU
+  on CPU change for non-runnable procs.  Fixed by releasing and clearing
+  `MF_FPU_INITIALIZED` when `cpu != p->p_cpu`.
+- **`pick_cpu` clobbering migration target** — `schedule_process_migrate`
+  recomputed the target CPU, overriding our colocation choice.  Bypassed
+  by direct `sys_schedule(...)`.
+
+### Hybrid BIOS + UEFI boot
+
+Single CD image now boots on both legacy BIOS and UEFI firmware via El
+Torito with two boot catalog entries (`a8faf62dd`).  GRUB-built EFI System
+Partition (`a8faf62dd`, `d53a1fcc5`, `3b2b02828`), Multiboot 2.0 + ACPI
+RSDP handoff in the kernel (`f15a43cbb`), and a linear-framebuffer text
+console for UEFI/GOP environments (`c129a7e37`) — the `tty` driver now
+detects a Multiboot 2.0 framebuffer tag and renders text to it directly.
+
+Also: AHCI present-device detection (`8239a84d1`) so q35 UEFI CD boot
+works without a spinning legacy IDE.
+
+### Allocator
+
+libc now uses `jemalloc` (`4ee3df26f`).  Same change also fixes a
+VM-front-shrink over-read that affected long-lived process heaps.
+
+### Boot menu / storage auto-detect
+
+The amd64 release CD now has a single "Regular MINIX 3" entry that
+auto-detects AHCI vs legacy IDE via `/proc/pci` in the ramdisk rc, with a
+second "serial console + verbose" entry for debugging
+(`d6f37165c`, `e34d00545`, `06d40dd7a`).  The earlier three-entry menu
+that required pexpect tests to send `SPACE + "2"` is gone.
+
+### Bug fixes
+
+- **`top` on amd64** (PR #160) — `UNAME_HARDWARE=amd64` vs `uname() = x86_64`
+  mismatch resolved with an alias table; divide-by-zero in `get_cpu_ticks`
+  guarded for never-seen CPUs.
+- **MIB `KERN_PROC_ARGS`** (PR #159) — guard against RS-spawned drivers that
+  have no user exec frame (`mp_frame_addr == 0`); was crashing `ps` on the
+  default column set.
+- **`mini_notify` defensive fallback** (PR #161) — converted the long-standing
+  `assert(!(MF_DELIVERMSG))` at `proc.c:1565` into a rate-limited printf +
+  bitmap fallback.  Prevents a kernel panic seen under sustained
+  fork+exec load on `-smp 4`; bitmap path is the source of truth for
+  HARDWARE/SYSTEM notifies so no data is lost.  Root cause investigation
+  continues.
+- **Shebang exec frame layout** (PR #163) — `libc/sys/stack_utils.c` was
+  padding `fp` to 8 bytes while `minix_stack_params` rounded
+  `stack_size` to 16, leaving up to 8 bytes of slack between
+  `ps_strings` and the frame end.  VFS's `patch_stack` assumed
+  ps_strings sat flush against the frame end; the disagreement
+  silently corrupted argv/envp for some argv combinations.  Fix pads
+  fp to land exactly at `frame + stack_size - sizeof(ps_strings)`.
+
+### Build / tooling
+
+- **`NO_DO_TOOLS` guard** (PR #162) — `BUILDTARGETS+= do-tools` is now
+  gated on `!defined(NO_DO_TOOLS)` so a developer can point `build.sh`
+  at an existing tooldir via `-T` and skip the host-toolchain rebuild.
+  Useful when the host kernel changes (which keys the tooldir name
+  via `uname -r`).
+- **i386 catch-up fixes** (`a483cade9`, `586521031`) — the i386 path
+  needed `cpu_enable_features()` / `fpu_get_save_size()` stubs and a few
+  build adjustments after the amd64 work.
+
+### amd64 FPU regression — resolved
+
+The earlier "userspace `#NM` trap loop blocks all runtime testing"
+blocker (see the now-resolved `amd64-boot-regression` memory) was fixed
+by `ece46dae6` — switched the amd64 dispatch path to eager FPU restore at
+context-switch time.  Verified `vec=7` exception count is zero across
+33k+ verbose-trace lines (2026-06-04).
 
 ---
 
 ## Known Gaps and In-Progress Work
 
+(Updated 2026-06-04.)
+
 | Area | Status |
 |------|--------|
-| **amd64 SMP** | `smp_start_aps()` still `#if 0`'d; kernel clamps `ncpus = 1`. Multi-core bring-up is the next step on amd64. |
-| **EFI boot** | Plan documented (`EFI_BOOT_PLAN.md`). Phase 1 (GRUB build fix) not yet implemented. No EFI-bootable images produced yet. |
 | **Intel igc driver** | Initial send/receive only. No interrupt coalescing, no multi-queue, no ethtool-equivalent statistics. |
 | **EHCI USB (amd64)** | Phase 1 only. Isochronous transfers and suspend/resume not implemented. |
-| **amd64 USB OHCI** | Phase 3a scaffolding landed (PCI discovery + DMA pools). Transfer scheduling not yet wired. |
-| **amd64 USB UHCI** | Not yet wired. |
-| **Multiboot 2.0** | Kernel speaks Multiboot 1.0 only. Upgrading would give a clean EFI memory map and system table pointer when booted via GRUB EFI. |
-| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI/BIOS paths only. |
+| **amd64 USB OHCI** | Phase 3a scaffolding landed (PCI discovery + DMA pools). Transfer scheduling next; runtime QEMU verification now unblocked by the FPU eager-dispatch fix. |
+| **amd64 USB UHCI / xHCI** | Not yet wired. |
+| **`mini_notify` race** | Defensive bitmap fallback landed (PR #161); root cause not yet pinpointed. Tripwire printf will fire if it recurs in steady-state workloads. |
+| **`int vsp` truncation in libc execve** | Latent — `lib/libc/sys/execve.c:23` declares `int vsp = 0` and passes `&vsp` to a `int *vsp` parameter. Currently benign because `USR_STACKTOP_COMPACT = 0x50000000` fits in int32; bites silently if the user stacktop is ever widened. |
+| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI paths only. |
 | **Secure Boot** | Not planned for this release. Requires shim + signed GRUB. |
