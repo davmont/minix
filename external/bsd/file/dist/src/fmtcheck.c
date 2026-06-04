@@ -1,4 +1,4 @@
-/*	$NetBSD: fmtcheck.c,v 1.1.1.2 2015/01/02 20:34:27 christos Exp $	*/
+/*	$NetBSD: fmtcheck.c,v 1.1.1.5 2022/09/24 20:07:54 christos Exp $	*/
 
 /*	NetBSD: fmtcheck.c,v 1.8 2008/04/28 20:22:59 martin Exp 	*/
 
@@ -31,6 +31,13 @@
  */
 
 #include "file.h"
+#ifndef lint
+#if 0
+FILE_RCSID("@(#)$File: fmtcheck.c,v 1.4 2022/09/13 18:46:07 christos Exp $")
+#else
+__RCSID("$NetBSD: fmtcheck.c,v 1.1.1.5 2022/09/24 20:07:54 christos Exp $");
+#endif
+#endif /* lint */
 
 #include <stdio.h>
 #include <string.h>
@@ -93,6 +100,23 @@ get_next_format_from_precision(const char **pf)
 		f++;
 		longdouble = 1;
 		break;
+#ifdef WIN32
+	case 'I':
+		f++;
+		if (!*f) RETURN(pf,f,FMTCHECK_UNKNOWN);
+		if (*f == '3' && f[1] == '2') {
+			f += 2;
+		} else if (*f == '6' && f[1] == '4') {
+			f += 2;
+			quad = 1;
+		}
+#ifdef _WIN64
+		else {
+			quad = 1;
+		}
+#endif
+		break;
+#endif
 	default:
 		break;
 	}
@@ -220,7 +244,7 @@ fmtcheck(const char *f1, const char *f2)
 	EFT		f1t, f2t;
 
 	if (!f1) return f2;
-	
+
 	f1p = f1;
 	f1t = FMTCHECK_START;
 	f2p = f2;
