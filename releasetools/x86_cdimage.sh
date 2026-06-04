@@ -11,7 +11,7 @@ set -e
 : ${TOOLCHAIN_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix-" || echo "i586-elf32-minix-")}
 : ${BUILDSH=build.sh}
 
-: ${SETS="minix-base"}
+: ${SETS="minix-base minix-man"}
 : ${IMG=minix_x86.iso}
 : ${BUNDLE_SETS=1}
 
