@@ -1,4 +1,6 @@
-.\"	$NetBSD: vi.1,v 1.2 2013/11/22 15:52:05 christos Exp $
+.\"	$NetBSD: vi.1,v 1.7 2018/09/14 13:19:15 rin Exp $
+.\"
+.\" Copyright (c) 1994
 .\"     The Regents of the University of California.  All rights reserved.
 .\" Copyright (c) 1994, 1995, 1996
 .\"	Keith Bostic.  All rights reserved.
@@ -10,7 +12,7 @@
 .\"
 .\"     Id: vi.1,v 8.53 2001/01/28 13:20:06 skimo Exp  (Berkeley) Date: 2001/01/28 13:20:06 
 .\"
-.TH VI 1 "%Q%"
+.TH VI 1 "September 14, 2018"
 .UC
 .SH NAME
 ex, vi, view \- text editors
@@ -134,10 +136,6 @@ option was set.
 .B \-r
 Recover the specified files, or, if no files are specified,
 list the files that could be recovered.
-If no recoverable files by the specified name exist,
-the file is edited as if the
-.B \-r
-option had not been specified.
 .TP
 .B \-S
 Run with the
@@ -987,7 +985,7 @@ Edit the file containing the next context for the current tag.
 .B "tagp[op][!] [file | number]"
 Pop to the specified tag in the tags stack.
 .TP
-.B "tagp[rev][!]"
+.B "tagpr[ev][!]"
 Edit the file containing the previous context for the current tag.
 .TP
 .B "unm[ap][!] lhs"
@@ -1144,6 +1142,19 @@ as long as an upper-case letter does not appear in the search string.
 .TP
 .B "ignorecase, ic [off]"
 Ignore case differences in regular expressions.
+.TP
+.B "imctrl [off]"
+Control input method by using escape sequences compatible to
+Tera Term and RLogin.
+The state of input method in commands specified by imkey option is
+saved and restored automatically.
+Input method is then deactivated on returning to command mode.
+If terminal does not accept these escape sequences,
+screen should be corrupted.
+.TP
+.B "imkey [/?aioAIO]"
+Set commands which the state of input method is restored and saved on
+entering and leaving, respectively.
 .TP
 .B "keytime [6]"
 The 10th's of a second

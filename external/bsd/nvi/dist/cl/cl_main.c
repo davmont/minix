@@ -1,4 +1,4 @@
-/*	$NetBSD: cl_main.c,v 1.4 2014/01/26 21:43:45 christos Exp $ */
+/*	$NetBSD: cl_main.c,v 1.10 2018/08/07 08:05:47 rin Exp $ */
 /*-
  * Copyright (c) 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -16,7 +16,7 @@
 static const char sccsid[] = "Id: cl_main.c,v 10.54 2001/07/29 19:07:27 skimo Exp  (Berkeley) Date: 2001/07/29 19:07:27 ";
 #endif /* not lint */
 #else
-__RCSID("$NetBSD: cl_main.c,v 1.4 2014/01/26 21:43:45 christos Exp $");
+__RCSID("$NetBSD: cl_main.c,v 1.10 2018/08/07 08:05:47 rin Exp $");
 #endif
 
 #include <sys/types.h>
@@ -33,7 +33,6 @@ __RCSID("$NetBSD: cl_main.c,v 1.4 2014/01/26 21:43:45 christos Exp $");
 #include <unistd.h>
 
 #include "../common/common.h"
-#include "ip_extern.h"
 #include "cl.h"
 #include "pathnames.h"
 
@@ -109,6 +108,7 @@ main(int argc, char **argv)
 		ttype = "unknown";
 	}
 	term_init(gp->progname, ttype);
+	F_SET(clp, CL_SETUPTERM);
 
 	/* Add the terminal type to the global structure. */
 	if ((OG_D_STR(gp, GO_TERM) =
@@ -292,8 +292,34 @@ static void
 h_winch(int signo)
 {
 	GLOBAL_CLP;
+#ifdef HAVE_SIGTIMEDWAIT
+	sigset_t sigset;
+	struct timespec timeout;
+
+	/*
+	 * Some window managers continuously change the screen size of terminal
+	 * emulators, by which a lot of SIGWINCH signals are to be received. In
+	 * such a case, we only need to respond the final signal; the remaining
+	 * signals are meaningless.  Thus, we wait here up to 1/10 of a second
+	 * for a succeeding signal received.
+	 */
+	(void)sigemptyset(&sigset);
+	(void)sigaddset(&sigset, SIGWINCH);
+	timeout.tv_sec = 0;
+	timeout.tv_nsec = 100 * 1000 * 1000;
+	while (sigtimedwait(&sigset, NULL, &timeout) != -1)
+		continue;
+#endif
 
 	F_SET(clp, CL_SIGWINCH);
+
+	/* If there was a previous handler, call that. */
+	if (clp->oact[INDX_WINCH].sa_handler != SIG_DFL &&
+	    clp->oact[INDX_WINCH].sa_handler != SIG_IGN &&
+	    clp->oact[INDX_WINCH].sa_handler != SIG_ERR &&
+	    clp->oact[INDX_WINCH].sa_handler != SIG_HOLD) {
+		clp->oact[INDX_WINCH].sa_handler(signo);
+	}
 }
 #undef	GLOBAL_CLP
 
@@ -416,6 +442,9 @@ cl_func_std(WIN *wp)
 	gp->scr_event = cl_event;
 	gp->scr_ex_adjust = cl_ex_adjust;
 	gp->scr_fmap = cl_fmap;
+#ifdef IMCTRL
+	gp->scr_imctrl = cl_imctrl;
+#endif
 	gp->scr_insertln = cl_insertln;
 	gp->scr_keyval = cl_keyval;
 	gp->scr_move = cl_move;
