@@ -414,6 +414,7 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 	vir_bytes *vsp)
 {
 	AuxInfo *aux_vec, *aux_vec_end;
+	struct fproc *rfp = fproc_addr(execi->args.proc_e);
 	vir_bytes vap; /* Address in proc space of the first AuxVec. */
 	Elf_Ehdr const * const elf_header = (Elf_Ehdr *) execi->args.hdr;
 	struct ps_strings const * const psp = (struct ps_strings *)
@@ -483,8 +484,8 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 	AUXINFO(aux_vec, AT_PHDR, execi->args.phdr);
 	AUXINFO(aux_vec, AT_PHENT, elf_header->e_phentsize);
 	AUXINFO(aux_vec, AT_PHNUM, elf_header->e_phnum);
-	AUXINFO(aux_vec, AT_RUID, fp->fp_realuid);
-	AUXINFO(aux_vec, AT_RGID, fp->fp_realgid);
+	AUXINFO(aux_vec, AT_RUID, rfp->fp_realuid);
+	AUXINFO(aux_vec, AT_RGID, rfp->fp_realgid);
 	AUXINFO(aux_vec, AT_EUID, execi->args.new_uid);
 	AUXINFO(aux_vec, AT_EGID, execi->args.new_gid);
 	AUXINFO(aux_vec, AT_PAGESZ, PAGE_SIZE);
