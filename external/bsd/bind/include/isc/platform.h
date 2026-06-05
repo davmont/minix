@@ -329,12 +329,18 @@
 /*
  * Define if AES must be provided by OpenSSL.
  */
+#if !defined(__minix)
 #define ISC_PLATFORM_OPENSSLAES 1
+#endif
 
 /*
  * Define if AES support is wanted
  */
+#if !defined(__minix)
+/* MINIX builds BIND crypto-less; AES would need OpenSSL EVP (opaque in 3.0)
+ * and -lcrypto, both dropped here.  See include/config.h. */
 #define ISC_PLATFORM_WANTAES 1
+#endif
 
 /*
  * Defines for the noreturn attribute.

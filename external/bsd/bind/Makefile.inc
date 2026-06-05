@@ -13,6 +13,14 @@ CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses
 
 .include <bsd.own.mk>
 
+.if defined(__MINIX)
+# BIND 9.10 predates OpenSSL 3.0 and uses the now-opaque low-level crypto
+# structs (EVP_CIPHER_CTX on the stack, direct RSA/DSA access, ...).  Build
+# it crypto-less (no DNSSEC) until BIND is upgraded to 9.18.  The matching
+# HAVE_OPENSSL_* macros are undef'd for __minix in include/config.h.
+NAMED_USE_OPENSSL=no
+.endif
+
 .if ${MKCRYPTO} == "no"
 NAMED_USE_OPENSSL?=no
 .else
