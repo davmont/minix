@@ -57,7 +57,7 @@
 
 #if defined(__NetBSD__)
 __COPYRIGHT("@(#) Copyright (c) 2009 The NetBSD Foundation, Inc. All rights reserved.");
-__RCSID("$NetBSD: misc.c,v 1.41 2012/03/05 02:20:18 christos Exp $");
+__RCSID("$NetBSD: misc.c,v 1.44 2022/08/26 19:18:38 jhigh Exp $");
 #endif
 
 #include <sys/types.h>
@@ -96,6 +96,18 @@ __RCSID("$NetBSD: misc.c,v 1.41 2012/03/05 02:20:18 christos Exp $");
 #define vsnprintf _vsnprintf
 #endif
 
+struct ecdsa_map {
+	char 	*sname;
+	int 	nid;
+	int 	bits;
+	int 	len;
+	uint8_t oid[8];
+} ecdsa_map[] = {
+	{ "P-256", NID_X9_62_prime256v1, 256, 8, {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07} },
+	{ "P-384", NID_secp384r1, 384, 5, {0x2B, 0x81, 0x04,  0x00,  0x22} },
+	{ "P-521", NID_secp521r1, 521, 5, {0x2B, 0x81, 0x04, 0x00, 0x23} },
+	{ NULL, 0, 0, 0, {0} }
+};
 
 typedef struct {
 	pgp_keyring_t		*keyring;
@@ -110,12 +122,14 @@ accumulate_cb(const pgp_packet_t *pkt, pgp_cbdata_t *cbinfo)
 	const pgp_contents_t	*content = &pkt->u;
 	pgp_keyring_t		*keyring;
 	accumulate_t		*accumulate;
+	pgp_key_t		*key;
 
 	if (pgp_get_debug_level(__FILE__)) {
 		(void) fprintf(stderr, "accumulate callback: packet tag %u\n", pkt->tag);
 	}
 	accumulate = pgp_callback_arg(cbinfo);
 	keyring = accumulate->keyring;
+	key = keyring->keyc > 0 ? &keyring->keys[keyring->keyc - 1] : NULL;
 	switch (pkt->tag) {
 	case PGP_PTAG_CT_PUBLIC_KEY:
 	case PGP_PTAG_CT_PUBLIC_SUBKEY:
@@ -131,17 +145,26 @@ accumulate_cb(const pgp_packet_t *pkt, pgp_cbdata_t *cbinfo)
 					content->userid,
 					keyring->keyc - 1);
 		}
-		if (keyring->keyc == 0) {
-			PGP_ERROR_1(cbinfo->errors, PGP_E_P_NO_USERID, "%s",
-			    "No userid found");
+		if (key != NULL) {
+			pgp_add_userid(key, content->userid);
 		} else {
-			pgp_add_userid(&keyring->keys[keyring->keyc - 1], content->userid);
+			PGP_ERROR_1(cbinfo->errors, PGP_E_P_NO_USERID, "%s",
+			    "No key for userid found");
 		}
 		return PGP_KEEP_MEMORY;
 	case PGP_PARSER_PACKET_END:
-		if (keyring->keyc > 0) {
-			pgp_add_subpacket(&keyring->keys[keyring->keyc - 1],
-						&content->packet);
+		if (key != NULL) {
+			switch (content->packet.tag) {
+			case PGP_PTAG_CT_RESERVED:
+				(void) fprintf(stderr, "Invalid packet tag\n");
+				break;
+			case PGP_PTAG_CT_PUBLIC_KEY:
+			case PGP_PTAG_CT_USER_ID:
+				break;
+			default:
+				pgp_add_subpacket(key, &content->packet);
+				break;
+			}
 			return PGP_KEEP_MEMORY;
 		}
 		return PGP_RELEASE_MEMORY;
@@ -805,6 +828,7 @@ static str2cipher_t	str2cipher[] = {
 	{	"idea",			PGP_SA_IDEA		},
 	{	"aes128",		PGP_SA_AES_128		},
 	{	"aes256",		PGP_SA_AES_256		},
+	{	"blowfish",		PGP_SA_BLOWFISH		},
 	{	"camellia128",		PGP_SA_CAMELLIA_128	},
 	{	"camellia256",		PGP_SA_CAMELLIA_256	},
 	{	"tripledes",		PGP_SA_TRIPLEDES	},
@@ -1351,4 +1375,76 @@ netpgp_strcasecmp(const char *s1, const char *s2)
 	for (n = 0 ; *s1 && *s2 && (n = tolower((uint8_t)*s1) - tolower((uint8_t)*s2)) == 0 ; s1++, s2++) {
 	}
 	return n;
+}
+
+int
+ecdsa_nid(const pgp_ecdsa_pubkey_t * pub)
+{
+	int i;
+
+	for (i = 0; ecdsa_map[i].sname; i++ ) {
+		if (pub->len == ecdsa_map[i].len) {
+			if (memcmp(pub->oid, ecdsa_map[i].oid, pub->len) == 0) {
+				return ecdsa_map[i].nid;
+			}
+		}
+	}
+	return -1;
+}
+
+int
+ecdsa_numbits(const pgp_ecdsa_pubkey_t * pub)
+{
+	int i;
+
+	for (i = 0; ecdsa_map[i].sname; i++ ) {
+		if (pub->len == ecdsa_map[i].len) {
+			if (memcmp(pub->oid, ecdsa_map[i].oid, pub->len) == 0) {
+				return ecdsa_map[i].bits;
+			}
+		}
+	}
+	return -1;
+}
+
+int
+ecdsa_hashsize(const pgp_ecdsa_pubkey_t * pub)
+{
+	int bits;
+
+	bits = ecdsa_numbits(pub);
+
+	if (bits == -1) {
+		return -1;
+	}
+
+	return (bits/8) - (bits%8);
+}
+
+pgp_hash_alg_t
+ecdsa_hashalg(const pgp_ecdsa_pubkey_t * pub)
+{
+	int nid;
+
+	if (pub == NULL) {
+		return PGP_HASH_UNKNOWN;
+	}
+
+	nid = ecdsa_nid(pub);
+
+	switch (nid) {
+		case NID_X9_62_prime256v1:
+			return PGP_HASH_SHA256;
+
+		case NID_secp384r1:
+			return PGP_HASH_SHA384;
+
+		case NID_secp521r1:
+			return PGP_HASH_SHA512;
+
+		default:
+			(void) fprintf(stderr, "ecdsa_hashalg: unknown NID\n");
+	}
+
+	return PGP_HASH_UNKNOWN;
 }

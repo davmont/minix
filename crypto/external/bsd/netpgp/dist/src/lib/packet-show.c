@@ -60,7 +60,7 @@
 
 #if defined(__NetBSD__)
 __COPYRIGHT("@(#) Copyright (c) 2009 The NetBSD Foundation, Inc. All rights reserved.");
-__RCSID("$NetBSD: packet-show.c,v 1.21 2011/08/14 11:19:51 christos Exp $");
+__RCSID("$NetBSD: packet-show.c,v 1.23 2022/08/26 19:18:38 jhigh Exp $");
 #endif
 
 #include <stdlib.h>
@@ -115,6 +115,7 @@ static pgp_map_t packet_tag_map[] =
 	{PGP_PTAG_SS_PREFERRED_SKA, "SS: Preferred Secret Key Algorithm"},
 	{PGP_PTAG_SS_REVOCATION_KEY, "SS: Revocation Key"},
 	{PGP_PTAG_SS_ISSUER_KEY_ID, "SS: Issuer Key Id"},
+	{PGP_PTAG_SS_ISSUER_FINGERPRINT, "SS: Issuer Fingerprint"},
 	{PGP_PTAG_SS_NOTATION_DATA, "SS: Notation Data"},
 	{PGP_PTAG_SS_PREFERRED_HASH, "SS: Preferred Hash Algorithm"},
 	{PGP_PTAG_SS_PREF_COMPRESS, "SS: Preferred Compression Algorithm"},
@@ -164,6 +165,7 @@ static pgp_map_t ss_type_map[] =
 	{PGP_PTAG_SS_PREFERRED_SKA, "Preferred Symmetric Algorithms"},
 	{PGP_PTAG_SS_REVOCATION_KEY, "Revocation Key"},
 	{PGP_PTAG_SS_ISSUER_KEY_ID, "Issuer key ID"},
+	{PGP_PTAG_SS_ISSUER_FINGERPRINT, "Issuer Fingerprint"},
 	{PGP_PTAG_SS_NOTATION_DATA, "Notation Data"},
 	{PGP_PTAG_SS_PREFERRED_HASH, "Preferred Hash Algorithms"},
 	{PGP_PTAG_SS_PREF_COMPRESS, "Preferred Compression Algorithms"},
@@ -216,7 +218,7 @@ static pgp_map_t pubkey_alg_map[] =
 	{PGP_PKA_ELGAMAL, "Elgamal (Encrypt-Only)"},
 	{PGP_PKA_DSA, "DSA"},
 	{PGP_PKA_RESERVED_ELLIPTIC_CURVE, "Reserved for Elliptic Curve"},
-	{PGP_PKA_RESERVED_ECDSA, "Reserved for ECDSA"},
+	{PGP_PKA_ECDSA, "ECDSA"},
 	{PGP_PKA_ELGAMAL_ENCRYPT_OR_SIGN, "Reserved (formerly Elgamal Encrypt or Sign"},
 	{PGP_PKA_RESERVED_DH, "Reserved for Diffie-Hellman (X9.42)"},
 	{PGP_PKA_PRIVATE00, "Private/Experimental"},

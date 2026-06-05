@@ -58,7 +58,7 @@
 
 #if defined(__NetBSD__)
 __COPYRIGHT("@(#) Copyright (c) 2009 The NetBSD Foundation, Inc. All rights reserved.");
-__RCSID("$NetBSD: packet-parse.c,v 1.51 2012/03/05 02:20:18 christos Exp $");
+__RCSID("$NetBSD: packet-parse.c,v 1.54 2022/08/26 19:18:38 jhigh Exp $");
 #endif
 
 #include <sys/types.h>
@@ -866,6 +866,7 @@ pgp_subpacket_free(pgp_subpacket_t *packet)
 {
 	free(packet->raw);
 	packet->raw = NULL;
+	packet->tag = PGP_PTAG_CT_RESERVED;
 }
 
 /**
@@ -939,6 +940,11 @@ sig_free(pgp_sig_t *sig)
 		free_BN(&sig->info.sig.dsa.s);
 		break;
 
+	case PGP_PKA_ECDSA:
+		free_BN(&sig->info.sig.ecdsa.r);
+		free_BN(&sig->info.sig.ecdsa.s);
+		break;
+
 	case PGP_PKA_ELGAMAL_ENCRYPT_OR_SIGN:
 		free_BN(&sig->info.sig.elgamal.r);
 		free_BN(&sig->info.sig.elgamal.s);
@@ -983,6 +989,7 @@ pgp_parser_content_free(pgp_packet_t *c)
 	case PGP_PTAG_SS_PRIMARY_USER_ID:
 	case PGP_PTAG_SS_REVOCABLE:
 	case PGP_PTAG_SS_REVOCATION_KEY:
+	case PGP_PTAG_SS_ISSUER_FINGERPRINT:
 	case PGP_PTAG_CT_LITDATA_HEADER:
 	case PGP_PTAG_CT_LITDATA_BODY:
 	case PGP_PTAG_CT_SIGNED_CLEARTEXT_BODY:
@@ -1174,6 +1181,10 @@ pgp_pubkey_free(pgp_pubkey_t *p)
 		free_BN(&p->key.dsa.y);
 		break;
 
+	case PGP_PKA_ECDSA:
+		free_BN(&p->key.ecdsa.p);
+		break;
+
 	case PGP_PKA_ELGAMAL:
 	case PGP_PKA_ELGAMAL_ENCRYPT_OR_SIGN:
 		free_BN(&p->key.elgamal.p);
@@ -1239,6 +1250,14 @@ parse_pubkey_data(pgp_pubkey_t *key, pgp_region_t *region,
 		    !limread_mpi(&key->key.dsa.q, region, stream) ||
 		    !limread_mpi(&key->key.dsa.g, region, stream) ||
 		    !limread_mpi(&key->key.dsa.y, region, stream)) {
+			return 0;
+		}
+		break;
+
+	case PGP_PKA_ECDSA:
+		if (!limread(&key->key.ecdsa.len, 1, region, stream) ||
+		    !limread(key->key.ecdsa.oid, key->key.ecdsa.len, region, stream) ||
+		    !limread_mpi(&key->key.ecdsa.p, region, stream)) {
 			return 0;
 		}
 		break;
@@ -1494,6 +1513,13 @@ parse_v3_sig(pgp_region_t *region,
 		}
 		break;
 
+	case PGP_PKA_ECDSA:
+		if (!limread_mpi(&pkt.u.sig.info.sig.ecdsa.r, region, stream) || 
+		    !limread_mpi(&pkt.u.sig.info.sig.ecdsa.s, region, stream)) {
+			return 0;
+		}
+		break;
+
 	case PGP_PKA_ELGAMAL_ENCRYPT_OR_SIGN:
 		if (!limread_mpi(&pkt.u.sig.info.sig.elgamal.r, region,
 				stream) ||
@@ -1553,6 +1579,7 @@ parse_one_sig_subpacket(pgp_sig_t *sig,
 	pgp_packet_t	pkt;
 	uint8_t		bools = 0x0;
 	uint8_t		c = 0x0;
+	uint8_t		temp = 0x0;
 	unsigned	doread = 1;
 	unsigned        t8;
 	unsigned        t7;
@@ -1759,6 +1786,26 @@ parse_one_sig_subpacket(pgp_sig_t *sig,
 		/* the rest is a human-readable UTF-8 string */
 		if (!read_string(&pkt.u.ss_revocation.reason, &subregion,
 				stream)) {
+			return 0;
+		}
+		break;
+
+	case PGP_PTAG_SS_ISSUER_FINGERPRINT:
+		/* octet 0: version */
+		/* 	0x04:20 bytes, 0x05:32 bytes */
+		if (!limread(&temp, 1, &subregion, stream)) {
+			return 0;
+		}
+
+		switch (temp) {
+			case 0x04: pkt.u.ss_issuer_fingerprint.len = 20; break;
+			case 0x05: pkt.u.ss_issuer_fingerprint.len = 32; break;
+			default:
+				return 0;
+		}
+
+		if (!limread(pkt.u.ss_issuer_fingerprint.fingerprint, 
+			pkt.u.ss_issuer_fingerprint.len, &subregion, stream)) {
 			return 0;
 		}
 		break;
@@ -2009,6 +2056,13 @@ parse_v4_sig(pgp_region_t *region, pgp_stream_t *stream)
 		if (!limread_mpi(&pkt.u.sig.info.sig.dsa.s, region, stream)) {
 			ERRP(&stream->cbinfo, pkt,
 			"Error reading DSA s field in signature");
+		}
+		break;
+
+	case PGP_PKA_ECDSA:
+		if (!limread_mpi(&pkt.u.sig.info.sig.ecdsa.r, region, stream) ||
+		    !limread_mpi(&pkt.u.sig.info.sig.ecdsa.s, region, stream)) {
+			return 0;
 		}
 		break;
 
@@ -2297,6 +2351,10 @@ pgp_seckey_free(pgp_seckey_t *key)
 
 	case PGP_PKA_DSA:
 		free_BN(&key->key.dsa.x);
+		break;
+
+	case PGP_PKA_ECDSA:
+		free_BN(&key->key.ecdsa.x);
 		break;
 
 	default:
@@ -2605,6 +2663,12 @@ parse_seckey(pgp_region_t *region, pgp_stream_t *stream)
 
 	case PGP_PKA_DSA:
 		if (!limread_mpi(&pkt.u.seckey.key.dsa.x, region, stream)) {
+			ret = 0;
+		}
+		break;
+
+	case PGP_PKA_ECDSA:
+		if (!limread_mpi(&pkt.u.seckey.key.ecdsa.x, region, stream)) {
 			ret = 0;
 		}
 		break;
@@ -3066,11 +3130,12 @@ parse_mdc(pgp_region_t *region, pgp_stream_t *stream)
 static int 
 parse_packet(pgp_stream_t *stream, uint32_t *pktlen)
 {
-	pgp_packet_t	pkt;
-	pgp_region_t	region;
-	uint8_t		ptag;
-	unsigned	indeterminate = 0;
-	int		ret;
+	pgp_packet_t		pkt;
+	pgp_region_t		region;
+	pgp_content_enum	tag;
+	uint8_t			ptag;
+	unsigned		indeterminate = 0;
+	int			ret;
 
 	pkt.u.ptag.position = stream->readinfo.position;
 
@@ -3142,6 +3207,9 @@ parse_packet(pgp_stream_t *stream, uint32_t *pktlen)
 		(void) fprintf(stderr, "parse_packet: type %u\n",
 			       pkt.u.ptag.type);
 	}
+
+	/* save tag for accumulator */
+	tag = pkt.u.ptag.type;
 	switch (pkt.u.ptag.type) {
 	case PGP_PTAG_CT_SIGNATURE:
 		ret = parse_sig(&region, stream);
@@ -3232,6 +3300,7 @@ parse_packet(pgp_stream_t *stream, uint32_t *pktlen)
 	if (ret > 0 && stream->readinfo.accumulate) {
 		pkt.u.packet.length = stream->readinfo.alength;
 		pkt.u.packet.raw = stream->readinfo.accumulated;
+		pkt.u.packet.tag = tag;
 		stream->readinfo.accumulated = NULL;
 		stream->readinfo.asize = 0;
 		CALLBACK(PGP_PARSER_PACKET_END, &stream->cbinfo, &pkt);
