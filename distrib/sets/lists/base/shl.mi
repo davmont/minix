@@ -738,8 +738,8 @@
 ./usr/lib/librumpvfs_layerfs.so.0		base-rump-shlib		rump
 ./usr/lib/librumpvfs_layerfs.so.0.0		base-rump-shlib		rump
 ./usr/lib/libsaslc.so				base-sys-shlib		compatfile,crypto
-./usr/lib/libsaslc.so.0				base-sys-shlib		compatfile,crypto
-./usr/lib/libsaslc.so.0.0			base-sys-shlib		compatfile,crypto
+./usr/lib/libsaslc.so.1				base-sys-shlib		compatfile,crypto
+./usr/lib/libsaslc.so.1.0			base-sys-shlib		compatfile,crypto
 ./usr/lib/libsdp.so				base-obsolete		obsolete
 ./usr/lib/libskey.so				base-sys-shlib		compatfile,skey
 ./usr/lib/libskey.so.2				base-sys-shlib		compatfile,skey

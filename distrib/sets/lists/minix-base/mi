@@ -975,8 +975,8 @@
 ./usr/lib/librefuse.so.2                                minix-base
 ./usr/lib/librefuse.so.2.0                              minix-base
 ./usr/lib/libsaslc.a                                    minix-base      crypto
-./usr/lib/libsaslc.so.0.0                               minix-base      crypto
-./usr/lib/libsaslc.so.0                                 minix-base      crypto
+./usr/lib/libsaslc.so.1.0                               minix-base      crypto
+./usr/lib/libsaslc.so.1                                 minix-base      crypto
 ./usr/lib/libsaslc.so                                   minix-base      crypto
 ./usr/lib/libsaslc_pic.a                                minix-base      crypto
 ./usr/lib/libsqlite3.so                                 minix-base
