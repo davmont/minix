@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_file_nonexistent.c 189473 2009-03-07 02:09:21Z kientzle $");
 
 DEFINE_TEST(test_read_file_nonexistent)
 {
@@ -31,7 +30,7 @@ DEFINE_TEST(test_read_file_nonexistent)
 	assertEqualInt(ARCHIVE_OK, archive_read_support_format_all(a));
 	assertEqualInt(ARCHIVE_FATAL,
 	    archive_read_open_filename(a, "notexistent.tar", 512));
-	archive_read_finish(a);
+	archive_read_free(a);
 }
 
 

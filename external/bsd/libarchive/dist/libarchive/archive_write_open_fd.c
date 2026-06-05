@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_write_open_fd.c 201093 2009-12-28 02:28:44Z kientzle $");
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -51,11 +50,10 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_write_open_fd.c 201093 2009-12-2
 #include "archive.h"
 
 struct write_fd_data {
-	off_t		offset;
 	int		fd;
 };
 
-static int	file_close(struct archive *, void *);
+static int	file_free(struct archive *, void *);
 static int	file_open(struct archive *, void *);
 static ssize_t	file_write(struct archive *, void *, const void *buff, size_t);
 
@@ -64,7 +62,7 @@ archive_write_open_fd(struct archive *a, int fd)
 {
 	struct write_fd_data *mine;
 
-	mine = (struct write_fd_data *)malloc(sizeof(*mine));
+	mine = malloc(sizeof(*mine));
 	if (mine == NULL) {
 		archive_set_error(a, ENOMEM, "No memory");
 		return (ARCHIVE_FATAL);
@@ -73,8 +71,8 @@ archive_write_open_fd(struct archive *a, int fd)
 #if defined(__CYGWIN__) || defined(_WIN32)
 	setmode(mine->fd, O_BINARY);
 #endif
-	return (archive_write_open(a, mine,
-		    file_open, file_write, file_close));
+	return (archive_write_open2(a, mine,
+		    file_open, file_write, NULL, file_free));
 }
 
 static int
@@ -122,20 +120,26 @@ file_write(struct archive *a, void *client_data, const void *buff, size_t length
 	ssize_t	bytesWritten;
 
 	mine = (struct write_fd_data *)client_data;
-	bytesWritten = write(mine->fd, buff, length);
-	if (bytesWritten <= 0) {
-		archive_set_error(a, errno, "Write error");
-		return (-1);
+	for (;;) {
+		bytesWritten = write(mine->fd, buff, length);
+		if (bytesWritten <= 0) {
+			if (errno == EINTR)
+				continue;
+			archive_set_error(a, errno, "Write error");
+			return (-1);
+		}
+		return (bytesWritten);
 	}
-	return (bytesWritten);
 }
 
 static int
-file_close(struct archive *a, void *client_data)
+file_free(struct archive *a, void *client_data)
 {
 	struct write_fd_data	*mine = (struct write_fd_data *)client_data;
 
 	(void)a; /* UNUSED */
+	if (mine == NULL)
+		return (ARCHIVE_OK);
 	free(mine);
 	return (ARCHIVE_OK);
 }

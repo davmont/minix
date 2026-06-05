@@ -1,22 +1,21 @@
 #!/bin/sh
-# $NetBSD: prepare-import.sh,v 1.2 2010/02/20 02:55:53 joerg Exp $
+# $NetBSD: prepare-import.sh,v 1.5.8.1 2024/10/31 18:39:58 martin Exp $
 #
-# Extract the new tarball and rename the libarchive-X.Y.Z directory
-# to dist.  Run this script and check for additional files and
-# directories to prune, only relevant content is included.
+# Run this script on the extracted libarchive directory and check for
+# additional files and directories to prune, only relevant content is included.
 
 set -e
+PROG=$(basename "$0")
 
-mkdir tmp
-cd tmp
-../dist/configure --without-xml2 --without-expat
-mv config.h ../include/config_netbsd.h
-cd ..
-rm -rf tmp
+if [ -z "$1" ]; then
+	echo "Usage $PROG <libarchive-directory>" 1>&2
+	exit 1
+fi
 
-cd dist
+cd "$1"
 
-rm -rf build contrib doc examples
-rm INSTALL Makefile.am Makefile.in aclocal.m4 config.h.in
-rm configure configure.ac CMakeLists.txt */CMakeLists.txt */config_freebsd.h
-
+rm -rf build contrib doc examples autom4te.cache unzip
+rm -f INSTALL Makefile.am Makefile.in aclocal.m4 config.h.in
+rm -f configure configure.ac CMakeLists.txt */CMakeLists.txt */*/CMakeLists.txt
+rm -f */config_freebsd.h  CTestConfig.cmake .gitattributes .gitignore
+rm -f .travis.yml */*/.cvsignore

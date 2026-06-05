@@ -1,32 +1,12 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2003-2007 Tim Kientzle
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer
- *    in this position and unchanged.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 
 #include "cpio_platform.h"
-__FBSDID("$FreeBSD: src/usr.bin/cpio/cmdline.c,v 1.5 2008/12/06 07:30:40 kientzle Exp $");
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
@@ -51,7 +31,7 @@ __FBSDID("$FreeBSD: src/usr.bin/cpio/cmdline.c,v 1.5 2008/12/06 07:30:40 kientzl
 /*
  * Short options for cpio.  Please keep this sorted.
  */
-static const char *short_options = "0AaBC:cdE:F:f:H:hI:iJjLlmnO:opR:rtuvW:yZz";
+static const char *short_options = "067AaBC:cdE:F:f:H:hI:iJjLlmnO:opR:rtuVvW:yZz";
 
 /*
  * Long options for cpio.  Please keep this sorted.
@@ -61,28 +41,40 @@ static const struct option {
 	int required;	/* 1 if this option requires an argument */
 	int equivalent;	/* Equivalent short option. */
 } cpio_longopts[] = {
+	{ "b64encode",			0, OPTION_B64ENCODE },
+	{ "binary",			0, '7' },
 	{ "create",			0, 'o' },
+	{ "dereference",		0, 'L' },
+	{ "dot",			0, 'V' },
 	{ "extract",			0, 'i' },
 	{ "file",			1, 'F' },
 	{ "format",             	1, 'H' },
+	{ "grzip",			0, OPTION_GRZIP },
 	{ "help",			0, 'h' },
 	{ "insecure",			0, OPTION_INSECURE },
 	{ "link",			0, 'l' },
 	{ "list",			0, 't' },
+	{ "lrzip",			0, OPTION_LRZIP },
+	{ "lz4",			0, OPTION_LZ4 },
 	{ "lzma",			0, OPTION_LZMA },
+	{ "lzop",			0, OPTION_LZOP },
 	{ "make-directories",		0, 'd' },
 	{ "no-preserve-owner",		0, OPTION_NO_PRESERVE_OWNER },
 	{ "null",			0, '0' },
 	{ "numeric-uid-gid",		0, 'n' },
 	{ "owner",			1, 'R' },
+	{ "passphrase",			1, OPTION_PASSPHRASE },
 	{ "pass-through",		0, 'p' },
 	{ "preserve-modification-time", 0, 'm' },
 	{ "preserve-owner",		0, OPTION_PRESERVE_OWNER },
+	{ "pwb",			0, '6' },
 	{ "quiet",			0, OPTION_QUIET },
 	{ "unconditional",		0, 'u' },
+	{ "uuencode",			0, OPTION_UUENCODE },
 	{ "verbose",			0, 'v' },
 	{ "version",			0, OPTION_VERSION },
 	{ "xz",				0, 'J' },
+	{ "zstd",			0, OPTION_ZSTD },
 	{ NULL, 0, 0 }
 };
 
@@ -103,13 +95,19 @@ cpio_getopt(struct cpio *cpio)
 	static int state = state_start;
 	static char *opt_word;
 
-	const struct option *popt, *match = NULL, *match2 = NULL;
-	const char *p, *long_prefix = "--";
+	const struct option *popt, *match, *match2;
+	const char *p, *long_prefix;
 	size_t optlength;
-	int opt = '?';
-	int required = 0;
+	int opt;
+	int required;
 
-	cpio->optarg = NULL;
+again:
+	match = NULL;
+	match2 = NULL;
+	long_prefix = "--";
+	opt = '?';
+	required = 0;
+	cpio->argument = NULL;
 
 	/* First time through, initialize everything. */
 	if (state == state_start) {
@@ -158,7 +156,7 @@ cpio_getopt(struct cpio *cpio)
 		if (opt == '\0') {
 			/* End of this group; recurse to get next option. */
 			state = state_next_word;
-			return cpio_getopt(cpio);
+			goto again;
 		}
 
 		/* Does this option take an argument? */
@@ -188,7 +186,7 @@ cpio_getopt(struct cpio *cpio)
 				long_prefix = "-W "; /* For clearer errors. */
 			} else {
 				state = state_next_word;
-				cpio->optarg = opt_word;
+				cpio->argument = opt_word;
 			}
 		}
 	}
@@ -202,7 +200,7 @@ cpio_getopt(struct cpio *cpio)
 		p = strchr(opt_word, '=');
 		if (p != NULL) {
 			optlength = (size_t)(p - opt_word);
-			cpio->optarg = (char *)(uintptr_t)(p + 1);
+			cpio->argument = (char *)(uintptr_t)(p + 1);
 		} else {
 			optlength = strlen(opt_word);
 		}
@@ -241,9 +239,9 @@ cpio_getopt(struct cpio *cpio)
 		/* We've found a unique match; does it need an argument? */
 		if (match->required) {
 			/* Argument required: get next word if necessary. */
-			if (cpio->optarg == NULL) {
-				cpio->optarg = *cpio->argv;
-				if (cpio->optarg == NULL) {
+			if (cpio->argument == NULL) {
+				cpio->argument = *cpio->argv;
+				if (cpio->argument == NULL) {
 					lafe_warnc(0,
 					    "Option %s%s requires an argument",
 					    long_prefix, match->name);
@@ -254,7 +252,7 @@ cpio_getopt(struct cpio *cpio)
 			}
 		} else {
 			/* Argument forbidden: fail if there is one. */
-			if (cpio->optarg != NULL) {
+			if (cpio->argument != NULL) {
 				lafe_warnc(0,
 				    "Option %s%s does not allow an argument",
 				    long_prefix, match->name);
@@ -285,21 +283,28 @@ cpio_getopt(struct cpio *cpio)
  * A period can be used instead of the colon.
  *
  * Sets uid/gid return as appropriate, -1 indicates uid/gid not specified.
+ * TODO: If the spec uses uname/gname, then return those to the caller
+ * as well.  If the spec provides uid/gid, just return names as NULL.
  *
  * Returns NULL if no error, otherwise returns error string for display.
  *
  */
-const char *
-owner_parse(const char *spec, int *uid, int *gid)
+int
+owner_parse(const char *spec, struct cpio_owner *owner, const char **errmsg)
 {
 	static char errbuff[128];
 	const char *u, *ue, *g;
 
-	*uid = -1;
-	*gid = -1;
+	owner->uid = -1;
+	owner->gid = -1;
 
-	if (spec[0] == '\0')
-		return ("Invalid empty user/group spec");
+	owner->uname = NULL;
+	owner->gname = NULL;
+
+	if (spec[0] == '\0') {
+		*errmsg = "Invalid empty user/group spec";
+		return (-1);
+	}
 
 	/*
 	 * Split spec into [user][:.][group]
@@ -326,24 +331,31 @@ owner_parse(const char *spec, int *uid, int *gid)
 		char *user;
 		struct passwd *pwent;
 
-		user = (char *)malloc(ue - u + 1);
+		user = malloc(ue - u + 1);
 		if (user == NULL)
-			return ("Couldn't allocate memory");
+			goto alloc_error;
 		memcpy(user, u, ue - u);
 		user[ue - u] = '\0';
 		if ((pwent = getpwnam(user)) != NULL) {
-			*uid = pwent->pw_uid;
+			owner->uid = pwent->pw_uid;
+			owner->uname = strdup(pwent->pw_name);
+			if (owner->uname == NULL) {
+				free(user);
+				goto alloc_error;
+			}
 			if (*ue != '\0')
-				*gid = pwent->pw_gid;
+				owner->gid = pwent->pw_gid;
 		} else {
 			char *end;
 			errno = 0;
-			*uid = strtoul(user, &end, 10);
+			owner->uid = (int)strtoul(user, &end, 10);
 			if (errno || *end != '\0') {
 				snprintf(errbuff, sizeof(errbuff),
 				    "Couldn't lookup user ``%s''", user);
 				errbuff[sizeof(errbuff) - 1] = '\0';
-				return (errbuff);
+				free(user);
+				*errmsg = errbuff;
+				return (-1);
 			}
 		}
 		free(user);
@@ -352,18 +364,28 @@ owner_parse(const char *spec, int *uid, int *gid)
 	if (*g != '\0') {
 		struct group *grp;
 		if ((grp = getgrnam(g)) != NULL) {
-			*gid = grp->gr_gid;
+			owner->gid = grp->gr_gid;
+			owner->gname = strdup(grp->gr_name);
+			if (owner->gname == NULL) {
+				free(owner->uname);
+				owner->uname = NULL;
+				goto alloc_error;
+			}
 		} else {
 			char *end;
 			errno = 0;
-			*gid = strtoul(g, &end, 10);
+			owner->gid = (int)strtoul(g, &end, 10);
 			if (errno || *end != '\0') {
 				snprintf(errbuff, sizeof(errbuff),
 				    "Couldn't lookup group ``%s''", g);
 				errbuff[sizeof(errbuff) - 1] = '\0';
-				return (errbuff);
+				*errmsg = errbuff;
+				return (-1);
 			}
 		}
 	}
-	return (NULL);
+	return (0);
+alloc_error:
+	*errmsg = "Couldn't allocate memory";
+	return (-1);
 }

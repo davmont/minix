@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_extract.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 #define BUFF_SIZE 1000000
 #define FILE_BUFF_SIZE 100000
@@ -45,7 +44,7 @@ DEFINE_TEST(test_read_extract)
 	/* Create a new archive in memory containing various types of entries. */
 	assert((a = archive_write_new()) != NULL);
 	assertA(0 == archive_write_set_format_ustar(a));
-	assertA(0 == archive_write_set_compression_none(a));
+	assertA(0 == archive_write_add_filter_none(a));
 	assertA(0 == archive_write_open_memory(a, buff, BUFF_SIZE, &used));
 	/* A directory to be restored with EXTRACT_PERM. */
 	++numEntries;
@@ -59,8 +58,7 @@ DEFINE_TEST(test_read_extract)
 	assert((ae = archive_entry_new()) != NULL);
 	archive_entry_copy_pathname(ae, "file");
 	archive_entry_set_mode(ae, S_IFREG | 0755);
-	for (i = 0; i < FILE_BUFF_SIZE; i++)
-		file_buff[i] = (unsigned char)rand();
+	fill_with_pseudorandom_data(file_buff, FILE_BUFF_SIZE);
 	archive_entry_set_size(ae, FILE_BUFF_SIZE);
 	assertA(0 == archive_write_header(a, ae));
 	assertA(FILE_BUFF_SIZE == archive_write_data(a, file_buff, FILE_BUFF_SIZE));
@@ -111,16 +109,16 @@ DEFINE_TEST(test_read_extract)
 		archive_entry_free(ae);
 	}
 	/* Close out the archive. */
-	assertA(0 == archive_write_close(a));
-	assertA(0 == archive_write_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/* Extract the entries to disk. */
 	assert((a = archive_read_new()) != NULL);
 	assertA(0 == archive_read_support_format_all(a));
-	assertA(0 == archive_read_support_compression_all(a));
+	assertA(0 == archive_read_support_filter_all(a));
 	assertA(0 == archive_read_open_memory(a, buff, BUFF_SIZE));
 	/* Restore first entry with _EXTRACT_PERM. */
-	failure("Error reading first entry", i);
+	failure("Error reading first entry");
 	assertA(0 == archive_read_next_header(a, &ae));
 	assertA(0 == archive_read_extract(a, ae, ARCHIVE_EXTRACT_PERM));
 	/* Rest of entries get restored with no flags. */
@@ -132,8 +130,8 @@ DEFINE_TEST(test_read_extract)
 		assertA(0 == archive_read_extract(a, ae, 0));
 	}
 	assertA(ARCHIVE_EOF == archive_read_next_header(a, &ae));
-	assert(0 == archive_read_close(a));
-	assert(0 == archive_read_finish(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	/* Test the entries on disk. */
 	/* This first entry was extracted with ARCHIVE_EXTRACT_PERM,
@@ -161,7 +159,7 @@ DEFINE_TEST(test_read_extract)
 	assertIsDir("dir4/b", 0755);
 	assertIsDir("dir4/c", 0711);
 	if (canSymlink())
-		assertIsSymlink("symlink", "file");
+		assertIsSymlink("symlink", "file", 0);
 
 	free(buff);
 	free(file_buff);

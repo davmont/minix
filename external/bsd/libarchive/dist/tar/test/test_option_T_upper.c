@@ -1,66 +1,39 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2003-2008 Tim Kientzle
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: src/usr.bin/tar/test/test_option_T.c,v 1.3 2008/08/15 06:12:02 kientzle Exp $");
 
 static int
-touch(const char *fn, int fail)
+tryMakeFile(const char *fn)
 {
 	FILE *f = fopen(fn, "w");
-	if (fail) {
-		failure("Couldn't create file '%s', errno=%d (%s)\n",
-		    fn, errno, strerror(errno));
-		if (!assert(f != NULL))
-			return (0); /* Failure. */
-	} else {
-		if (f == NULL)
-			return (0); /* Soft failure. */
-	}
+	if (f == NULL)
+		return (0);
 	fclose(f);
-	return (1); /* Success */
+	return (1);
 }
 
 DEFINE_TEST(test_option_T_upper)
 {
 	FILE *f;
 	int r;
-	struct stat st;
 	int gnarlyFilesSupported;
 
-	/* Create a simple dir heirarchy; bail if anything fails. */
+	/* Create a simple dir hierarchy; bail if anything fails. */
 	if (!assertMakeDir("d1", 0755)) return;
 	if (!assertMakeDir("d1/d2", 0755))	return;
-	if (!touch("f", 1)) return;
-	if (!touch("d1/f1", 1)) return;
-	if (!touch("d1/f2", 1)) return;
-	if (!touch("d1/d2/f3", 1)) return;
-	if (!touch("d1/d2/f4", 1)) return;
-	if (!touch("d1/d2/f5", 1)) return;
-	if (!touch("d1/d2/f6", 1)) return;
+	if (!assertMakeFile("f", 0644, "")) return;
+	if (!assertMakeFile("d1/f1", 0644, "")) return;
+	if (!assertMakeFile("d1/f2", 0644, "")) return;
+	if (!assertMakeFile("d1/d2/f3", 0644, "")) return;
+	if (!assertMakeFile("d1/d2/f4", 0644, "")) return;
+	if (!assertMakeFile("d1/d2/f5", 0644, "")) return;
+	if (!assertMakeFile("d1/d2/f6", 0644, "")) return;
 	/* Some platforms don't permit such things; just skip it. */
-	gnarlyFilesSupported = touch("d1/d2/f\x0a", 0);
+	gnarlyFilesSupported = tryMakeFile("d1/d2/f\x0a");
 
 	/* Populate a file list */
 	f = fopen("filelist", "w+");
@@ -79,12 +52,12 @@ DEFINE_TEST(test_option_T_upper)
 		return;
 	/* Use null-terminated names. */
 	fprintf(f, "d1/d2/f3");
-	fwrite("\0", 1, 1, f);
+	assertEqualInt(1, fwrite("\0", 1, 1, f));
 	fprintf(f, "d1/d2/f5");
-	fwrite("\0", 1, 1, f);
+	assertEqualInt(1, fwrite("\0", 1, 1, f));
 	if (gnarlyFilesSupported) {
 		fprintf(f, "d1/d2/f\x0a");
-		fwrite("\0", 1, 1, f);
+		assertEqualInt(1, fwrite("\0", 1, 1, f));
 	}
 	fclose(f);
 
@@ -160,28 +133,8 @@ DEFINE_TEST(test_option_T_upper)
 	assertMakeDir("test4_out", 0755);
 	assertMakeDir("test4_out2", 0755);
 	assertMakeDir("test4/d1", 0755);
-	assertEqualInt(1, touch("test4/d1/foo", 0));
+	assertMakeFile("test4/d1/foo", 0644, "");
 
-	/* Does bsdtar support -s option ? */
-	systemf("%s -cf - -s /foo/bar/ test4/d1/foo > check.out 2> check.err",
-	    testprog);
-	assertEqualInt(0, stat("check.err", &st));
-	if (st.st_size == 0) {
-		systemf("%s -cf - -s /foo/bar/ test4/d1/foo | %s -xf - -C test4_out",
-		    testprog, testprog);
-		assertEmptyFile("test4_out/test4/d1/bar");
-		systemf("%s -cf - -s /d1/d2/ test4/d1/foo | %s -xf - -C test4_out",
-		    testprog, testprog);
-		assertEmptyFile("test4_out/test4/d2/foo");
-		systemf("%s -cf - -s ,test4/d1/foo,, test4/d1/foo | %s -tvf - > test4.lst",
-		    testprog, testprog);
-		assertEmptyFile("test4.lst");
-		systemf("%s -cf - test4/d1/foo | %s -xf - -s /foo/bar/ -C test4_out2",
-		    testprog, testprog);
-		assertEmptyFile("test4_out2/test4/d1/bar");
-	} else {
-		skipping("bsdtar does not support -s option on this platform");
-	}
 
 	/* TODO: Include some use of -C directory-changing within the filelist. */
 	/* I'm pretty sure -C within the filelist is broken on extract. */
