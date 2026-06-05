@@ -110,7 +110,6 @@
 ./usr/libdata/debug/usr/tests/lib/libcrypt				tests-lib-debug		compattestfile,atf
 ./usr/libdata/debug/usr/tests/lib/libcurses				tests-lib-debug		compattestfile,atf
 ./usr/libdata/debug/usr/tests/lib/libdes				tests-lib-debug		compattestfile,atf
-./usr/libdata/debug/usr/tests/lib/libevent				tests-lib-debug		compattestfile,atf
 ./usr/libdata/debug/usr/tests/lib/libexecinfo				tests-lib-debug		compattestfile,atf
 ./usr/libdata/debug/usr/tests/lib/liblutok				tests-lutok-debug	compattestfile,atf
 ./usr/libdata/debug/usr/tests/lib/libm					tests-lib-debug		compattestfile,atf
@@ -2814,11 +2813,6 @@
 ./usr/tests/lib/libdes/Atffile			tests-lib-tests		compattestfile,atf,crypto
 ./usr/tests/lib/libdes/Kyuafile			tests-lib-tests		compattestfile,atf,crypto,kyua
 ./usr/tests/lib/libdes/t_des			tests-lib-tests		compattestfile,atf,crypto
-./usr/tests/lib/libevent			tests-lib-tests	compattestfile,atf
-./usr/tests/lib/libevent/Atffile		tests-lib-tests		compattestfile,atf
-./usr/tests/lib/libevent/Kyuafile		tests-lib-tests		compattestfile,atf,kyua
-./usr/tests/lib/libevent/h_event		tests-lib-tests		compattestfile,atf
-./usr/tests/lib/libevent/t_event		tests-lib-tests		compattestfile,atf
 ./usr/tests/lib/libexecinfo			tests-lib-tests	compattestfile,atf
 ./usr/tests/lib/libexecinfo/Atffile		tests-lib-tests		compattestfile,atf
 ./usr/tests/lib/libexecinfo/Kyuafile		tests-lib-tests		compattestfile,atf,kyua

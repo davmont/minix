@@ -927,7 +927,6 @@
 ./usr/libdata/debug/usr/tests/lib/libcurses/director.debug minix-debug     debug
 ./usr/libdata/debug/usr/tests/lib/libcurses/slave.debug minix-debug     debug
 ./usr/libdata/debug/usr/tests/lib/libdes/t_des.debug    minix-debug     debug
-./usr/libdata/debug/usr/tests/lib/libevent/h_event.debug minix-debug     debug
 ./usr/libdata/debug/usr/tests/lib/libexecinfo/t_backtrace.debug minix-debug     debug
 ./usr/libdata/debug/usr/tests/lib/liblutok/c_gate_test.debug minix-debug     debug
 ./usr/libdata/debug/usr/tests/lib/liblutok/debug_test.debug minix-debug     debug

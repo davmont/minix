@@ -2026,7 +2026,6 @@
 ./usr/libdata/debug/usr/tests/lib/libcurses/director.debug		tests-lib-debug		debug,atf,compattestfile
 ./usr/libdata/debug/usr/tests/lib/libcurses/slave.debug			tests-lib-debug		debug,atf,compattestfile
 ./usr/libdata/debug/usr/tests/lib/libdes/t_des.debug			tests-lib-debug		debug,atf,crypto,compattestfile
-./usr/libdata/debug/usr/tests/lib/libevent/h_event.debug		tests-lib-debug		debug,atf,compattestfile
 ./usr/libdata/debug/usr/tests/lib/libexecinfo/t_backtrace.debug		tests-lib-debug		debug,atf,compattestfile
 ./usr/libdata/debug/usr/tests/lib/liblutok/c_gate_test.debug		tests-lutok-debug	debug,atf,kyua,compattestfile
 ./usr/libdata/debug/usr/tests/lib/liblutok/debug_test.debug		tests-lutok-debug	debug,atf,kyua,compattestfile
