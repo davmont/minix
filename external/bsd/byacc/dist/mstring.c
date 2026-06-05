@@ -1,12 +1,12 @@
-/*	$NetBSD: mstring.c,v 1.3 2015/01/04 01:34:20 christos Exp $	*/
+/*	$NetBSD: mstring.c,v 1.6 2021/02/20 22:57:56 christos Exp $	*/
 
-/* Id: mstring.c,v 1.6 2014/04/22 23:36:31 tom Exp  */
+/* Id: mstring.c,v 1.9 2019/11/19 23:54:53 tom Exp  */
 #if HAVE_NBTOOL_CONFIG_H
 #include "nbtool_config.h"
 #endif
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: mstring.c,v 1.3 2015/01/04 01:34:20 christos Exp $");
+__RCSID("$NetBSD: mstring.c,v 1.6 2021/02/20 22:57:56 christos Exp $");
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -20,13 +20,11 @@ __RCSID("$NetBSD: mstring.c,v 1.3 2015/01/04 01:34:20 christos Exp $");
 #define HEAD	24
 #define TAIL	8
 
-#if defined(YYBTYACC)
-
 static char *buf_ptr;
 static size_t buf_len;
 
 void
-msprintf(struct mstring *s, const char *fmt,...)
+msprintf(struct mstring *s, const char *fmt, ...)
 {
     va_list args;
     size_t len;
@@ -99,7 +97,6 @@ msprintf(struct mstring *s, const char *fmt,...)
     memcpy(s->ptr, buf_ptr, len);
     s->ptr += len;
 }
-#endif
 
 int
 mputchar(struct mstring *s, int ch)
@@ -144,6 +141,20 @@ msnew(void)
     return n;
 }
 
+struct mstring *
+msrenew(char *value)
+{
+    struct mstring *r = 0;
+    if (value != 0)
+    {
+	r = msnew();
+	r->base = value;
+	r->end = value + strlen(value);
+	r->ptr = r->end;
+    }
+    return r;
+}
+
 char *
 msdone(struct mstring *s)
 {
@@ -165,20 +176,20 @@ strnscmp(const char *a, const char *b)
 {
     while (1)
     {
-	while (isspace((unsigned char)*a))
+	while (isspace(UCH(*a)))
 	    a++;
-	while (isspace((unsigned char)*b))
+	while (isspace(UCH(*b)))
 	    b++;
 	while (*a && *a == *b)
 	    a++, b++;
-	if (isspace((unsigned char)*a))
+	if (isspace(UCH(*a)))
 	{
-	    if (isalnum((unsigned char)a[-1]) && isalnum((unsigned char)*b))
+	    if (isalnum(UCH(a[-1])) && isalnum(UCH(*b)))
 		break;
 	}
-	else if (isspace((unsigned char)*b))
+	else if (isspace(UCH(*b)))
 	{
-	    if (isalnum((unsigned char)b[-1]) && isalnum((unsigned char)*a))
+	    if (isalnum(UCH(b[-1])) && isalnum(UCH(*a)))
 		break;
 	}
 	else
@@ -194,7 +205,7 @@ strnshash(const char *s)
 
     while (*s)
     {
-	if (!isspace((unsigned char)*s))
+	if (!isspace(UCH(*s)))
 	    h = (h << 5) - h + (unsigned char)*s;
 	s++;
     }
@@ -206,10 +217,8 @@ strnshash(const char *s)
 void
 mstring_leaks(void)
 {
-#if defined(YYBTYACC)
     free(buf_ptr);
     buf_ptr = 0;
     buf_len = 0;
-#endif
 }
 #endif

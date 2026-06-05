@@ -1,4 +1,4 @@
-/*	$NetBSD: ok_syntax1.tab.h,v 1.1.1.1 2015/01/03 22:58:24 christos Exp $	*/
+/*	$NetBSD: ok_syntax1.tab.h,v 1.1.1.4 2018/12/23 15:26:14 christos Exp $	*/
 
 #define DIGIT 257
 #define LETTER 258
@@ -29,4 +29,3 @@ typedef union
     double	dval;
 } YYSTYPE;
 #endif /* !YYSTYPE_IS_DECLARED */
-extern YYSTYPE ok_syntax1_lval;

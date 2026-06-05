@@ -1,4 +1,6 @@
-/*	$NetBSD: code_calc.y,v 1.1.1.4 2013/04/06 14:45:27 christos Exp $	*/
+/*	$NetBSD: code_calc.y,v 1.2 2017/02/11 19:33:12 christos Exp $	*/
+
+%token-table
 
 %{
 # include <stdio.h>
