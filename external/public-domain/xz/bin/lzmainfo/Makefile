@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.1 2011/08/04 03:38:06 matt Exp $
+# $NetBSD: Makefile,v 1.2 2016/01/28 19:40:29 christos Exp $
 
 PROG=	lzmainfo
 BINDIR=	/usr/bin
@@ -15,15 +15,16 @@ SRCS+=	tuklib_exit.c tuklib_cpucores.c tuklib_open_stdxxx.c \
 .include <bsd.init.mk>
 
 CPPFLAGS+=	-DPACKAGE=\"xz\"
-.if !defined(__MINIX)
 CPPFLAGS+=	-DENABLE_NLS -DLOCALEDIR=\"/usr/share/locale\"
 
+.if defined(__MINIX)
+# MINIX has libintl but no libpthread.
 DPADD+=	${LIBLZMA} ${LIBINTL}
 LDADD+=	-llzma -lintl
 .else
-DPADD+= ${LIBLZMA}
-LDADD+= -llzma
-.endif # !defined(__MINIX)
+DPADD+=	${LIBLZMA} ${LIBINTL} ${LIBPTHREAD}
+LDADD+=	-llzma -lintl -lpthread
+.endif
 
 .PATH:	${XZSRCDIR}/src/common ${XZSRCDIR}/src/lzmainfo
 
