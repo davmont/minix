@@ -32,9 +32,10 @@ MKSLJIT?=	no
 MKCOVERAGE?=	no
 
 # OpenSSL consumers resynced from NetBSD reference the openssl source
-# tree via ${EXTERNAL_OPENSSL_SUBDIR} (NetBSD sets this from the
-# HAVE_OPENSSL version in its own bsd.own.mk).  We ship a single
-# openssl, so default it here for the whole tree.
+# tree via ${EXTERNAL_OPENSSL_SUBDIR} and test its version via
+# ${HAVE_OPENSSL} (NetBSD sets both in its own bsd.own.mk).  We ship
+# OpenSSL 3.0, so default them here for the whole tree.
+HAVE_OPENSSL?=		30
 EXTERNAL_OPENSSL_SUBDIR?=	openssl
 
 # LSC MINIX does not support these features ATM.

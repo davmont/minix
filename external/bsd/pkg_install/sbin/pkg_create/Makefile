@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.2 2009/02/02 20:47:21 joerg Exp $
+# $NetBSD: Makefile,v 1.4 2019/04/06 10:37:57 pgoyette Exp $
 # Original from FreeBSD, no rcs id.
 
 PROG= pkg_create

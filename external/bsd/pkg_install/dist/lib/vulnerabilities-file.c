@@ -1,4 +1,4 @@
-/*	$NetBSD: vulnerabilities-file.c,v 1.1.1.5 2010/06/26 00:14:33 joerg Exp $	*/
+/*	$NetBSD: vulnerabilities-file.c,v 1.5 2021/04/10 19:49:59 nia Exp $	*/
 
 /*-
  * Copyright (c) 2008, 2010 Joerg Sonnenberger <joerg@NetBSD.org>.
@@ -38,7 +38,7 @@
 #if HAVE_SYS_CDEFS_H
 #include <sys/cdefs.h>
 #endif
-__RCSID("$NetBSD: vulnerabilities-file.c,v 1.1.1.5 2010/06/26 00:14:33 joerg Exp $");
+__RCSID("$NetBSD: vulnerabilities-file.c,v 1.5 2021/04/10 19:49:59 nia Exp $");
 
 #if HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -77,6 +77,22 @@ static const char pgp_msg_end[] = "-----BEGIN PGP SIGNATURE-----\n";
 static const char pkcs7_begin[] = "-----BEGIN PKCS7-----\n";
 static const char pkcs7_end[] = "-----END PKCS7-----\n";
 
+#ifndef BOOTSTRAP
+static struct archive *
+prepare_raw_file(void)
+{
+	struct archive *a = archive_read_new();
+	if (a == NULL)
+		errx(EXIT_FAILURE, "memory allocation failed");
+
+	archive_read_support_filter_gzip(a);
+	archive_read_support_filter_bzip2(a);
+	archive_read_support_filter_xz(a);
+	archive_read_support_format_raw(a);
+	return a;
+}
+#endif
+
 static void
 verify_signature_pkcs7(const char *input)
 {
@@ -110,12 +126,7 @@ verify_signature_pkcs7(const char *input)
 static void
 verify_signature(const char *input, size_t input_len)
 {
-	if (gpg_cmd == NULL && certs_pkg_vulnerabilities == NULL)
-		errx(EXIT_FAILURE,
-		    "At least GPG or CERTIFICATE_ANCHOR_PKGVULN "
-		    "must be configured");
-	if (gpg_cmd != NULL)
-		inline_gpg_verify(input, input_len, gpg_keyring_pkgvuln);
+	gpg_verify(input, input_len, gpg_keyring_pkgvuln, NULL, 0);
 	if (certs_pkg_vulnerabilities != NULL)
 		verify_signature_pkcs7(input);
 }
@@ -350,12 +361,8 @@ read_pkg_vulnerabilities_memory(void *buf, size_t len, int check_sum)
 	struct archive *a;
 	struct pkg_vulnerabilities *pv;
 
-	if ((a = archive_read_new()) == NULL)
-		errx(EXIT_FAILURE, "memory allocation failed");
-	
-	if (archive_read_support_compression_all(a) != ARCHIVE_OK ||
-	    archive_read_support_format_raw(a) != ARCHIVE_OK ||
-	    archive_read_open_memory(a, buf, len) != ARCHIVE_OK)
+	a = prepare_raw_file();
+	if (archive_read_open_memory(a, buf, len) != ARCHIVE_OK)
 		errx(EXIT_FAILURE, "Cannot open pkg_vulnerabilies buffer: %s",
 		    archive_error_string(a));
 
@@ -381,12 +388,8 @@ read_pkg_vulnerabilities_file(const char *path, int ignore_missing, int check_su
 		err(EXIT_FAILURE, "Cannot open %s", path);
 	}
 
-	if ((a = archive_read_new()) == NULL)
-		errx(EXIT_FAILURE, "memory allocation failed");
-	
-	if (archive_read_support_compression_all(a) != ARCHIVE_OK ||
-	    archive_read_support_format_raw(a) != ARCHIVE_OK ||
-	    archive_read_open_fd(a, fd, 65536) != ARCHIVE_OK)
+	a = prepare_raw_file();
+	if (archive_read_open_fd(a, fd, 65536) != ARCHIVE_OK)
 		errx(EXIT_FAILURE, "Cannot open ``%s'': %s", path,
 		    archive_error_string(a));
 
@@ -450,9 +453,6 @@ parse_pkg_vuln(const char *input, size_t input_len, int check_sum)
 	size_t allocated_vulns;
 	int in_pgp_msg;
 
-#if defined(__minix)
-	next = NULL; /* LSC: Fix -Os compilation: -Werror=maybe-uninitialized */
-#endif /* defined(__minix) */
 	pv = xmalloc(sizeof(*pv));
 
 	allocated_vulns = pv->entries = 0;
@@ -610,18 +610,19 @@ check_ignored_entry(struct pkg_vulnerabilities *pv, size_t i)
 
 int
 audit_package(struct pkg_vulnerabilities *pv, const char *pkgname,
-    const char *limit_vul_types, int output_type)
+    const char *limit_vul_types, int include_ignored, int output_type)
 {
 	FILE *output = output_type == 1 ? stdout : stderr;
 	size_t i;
-	int retval, do_eol;
+	int retval, do_eol, ignored;
 
 	retval = 0;
 
 	do_eol = (strcasecmp(check_eol, "yes") == 0);
 
 	for (i = 0; i < pv->entries; ++i) {
-		if (check_ignored_entry(pv, i))
+		ignored = check_ignored_entry(pv, i);
+		if (ignored && !include_ignored)
 			continue;
 		if (limit_vul_types != NULL &&
 		    strcmp(limit_vul_types, pv->classification[i]))
@@ -644,11 +645,13 @@ audit_package(struct pkg_vulnerabilities *pv, const char *pkgname,
 		}
 		retval = 1;
 		if (output_type == 0) {
-			puts(pkgname);
+			fprintf(stdout, "%s%s\n",
+				pkgname, ignored ? " (ignored)" : "");
 		} else {
 			fprintf(output,
-			    "Package %s has a %s vulnerability, see %s\n",
-			    pkgname, pv->classification[i], pv->advisory[i]);
+			    "Package %s has a%s %s vulnerability, see %s\n",
+			    pkgname, ignored ? "n ignored" : "",
+			    pv->classification[i], pv->advisory[i]);
 		}
 	}
 	return retval;
