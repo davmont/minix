@@ -291,6 +291,9 @@ void arch_proc_reset(struct proc *pr)
         pr->p_seg.p_pcid = PCID_KERNEL;
     }
 
+    /* No TLS thread pointer yet; userland sets %fs base later via WRFSBASE. */
+    pr->p_seg.p_fsbase = 0;
+
     /* Segment selectors for user-mode processes.  These go in 'reg' so they
      * survive the memcpy inside arch_proc_setcontext — setting them directly
      * in pr->p_reg would be overwritten by that copy. */
@@ -618,6 +621,16 @@ void restore_user_context(struct proc *p)
     BOOT_VERBOSE(printf("RUC kts=%d\n", trap_style));
 
     p->p_seg.p_kern_trap_style = KTS_NONE;
+
+    /*
+     * Restore this process's user %fs base (the TLS thread pointer).  The
+     * kernel never touches %fs base for its own use (it uses %gs/swapgs for
+     * per-CPU state), so the value lives only in the CPU register and must be
+     * reloaded for the process we are about to resume.  Captured on kernel
+     * entry (see context_stop()).  No-op until userland actually uses TLS.
+     */
+    if (use_fsgsbase)
+        write_fsbase(p->p_seg.p_fsbase);
 
     if (trap_style == KTS_SYSCALL) {
         restore_user_context_syscall(p);

@@ -36,6 +36,10 @@ typedef struct segframe {
 	char	*fpu_state;
 	int	p_kern_trap_style;
 	u16_t	p_pcid;		/* P2.4: Process-Context Identifier (0 = kernel) */
+	reg_t	p_fsbase;	/* user %fs base (TLS thread pointer): saved on
+				 * kernel entry, restored on return to user when
+				 * CR4.FSGSBASE is in use.  Appended at the end so
+				 * existing genassym offsets are unaffected. */
 } segframe_t;
 
 struct cpu_info {

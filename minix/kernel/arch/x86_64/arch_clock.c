@@ -257,6 +257,16 @@ void context_stop(struct proc * p)
 	u64_t tsc, tsc_delta;
 	u64_t * __tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
 	unsigned int cpu, tpt, counter;
+
+	/*
+	 * Save the user %fs base (TLS thread pointer) of the process leaving the
+	 * CPU.  The kernel never modifies %fs base (it uses %gs/swapgs for
+	 * per-CPU state), so the register still holds this process's value;
+	 * restore_user_context() reloads it when the process is resumed.  Skip
+	 * the KERNEL pseudo-process.  No-op until userland actually uses TLS.
+	 */
+	if (use_fsgsbase && p != proc_addr(KERNEL))
+		p->p_seg.p_fsbase = read_fsbase();
 #ifdef CONFIG_SMP
 	int must_bkl_unlock = 0;
 

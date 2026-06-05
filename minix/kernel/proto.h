@@ -204,6 +204,11 @@ void cpu_enable_features(void);
 /* P2.1 / P2.4 feature flags — set by cpu_enable_features() on each CPU */
 extern int use_fsgsbase;
 extern int use_pcid;
+#if defined(__x86_64__)
+/* amd64 FSGSBASE helpers (klib.S); only valid when use_fsgsbase != 0 */
+reg_t read_fsbase(void);
+void write_fsbase(reg_t base);
+#endif
 /* arch dependent FPU initialization per CPU */
 void   fpu_init(void);
 size_t fpu_get_save_size(void);
