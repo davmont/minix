@@ -8,21 +8,20 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: smbutil.c,v 1.4 2014/11/20 03:05:03 christos Exp $");
+__RCSID("$NetBSD: smbutil.c,v 1.7 2019/10/01 16:06:16 christos Exp $");
 #endif
 
-#define NETDISSECT_REWORKED
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <tcpdump-stdinc.h>
+#include <netdissect-stdinc.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 #include "smb.h"
 
@@ -243,6 +242,7 @@ name_len(netdissect_options *ndo,
 	    return(-1);	/* name goes past the end of the buffer */
 	ND_TCHECK2(*s, 1);
 	s += (*s) + 1;
+	ND_TCHECK2(*s, 1);
     }
     return(PTR_DIFF(s, s0) + 1);
 
@@ -277,8 +277,7 @@ name_type_str(int name_type)
 }
 
 void
-print_data(netdissect_options *ndo,
-           const unsigned char *buf, int len)
+smb_print_data(netdissect_options *ndo, const unsigned char *buf, int len)
 {
     int i = 0;
 
@@ -484,12 +483,13 @@ smb_fdata1(netdissect_options *ndo,
 
 	case 'P':
 	  {
-	    int l = atoi(fmt + 1);
+	    int l = atoi(fmt + 1);	    
+	    if(l <= 0) goto trunc;  /* actually error in fmt string */
 	    ND_TCHECK2(buf[0], l);
 	    buf += l;
 	    fmt++;
 	    while (isdigit((unsigned char)*fmt))
-		fmt++;
+	      fmt++;
 	    break;
 	  }
 	case 'r':
@@ -803,17 +803,33 @@ smb_fdata(netdissect_options *ndo,
           int unicodestr)
 {
     static int depth = 0;
+    const u_char *buf_start = buf;
     char s[128];
     char *p;
 
     while (*fmt) {
 	switch (*fmt) {
 	case '*':
+	    /*
+	     * List of multiple instances of something described by the
+	     * remainder of the string (which may itself include a list
+	     * of multiple instances of something, so we recurse).
+	     */
 	    fmt++;
 	    while (buf < maxbuf) {
 		const u_char *buf2;
 		depth++;
-		buf2 = smb_fdata(ndo, buf, fmt, maxbuf, unicodestr);
+		/*
+		 * In order to avoid stack exhaustion recurse at most 10
+		 * levels; that "should not happen", as no SMB structure
+		 * should be nested *that* deeply, and we thus shouldn't
+		 * have format strings with that level of nesting.
+		 */
+		if (depth == 10) {
+			ND_PRINT((ndo, "(too many nested levels, not recursing)"));
+			buf2 = buf;
+		} else
+			buf2 = smb_fdata(ndo, buf, fmt, maxbuf, unicodestr);
 		depth--;
 		if (buf2 == NULL)
 		    return(NULL);
@@ -824,22 +840,35 @@ smb_fdata(netdissect_options *ndo,
 	    return(buf);
 
 	case '|':
+	    /*
+	     * Just do a bounds check.
+	     */
 	    fmt++;
 	    if (buf >= maxbuf)
 		return(buf);
 	    break;
 
 	case '%':
+	    /*
+	     * XXX - unused?
+	     */
 	    fmt++;
 	    buf = maxbuf;
 	    break;
 
 	case '#':
+	    /*
+	     * Done?
+	     */
 	    fmt++;
 	    return(buf);
 	    break;
 
 	case '[':
+	    /*
+	     * Format of an item, enclosed in square brackets; dissect
+	     * the item with smb_fdata1().
+	     */
 	    fmt++;
 	    if (buf >= maxbuf)
 		return(buf);
@@ -853,11 +882,15 @@ smb_fdata(netdissect_options *ndo,
 	    s[p - fmt] = '\0';
 	    fmt = p + 1;
 	    buf = smb_fdata1(ndo, buf, s, maxbuf, unicodestr);
-	    if (buf == NULL)
+	    if(buf < buf_start || buf == NULL) {
 		return(NULL);
+	    }
 	    break;
 
 	default:
+	    /*
+	     * Not a formatting character, so just print it.
+	     */
 	    ND_PRINT((ndo, "%c", *fmt));
 	    fmt++;
 	    break;
@@ -866,7 +899,7 @@ smb_fdata(netdissect_options *ndo,
     if (!depth && buf < maxbuf) {
 	size_t len = PTR_DIFF(maxbuf, buf);
 	ND_PRINT((ndo, "Data: (%lu bytes)\n", (unsigned long)len));
-	print_data(ndo, buf, len);
+	smb_print_data(ndo, buf, len);
 	return(buf + len);
     }
     return(buf);
