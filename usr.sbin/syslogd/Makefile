@@ -8,7 +8,7 @@ USE_FORT?= yes	# network server
 LINTFLAGS+=-X 132,247,135,259,117,298
 
 PROG=	syslogd
-SRCS=	syslogd.c utmpentry.c tls.c sign.c
+SRCS=	syslogd.c utmpentry.c
 MAN=	syslogd.8 syslog.conf.5
 DPADD+=${LIBUTIL} ${LIBEVENT}
 LDADD+=-lutil -levent
@@ -27,9 +27,13 @@ CPPFLAGS+=-DLIBWRAP
 LDADD+=	-lwrap
 DPADD+=	${LIBWRAP}
 
-.if ${MKCRYPTO} != "no"
+.if ${MKCRYPTO} != "no" && !defined(__MINIX)
+SRCS+=	tls.c sign.c
 LDADD+=	-lssl -lcrypto
 .else
+# MINIX: syslogd's TLS/sign code (tls.c, sign.c) uses the now-opaque
+# OpenSSL 1.x structs (DH, X509_STORE_CTX, ...) and EVP_dss1(), removed in
+# 3.0.  Build syslogd without remote-over-TLS/signing until it is ported.
 CPPFLAGS+=-DDISABLE_TLS -DDISABLE_SIGN
 .endif
 
