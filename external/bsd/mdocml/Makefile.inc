@@ -1,16 +1,13 @@
-# $NetBSD: Makefile.inc,v 1.16 2014/01/05 19:49:57 joerg Exp $
+# $NetBSD: Makefile.inc,v 1.19 2019/03/11 00:15:38 christos Exp $
 
 .include <bsd.own.mk>
 
 
 .if (${HOSTPROG:U} == "")
-# Minix: #-DHAVE_MMAP
-CPPFLAGS+=	-DHAVE_FGETLN -DHAVE_GETSUBOPT \
-		-DHAVE_STRCASESTR -DHAVE_STRLCAT -DHAVE_STRLCPY \
-		-DHAVE_STRNLEN -DHAVE_STRPTIME -DHAVE_STRSEP
 VERSION!=	cd ${.PARSEDIR}/dist && ${MAKE} -V VERSION
-CPPFLAGS+=	-DVERSION=\"${VERSION}\"
-
+CPPFLAGS+=	-DVERSION=\"${VERSION}\" -I${DISTDIR}/../include
+#CPPFLAGS+=	-D_OPENBSD_SOURCE
+#CPPFLAGS+=	-DMANPATH_BASE=\"/usr/share/man:/usr/X11R7/man\"
 .if defined(__MINIX)
 CPPFLAGS+=	-UOSNAME -DOSNAME=\"Minix\"
 .endif # defined(__MINIX)
