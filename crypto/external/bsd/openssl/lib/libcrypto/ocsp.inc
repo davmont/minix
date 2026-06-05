@@ -1,17 +1,21 @@
-#	$NetBSD: ocsp.inc,v 1.1 2009/07/19 23:30:44 christos Exp $
-#
-#	@(#) Copyright (c) 1995 Simon J. Gerraty
-#
-#	SRCS extracted from src/crypto/dist/openssl/crypto/ocsp/Makefile
-#
+#	$NetBSD: ocsp.inc,v 1.2.14.1 2023/08/11 13:41:55 martin Exp $
 
 .PATH:	${OPENSSLSRC}/crypto/ocsp
 
+OCSP_SRCS += \
+ocsp_asn.c \
+ocsp_cl.c \
+ocsp_err.c \
+ocsp_ext.c \
+ocsp_http.c \
+ocsp_lib.c \
+ocsp_prn.c \
+ocsp_srv.c \
+ocsp_vfy.c \
+v3_ocsp.c \
 
-OCSP_SRCS = ocsp_asn.c ocsp_ext.c ocsp_ht.c ocsp_lib.c ocsp_cl.c \
-	ocsp_srv.c ocsp_prn.c ocsp_vfy.c ocsp_err.c
 SRCS += ${OCSP_SRCS}
 
 .for cryptosrc in ${OCSP_SRCS}
-CPPFLAGS.${cryptosrc} = -I${OPENSSLSRC}/crypto/ocsp
+CPPFLAGS.${cryptosrc} += -I${OPENSSLSRC}/crypto/ocsp ${OCSPCPPFLAGS}
 .endfor

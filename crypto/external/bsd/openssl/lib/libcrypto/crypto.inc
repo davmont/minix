@@ -1,24 +1,65 @@
-#	$NetBSD: crypto.inc,v 1.4 2014/04/15 10:02:21 joerg Exp $
-#
-#	@(#) Copyright (c) 1995 Simon J. Gerraty
-#
-#	SRCS extracted from src/crypto/dist/openssl/crypto/Makefile
-#
+#	$NetBSD: crypto.inc,v 1.10.6.1 2023/08/11 13:41:54 martin Exp $
 
 .PATH:	${OPENSSLSRC}/crypto
 
+CRYPTO_SRCS += \
+asn1_dsa.c \
+bsearch.c \
+context.c \
+core_algorithm.c \
+core_fetch.c \
+core_namemap.c \
+cpt_err.c \
+cpuid.c \
+cryptlib.c \
+ctype.c \
+cversion.c \
+der_writer.c \
+ebcdic.c \
+ex_data.c \
+getenv.c \
+info.c \
+init.c \
+initthread.c \
+mem.c \
+mem_sec.c \
+o_dir.c \
+o_fopen.c \
+o_init.c \
+o_str.c \
+o_time.c \
+packet.c \
+param_build.c \
+param_build_set.c \
+params.c \
+params_dup.c \
+params_from_text.c \
+passphrase.c \
+provider.c \
+provider_child.c \
+provider_conf.c \
+provider_core.c \
+provider_predefined.c \
+punycode.c \
+self_test_core.c \
+sparse_array.c \
+threads_lib.c \
+threads_none.c \
+threads_pthread.c \
+threads_win.c \
+trace.c \
+uid.c \
 
-CRYPTO_SRCS = cryptlib.c mem.c mem_dbg.c cversion.c ex_data.c \
-	cpt_err.c ebcdic.c uid.c o_time.c o_str.c o_dir.c o_fips.c o_init.c
 SRCS += ${CRYPTO_SRCS}
+
+.for cryptosrc in ${CRYPTO_SRCS}
+CPPFLAGS.${cryptosrc} += -I${OPENSSLSRC}/crypto/crypto ${CRYPTOCPPFLAGS}
+.endfor
 
 .if !defined(CPUID)
 CRYPTO_SRCS+=  mem_clr.c
 .else
 CRYPTO_SRCS+=  ${CPUID_SRCS}
-CRYPTOCPPFLAGS=-DOPENSSL_CPUID_OBJ
 .endif
 
-.for cryptosrc in ${CRYPTO_SRCS}
-CPPFLAGS.${cryptosrc} += -I${OPENSSLSRC}/crypto/crypto ${CRYPTOCPPFLAGS}
-.endfor
+CRYPTOCPPFLAGS+=-DOPENSSL_NO_STATIC_ENGINE

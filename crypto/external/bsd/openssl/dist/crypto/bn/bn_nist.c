@@ -1,63 +1,14 @@
-/* crypto/bn/bn_nist.c */
 /*
- * Written by Nils Larsch for the OpenSSL project
- */
-/* ====================================================================
- * Copyright (c) 1998-2005 The OpenSSL Project.  All rights reserved.
+ * Copyright 2002-2023 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
-#include "bn_lcl.h"
-#include "cryptlib.h"
+#include "bn_local.h"
+#include "internal/cryptlib.h"
 
 #define BN_NIST_192_TOP (192+BN_BITS2-1)/BN_BITS2
 #define BN_NIST_224_TOP (224+BN_BITS2-1)/BN_BITS2
@@ -233,7 +184,7 @@ static const BN_ULONG _nist_p_521_sqr[] = {
 # error "unsupported BN_BITS2"
 #endif
 
-static const BIGNUM _bignum_nist_p_192 = {
+static const BIGNUM ossl_bignum_nist_p_192 = {
     (BN_ULONG *)_nist_p_192[0],
     BN_NIST_192_TOP,
     BN_NIST_192_TOP,
@@ -241,7 +192,7 @@ static const BIGNUM _bignum_nist_p_192 = {
     BN_FLG_STATIC_DATA
 };
 
-static const BIGNUM _bignum_nist_p_224 = {
+static const BIGNUM ossl_bignum_nist_p_224 = {
     (BN_ULONG *)_nist_p_224[0],
     BN_NIST_224_TOP,
     BN_NIST_224_TOP,
@@ -249,7 +200,7 @@ static const BIGNUM _bignum_nist_p_224 = {
     BN_FLG_STATIC_DATA
 };
 
-static const BIGNUM _bignum_nist_p_256 = {
+static const BIGNUM ossl_bignum_nist_p_256 = {
     (BN_ULONG *)_nist_p_256[0],
     BN_NIST_256_TOP,
     BN_NIST_256_TOP,
@@ -257,7 +208,7 @@ static const BIGNUM _bignum_nist_p_256 = {
     BN_FLG_STATIC_DATA
 };
 
-static const BIGNUM _bignum_nist_p_384 = {
+static const BIGNUM ossl_bignum_nist_p_384 = {
     (BN_ULONG *)_nist_p_384[0],
     BN_NIST_384_TOP,
     BN_NIST_384_TOP,
@@ -265,7 +216,7 @@ static const BIGNUM _bignum_nist_p_384 = {
     BN_FLG_STATIC_DATA
 };
 
-static const BIGNUM _bignum_nist_p_521 = {
+static const BIGNUM ossl_bignum_nist_p_521 = {
     (BN_ULONG *)_nist_p_521,
     BN_NIST_521_TOP,
     BN_NIST_521_TOP,
@@ -275,40 +226,51 @@ static const BIGNUM _bignum_nist_p_521 = {
 
 const BIGNUM *BN_get0_nist_prime_192(void)
 {
-    return &_bignum_nist_p_192;
+    return &ossl_bignum_nist_p_192;
 }
 
 const BIGNUM *BN_get0_nist_prime_224(void)
 {
-    return &_bignum_nist_p_224;
+    return &ossl_bignum_nist_p_224;
 }
 
 const BIGNUM *BN_get0_nist_prime_256(void)
 {
-    return &_bignum_nist_p_256;
+    return &ossl_bignum_nist_p_256;
 }
 
 const BIGNUM *BN_get0_nist_prime_384(void)
 {
-    return &_bignum_nist_p_384;
+    return &ossl_bignum_nist_p_384;
 }
 
 const BIGNUM *BN_get0_nist_prime_521(void)
 {
-    return &_bignum_nist_p_521;
+    return &ossl_bignum_nist_p_521;
 }
 
-static void nist_cp_bn_0(BN_ULONG *dst, const BN_ULONG *src, int top, int max)
-{
-    int i;
-
-#ifdef BN_DEBUG
-    OPENSSL_assert(top <= max);
-#endif
-    for (i = 0; i < top; i++)
-        dst[i] = src[i];
-    for (; i < max; i++)
-        dst[i] = 0;
+/*
+ * To avoid more recent compilers (specifically clang-14) from treating this
+ * code as a violation of the strict aliasing conditions and omiting it, this
+ * cannot be declared as a function.  Moreover, the dst parameter cannot be
+ * cached in a local since this no longer references the union and again falls
+ * foul of the strict aliasing criteria.  Refer to #18225 for the initial
+ * diagnostics and llvm/llvm-project#55255 for the later discussions with the
+ * LLVM developers.  The problem boils down to if an array in the union is
+ * converted to a pointer or if it is used directly.
+ *
+ * This function was inlined regardless, so there is no space cost to be
+ * paid for making it a macro.
+ */
+#define nist_cp_bn_0(dst, src_in, top, max) \
+{                                           \
+    int ii;                                 \
+    const BN_ULONG *src = src_in;           \
+                                            \
+    for (ii = 0; ii < top; ii++)            \
+        (dst)[ii] = src[ii];                \
+    for (; ii < max; ii++)                  \
+        (dst)[ii] = 0;                      \
 }
 
 static void nist_cp_bn(BN_ULONG *dst, const BN_ULONG *src, int top)
@@ -376,17 +338,16 @@ int BN_nist_mod_192(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
                         sizeof(unsigned int)];
     } buf;
     BN_ULONG c_d[BN_NIST_192_TOP], *res;
-    PTR_SIZE_INT mask;
-    static const BIGNUM _bignum_nist_p_192_sqr = {
+    static const BIGNUM ossl_bignum_nist_p_192_sqr = {
         (BN_ULONG *)_nist_p_192_sqr,
-        sizeof(_nist_p_192_sqr) / sizeof(_nist_p_192_sqr[0]),
-        sizeof(_nist_p_192_sqr) / sizeof(_nist_p_192_sqr[0]),
+        OSSL_NELEM(_nist_p_192_sqr),
+        OSSL_NELEM(_nist_p_192_sqr),
         0, BN_FLG_STATIC_DATA
     };
 
-    field = &_bignum_nist_p_192; /* just to make sure */
+    field = &ossl_bignum_nist_p_192; /* just to make sure */
 
-    if (BN_is_negative(a) || BN_ucmp(a, &_bignum_nist_p_192_sqr) >= 0)
+    if (BN_is_negative(a) || BN_ucmp(a, &ossl_bignum_nist_p_192_sqr) >= 0)
         return BN_nnmod(r, a, field, ctx);
 
     i = BN_ucmp(field, a);
@@ -477,13 +438,9 @@ int BN_nist_mod_192(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
      * 'tmp=result-modulus; if (!carry || !borrow) result=tmp;'
      * this is what happens below, but without explicit if:-) a.
      */
-    mask =
-        0 - (PTR_SIZE_INT) bn_sub_words(c_d, r_d, _nist_p_192[0],
-                                        BN_NIST_192_TOP);
-    mask &= 0 - (PTR_SIZE_INT) carry;
-    res = c_d;
-    res = (BN_ULONG *)
-        (((PTR_SIZE_INT) res & ~mask) | ((PTR_SIZE_INT) r_d & mask));
+    res = (bn_sub_words(c_d, r_d, _nist_p_192[0], BN_NIST_192_TOP) && carry)
+        ? r_d
+        : c_d;
     nist_cp_bn(r_d, res, BN_NIST_192_TOP);
     r->top = BN_NIST_192_TOP;
     bn_correct_top(r);
@@ -517,21 +474,17 @@ int BN_nist_mod_224(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
                         sizeof(unsigned int)];
     } buf;
     BN_ULONG c_d[BN_NIST_224_TOP], *res;
-    PTR_SIZE_INT mask;
-    union {
-        bn_addsub_f f;
-        PTR_SIZE_INT p;
-    } u;
-    static const BIGNUM _bignum_nist_p_224_sqr = {
+    bn_addsub_f adjust;
+    static const BIGNUM ossl_bignum_nist_p_224_sqr = {
         (BN_ULONG *)_nist_p_224_sqr,
-        sizeof(_nist_p_224_sqr) / sizeof(_nist_p_224_sqr[0]),
-        sizeof(_nist_p_224_sqr) / sizeof(_nist_p_224_sqr[0]),
+        OSSL_NELEM(_nist_p_224_sqr),
+        OSSL_NELEM(_nist_p_224_sqr),
         0, BN_FLG_STATIC_DATA
     };
 
-    field = &_bignum_nist_p_224; /* just to make sure */
+    field = &ossl_bignum_nist_p_224; /* just to make sure */
 
-    if (BN_is_negative(a) || BN_ucmp(a, &_bignum_nist_p_224_sqr) >= 0)
+    if (BN_is_negative(a) || BN_ucmp(a, &ossl_bignum_nist_p_224_sqr) >= 0)
         return BN_nnmod(r, a, field, ctx);
 
     i = BN_ucmp(field, a);
@@ -635,7 +588,7 @@ int BN_nist_mod_224(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
 # endif
     }
 #endif
-    u.f = bn_sub_words;
+    adjust = bn_sub_words;
     if (carry > 0) {
         carry =
             (int)bn_sub_words(r_d, r_d, _nist_p_224[carry - 1],
@@ -645,7 +598,7 @@ int BN_nist_mod_224(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
 #endif
     } else if (carry < 0) {
         /*
-         * it's a bit more comlicated logic in this case. if bn_add_words
+         * it's a bit more complicated logic in this case. if bn_add_words
          * yields no carry, then result has to be adjusted by unconditionally
          * *adding* the modulus. but if it does, then result has to be
          * compared to the modulus and conditionally adjusted by
@@ -654,19 +607,14 @@ int BN_nist_mod_224(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
         carry =
             (int)bn_add_words(r_d, r_d, _nist_p_224[-carry - 1],
                               BN_NIST_224_TOP);
-        mask = 0 - (PTR_SIZE_INT) carry;
-        u.p = ((PTR_SIZE_INT) bn_sub_words & mask) |
-            ((PTR_SIZE_INT) bn_add_words & ~mask);
+        adjust = carry ? bn_sub_words : bn_add_words;
     } else
         carry = 1;
 
     /* otherwise it's effectively same as in BN_nist_mod_192... */
-    mask =
-        0 - (PTR_SIZE_INT) (*u.f) (c_d, r_d, _nist_p_224[0], BN_NIST_224_TOP);
-    mask &= 0 - (PTR_SIZE_INT) carry;
-    res = c_d;
-    res = (BN_ULONG *)(((PTR_SIZE_INT) res & ~mask) |
-                       ((PTR_SIZE_INT) r_d & mask));
+    res = ((*adjust) (c_d, r_d, _nist_p_224[0], BN_NIST_224_TOP) && carry)
+        ? r_d
+        : c_d;
     nist_cp_bn(r_d, res, BN_NIST_224_TOP);
     r->top = BN_NIST_224_TOP;
     bn_correct_top(r);
@@ -698,21 +646,17 @@ int BN_nist_mod_256(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
                         sizeof(unsigned int)];
     } buf;
     BN_ULONG c_d[BN_NIST_256_TOP], *res;
-    PTR_SIZE_INT mask;
-    union {
-        bn_addsub_f f;
-        PTR_SIZE_INT p;
-    } u;
-    static const BIGNUM _bignum_nist_p_256_sqr = {
+    bn_addsub_f adjust;
+    static const BIGNUM ossl_bignum_nist_p_256_sqr = {
         (BN_ULONG *)_nist_p_256_sqr,
-        sizeof(_nist_p_256_sqr) / sizeof(_nist_p_256_sqr[0]),
-        sizeof(_nist_p_256_sqr) / sizeof(_nist_p_256_sqr[0]),
+        OSSL_NELEM(_nist_p_256_sqr),
+        OSSL_NELEM(_nist_p_256_sqr),
         0, BN_FLG_STATIC_DATA
     };
 
-    field = &_bignum_nist_p_256; /* just to make sure */
+    field = &ossl_bignum_nist_p_256; /* just to make sure */
 
-    if (BN_is_negative(a) || BN_ucmp(a, &_bignum_nist_p_256_sqr) >= 0)
+    if (BN_is_negative(a) || BN_ucmp(a, &ossl_bignum_nist_p_256_sqr) >= 0)
         return BN_nnmod(r, a, field, ctx);
 
     i = BN_ucmp(field, a);
@@ -888,7 +832,7 @@ int BN_nist_mod_256(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
     }
 #endif
     /* see BN_nist_mod_224 for explanation */
-    u.f = bn_sub_words;
+    adjust = bn_sub_words;
     if (carry > 0)
         carry =
             (int)bn_sub_words(r_d, r_d, _nist_p_256[carry - 1],
@@ -897,18 +841,13 @@ int BN_nist_mod_256(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
         carry =
             (int)bn_add_words(r_d, r_d, _nist_p_256[-carry - 1],
                               BN_NIST_256_TOP);
-        mask = 0 - (PTR_SIZE_INT) carry;
-        u.p = ((PTR_SIZE_INT) bn_sub_words & mask) |
-            ((PTR_SIZE_INT) bn_add_words & ~mask);
+        adjust = carry ? bn_sub_words : bn_add_words;
     } else
         carry = 1;
 
-    mask =
-        0 - (PTR_SIZE_INT) (*u.f) (c_d, r_d, _nist_p_256[0], BN_NIST_256_TOP);
-    mask &= 0 - (PTR_SIZE_INT) carry;
-    res = c_d;
-    res = (BN_ULONG *)(((PTR_SIZE_INT) res & ~mask) |
-                       ((PTR_SIZE_INT) r_d & mask));
+    res = ((*adjust) (c_d, r_d, _nist_p_256[0], BN_NIST_256_TOP) && carry)
+        ? r_d
+        : c_d;
     nist_cp_bn(r_d, res, BN_NIST_256_TOP);
     r->top = BN_NIST_256_TOP;
     bn_correct_top(r);
@@ -944,21 +883,17 @@ int BN_nist_mod_384(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
                         sizeof(unsigned int)];
     } buf;
     BN_ULONG c_d[BN_NIST_384_TOP], *res;
-    PTR_SIZE_INT mask;
-    union {
-        bn_addsub_f f;
-        PTR_SIZE_INT p;
-    } u;
-    static const BIGNUM _bignum_nist_p_384_sqr = {
+    bn_addsub_f adjust;
+    static const BIGNUM ossl_bignum_nist_p_384_sqr = {
         (BN_ULONG *)_nist_p_384_sqr,
-        sizeof(_nist_p_384_sqr) / sizeof(_nist_p_384_sqr[0]),
-        sizeof(_nist_p_384_sqr) / sizeof(_nist_p_384_sqr[0]),
+        OSSL_NELEM(_nist_p_384_sqr),
+        OSSL_NELEM(_nist_p_384_sqr),
         0, BN_FLG_STATIC_DATA
     };
 
-    field = &_bignum_nist_p_384; /* just to make sure */
+    field = &ossl_bignum_nist_p_384; /* just to make sure */
 
-    if (BN_is_negative(a) || BN_ucmp(a, &_bignum_nist_p_384_sqr) >= 0)
+    if (BN_is_negative(a) || BN_ucmp(a, &ossl_bignum_nist_p_384_sqr) >= 0)
         return BN_nnmod(r, a, field, ctx);
 
     i = BN_ucmp(field, a);
@@ -1169,7 +1104,7 @@ int BN_nist_mod_384(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
     }
 #endif
     /* see BN_nist_mod_224 for explanation */
-    u.f = bn_sub_words;
+    adjust = bn_sub_words;
     if (carry > 0)
         carry =
             (int)bn_sub_words(r_d, r_d, _nist_p_384[carry - 1],
@@ -1178,18 +1113,13 @@ int BN_nist_mod_384(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
         carry =
             (int)bn_add_words(r_d, r_d, _nist_p_384[-carry - 1],
                               BN_NIST_384_TOP);
-        mask = 0 - (PTR_SIZE_INT) carry;
-        u.p = ((PTR_SIZE_INT) bn_sub_words & mask) |
-            ((PTR_SIZE_INT) bn_add_words & ~mask);
+        adjust = carry ? bn_sub_words : bn_add_words;
     } else
         carry = 1;
 
-    mask =
-        0 - (PTR_SIZE_INT) (*u.f) (c_d, r_d, _nist_p_384[0], BN_NIST_384_TOP);
-    mask &= 0 - (PTR_SIZE_INT) carry;
-    res = c_d;
-    res = (BN_ULONG *)(((PTR_SIZE_INT) res & ~mask) |
-                       ((PTR_SIZE_INT) r_d & mask));
+    res = ((*adjust) (c_d, r_d, _nist_p_384[0], BN_NIST_384_TOP) && carry)
+        ? r_d
+        : c_d;
     nist_cp_bn(r_d, res, BN_NIST_384_TOP);
     r->top = BN_NIST_384_TOP;
     bn_correct_top(r);
@@ -1206,17 +1136,16 @@ int BN_nist_mod_521(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
 {
     int top = a->top, i;
     BN_ULONG *r_d, *a_d = a->d, t_d[BN_NIST_521_TOP], val, tmp, *res;
-    PTR_SIZE_INT mask;
-    static const BIGNUM _bignum_nist_p_521_sqr = {
+    static const BIGNUM ossl_bignum_nist_p_521_sqr = {
         (BN_ULONG *)_nist_p_521_sqr,
-        sizeof(_nist_p_521_sqr) / sizeof(_nist_p_521_sqr[0]),
-        sizeof(_nist_p_521_sqr) / sizeof(_nist_p_521_sqr[0]),
+        OSSL_NELEM(_nist_p_521_sqr),
+        OSSL_NELEM(_nist_p_521_sqr),
         0, BN_FLG_STATIC_DATA
     };
 
-    field = &_bignum_nist_p_521; /* just to make sure */
+    field = &ossl_bignum_nist_p_521; /* just to make sure */
 
-    if (BN_is_negative(a) || BN_ucmp(a, &_bignum_nist_p_521_sqr) >= 0)
+    if (BN_is_negative(a) || BN_ucmp(a, &ossl_bignum_nist_p_521_sqr) >= 0)
         return BN_nnmod(r, a, field, ctx);
 
     i = BN_ucmp(field, a);
@@ -1239,24 +1168,48 @@ int BN_nist_mod_521(BIGNUM *r, const BIGNUM *a, const BIGNUM *field,
                  top - (BN_NIST_521_TOP - 1), BN_NIST_521_TOP);
     /* ... and right shift */
     for (val = t_d[0], i = 0; i < BN_NIST_521_TOP - 1; i++) {
+#if 0
+        /*
+         * MSC ARM compiler [version 2013, presumably even earlier,
+         * much earlier] miscompiles this code, but not one in
+         * #else section. See RT#3541.
+         */
+        tmp = val >> BN_NIST_521_RSHIFT;
+        val = t_d[i + 1];
+        t_d[i] = (tmp | val << BN_NIST_521_LSHIFT) & BN_MASK2;
+#else
         t_d[i] = (val >> BN_NIST_521_RSHIFT |
                   (tmp = t_d[i + 1]) << BN_NIST_521_LSHIFT) & BN_MASK2;
         val = tmp;
+#endif
     }
     t_d[i] = val >> BN_NIST_521_RSHIFT;
     /* lower 521 bits */
     r_d[i] &= BN_NIST_521_TOP_MASK;
 
     bn_add_words(r_d, r_d, t_d, BN_NIST_521_TOP);
-    mask =
-        0 - (PTR_SIZE_INT) bn_sub_words(t_d, r_d, _nist_p_521,
-                                        BN_NIST_521_TOP);
-    res = t_d;
-    res = (BN_ULONG *)(((PTR_SIZE_INT) res & ~mask) |
-                       ((PTR_SIZE_INT) r_d & mask));
+    res = bn_sub_words(t_d, r_d, _nist_p_521,
+                       BN_NIST_521_TOP)
+        ? r_d
+        : t_d;
     nist_cp_bn(r_d, res, BN_NIST_521_TOP);
     r->top = BN_NIST_521_TOP;
     bn_correct_top(r);
 
     return 1;
+}
+
+int (*BN_nist_mod_func(const BIGNUM *p)) (BIGNUM *r, const BIGNUM *a,
+                                          const BIGNUM *field, BN_CTX *ctx) {
+    if (BN_ucmp(&ossl_bignum_nist_p_192, p) == 0)
+        return BN_nist_mod_192;
+    if (BN_ucmp(&ossl_bignum_nist_p_224, p) == 0)
+        return BN_nist_mod_224;
+    if (BN_ucmp(&ossl_bignum_nist_p_256, p) == 0)
+        return BN_nist_mod_256;
+    if (BN_ucmp(&ossl_bignum_nist_p_384, p) == 0)
+        return BN_nist_mod_384;
+    if (BN_ucmp(&ossl_bignum_nist_p_521, p) == 0)
+        return BN_nist_mod_521;
+    return 0;
 }

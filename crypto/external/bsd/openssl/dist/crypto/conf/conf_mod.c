@@ -1,69 +1,30 @@
-/* conf_mod.c */
 /*
- * Written by Stephen Henson (steve@openssl.org) for the OpenSSL project
- * 2001.
- */
-/* ====================================================================
- * Copyright (c) 2001 The OpenSSL Project.  All rights reserved.
+ * Copyright 2002-2023 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
+/* We need to use some engine deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
+#include "internal/cryptlib.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <openssl/crypto.h>
-#include "cryptlib.h"
-#include <openssl/conf.h>
-#include <openssl/dso.h>
+#include "internal/conf.h"
+#include <openssl/conf_api.h>
+#include "internal/dso.h"
+#include "internal/thread_once.h"
 #include <openssl/x509.h>
+#include <openssl/trace.h>
+#include <openssl/engine.h>
+#include "conf_local.h"
+
+DEFINE_STACK_OF(CONF_MODULE)
+DEFINE_STACK_OF(CONF_IMODULE)
 
 #define DSO_mod_init_name "OPENSSL_init"
 #define DSO_mod_finish_name "OPENSSL_finish"
@@ -101,21 +62,55 @@ struct conf_imodule_st {
     void *usr_data;
 };
 
-static STACK_OF(CONF_MODULE) *supported_modules = NULL;
-static STACK_OF(CONF_IMODULE) *initialized_modules = NULL;
+static CRYPTO_ONCE init_module_list_lock = CRYPTO_ONCE_STATIC_INIT;
+static CRYPTO_RWLOCK *module_list_lock = NULL;
+static STACK_OF(CONF_MODULE) *supported_modules = NULL; /* protected by lock */
+static STACK_OF(CONF_IMODULE) *initialized_modules = NULL; /* protected by lock */
+
+static CRYPTO_ONCE load_builtin_modules = CRYPTO_ONCE_STATIC_INIT;
 
 static void module_free(CONF_MODULE *md);
 static void module_finish(CONF_IMODULE *imod);
-static int module_run(const CONF *cnf, char *name, char *value,
+static int module_run(const CONF *cnf, const char *name, const char *value,
                       unsigned long flags);
 static CONF_MODULE *module_add(DSO *dso, const char *name,
                                conf_init_func *ifunc,
                                conf_finish_func *ffunc);
-static CONF_MODULE *module_find(char *name);
-static int module_init(CONF_MODULE *pmod, char *name, char *value,
+static CONF_MODULE *module_find(const char *name);
+static int module_init(CONF_MODULE *pmod, const char *name, const char *value,
                        const CONF *cnf);
-static CONF_MODULE *module_load_dso(const CONF *cnf, char *name, char *value,
-                                    unsigned long flags);
+static CONF_MODULE *module_load_dso(const CONF *cnf, const char *name,
+                                    const char *value);
+
+static int conf_modules_finish_int(void);
+
+static void module_lists_free(void)
+{
+    CRYPTO_THREAD_lock_free(module_list_lock);
+    module_list_lock = NULL;
+
+    sk_CONF_MODULE_free(supported_modules);
+    supported_modules = NULL;
+
+    sk_CONF_IMODULE_free(initialized_modules);
+    initialized_modules = NULL;
+}
+
+DEFINE_RUN_ONCE_STATIC(do_init_module_list_lock)
+{
+    module_list_lock = CRYPTO_THREAD_lock_new();
+    if (module_list_lock == NULL) {
+        ERR_raise(ERR_LIB_CONF, ERR_R_MALLOC_FAILURE);
+        return 0;
+    }
+
+    return 1;
+}
+
+static int conf_diagnostics(const CONF *cnf)
+{
+    return _CONF_get_number(cnf, NULL, "config_diagnostics") != 0;
+}
 
 /* Main function: load modules from a CONF structure */
 
@@ -125,12 +120,18 @@ int CONF_modules_load(const CONF *cnf, const char *appname,
     STACK_OF(CONF_VALUE) *values;
     CONF_VALUE *vl;
     char *vsection = NULL;
-
     int ret, i;
 
     if (!cnf)
         return 1;
 
+    if (conf_diagnostics(cnf))
+        flags &= ~(CONF_MFLAGS_IGNORE_ERRORS
+                   | CONF_MFLAGS_IGNORE_RETURN_CODES
+                   | CONF_MFLAGS_SILENT
+                   | CONF_MFLAGS_IGNORE_MISSING_FILE);
+
+    ERR_set_mark();
     if (appname)
         vsection = NCONF_get_string(cnf, NULL, appname);
 
@@ -138,79 +139,132 @@ int CONF_modules_load(const CONF *cnf, const char *appname,
         vsection = NCONF_get_string(cnf, NULL, "openssl_conf");
 
     if (!vsection) {
-        ERR_clear_error();
+        ERR_pop_to_mark();
         return 1;
     }
 
+    OSSL_TRACE1(CONF, "Configuration in section %s\n", vsection);
     values = NCONF_get_section(cnf, vsection);
 
-    if (!values)
+    if (values == NULL) {
+        if (!(flags & CONF_MFLAGS_SILENT)) {
+            ERR_clear_last_mark();
+            ERR_raise_data(ERR_LIB_CONF,
+                           CONF_R_OPENSSL_CONF_REFERENCES_MISSING_SECTION,
+                           "openssl_conf=%s", vsection);
+        } else {
+            ERR_pop_to_mark();
+        }
         return 0;
+    }
+    ERR_pop_to_mark();
 
     for (i = 0; i < sk_CONF_VALUE_num(values); i++) {
         vl = sk_CONF_VALUE_value(values, i);
+        ERR_set_mark();
         ret = module_run(cnf, vl->name, vl->value, flags);
+        OSSL_TRACE3(CONF, "Running module %s (%s) returned %d\n",
+                    vl->name, vl->value, ret);
         if (ret <= 0)
-            if (!(flags & CONF_MFLAGS_IGNORE_ERRORS))
+            if (!(flags & CONF_MFLAGS_IGNORE_ERRORS)) {
+                ERR_clear_last_mark();
                 return ret;
+            }
+        ERR_pop_to_mark();
     }
 
     return 1;
 
 }
 
-int CONF_modules_load_file(const char *filename, const char *appname,
-                           unsigned long flags)
+int CONF_modules_load_file_ex(OSSL_LIB_CTX *libctx, const char *filename,
+                              const char *appname, unsigned long flags)
 {
     char *file = NULL;
     CONF *conf = NULL;
-    int ret = 0;
-    conf = NCONF_new(NULL);
-    if (!conf)
-        goto err;
+    int ret = 0, diagnostics = 0;
+
+    ERR_set_mark();
 
     if (filename == NULL) {
         file = CONF_get1_default_config_file();
-        if (!file)
+        if (file == NULL)
             goto err;
-    } else
+        if (*file == '\0') {
+            /* Do not try to load an empty file name but do not error out */
+            ret = 1;
+            goto err;
+        }
+    } else {
         file = (char *)filename;
+    }
+
+    conf = NCONF_new_ex(libctx, NULL);
+    if (conf == NULL)
+        goto err;
 
     if (NCONF_load(conf, file, NULL) <= 0) {
         if ((flags & CONF_MFLAGS_IGNORE_MISSING_FILE) &&
             (ERR_GET_REASON(ERR_peek_last_error()) == CONF_R_NO_SUCH_FILE)) {
-            ERR_clear_error();
             ret = 1;
         }
         goto err;
     }
 
     ret = CONF_modules_load(conf, appname, flags);
+    diagnostics = conf_diagnostics(conf);
 
  err:
     if (filename == NULL)
         OPENSSL_free(file);
     NCONF_free(conf);
 
+    if ((flags & CONF_MFLAGS_IGNORE_RETURN_CODES) != 0 && !diagnostics)
+        ret = 1;
+
+    if (ret > 0)
+        ERR_pop_to_mark();
+    else
+        ERR_clear_last_mark();
+
     return ret;
 }
 
-static int module_run(const CONF *cnf, char *name, char *value,
+int CONF_modules_load_file(const char *filename,
+                           const char *appname, unsigned long flags)
+{
+    return CONF_modules_load_file_ex(NULL, filename, appname, flags);
+}
+
+DEFINE_RUN_ONCE_STATIC(do_load_builtin_modules)
+{
+    OPENSSL_load_builtin_modules();
+#ifndef OPENSSL_NO_ENGINE
+    /* Need to load ENGINEs */
+    ENGINE_load_builtin_engines();
+#endif
+    return 1;
+}
+
+static int module_run(const CONF *cnf, const char *name, const char *value,
                       unsigned long flags)
 {
     CONF_MODULE *md;
     int ret;
 
+    if (!RUN_ONCE(&load_builtin_modules, do_load_builtin_modules))
+        return -1;
+
     md = module_find(name);
 
     /* Module not found: try to load DSO */
     if (!md && !(flags & CONF_MFLAGS_NO_DSO))
-        md = module_load_dso(cnf, name, value, flags);
+        md = module_load_dso(cnf, name, value);
 
     if (!md) {
         if (!(flags & CONF_MFLAGS_SILENT)) {
-            CONFerr(CONF_F_MODULE_RUN, CONF_R_UNKNOWN_MODULE_NAME);
-            ERR_add_error_data(2, "module=", name);
+            ERR_raise_data(ERR_LIB_CONF, CONF_R_UNKNOWN_MODULE_NAME,
+                           "module=%s", name);
         }
         return -1;
     }
@@ -218,41 +272,38 @@ static int module_run(const CONF *cnf, char *name, char *value,
     ret = module_init(md, name, value, cnf);
 
     if (ret <= 0) {
-        if (!(flags & CONF_MFLAGS_SILENT)) {
-            char rcode[DECIMAL_SIZE(ret) + 1];
-            CONFerr(CONF_F_MODULE_RUN, CONF_R_MODULE_INITIALIZATION_ERROR);
-            BIO_snprintf(rcode, sizeof rcode, "%-8d", ret);
-            ERR_add_error_data(6, "module=", name, ", value=", value,
-                               ", retcode=", rcode);
-        }
+        if (!(flags & CONF_MFLAGS_SILENT))
+            ERR_raise_data(ERR_LIB_CONF, CONF_R_MODULE_INITIALIZATION_ERROR,
+                           "module=%s, value=%s retcode=%-8d",
+                           name, value, ret);
     }
 
     return ret;
 }
 
 /* Load a module from a DSO */
-static CONF_MODULE *module_load_dso(const CONF *cnf, char *name, char *value,
-                                    unsigned long flags)
+static CONF_MODULE *module_load_dso(const CONF *cnf,
+                                    const char *name, const char *value)
 {
     DSO *dso = NULL;
     conf_init_func *ifunc;
     conf_finish_func *ffunc;
-    char *path = NULL;
+    const char *path = NULL;
     int errcode = 0;
     CONF_MODULE *md;
+
     /* Look for alternative path in module section */
-    path = NCONF_get_string(cnf, value, "path");
-    if (!path) {
-        ERR_clear_error();
+    path = _CONF_get_string(cnf, value, "path");
+    if (path == NULL) {
         path = name;
     }
     dso = DSO_load(NULL, path, NULL, 0);
-    if (!dso) {
+    if (dso == NULL) {
         errcode = CONF_R_ERROR_LOADING_DSO;
         goto err;
     }
     ifunc = (conf_init_func *)DSO_bind_func(dso, DSO_mod_init_name);
-    if (!ifunc) {
+    if (ifunc == NULL) {
         errcode = CONF_R_MISSING_INIT_FUNCTION;
         goto err;
     }
@@ -260,16 +311,14 @@ static CONF_MODULE *module_load_dso(const CONF *cnf, char *name, char *value,
     /* All OK, add module */
     md = module_add(dso, name, ifunc, ffunc);
 
-    if (!md)
+    if (md == NULL)
         goto err;
 
     return md;
 
  err:
-    if (dso)
-        DSO_free(dso);
-    CONFerr(CONF_F_MODULE_LOAD_DSO, errcode);
-    ERR_add_error_data(4, "module=", name, ", path=", path);
+    DSO_free(dso);
+    ERR_raise_data(ERR_LIB_CONF, errcode, "module=%s, path=%s", name, path);
     return NULL;
 }
 
@@ -278,26 +327,42 @@ static CONF_MODULE *module_add(DSO *dso, const char *name,
                                conf_init_func *ifunc, conf_finish_func *ffunc)
 {
     CONF_MODULE *tmod = NULL;
+
+    if (!RUN_ONCE(&init_module_list_lock, do_init_module_list_lock))
+        return NULL;
+
+    if (!CRYPTO_THREAD_write_lock(module_list_lock))
+        return NULL;
+
     if (supported_modules == NULL)
         supported_modules = sk_CONF_MODULE_new_null();
     if (supported_modules == NULL)
-        return NULL;
-    tmod = OPENSSL_malloc(sizeof(CONF_MODULE));
-    if (tmod == NULL)
-        return NULL;
-
-    tmod->dso = dso;
-    tmod->name = BUF_strdup(name);
-    tmod->init = ifunc;
-    tmod->finish = ffunc;
-    tmod->links = 0;
-
-    if (!sk_CONF_MODULE_push(supported_modules, tmod)) {
-        OPENSSL_free(tmod);
-        return NULL;
+        goto err;
+    if ((tmod = OPENSSL_zalloc(sizeof(*tmod))) == NULL) {
+        ERR_raise(ERR_LIB_CONF, ERR_R_MALLOC_FAILURE);
+        goto err;
     }
 
+    tmod->dso = dso;
+    tmod->name = OPENSSL_strdup(name);
+    tmod->init = ifunc;
+    tmod->finish = ffunc;
+    if (tmod->name == NULL)
+        goto err;
+
+    if (!sk_CONF_MODULE_push(supported_modules, tmod))
+        goto err;
+
+    CRYPTO_THREAD_unlock(module_list_lock);
     return tmod;
+
+ err:
+    CRYPTO_THREAD_unlock(module_list_lock);
+    if (tmod != NULL) {
+        OPENSSL_free(tmod->name);
+        OPENSSL_free(tmod);
+    }
+    return NULL;
 }
 
 /*
@@ -306,7 +371,7 @@ static CONF_MODULE *module_add(DSO *dso, const char *name,
  * initialized more than once.
  */
 
-static CONF_MODULE *module_find(char *name)
+static CONF_MODULE *module_find(const char *name)
 {
     CONF_MODULE *tmod;
     int i, nchar;
@@ -318,18 +383,26 @@ static CONF_MODULE *module_find(char *name)
     else
         nchar = strlen(name);
 
+    if (!RUN_ONCE(&init_module_list_lock, do_init_module_list_lock))
+        return NULL;
+
+    if (!CRYPTO_THREAD_read_lock(module_list_lock))
+        return NULL;
+
     for (i = 0; i < sk_CONF_MODULE_num(supported_modules); i++) {
         tmod = sk_CONF_MODULE_value(supported_modules, i);
-        if (!strncmp(tmod->name, name, nchar))
+        if (strncmp(tmod->name, name, nchar) == 0) {
+            CRYPTO_THREAD_unlock(module_list_lock);
             return tmod;
+        }
     }
 
+    CRYPTO_THREAD_unlock(module_list_lock);
     return NULL;
-
 }
 
 /* initialize a module */
-static int module_init(CONF_MODULE *pmod, char *name, char *value,
+static int module_init(CONF_MODULE *pmod, const char *name, const char *value,
                        const CONF *cnf)
 {
     int ret = 1;
@@ -337,13 +410,13 @@ static int module_init(CONF_MODULE *pmod, char *name, char *value,
     CONF_IMODULE *imod = NULL;
 
     /* Otherwise add initialized module to list */
-    imod = OPENSSL_malloc(sizeof(CONF_IMODULE));
-    if (!imod)
+    imod = OPENSSL_malloc(sizeof(*imod));
+    if (imod == NULL)
         goto err;
 
     imod->pmod = pmod;
-    imod->name = BUF_strdup(name);
-    imod->value = BUF_strdup(value);
+    imod->name = OPENSSL_strdup(name);
+    imod->value = OPENSSL_strdup(value);
     imod->usr_data = NULL;
 
     if (!imod->name || !imod->value)
@@ -358,21 +431,30 @@ static int module_init(CONF_MODULE *pmod, char *name, char *value,
             goto err;
     }
 
+    if (!RUN_ONCE(&init_module_list_lock, do_init_module_list_lock))
+        goto err;
+
+    if (!CRYPTO_THREAD_write_lock(module_list_lock))
+        goto err;
+
     if (initialized_modules == NULL) {
         initialized_modules = sk_CONF_IMODULE_new_null();
-        if (!initialized_modules) {
-            CONFerr(CONF_F_MODULE_INIT, ERR_R_MALLOC_FAILURE);
+        if (initialized_modules == NULL) {
+            CRYPTO_THREAD_unlock(module_list_lock);
+            ERR_raise(ERR_LIB_CONF, ERR_R_MALLOC_FAILURE);
             goto err;
         }
     }
 
     if (!sk_CONF_IMODULE_push(initialized_modules, imod)) {
-        CONFerr(CONF_F_MODULE_INIT, ERR_R_MALLOC_FAILURE);
+        CRYPTO_THREAD_unlock(module_list_lock);
+        ERR_raise(ERR_LIB_CONF, ERR_R_MALLOC_FAILURE);
         goto err;
     }
 
     pmod->links++;
 
+    CRYPTO_THREAD_unlock(module_list_lock);
     return ret;
 
  err:
@@ -383,10 +465,8 @@ static int module_init(CONF_MODULE *pmod, char *name, char *value,
 
  memerr:
     if (imod) {
-        if (imod->name)
-            OPENSSL_free(imod->name);
-        if (imod->value)
-            OPENSSL_free(imod->value);
+        OPENSSL_free(imod->name);
+        OPENSSL_free(imod->value);
         OPENSSL_free(imod);
     }
 
@@ -404,7 +484,13 @@ void CONF_modules_unload(int all)
 {
     int i;
     CONF_MODULE *md;
-    CONF_modules_finish();
+
+    if (!conf_modules_finish_int()) /* also inits module list lock */
+        return;
+
+    if (!CRYPTO_THREAD_write_lock(module_list_lock))
+        return;
+
     /* unload modules in reverse order */
     for (i = sk_CONF_MODULE_num(supported_modules) - 1; i >= 0; i--) {
         md = sk_CONF_MODULE_value(supported_modules, i);
@@ -415,38 +501,60 @@ void CONF_modules_unload(int all)
         (void)sk_CONF_MODULE_delete(supported_modules, i);
         module_free(md);
     }
+
     if (sk_CONF_MODULE_num(supported_modules) == 0) {
         sk_CONF_MODULE_free(supported_modules);
         supported_modules = NULL;
     }
+
+    CRYPTO_THREAD_unlock(module_list_lock);
 }
 
 /* unload a single module */
 static void module_free(CONF_MODULE *md)
 {
-    if (md->dso)
-        DSO_free(md->dso);
+    DSO_free(md->dso);
     OPENSSL_free(md->name);
     OPENSSL_free(md);
 }
 
 /* finish and free up all modules instances */
 
-void CONF_modules_finish(void)
+static int conf_modules_finish_int(void)
 {
     CONF_IMODULE *imod;
+
+    if (!RUN_ONCE(&init_module_list_lock, do_init_module_list_lock))
+        return 0;
+
+    /* If module_list_lock is NULL here it means we were already unloaded */
+    if (module_list_lock == NULL
+        || !CRYPTO_THREAD_write_lock(module_list_lock))
+        return 0;
+
     while (sk_CONF_IMODULE_num(initialized_modules) > 0) {
         imod = sk_CONF_IMODULE_pop(initialized_modules);
         module_finish(imod);
     }
     sk_CONF_IMODULE_free(initialized_modules);
     initialized_modules = NULL;
+
+    CRYPTO_THREAD_unlock(module_list_lock);
+
+    return 1;
+}
+
+void CONF_modules_finish(void)
+{
+    conf_modules_finish_int();
 }
 
 /* finish a module instance */
 
 static void module_finish(CONF_IMODULE *imod)
 {
+    if (!imod)
+        return;
     if (imod->pmod->finish)
         imod->pmod->finish(imod);
     imod->pmod->links--;
@@ -466,10 +574,10 @@ int CONF_module_add(const char *name, conf_init_func *ifunc,
         return 0;
 }
 
-void CONF_modules_free(void)
+void ossl_config_modules_free(void)
 {
-    CONF_modules_finish();
-    CONF_modules_unload(1);
+    CONF_modules_unload(1); /* calls CONF_modules_finish */
+    module_lists_free();
 }
 
 /* Utility functions */
@@ -520,31 +628,25 @@ void CONF_module_set_usr_data(CONF_MODULE *pmod, void *usr_data)
 }
 
 /* Return default config file name */
-
 char *CONF_get1_default_config_file(void)
 {
-    char *file;
-    int len;
+    const char *t;
+    char *file, *sep = "";
+    size_t size;
 
-    file = getenv("OPENSSL_CONF");
-    if (file)
-        return BUF_strdup(file);
+    if ((file = ossl_safe_getenv("OPENSSL_CONF")) != NULL)
+        return OPENSSL_strdup(file);
 
-    len = strlen(X509_get_default_cert_area());
+    t = X509_get_default_cert_area();
 #ifndef OPENSSL_SYS_VMS
-    len++;
+    sep = "/";
 #endif
-    len += strlen(OPENSSL_CONF);
+    size = strlen(t) + strlen(sep) + strlen(OPENSSL_CONF) + 1;
+    file = OPENSSL_malloc(size);
 
-    file = OPENSSL_malloc(len + 1);
-
-    if (!file)
+    if (file == NULL)
         return NULL;
-    BUF_strlcpy(file, X509_get_default_cert_area(), len + 1);
-#ifndef OPENSSL_SYS_VMS
-    BUF_strlcat(file, "/", len + 1);
-#endif
-    BUF_strlcat(file, OPENSSL_CONF, len + 1);
+    BIO_snprintf(file, size, "%s%s%s", t, sep, OPENSSL_CONF);
 
     return file;
 }
@@ -564,7 +666,7 @@ int CONF_parse_list(const char *list_, int sep, int nospc,
     const char *lstart, *tmpend, *p;
 
     if (list_ == NULL) {
-        CONFerr(CONF_F_CONF_PARSE_LIST, CONF_R_LIST_CANNOT_BE_NULL);
+        ERR_raise(ERR_LIB_CONF, CONF_R_LIST_CANNOT_BE_NULL);
         return 0;
     }
 
@@ -575,7 +677,7 @@ int CONF_parse_list(const char *list_, int sep, int nospc,
                 lstart++;
         }
         p = strchr(lstart, sep);
-        if (p == lstart || !*lstart)
+        if (p == lstart || *lstart == '\0')
             ret = list_cb(NULL, 0, arg);
         else {
             if (p)

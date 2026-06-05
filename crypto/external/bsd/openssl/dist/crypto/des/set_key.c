@@ -1,59 +1,10 @@
-/* crypto/des/set_key.c */
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 /*-
@@ -64,13 +15,18 @@
  * 1.1 added norm_expand_bits
  * 1.0 First working version
  */
-#include <openssl/crypto.h>
-#include "des_locl.h"
 
-OPENSSL_IMPLEMENT_GLOBAL(int, DES_check_key, 0)
-                                                    /*
-                                                     * defaults to false
-                                                     */
+/*
+ * DES low level APIs are deprecated for public use, but still ok for internal
+ * use.
+ */
+#include "internal/deprecated.h"
+
+#include <openssl/crypto.h>
+#include "internal/constant_time.h"
+#include "internal/nelem.h"
+#include "des_local.h"
+
 static const unsigned char odd_parity[256] = {
     1, 1, 2, 2, 4, 4, 7, 7, 8, 8, 11, 11, 13, 13, 14, 14,
     16, 16, 19, 19, 21, 21, 22, 22, 25, 25, 26, 26, 28, 28, 31, 31,
@@ -108,29 +64,34 @@ void DES_set_odd_parity(DES_cblock *key)
         (*key)[i] = odd_parity[(*key)[i]];
 }
 
+/*
+ * Check that a key has the correct parity.
+ * Return 1 if parity is okay and 0 if not.
+ */
 int DES_check_key_parity(const_DES_cblock *key)
 {
     unsigned int i;
+    unsigned char res = 0377, b;
 
     for (i = 0; i < DES_KEY_SZ; i++) {
-        if ((*key)[i] != odd_parity[(*key)[i]])
-            return (0);
+        b = (*key)[i];
+        b ^= b >> 4;
+        b ^= b >> 2;
+        b ^= b >> 1;
+        res &= constant_time_eq_8(b & 1, 1);
     }
-    return (1);
+    return (int)(res & 1);
 }
 
 /*-
- * Weak and semi week keys as take from
+ * Weak and semi weak keys as taken from
  * %A D.W. Davies
  * %A W.L. Price
  * %T Security for Computer Networks
  * %I John Wiley & Sons
  * %D 1984
- * Many thanks to smb@ulysses.att.com (Steven Bellovin) for the reference
- * (and actual cblock values).
  */
-#define NUM_WEAK_KEY    16
-static const DES_cblock weak_keys[NUM_WEAK_KEY] = {
+static const DES_cblock weak_keys[] = {
     /* weak keys */
     {0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01},
     {0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE},
@@ -151,20 +112,20 @@ static const DES_cblock weak_keys[NUM_WEAK_KEY] = {
     {0xFE, 0xE0, 0xFE, 0xE0, 0xFE, 0xF1, 0xFE, 0xF1}
 };
 
+/*
+ * Check for weak keys.
+ * Return 1 if the key is weak and 0 otherwise.
+ */
 int DES_is_weak_key(const_DES_cblock *key)
 {
-    int i;
+    unsigned int i, res = 0;
+    int j;
 
-    for (i = 0; i < NUM_WEAK_KEY; i++)
-        /*
-         * Added == 0 to comparison, I obviously don't run this section very
-         * often :-(, thanks to engineering@MorningStar.Com for the fix eay
-         * 93/06/29 Another problem, I was comparing only the first 4 bytes,
-         * 97/03/18
-         */
-        if (memcmp(weak_keys[i], key, sizeof(DES_cblock)) == 0)
-            return (1);
-    return (0);
+    for (i = 0; i < OSSL_NELEM(weak_keys); i++) {
+        j = CRYPTO_memcmp(weak_keys[i], key, sizeof(DES_cblock));
+        res |= constant_time_is_zero((unsigned int)j);
+    }
+    return (int)(res & 1);
 }
 
 /*-
@@ -333,14 +294,17 @@ static const DES_LONG des_skb[8][64] = {
      }
 };
 
+/* Return values as DES_set_key_checked() but always set the key */
 int DES_set_key(const_DES_cblock *key, DES_key_schedule *schedule)
 {
-    if (DES_check_key) {
-        return DES_set_key_checked(key, schedule);
-    } else {
-        DES_set_key_unchecked(key, schedule);
-        return 0;
-    }
+    int ret = 0;
+
+    if (!DES_check_key_parity(key))
+        ret = -1;
+    if (DES_is_weak_key(key))
+        ret = -2;
+    DES_set_key_unchecked(key, schedule);
+    return ret;
 }
 
 /*-
@@ -351,23 +315,14 @@ int DES_set_key(const_DES_cblock *key, DES_key_schedule *schedule)
 int DES_set_key_checked(const_DES_cblock *key, DES_key_schedule *schedule)
 {
     if (!DES_check_key_parity(key))
-        return (-1);
+        return -1;
     if (DES_is_weak_key(key))
-        return (-2);
+        return -2;
     DES_set_key_unchecked(key, schedule);
     return 0;
 }
 
 void DES_set_key_unchecked(const_DES_cblock *key, DES_key_schedule *schedule)
-#ifdef OPENSSL_FIPS
-{
-    fips_cipher_abort(DES);
-    private_DES_set_key_unchecked(key, schedule);
-}
-
-void private_DES_set_key_unchecked(const_DES_cblock *key,
-                                   DES_key_schedule *schedule)
-#endif
 {
     static const int shifts2[16] =
         { 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 };
@@ -377,7 +332,7 @@ void private_DES_set_key_unchecked(const_DES_cblock *key,
     register int i;
 
 #ifdef OPENBSD_DEV_CRYPTO
-    memcpy(schedule->key, key, sizeof schedule->key);
+    memcpy(schedule->key, key, sizeof(schedule->key));
     schedule->session = NULL;
 #endif
     k = &schedule->ks->deslong[0];
@@ -387,8 +342,8 @@ void private_DES_set_key_unchecked(const_DES_cblock *key,
     c2l(in, d);
 
     /*
-     * do PC1 in 47 simple operations :-) Thanks to John Fletcher
-     * (john_fletcher@lccmail.ocf.llnl.gov) for the inspiration. :-)
+     * do PC1 in 47 simple operations. Thanks to John Fletcher
+     * for the inspiration.
      */
     PERM_OP(d, c, t, 4, 0x0f0f0f0fL);
     HPERM_OP(c, t, -2, 0xcccc0000L);
@@ -435,13 +390,5 @@ void private_DES_set_key_unchecked(const_DES_cblock *key,
 
 int DES_key_sched(const_DES_cblock *key, DES_key_schedule *schedule)
 {
-    return (DES_set_key(key, schedule));
+    return DES_set_key(key, schedule);
 }
-
-/*-
-#undef des_fixup_key_parity
-void des_fixup_key_parity(des_cblock *key)
-        {
-        des_set_odd_parity(key);
-        }
-*/

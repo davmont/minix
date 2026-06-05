@@ -5,13 +5,22 @@
 .globl	RC4
 .type	RC4,@function
 .align	16
-RC4:	orq	%rsi,%rsi
+RC4:
+.cfi_startproc	
+.byte	243,15,30,250
+	orq	%rsi,%rsi
 	jne	.Lentry
 	.byte	0xf3,0xc3
 .Lentry:
 	pushq	%rbx
+.cfi_adjust_cfa_offset	8
+.cfi_offset	%rbx,-16
 	pushq	%r12
+.cfi_adjust_cfa_offset	8
+.cfi_offset	%r12,-24
 	pushq	%r13
+.cfi_adjust_cfa_offset	8
+.cfi_offset	%r13,-32
 .Lprologue:
 	movq	%rsi,%r11
 	movq	%rdx,%r12
@@ -24,7 +33,7 @@ RC4:	orq	%rsi,%rsi
 	movb	-4(%rdi),%cl
 	cmpl	$-1,256(%rdi)
 	je	.LRC4_CHAR
-	movq	OPENSSL_ia32cap_P@GOTPCREL(%rip),%r8
+	movl	OPENSSL_ia32cap_P(%rip),%r8d
 	xorq	%rbx,%rbx
 	incb	%r10b
 	subq	%r10,%rbx
@@ -32,7 +41,7 @@ RC4:	orq	%rsi,%rsi
 	movl	(%rdi,%r10,4),%eax
 	testq	$-16,%r11
 	jz	.Lloop1
-	bt	$30,(%r8)
+	btl	$30,%r8d
 	jc	.Lintel
 	andq	$7,%rbx
 	leaq	1(%r10),%rsi
@@ -48,7 +57,7 @@ RC4:	orq	%rsi,%rsi
 	movl	(%rdi,%rax,4),%edx
 	movl	(%rdi,%r10,4),%eax
 	xorb	(%r12),%dl
-	movb	%dl,(%r13,%r12,1)
+	movb	%dl,(%r12,%r13,1)
 	leaq	1(%r12),%r12
 	decq	%rbx
 	jnz	.Loop8_warmup
@@ -127,7 +136,7 @@ RC4:	orq	%rsi,%rsi
 	subq	$8,%r11
 
 	xorq	(%r12),%r8
-	movq	%r8,(%r13,%r12,1)
+	movq	%r8,(%r12,%r13,1)
 	leaq	8(%r12),%r12
 
 	testq	$-8,%r11
@@ -153,7 +162,7 @@ RC4:	orq	%rsi,%rsi
 	movl	(%rdi,%rax,4),%edx
 	movl	(%rdi,%r10,4),%eax
 	xorb	(%r12),%dl
-	movb	%dl,(%r13,%r12,1)
+	movb	%dl,(%r12,%r13,1)
 	leaq	1(%r12),%r12
 	decq	%rbx
 	jnz	.Loop16_warmup
@@ -190,7 +199,7 @@ RC4:	orq	%rsi,%rsi
 	pxor	%xmm1,%xmm2
 	addb	%bl,%cl
 	pinsrw	$0,(%rdi,%rax,4),%xmm0
-	movdqu	%xmm2,(%r13,%r12,1)
+	movdqu	%xmm2,(%r12,%r13,1)
 	leaq	16(%r12),%r12
 .Loop16_enter:
 	movl	(%rdi,%rcx,4),%edx
@@ -326,7 +335,7 @@ RC4:	orq	%rsi,%rsi
 	psllq	$8,%xmm1
 	pxor	%xmm0,%xmm2
 	pxor	%xmm1,%xmm2
-	movdqu	%xmm2,(%r13,%r12,1)
+	movdqu	%xmm2,(%r12,%r13,1)
 	leaq	16(%r12),%r12
 
 	cmpq	$0,%r11
@@ -344,7 +353,7 @@ RC4:	orq	%rsi,%rsi
 	movl	(%rdi,%rax,4),%edx
 	movl	(%rdi,%r10,4),%eax
 	xorb	(%r12),%dl
-	movb	%dl,(%r13,%r12,1)
+	movb	%dl,(%r12,%r13,1)
 	leaq	1(%r12),%r12
 	decq	%r11
 	jnz	.Lloop1
@@ -369,7 +378,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%al,(%rdi,%rcx,1)
 	cmpq	%rsi,%rcx
 	movb	%dl,(%rdi,%r10,1)
-	jne	.Lcmov0			
+	jne	.Lcmov0
 	movq	%rax,%rbx
 .Lcmov0:
 	addb	%al,%dl
@@ -383,7 +392,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%bl,(%rdi,%rcx,1)
 	cmpq	%r10,%rcx
 	movb	%dl,(%rdi,%rsi,1)
-	jne	.Lcmov1			
+	jne	.Lcmov1
 	movq	%rbx,%rax
 .Lcmov1:
 	addb	%bl,%dl
@@ -397,7 +406,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%al,(%rdi,%rcx,1)
 	cmpq	%rsi,%rcx
 	movb	%dl,(%rdi,%r10,1)
-	jne	.Lcmov2			
+	jne	.Lcmov2
 	movq	%rax,%rbx
 .Lcmov2:
 	addb	%al,%dl
@@ -411,7 +420,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%bl,(%rdi,%rcx,1)
 	cmpq	%r10,%rcx
 	movb	%dl,(%rdi,%rsi,1)
-	jne	.Lcmov3			
+	jne	.Lcmov3
 	movq	%rbx,%rax
 .Lcmov3:
 	addb	%bl,%dl
@@ -425,7 +434,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%al,(%rdi,%rcx,1)
 	cmpq	%rsi,%rcx
 	movb	%dl,(%rdi,%r10,1)
-	jne	.Lcmov4			
+	jne	.Lcmov4
 	movq	%rax,%rbx
 .Lcmov4:
 	addb	%al,%dl
@@ -439,7 +448,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%bl,(%rdi,%rcx,1)
 	cmpq	%r10,%rcx
 	movb	%dl,(%rdi,%rsi,1)
-	jne	.Lcmov5			
+	jne	.Lcmov5
 	movq	%rbx,%rax
 .Lcmov5:
 	addb	%bl,%dl
@@ -453,7 +462,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%al,(%rdi,%rcx,1)
 	cmpq	%rsi,%rcx
 	movb	%dl,(%rdi,%r10,1)
-	jne	.Lcmov6			
+	jne	.Lcmov6
 	movq	%rax,%rbx
 .Lcmov6:
 	addb	%al,%dl
@@ -467,7 +476,7 @@ RC4:	orq	%rsi,%rsi
 	movb	%bl,(%rdi,%rcx,1)
 	cmpq	%r10,%rcx
 	movb	%dl,(%rdi,%rsi,1)
-	jne	.Lcmov7			
+	jne	.Lcmov7
 	movq	%rbx,%rax
 .Lcmov7:
 	addb	%bl,%dl
@@ -512,16 +521,23 @@ RC4:	orq	%rsi,%rsi
 	movl	%ecx,-4(%rdi)
 
 	movq	(%rsp),%r13
+.cfi_restore	%r13
 	movq	8(%rsp),%r12
+.cfi_restore	%r12
 	movq	16(%rsp),%rbx
+.cfi_restore	%rbx
 	addq	$24,%rsp
+.cfi_adjust_cfa_offset	-24
 .Lepilogue:
 	.byte	0xf3,0xc3
+.cfi_endproc	
 .size	RC4,.-RC4
-.globl	private_RC4_set_key
-.type	private_RC4_set_key,@function
+.globl	RC4_set_key
+.type	RC4_set_key,@function
 .align	16
-private_RC4_set_key:
+RC4_set_key:
+.cfi_startproc	
+.byte	243,15,30,250
 	leaq	8(%rdi),%rdi
 	leaq	(%rdx,%rsi,1),%rdx
 	negq	%rsi
@@ -531,8 +547,8 @@ private_RC4_set_key:
 	xorq	%r10,%r10
 	xorq	%r11,%r11
 
-	movq	OPENSSL_ia32cap_P@GOTPCREL(%rip),%r8
-	bt	$20,(%r8)
+	movl	OPENSSL_ia32cap_P(%rip),%r8d
+	btl	$20,%r8d
 	jc	.Lc1stloop
 	jmp	.Lw1stloop
 
@@ -588,14 +604,17 @@ private_RC4_set_key:
 	movl	%eax,-8(%rdi)
 	movl	%eax,-4(%rdi)
 	.byte	0xf3,0xc3
-.size	private_RC4_set_key,.-private_RC4_set_key
+.cfi_endproc	
+.size	RC4_set_key,.-RC4_set_key
 
 .globl	RC4_options
 .type	RC4_options,@function
 .align	16
 RC4_options:
+.cfi_startproc	
+.byte	243,15,30,250
 	leaq	.Lopts(%rip),%rax
-	movl	OPENSSL_ia32cap_P@GOTPCREL(%rip),%edx
+	movl	OPENSSL_ia32cap_P(%rip),%edx
 	btl	$20,%edx
 	jc	.L8xchar
 	btl	$30,%edx
@@ -606,6 +625,7 @@ RC4_options:
 	addq	$12,%rax
 .Ldone:
 	.byte	0xf3,0xc3
+.cfi_endproc	
 .align	64
 .Lopts:
 .byte	114,99,52,40,56,120,44,105,110,116,41,0
@@ -614,3 +634,24 @@ RC4_options:
 .byte	82,67,52,32,102,111,114,32,120,56,54,95,54,52,44,32,67,82,89,80,84,79,71,65,77,83,32,98,121,32,60,97,112,112,114,111,64,111,112,101,110,115,115,108,46,111,114,103,62,0
 .align	64
 .size	RC4_options,.-RC4_options
+	.section ".note.gnu.property", "a"
+	.p2align 3
+	.long 1f - 0f
+	.long 4f - 1f
+	.long 5
+0:
+	# "GNU" encoded with .byte, since .asciz isn't supported
+	# on Solaris.
+	.byte 0x47
+	.byte 0x4e
+	.byte 0x55
+	.byte 0
+1:
+	.p2align 3
+	.long 0xc0000002
+	.long 3f - 2f
+2:
+	.long 3
+3:
+	.p2align 3
+4:

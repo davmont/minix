@@ -1,18 +1,75 @@
-#	$NetBSD: srcs.inc,v 1.4 2012/07/26 19:58:40 christos Exp $
+#	$NetBSD: srcs.inc,v 1.6.10.1 2023/08/11 13:41:55 martin Exp $
 
 CRYPTOINCS= \
-	aes.inc asn1.inc bf.inc bio.inc bn.inc buffer.inc cast.inc cmac.inc \
-	cms.inc comp.inc conf.inc crypto.inc des.inc dh.inc dsa.inc dso.inc \
-	ec.inc ecdh.inc ecdsa.inc engine.inc err.inc evp.inc hmac.inc \
-	krb5.inc lhash.inc modes.inc camellia.inc \
-	md2.inc md4.inc md5.inc objects.inc ocsp.inc pem.inc \
-	pkcs12.inc pkcs7.inc pqueue.inc rand.inc rc2.inc rc4.inc ripemd.inc \
-	rsa.inc sha.inc srp.inc stack.inc store.inc txt_db.inc ts.inc \
-	ui.inc x509.inc x509v3.inc idea.inc mdc2.inc whrlpool.inc modes.inc \
-	seed.inc
-
-# patented algorithms - see ../libcrypto_*
-CRYPTOINCS+=	rc5.inc
+aes.inc \
+aria.inc \
+asn1.inc \
+async.inc \
+bf.inc \
+bio.inc \
+blake2.inc \
+bn.inc \
+buffer.inc \
+camellia.inc \
+cast.inc \
+chacha.inc \
+cmac.inc \
+cmp.inc \
+cms.inc \
+comp.inc \
+conf.inc \
+crmf.inc \
+crypto.inc \
+ct.inc \
+curve448.inc \
+des.inc \
+dh.inc \
+dsa.inc \
+dso.inc \
+ec.inc \
+encode_decode.inc \
+engine.inc \
+err.inc \
+ess.inc \
+evp.inc \
+ffc.inc \
+hmac.inc \
+http.inc \
+idea.inc \
+kdf.inc \
+lhash.inc \
+md4.inc \
+md5.inc \
+mdc2.inc \
+modes.inc \
+objects.inc \
+ocsp.inc \
+pem.inc \
+pkcs12.inc \
+pkcs7.inc \
+poly1305.inc \
+pqueue.inc \
+property.inc \
+providers.inc \
+rand.inc \
+rc2.inc \
+rc4.inc \
+ripemd.inc \
+rsa.inc \
+seed.inc \
+sha.inc \
+siphash.inc \
+sm2.inc \
+sm3.inc \
+sm4.inc \
+srp.inc \
+stack.inc \
+store.inc \
+ts.inc \
+txt_db.inc \
+ui.inc \
+whrlpool.inc \
+x509.inc \
 
 CRYPTOINCS+=	man.inc
 

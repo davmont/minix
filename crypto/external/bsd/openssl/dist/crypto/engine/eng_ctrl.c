@@ -1,59 +1,16 @@
-/* crypto/engine/eng_ctrl.c */
-/* ====================================================================
- * Copyright (c) 1999-2001 The OpenSSL Project.  All rights reserved.
+/*
+ * Copyright 2001-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
-#include "eng_int.h"
+/* We need to use some engine deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
+#include "eng_local.h"
 
 /*
  * When querying a ENGINE-specific control command's 'description', this
@@ -109,6 +66,8 @@ static int int_ctrl_helper(ENGINE *e, int cmd, long i, void *p,
 {
     int idx;
     char *s = (char *)p;
+    const ENGINE_CMD_DEFN *cdp;
+
     /* Take care of the easy one first (eg. it requires no searches) */
     if (cmd == ENGINE_CTRL_GET_FIRST_CMD_TYPE) {
         if ((e->cmd_defns == NULL) || int_ctrl_cmd_is_null(e->cmd_defns))
@@ -120,7 +79,7 @@ static int int_ctrl_helper(ENGINE *e, int cmd, long i, void *p,
         (cmd == ENGINE_CTRL_GET_NAME_FROM_CMD) ||
         (cmd == ENGINE_CTRL_GET_DESC_FROM_CMD)) {
         if (s == NULL) {
-            ENGINEerr(ENGINE_F_INT_CTRL_HELPER, ERR_R_PASSED_NULL_PARAMETER);
+            ERR_raise(ERR_LIB_ENGINE, ERR_R_PASSED_NULL_PARAMETER);
             return -1;
         }
     }
@@ -128,51 +87,41 @@ static int int_ctrl_helper(ENGINE *e, int cmd, long i, void *p,
     if (cmd == ENGINE_CTRL_GET_CMD_FROM_NAME) {
         if ((e->cmd_defns == NULL)
             || ((idx = int_ctrl_cmd_by_name(e->cmd_defns, s)) < 0)) {
-            ENGINEerr(ENGINE_F_INT_CTRL_HELPER, ENGINE_R_INVALID_CMD_NAME);
+            ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INVALID_CMD_NAME);
             return -1;
         }
         return e->cmd_defns[idx].cmd_num;
     }
     /*
-     * For the rest of the commands, the 'long' argument must specify a valie
+     * For the rest of the commands, the 'long' argument must specify a valid
      * command number - so we need to conduct a search.
      */
-    if ((e->cmd_defns == NULL) || ((idx = int_ctrl_cmd_by_num(e->cmd_defns,
-                                                              (unsigned int)
-                                                              i)) < 0)) {
-        ENGINEerr(ENGINE_F_INT_CTRL_HELPER, ENGINE_R_INVALID_CMD_NUMBER);
+    if ((e->cmd_defns == NULL)
+        || ((idx = int_ctrl_cmd_by_num(e->cmd_defns, (unsigned int)i)) < 0)) {
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INVALID_CMD_NUMBER);
         return -1;
     }
     /* Now the logic splits depending on command type */
+    cdp = &e->cmd_defns[idx];
     switch (cmd) {
     case ENGINE_CTRL_GET_NEXT_CMD_TYPE:
-        idx++;
-        if (int_ctrl_cmd_is_null(e->cmd_defns + idx))
-            /* end-of-list */
-            return 0;
-        else
-            return e->cmd_defns[idx].cmd_num;
+        cdp++;
+        return int_ctrl_cmd_is_null(cdp) ? 0 : cdp->cmd_num;
     case ENGINE_CTRL_GET_NAME_LEN_FROM_CMD:
-        return strlen(e->cmd_defns[idx].cmd_name);
+        return strlen(cdp->cmd_name);
     case ENGINE_CTRL_GET_NAME_FROM_CMD:
-        return BIO_snprintf(s, strlen(e->cmd_defns[idx].cmd_name) + 1,
-                            "%s", e->cmd_defns[idx].cmd_name);
+        return strlen(strcpy(s, cdp->cmd_name));
     case ENGINE_CTRL_GET_DESC_LEN_FROM_CMD:
-        if (e->cmd_defns[idx].cmd_desc)
-            return strlen(e->cmd_defns[idx].cmd_desc);
-        return strlen(int_no_description);
+        return strlen(cdp->cmd_desc == NULL ? int_no_description
+                                            : cdp->cmd_desc);
     case ENGINE_CTRL_GET_DESC_FROM_CMD:
-        if (e->cmd_defns[idx].cmd_desc)
-            return BIO_snprintf(s,
-                                strlen(e->cmd_defns[idx].cmd_desc) + 1,
-                                "%s", e->cmd_defns[idx].cmd_desc);
-        return BIO_snprintf(s, strlen(int_no_description) + 1, "%s",
-                            int_no_description);
+        return strlen(strcpy(s, cdp->cmd_desc == NULL ? int_no_description
+                                                      : cdp->cmd_desc));
     case ENGINE_CTRL_GET_CMD_FLAGS:
-        return e->cmd_defns[idx].cmd_flags;
+        return cdp->cmd_flags;
     }
     /* Shouldn't really be here ... */
-    ENGINEerr(ENGINE_F_INT_CTRL_HELPER, ENGINE_R_INTERNAL_LIST_ERROR);
+    ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INTERNAL_LIST_ERROR);
     return -1;
 }
 
@@ -180,15 +129,16 @@ int ENGINE_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f) (void))
 {
     int ctrl_exists, ref_exists;
     if (e == NULL) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL, ERR_R_PASSED_NULL_PARAMETER);
+        ERR_raise(ERR_LIB_ENGINE, ERR_R_PASSED_NULL_PARAMETER);
         return 0;
     }
-    CRYPTO_w_lock(CRYPTO_LOCK_ENGINE);
+    if (!CRYPTO_THREAD_write_lock(global_engine_lock))
+        return 0;
     ref_exists = ((e->struct_ref > 0) ? 1 : 0);
-    CRYPTO_w_unlock(CRYPTO_LOCK_ENGINE);
+    CRYPTO_THREAD_unlock(global_engine_lock);
     ctrl_exists = ((e->ctrl == NULL) ? 0 : 1);
     if (!ref_exists) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL, ENGINE_R_NO_REFERENCE);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_NO_REFERENCE);
         return 0;
     }
     /*
@@ -209,7 +159,7 @@ int ENGINE_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f) (void))
         if (ctrl_exists && !(e->flags & ENGINE_FLAGS_MANUAL_CMD_CTRL))
             return int_ctrl_helper(e, cmd, i, p, f);
         if (!ctrl_exists) {
-            ENGINEerr(ENGINE_F_ENGINE_CTRL, ENGINE_R_NO_CONTROL_FUNCTION);
+            ERR_raise(ERR_LIB_ENGINE, ENGINE_R_NO_CONTROL_FUNCTION);
             /*
              * For these cmd-related functions, failure is indicated by a -1
              * return value (because 0 is used as a valid return in some
@@ -222,7 +172,7 @@ int ENGINE_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f) (void))
     }
     /* Anything else requires a ctrl() handler to exist. */
     if (!ctrl_exists) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL, ENGINE_R_NO_CONTROL_FUNCTION);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_NO_CONTROL_FUNCTION);
         return 0;
     }
     return e->ctrl(e, cmd, i, p, f);
@@ -233,8 +183,7 @@ int ENGINE_cmd_is_executable(ENGINE *e, int cmd)
     int flags;
     if ((flags =
          ENGINE_ctrl(e, ENGINE_CTRL_GET_CMD_FLAGS, cmd, NULL, NULL)) < 0) {
-        ENGINEerr(ENGINE_F_ENGINE_CMD_IS_EXECUTABLE,
-                  ENGINE_R_INVALID_CMD_NUMBER);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INVALID_CMD_NUMBER);
         return 0;
     }
     if (!(flags & ENGINE_CMD_FLAG_NO_INPUT) &&
@@ -249,14 +198,13 @@ int ENGINE_ctrl_cmd(ENGINE *e, const char *cmd_name,
 {
     int num;
 
-    if ((e == NULL) || (cmd_name == NULL)) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD, ERR_R_PASSED_NULL_PARAMETER);
+    if (e == NULL || cmd_name == NULL) {
+        ERR_raise(ERR_LIB_ENGINE, ERR_R_PASSED_NULL_PARAMETER);
         return 0;
     }
-    if ((e->ctrl == NULL) || ((num = ENGINE_ctrl(e,
-                                                 ENGINE_CTRL_GET_CMD_FROM_NAME,
-                                                 0, (void *)cmd_name,
-                                                 NULL)) <= 0)) {
+    if (e->ctrl == NULL
+        || (num = ENGINE_ctrl(e, ENGINE_CTRL_GET_CMD_FROM_NAME,
+                              0, (void *)cmd_name, NULL)) <= 0) {
         /*
          * If the command didn't *have* to be supported, we fake success.
          * This allows certain settings to be specified for multiple ENGINEs
@@ -269,7 +217,7 @@ int ENGINE_ctrl_cmd(ENGINE *e, const char *cmd_name,
             ERR_clear_error();
             return 1;
         }
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD, ENGINE_R_INVALID_CMD_NAME);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INVALID_CMD_NAME);
         return 0;
     }
     /*
@@ -287,15 +235,14 @@ int ENGINE_ctrl_cmd_string(ENGINE *e, const char *cmd_name, const char *arg,
     int num, flags;
     long l;
     char *ptr;
-    if ((e == NULL) || (cmd_name == NULL)) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ERR_R_PASSED_NULL_PARAMETER);
+
+    if (e == NULL || cmd_name == NULL) {
+        ERR_raise(ERR_LIB_ENGINE, ERR_R_PASSED_NULL_PARAMETER);
         return 0;
     }
-    if ((e->ctrl == NULL) || ((num = ENGINE_ctrl(e,
-                                                 ENGINE_CTRL_GET_CMD_FROM_NAME,
-                                                 0, (void *)cmd_name,
-                                                 NULL)) <= 0)) {
+    if (e->ctrl == NULL
+        || (num = ENGINE_ctrl(e, ENGINE_CTRL_GET_CMD_FROM_NAME,
+                              0, (void *)cmd_name, NULL)) <= 0) {
         /*
          * If the command didn't *have* to be supported, we fake success.
          * This allows certain settings to be specified for multiple ENGINEs
@@ -308,22 +255,21 @@ int ENGINE_ctrl_cmd_string(ENGINE *e, const char *cmd_name, const char *arg,
             ERR_clear_error();
             return 1;
         }
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING, ENGINE_R_INVALID_CMD_NAME);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INVALID_CMD_NAME);
         return 0;
     }
     if (!ENGINE_cmd_is_executable(e, num)) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ENGINE_R_CMD_NOT_EXECUTABLE);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_CMD_NOT_EXECUTABLE);
         return 0;
     }
-    if ((flags =
-         ENGINE_ctrl(e, ENGINE_CTRL_GET_CMD_FLAGS, num, NULL, NULL)) < 0) {
+
+    flags = ENGINE_ctrl(e, ENGINE_CTRL_GET_CMD_FLAGS, num, NULL, NULL);
+    if (flags < 0) {
         /*
          * Shouldn't happen, given that ENGINE_cmd_is_executable() returned
          * success.
          */
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ENGINE_R_INTERNAL_LIST_ERROR);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INTERNAL_LIST_ERROR);
         return 0;
     }
     /*
@@ -331,8 +277,7 @@ int ENGINE_ctrl_cmd_string(ENGINE *e, const char *cmd_name, const char *arg,
      */
     if (flags & ENGINE_CMD_FLAG_NO_INPUT) {
         if (arg != NULL) {
-            ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                      ENGINE_R_COMMAND_TAKES_NO_INPUT);
+            ERR_raise(ERR_LIB_ENGINE, ENGINE_R_COMMAND_TAKES_NO_INPUT);
             return 0;
         }
         /*
@@ -347,8 +292,7 @@ int ENGINE_ctrl_cmd_string(ENGINE *e, const char *cmd_name, const char *arg,
     }
     /* So, we require input */
     if (arg == NULL) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ENGINE_R_COMMAND_TAKES_INPUT);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_COMMAND_TAKES_INPUT);
         return 0;
     }
     /* If it takes string input, that's easy */
@@ -365,14 +309,12 @@ int ENGINE_ctrl_cmd_string(ENGINE *e, const char *cmd_name, const char *arg,
      * used.
      */
     if (!(flags & ENGINE_CMD_FLAG_NUMERIC)) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ENGINE_R_INTERNAL_LIST_ERROR);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_INTERNAL_LIST_ERROR);
         return 0;
     }
     l = strtol(arg, &ptr, 10);
     if ((arg == ptr) || (*ptr != '\0')) {
-        ENGINEerr(ENGINE_F_ENGINE_CTRL_CMD_STRING,
-                  ENGINE_R_ARGUMENT_IS_NOT_A_NUMBER);
+        ERR_raise(ERR_LIB_ENGINE, ENGINE_R_ARGUMENT_IS_NOT_A_NUMBER);
         return 0;
     }
     /*

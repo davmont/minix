@@ -5,11 +5,15 @@
 .align	16
 bn_mul_add_words:
 .L_bn_mul_add_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	call	.L000PIC_me_up
 .L000PIC_me_up:
 	popl	%eax
-	leal	_GLOBAL_OFFSET_TABLE_+[.-.L000PIC_me_up](%eax),%eax
-	movl	OPENSSL_ia32cap_P@GOT(%eax),%eax
+	leal	OPENSSL_ia32cap_P-.L000PIC_me_up(%eax),%eax
 	btl	$26,(%eax)
 	jnc	.L001maw_non_sse2
 	movl	4(%esp),%eax
@@ -289,11 +293,15 @@ bn_mul_add_words:
 .align	16
 bn_mul_words:
 .L_bn_mul_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	call	.L010PIC_me_up
 .L010PIC_me_up:
 	popl	%eax
-	leal	_GLOBAL_OFFSET_TABLE_+[.-.L010PIC_me_up](%eax),%eax
-	movl	OPENSSL_ia32cap_P@GOT(%eax),%eax
+	leal	OPENSSL_ia32cap_P-.L010PIC_me_up(%eax),%eax
 	btl	$26,(%eax)
 	jnc	.L011mw_non_sse2
 	movl	4(%esp),%eax
@@ -472,11 +480,15 @@ bn_mul_words:
 .align	16
 bn_sqr_words:
 .L_bn_sqr_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	call	.L017PIC_me_up
 .L017PIC_me_up:
 	popl	%eax
-	leal	_GLOBAL_OFFSET_TABLE_+[.-.L017PIC_me_up](%eax),%eax
-	movl	OPENSSL_ia32cap_P@GOT(%eax),%eax
+	leal	OPENSSL_ia32cap_P-.L017PIC_me_up(%eax),%eax
 	btl	$26,(%eax)
 	jnc	.L018sqr_non_sse2
 	movl	4(%esp),%eax
@@ -614,6 +626,11 @@ bn_sqr_words:
 .align	16
 bn_div_words:
 .L_bn_div_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	movl	4(%esp),%edx
 	movl	8(%esp),%eax
 	movl	12(%esp),%ecx
@@ -625,6 +642,11 @@ bn_div_words:
 .align	16
 bn_add_words:
 .L_bn_add_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	pushl	%ebp
 	pushl	%ebx
 	pushl	%esi
@@ -807,6 +829,11 @@ bn_add_words:
 .align	16
 bn_sub_words:
 .L_bn_sub_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	pushl	%ebp
 	pushl	%ebx
 	pushl	%esi
@@ -989,6 +1016,11 @@ bn_sub_words:
 .align	16
 bn_sub_part_words:
 .L_bn_sub_part_words_begin:
+	#ifdef __CET__
+
+.byte	243,15,30,251
+	#endif
+
 	pushl	%ebp
 	pushl	%ebx
 	pushl	%esi
@@ -1530,4 +1562,21 @@ bn_sub_part_words:
 	popl	%ebp
 	ret
 .size	bn_sub_part_words,.-.L_bn_sub_part_words_begin
-.comm	OPENSSL_ia32cap_P,8,4
+.comm	OPENSSL_ia32cap_P,16,4
+
+	.section ".note.gnu.property", "a"
+	.p2align 2
+	.long 1f - 0f
+	.long 4f - 1f
+	.long 5
+0:
+	.asciz "GNU"
+1:
+	.p2align 2
+	.long 0xc0000002
+	.long 3f - 2f
+2:
+	.long 3
+3:
+	.p2align 2
+4:

@@ -1,7 +1,14 @@
-#!/usr/bin/env perl
+#! /usr/bin/env perl
+# Copyright 2009-2020 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the Apache License 2.0 (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
 
 # ====================================================================
-# Written by Andy Polyakov <appro@fy.chalmers.se> for the OpenSSL
+# Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
 # project. The module is, however, dual licensed under OpenSSL and
 # CRYPTOGAMS licenses depending on where you obtain it. For further
 # details see http://www.openssl.org/~appro/cryptogams/.
@@ -40,8 +47,7 @@ for (@ARGV)	{ $bits=64 if (/\-m64/ || /\-xarch\=v9/); }
 if ($bits==64)	{ $bias=2047; $frame=192; }
 else		{ $bias=0;    $frame=112; }
 
-$output=shift;
-open STDOUT,">$output";
+$output=pop and open STDOUT,">$output";
 
 $ctx="%i0";
 $inp="%i1";
@@ -512,7 +518,7 @@ $code.=<<___;
 	mov		$Cctx,$C
 	mov		$Dctx,$D
 	mov		$Ectx,$E
-	alignaddr	%g0,$tmp0,%g0	
+	alignaddr	%g0,$tmp0,%g0
 	dec		1,$len
 	ba		.Loop
 	mov		$nXfer,$Xfer
@@ -544,7 +550,7 @@ ___
 
 # Purpose of these subroutines is to explicitly encode VIS instructions,
 # so that one can compile the module without having to specify VIS
-# extentions on compiler command line, e.g. -xarch=v9 vs. -xarch=v9a.
+# extensions on compiler command line, e.g. -xarch=v9 vs. -xarch=v9a.
 # Idea is to reserve for option to produce "universal" binary and let
 # programmer detect if current CPU is VIS capable at run-time.
 sub unvis {
@@ -598,4 +604,4 @@ $code =~ s/\b(alignaddr)\s+(%[goli][0-7]),(%[goli][0-7]),(%[goli][0-7])/
 		&unalignaddr($1,$2,$3,$4)
 	  /gem;
 print $code;
-close STDOUT;
+close STDOUT or die "error closing STDOUT: $!";

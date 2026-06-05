@@ -1,6 +1,4 @@
-#	$NetBSD: Makefile,v 1.6 2012/07/13 19:32:51 christos Exp $
-
-WARNS?=	2	# XXX -Wcast-qual
+#	$NetBSD: Makefile,v 1.10.10.1 2023/08/11 13:40:11 martin Exp $
 
 NOMAN=	# defined
 BINDIR=/usr/bin
@@ -9,53 +7,81 @@ BINDIR=/usr/bin
 
 USE_FORT?= yes	# cryptographic software
 
-# RCSid:
-#	$Id: Makefile,v 1.6 2012/07/13 19:32:51 christos Exp $
-#
-#	@(#) Copyright (c) 1995 Simon J. Gerraty
-#
-#	This file is provided in the hope that it will
-#	be of use.  There is absolutely NO WARRANTY.
-#	Permission to copy, redistribute or otherwise
-#	use this file is hereby granted provided that 
-#	the above copyright notice and this notice are
-#	left intact. 
-#      
-#	Please send copies of changes and bug-fixes to:
-#	sjg@quick.com.au
-#
-
 PROG=	openssl
 
-SRCS=	openssl.c
-SRCS+=	apps.c ecparam.c ec.c pkeyparam.c genpkey.c pkey.c pkeyutl.c ts.c cms.c
-SRCS+=	s_cb.c s_socket.c
-SRCS+=	app_rand.c
-SRCS+=	verify.c asn1pars.c req.c dgst.c dh.c dhparam.c enc.c passwd.c gendh.c errstr.c ca.c \
-	pkcs7.c crl2p7.c crl.c \
-	rsa.c rsautl.c dsa.c dsaparam.c \
-	x509.c genrsa.c gendsa.c prime.c s_server.c s_client.c speed.c \
-	s_time.c version.c sess_id.c srp.c \
-	ciphers.c nseq.c pkcs12.c pkcs8.c spkac.c smime.c rand.c engine.c ocsp.c
+SRCS+= \
+asn1parse.c \
+ca.c \
+ciphers.c \
+cmp.c \
+cms.c \
+crl.c \
+crl2pkcs7.c \
+dgst.c \
+dhparam.c \
+dsa.c \
+dsaparam.c \
+ec.c \
+ecparam.c \
+enc.c \
+engine.c \
+errstr.c \
+fipsinstall.c \
+gendsa.c \
+genpkey.c \
+genrsa.c \
+info.c \
+kdf.c \
+list.c \
+mac.c \
+nseq.c \
+ocsp.c \
+openssl.c \
+passwd.c \
+pkcs12.c \
+pkcs7.c \
+pkcs8.c \
+pkey.c \
+pkeyparam.c \
+pkeyutl.c \
+prime.c \
+progs.c \
+rand.c \
+rehash.c \
+req.c \
+rsa.c \
+rsautl.c \
+s_client.c \
+s_server.c \
+s_time.c \
+sess_id.c \
+smime.c \
+speed.c \
+spkac.c \
+srp.c \
+storeutl.c \
+ts.c \
+verify.c \
+version.c \
+x509.c \
 
-CPPFLAGS+= -DMONOLITH -DUSE_SSL -I${OPENSSLSRC}
+CPPFLAGS+= -I${OPENSSLSRC} -I${.CURDIR}/../include
+CPPFLAGS+= -I${OPENSSLSRC}/include -I${OPENSSLSRC}/apps/include
 
-# with normal OpenSSL, OPENSSL_NO_RC5 changes ABI due to change in
-# struct/union.  we nuked it in our header files and it is now safe.
-.if ${MKCRYPTO_RC5} == "no"
-CPPFLAGS+= -DOPENSSL_NO_RC5
-.else
-LDADD+=	-lcrypto_rc5
-DPADD+=	${LIBCRYPTO_RC5}
-.endif
+PROGDPLIBSSTATIC=yes
+PROGDPLIBS+=    apps ${OPENSSLSRC}/../lib/libapps
+PROGDPLIBS+=    ssl ${OPENSSLSRC}/../lib/libssl
+PROGDPLIBS+=    crypto ${OPENSSLSRC}/../lib/libcrypto
 
-# this must be _after_ the libcrypto_rc5/libcrypto_idea entries.
-LDADD+=	-lssl -lcrypto -lcrypt
-DPADD+=	${LIBSSL} ${LIBCRYPTO} ${LIBCRYPT}
+LDADD+=	-lcrypt
+DPADD+=	${LIBCRYPT}
 
 CRYPTODIST=	${NETBSDSRCDIR}/crypto
 .include "${NETBSDSRCDIR}/crypto/Makefile.openssl"
 .PATH:	${OPENSSLSRC}/apps
+
+.PATH:	${OPENSSLSRC}/engines
+SRCS+=	e_padlock.c
 
 #LINKS=	openssl verify \
 #	openssl asn1pars \
@@ -95,8 +121,19 @@ CRYPTODIST=	${NETBSDSRCDIR}/crypto
 #	openssl ocsp
 
 .if ${MKSHARE} != "no"
-FILES=  CA.sh CA.pl openssl.cnf
+FILES=  CA.pl openssl.cnf
+FILESBUILD= yes
 FILESDIR=/usr/share/examples/openssl
+
+CA.pl:	CA.pl.in
+	${_MKTARGET_CREATE}
+	rm -f ${.TARGET}
+	${TOOL_SED} \
+	    -e 's@{- \$$config{hashbangperl} -}@/usr/bin/env perl@' \
+	    ${.ALLSRC} > ${.TARGET}
+
+CLEANFILES+=CA.pl
+
 .endif
 
 .include <bsd.prog.mk>
