@@ -34,4 +34,12 @@ COPTS.evdns.c=	-O0
 .endif
 .endif
 
+.if defined(__MINIX)
+# MINIX has no libpthread, so libevent is built with thread support
+# disabled (EVENT__DISABLE_THREAD_SUPPORT).  BEV_LOCK()/BEV_UNLOCK() and
+# the other locking helpers then expand to no-ops, leaving the variables
+# that only existed to be locked unused.
+CWARNFLAGS+=	-Wno-error=unused-variable
+.endif
+
 .include <bsd.lib.mk>

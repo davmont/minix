@@ -1,4 +1,4 @@
-/*	$NetBSD: test-time.c,v 1.1.1.1 2013/04/11 16:43:33 christos Exp $	*/
+/*	$NetBSD: test-time.c,v 1.1.1.3 2021/04/07 02:43:15 christos Exp $	*/
 /*
  * Copyright (c) 2002-2007 Niels Provos <provos@citi.umich.edu>
  * Copyright (c) 2007-2012 Niels Provos and Nick Mathewson
@@ -27,7 +27,8 @@
  */
 #include "event2/event-config.h"
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: test-time.c,v 1.1.1.1 2013/04/11 16:43:33 christos Exp $");
+__RCSID("$NetBSD: test-time.c,v 1.1.1.3 2021/04/07 02:43:15 christos Exp $");
+#include "util-internal.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -35,7 +36,7 @@ __RCSID("$NetBSD: test-time.c,v 1.1.1.1 2013/04/11 16:43:33 christos Exp $");
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#ifndef WIN32
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/time.h>
 #endif
@@ -51,14 +52,12 @@ int called = 0;
 
 struct event *ev[NEVENT];
 
+struct evutil_weakrand_state weakrand_state;
+
 static int
 rand_int(int n)
 {
-#ifdef WIN32
-	return (int)(rand() % n);
-#else
-	return (int)(random() % n);
-#endif
+	return evutil_weakrand_(&weakrand_state) % n;
 }
 
 static void
@@ -74,7 +73,7 @@ time_cb(evutil_socket_t fd, short event, void *arg)
 			j = rand_int(NEVENT);
 			tv.tv_sec = 0;
 			tv.tv_usec = rand_int(50000);
-			if (tv.tv_usec % 2)
+			if (tv.tv_usec % 2 || called < NEVENT)
 				evtimer_add(ev[j], &tv);
 			else
 				evtimer_del(ev[j]);
@@ -85,9 +84,11 @@ time_cb(evutil_socket_t fd, short event, void *arg)
 int
 main(int argc, char **argv)
 {
+	struct event_base *base;
 	struct timeval tv;
 	int i;
-#ifdef WIN32
+
+#ifdef _WIN32
 	WORD wVersionRequested;
 	WSADATA wsaData;
 
@@ -96,21 +97,30 @@ main(int argc, char **argv)
 	(void) WSAStartup(wVersionRequested, &wsaData);
 #endif
 
-	/* Initalize the event library */
-	event_init();
+	evutil_weakrand_seed_(&weakrand_state, 0);
+
+	if (getenv("EVENT_DEBUG_LOGGING_ALL")) {
+		event_enable_debug_logging(EVENT_DBG_ALL);
+	}
+
+	base = event_base_new();
 
 	for (i = 0; i < NEVENT; i++) {
-		ev[i] = malloc(sizeof(struct event));
-
-		/* Initalize one event */
-		evtimer_set(ev[i], time_cb, ev[i]);
+		ev[i] = evtimer_new(base, time_cb, event_self_cbarg());
 		tv.tv_sec = 0;
 		tv.tv_usec = rand_int(50000);
 		evtimer_add(ev[i], &tv);
 	}
 
-	event_dispatch();
+	i = event_base_dispatch(base);
 
-	return (called < NEVENT);
+	printf("event_base_dispatch=%d, called=%d, EVENT=%d\n",
+		i, called, NEVENT);
+
+	if (i == 1 && called >= NEVENT) {
+		return EXIT_SUCCESS;
+	} else {
+		return EXIT_FAILURE;
+	}
 }
 

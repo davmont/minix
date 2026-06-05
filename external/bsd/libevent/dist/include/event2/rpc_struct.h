@@ -1,5 +1,4 @@
-/*	$NetBSD: rpc_struct.h,v 1.1.1.2 2015/01/29 06:38:27 spz Exp $	*/
-/*	$NetBSD: rpc_struct.h,v 1.1.1.2 2015/01/29 06:38:27 spz Exp $	*/
+/*	$NetBSD: rpc_struct.h,v 1.1.1.4 2021/04/07 02:43:14 christos Exp $	*/
 /*
  * Copyright (c) 2006-2007 Niels Provos <provos@citi.umich.edu>
  * Copyright (c) 2007-2012 Niels Provos and Nick Mathewson
@@ -26,8 +25,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef _EVENT2_RPC_STRUCT_H_
-#define _EVENT2_RPC_STRUCT_H_
+#ifndef EVENT2_RPC_STRUCT_H_INCLUDED_
+#define EVENT2_RPC_STRUCT_H_INCLUDED_
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +38,16 @@ extern "C" {
   forward compatibility: be careful!
 
  */
+
+/* Fix so that people don't have to run with <sys/queue.h> */
+#ifndef TAILQ_ENTRY
+#define EVENT_DEFINED_TQENTRY_
+#define TAILQ_ENTRY(type)						\
+struct {								\
+	struct type *tqe_next;	/* next element */			\
+	struct type **tqe_prev;	/* address of previous next element */	\
+}
+#endif /* !TAILQ_ENTRY */
 
 /**
  * provides information about the completed RPC request.
@@ -95,8 +104,12 @@ struct evrpc {
 	struct evrpc_base *base;
 };
 
+#ifdef EVENT_DEFINED_TQENTRY_
+#undef TAILQ_ENTRY
+#endif
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EVENT2_RPC_STRUCT_H_ */
+#endif /* EVENT2_RPC_STRUCT_H_INCLUDED_ */
