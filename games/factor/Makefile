@@ -14,6 +14,8 @@ CPPFLAGS+=-I${PRIMES}
 CPPFLAGS+=-DHAVE_OPENSSL
 LDADD+=	-lcrypto -lcrypt
 DPADD+=	${LIBCRYPTO} ${LIBCRYPT}
+# OpenSSL 3.0 deprecates BN_is_prime(); keep the warning non-fatal.
+COPTS.factor.c+=	-Wno-error=deprecated-declarations
 .endif
 
 MAN=	factor.6

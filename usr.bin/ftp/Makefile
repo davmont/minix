@@ -31,6 +31,8 @@ CPPFLAGS+= -DWITH_SSL
 SRCS+=ssl.c
 LDADD+= -lssl -lcrypto
 DPADD+= ${LIBSSL} ${LIBCRYPTO}
+# OpenSSL 3.0 deprecates several 1.x APIs used by ssl.c; keep them non-fatal.
+COPTS.ssl.c+=	-Wno-error=deprecated-declarations
 .endif
 .endif
 
