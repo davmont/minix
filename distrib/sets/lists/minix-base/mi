@@ -428,10 +428,7 @@
 ./usr/bin/in.rshd                                       minix-base      obsolete
 ./usr/bin/in.telnetd                                    minix-base      obsolete
 ./usr/bin/indent                                        minix-base
-./usr/bin/info                                          minix-base
 ./usr/bin/infocmp                                       minix-base
-./usr/bin/infokey                                       minix-base
-./usr/bin/install-info                                  minix-base
 ./usr/bin/install                                       minix-base
 ./usr/bin/ipcrm                                         minix-base
 ./usr/bin/ipcbench                                      minix-base
@@ -445,7 +442,6 @@
 ./usr/bin/kyua                                          minix-base      kyua
 ./usr/bin/lam                                           minix-base
 ./usr/bin/last                                          minix-base
-./usr/bin/ld                                            minix-base      binutils
 ./usr/bin/ldd                                           minix-base
 ./usr/bin/leave                                         minix-base
 ./usr/bin/less                                          minix-base
@@ -473,7 +469,6 @@
 ./usr/bin/machine                                       minix-base
 ./usr/bin/mail                                          minix-base
 ./usr/bin/make                                          minix-base
-./usr/bin/makeinfo                                      minix-base
 ./usr/bin/man                                           minix-base
 ./usr/bin/mandoc                                        minix-base
 ./usr/bin/md2                                           minix-base
@@ -2001,17 +1996,6 @@
 ./usr/share/i18n/esdb/esdb.dir                          minix-base      nls
 ./usr/share/i18n/iconv                                  minix-base      nls
 ./usr/share/i18n/iconv/iconv.dir                        minix-base      nls
-./usr/share/info                                        minix-base
-./usr/share/info/as.info                                minix-base      binutils
-./usr/share/info/bfd.info                               minix-base      binutils
-./usr/share/info/binutils.info                          minix-base      binutils
-./usr/share/info/dir                                    minix-base
-./usr/share/info/gprof.info                             minix-base      binutils
-./usr/share/info/info-stnd.info                         minix-base
-./usr/share/info/info.info                              minix-base
-./usr/share/info/ld.info                                minix-base      binutils
-./usr/share/info/texinfo.info                           minix-base
-./usr/share/info/vi.info                                minix-base
 ./usr/share/keymaps                                     minix-base
 ./usr/share/legal                                       minix-base
 ./usr/share/legal/COPYRIGHT                             minix-base
@@ -2099,7 +2083,6 @@
 ./usr/share/locale/ca_ES.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/cs                                   minix-base      nls
 ./usr/share/locale/cs/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/cs/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/cs/LC_MESSAGES/xz.mo                 minix-base      nls
 ./usr/share/locale/cs_CZ.ISO8859-2                      minix-base      nls
 ./usr/share/locale/cs_CZ.ISO8859-2/LC_CTYPE             minix-base      nls
@@ -2117,7 +2100,6 @@
 ./usr/share/locale/cs_CZ.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/da                                   minix-base      nls
 ./usr/share/locale/da/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/da/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/da_DK.ISO8859-1                      minix-base      nls
 ./usr/share/locale/da_DK.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/da_DK.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -2141,7 +2123,6 @@
 ./usr/share/locale/da_DK.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/de                                   minix-base      nls
 ./usr/share/locale/de/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/de/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/de/LC_MESSAGES/xz.mo                 minix-base      nls
 ./usr/share/locale/de_AT.ISO8859-1                      minix-base      nls
 ./usr/share/locale/de_AT.ISO8859-1/LC_CTYPE             minix-base      nls
@@ -2166,7 +2147,6 @@
 ./usr/share/locale/de_AT.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/de_AT                                minix-base      nls
 ./usr/share/locale/de_AT/LC_MESSAGES                    minix-base      nls
-./usr/share/locale/de_AT/LC_MESSAGES/texinfo.mo         minix-base      nls
 ./usr/share/locale/de_CH.ISO8859-1                      minix-base      nls
 ./usr/share/locale/de_CH.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/de_CH.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -2343,7 +2323,6 @@
 ./usr/share/locale/en_US.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/eo                                   minix-base      nls
 ./usr/share/locale/eo/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/eo/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/es                                   minix-base      nls
 ./usr/share/locale/es/LC_MESSAGES                       minix-base      nls
 ./usr/share/locale/es_ES.ISO8859-1                      minix-base      nls
@@ -2429,7 +2408,6 @@
 ./usr/share/locale/fi_FI.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/fr                                   minix-base      nls
 ./usr/share/locale/fr/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/fr/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/fr_BE.ISO8859-1                      minix-base      nls
 ./usr/share/locale/fr_BE.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/fr_BE.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -2518,10 +2496,8 @@
 ./usr/share/locale/gl/LC_MESSAGES                       minix-base      nls
 ./usr/share/locale/he                                   minix-base      nls
 ./usr/share/locale/he/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/he/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/hr                                   minix-base      nls
 ./usr/share/locale/hr/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/hr/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/hr_HR.ISO8859-2                      minix-base      nls
 ./usr/share/locale/hr_HR.ISO8859-2/LC_CTYPE             minix-base      nls
 ./usr/share/locale/hr_HR.ISO8859-2/LC_MESSAGES          minix-base      nls
@@ -2634,7 +2610,6 @@
 ./usr/share/locale/it_IT.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/ja                                   minix-base      nls
 ./usr/share/locale/ja/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/ja/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/ja_JP.ISO-2022-JP-2                  minix-base      nls
 ./usr/share/locale/ja_JP.ISO-2022-JP-2/LC_CTYPE         minix-base      nls
 ./usr/share/locale/ja_JP.ISO-2022-JP-2/LC_MESSAGES      minix-base      nls
@@ -2731,7 +2706,6 @@
 ./usr/share/locale/lt_LT.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/nb                                   minix-base      nls
 ./usr/share/locale/nb/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/nb/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/nb_NO.ISO8859-1                      minix-base      nls
 ./usr/share/locale/nb_NO.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/nb_NO.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -2755,7 +2729,6 @@
 ./usr/share/locale/nb_NO.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/nl                                   minix-base      nls
 ./usr/share/locale/nl/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/nl/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/nl_BE.ISO8859-1                      minix-base      nls
 ./usr/share/locale/nl_BE.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/nl_BE.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -2825,13 +2798,11 @@
 ./usr/share/locale/nn_NO.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/no                                   minix-base      nls
 ./usr/share/locale/no/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/no/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/no@nynorsk                           minix-base      nls
 ./usr/share/locale/no@nynorsk/LC_MESSA                  minix-base      nlsGES
 ./usr/share/locale/no@nynorsk/LC_MESSAGES               minix-base      nls
 ./usr/share/locale/pl                                   minix-base      nls
 ./usr/share/locale/pl/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/pl/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/pl_PL.ISO8859-2                      minix-base      nls
 ./usr/share/locale/pl_PL.ISO8859-2/LC_CTYPE             minix-base      nls
 ./usr/share/locale/pl_PL.ISO8859-2/LC_MESSAGES          minix-base      nls
@@ -2888,7 +2859,6 @@
 ./usr/share/locale/pt_PT.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/ro                                   minix-base      nls
 ./usr/share/locale/ro/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/ro/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/ro_RO.ISO8859-2                      minix-base      nls
 ./usr/share/locale/ro_RO.ISO8859-2/LC_CTYPE             minix-base      nls
 ./usr/share/locale/ro_RO.ISO8859-2/LC_MESSAGES          minix-base      nls
@@ -2905,7 +2875,6 @@
 ./usr/share/locale/ro_RO.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/ru                                   minix-base      nls
 ./usr/share/locale/ru/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/ru/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/ru_BY.CP1251                         minix-base      nls
 ./usr/share/locale/ru_BY.CP1251/LC_CTYPE                minix-base      nls
 ./usr/share/locale/ru_BY.CP1251/LC_MESSAGES             minix-base      nls
@@ -3052,7 +3021,6 @@
 ./usr/share/locale/sr_Latn_RS.UTF-8/LC_TIME             minix-base      nls
 ./usr/share/locale/sv                                   minix-base      nls
 ./usr/share/locale/sv/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/sv/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/sv_SE.ISO8859-1                      minix-base      nls
 ./usr/share/locale/sv_SE.ISO8859-1/LC_CTYPE             minix-base      nls
 ./usr/share/locale/sv_SE.ISO8859-1/LC_MESSAGES          minix-base      nls
@@ -3077,7 +3045,6 @@
 ./usr/share/locale/sv_SE.UTF-8/LC_TIME                  minix-base      nls
 ./usr/share/locale/tr                                   minix-base      nls
 ./usr/share/locale/tr/LC_MESSAGES                       minix-base      nls
-./usr/share/locale/tr/LC_MESSAGES/texinfo.mo            minix-base      nls
 ./usr/share/locale/tr_TR.ISO8859-9                      minix-base      nls
 ./usr/share/locale/tr_TR.ISO8859-9/LC_CTYPE             minix-base      nls
 ./usr/share/locale/tr_TR.ISO8859-9/LC_MESSAGES          minix-base      nls
@@ -3145,7 +3112,6 @@
 ./usr/share/locale/zh_CN.eucCN/LC_TIME                  minix-base      nls
 ./usr/share/locale/zh_CN                                minix-base      nls
 ./usr/share/locale/zh_CN/LC_MESSAGES                    minix-base      nls
-./usr/share/locale/zh_CN/LC_MESSAGES/texinfo.mo         minix-base      nls
 ./usr/share/locale/zh_HK.Big5hkscs                      minix-base      nls
 ./usr/share/locale/zh_HK.Big5hkscs/LC_CTYPE             minix-base      nls
 ./usr/share/locale/zh_HK.Big5hkscs/LC_MESSAGES          minix-base      nls
@@ -3183,7 +3149,6 @@
 ./usr/share/locale/zh_TW.eucTW/LC_TIME                  minix-base      nls
 ./usr/share/locale/zh_TW                                minix-base      nls
 ./usr/share/locale/zh_TW/LC_MESSAGES                    minix-base      nls
-./usr/share/locale/zh_TW/LC_MESSAGES/texinfo.mo         minix-base      nls
 ./usr/share/lua                                         minix-base
 ./usr/share/lua/5.3                                     minix-base
 ./usr/share/misc                                        minix-base
