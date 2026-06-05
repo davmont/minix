@@ -1,11 +1,11 @@
-/*	$NetBSD: lr0.c,v 1.8 2015/01/03 23:22:52 christos Exp $	*/
+/*	$NetBSD: lr0.c,v 1.13 2021/02/20 22:57:56 christos Exp $	*/
 
-/* Id: lr0.c,v 1.17 2014/11/28 15:46:42 tom Exp  */
+/* Id: lr0.c,v 1.20 2020/09/10 17:30:37 tom Exp  */
 
 #include "defs.h"
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: lr0.c,v 1.8 2015/01/03 23:22:52 christos Exp $");
+__RCSID("$NetBSD: lr0.c,v 1.13 2021/02/20 22:57:56 christos Exp $");
 
 static core *new_state(int symbol);
 static Value_t get_state(int symbol);
@@ -49,7 +49,6 @@ allocate_itemsets(void)
 {
     Value_t *itemp;
     Value_t *item_end;
-    int symbol;
     int i;
     int count;
     int max;
@@ -61,7 +60,8 @@ allocate_itemsets(void)
     item_end = ritem + nitems;
     for (itemp = ritem; itemp < item_end; itemp++)
     {
-	symbol = *itemp;
+	int symbol = *itemp;
+
 	if (symbol >= 0)
 	{
 	    count++;
@@ -99,7 +99,6 @@ static void
 append_states(void)
 {
     int i;
-    int j;
     Value_t symbol;
 
 #ifdef	TRACE
@@ -107,8 +106,9 @@ append_states(void)
 #endif
     for (i = 1; i < nshifts; i++)
     {
+	int j = i;
+
 	symbol = shift_symbol[i];
-	j = i;
 	while (j > 0 && shift_symbol[j - 1] > symbol)
 	{
 	    shift_symbol[j] = shift_symbol[j - 1];
@@ -166,10 +166,8 @@ get_state(int symbol)
 {
     int key;
     Value_t *isp1;
-    Value_t *isp2;
     Value_t *iend;
     core *sp;
-    int found;
     int n;
 
 #ifdef	TRACE
@@ -185,11 +183,14 @@ get_state(int symbol)
     sp = state_set[key];
     if (sp)
     {
-	found = 0;
+	int found = 0;
+
 	while (!found)
 	{
 	    if (sp->nitems == n)
 	    {
+		Value_t *isp2;
+
 		found = 1;
 		isp1 = kernel_base[symbol];
 		isp2 = sp->items;
@@ -241,7 +242,7 @@ initialize_states(void)
     p->link = 0;
     p->number = 0;
     p->accessing_symbol = 0;
-    p->nitems = (Value_t) i;
+    p->nitems = (Value_t)i;
 
     for (i = 0; start_derives[i] >= 0; ++i)
 	p->items[i] = rrhs[start_derives[i]];
@@ -257,7 +258,6 @@ new_itemsets(void)
     int shiftcount;
     Value_t *isp;
     Value_t *ksp;
-    Value_t symbol;
 
     for (i = 0; i < nsyms; i++)
 	kernel_end[i] = 0;
@@ -266,8 +266,9 @@ new_itemsets(void)
     isp = itemset;
     while (isp < itemsetend)
     {
-	i = *isp++;
-	symbol = ritem[i];
+	int j = *isp++;
+	Value_t symbol = ritem[j];
+
 	if (symbol > 0)
 	{
 	    ksp = kernel_end[symbol];
@@ -277,7 +278,7 @@ new_itemsets(void)
 		ksp = kernel_base[symbol];
 	    }
 
-	    *ksp++ = (Value_t) (i + 1);
+	    *ksp++ = (Value_t)(j + 1);
 	    kernel_end[symbol] = ksp;
 	}
     }
@@ -306,9 +307,9 @@ new_state(int symbol)
     n = (unsigned)(iend - isp1);
 
     p = (core *)allocate((sizeof(core) + (n - 1) * sizeof(Value_t)));
-    p->accessing_symbol = (Value_t) symbol;
-    p->number = (Value_t) nstates;
-    p->nitems = (Value_t) n;
+    p->accessing_symbol = (Value_t)symbol;
+    p->number = (Value_t)nstates;
+    p->nitems = (Value_t)n;
 
     isp2 = p->items;
     while (isp1 < iend)
@@ -414,7 +415,7 @@ save_shifts(void)
 			      (unsigned)(nshifts - 1) * sizeof(Value_t)));
 
     p->number = this_state->number;
-    p->nshifts = (Value_t) nshifts;
+    p->nshifts = (Value_t)nshifts;
 
     sp1 = shiftset;
     sp2 = p->shift;
@@ -440,24 +441,25 @@ save_reductions(void)
 {
     Value_t *isp;
     Value_t *rp1;
-    Value_t *rp2;
-    int item;
     Value_t count;
     reductions *p;
-    Value_t *rend;
 
     count = 0;
     for (isp = itemset; isp < itemsetend; isp++)
     {
-	item = ritem[*isp];
+	int item = ritem[*isp];
+
 	if (item < 0)
 	{
-	    redset[count++] = (Value_t) - item;
+	    redset[count++] = (Value_t)-item;
 	}
     }
 
     if (count)
     {
+	Value_t *rp2;
+	Value_t *rend;
+
 	p = (reductions *)allocate((sizeof(reductions) +
 				      (unsigned)(count - 1) *
 				    sizeof(Value_t)));
@@ -601,7 +603,10 @@ lr0_leaks(void)
 {
     if (derives)
     {
-	DO_FREE(derives[start_symbol]);
+	if (derives[start_symbol] != rules)
+	{
+	    DO_FREE(derives[start_symbol]);
+	}
 	DO_FREE(derives);
 	DO_FREE(rules);
     }

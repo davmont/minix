@@ -1,10 +1,10 @@
-/*	$NetBSD: yaccpar.c,v 1.2 2015/01/04 01:34:20 christos Exp $	*/
+/*	$NetBSD: yaccpar.c,v 1.7 2018/12/23 15:38:53 christos Exp $	*/
 
 /* This file generated automatically using
- * @Id: skel2c,v 1.3 2014/04/06 19:48:04 tom Exp @
+ * @Id: skel2c,v 1.4 2016/06/07 00:26:09 tom Exp @
  */
 
-/* @Id: yaccpar.skel,v 1.5 2014/04/07 21:51:00 tom Exp @ */
+/* @Id: yaccpar.skel,v 1.10 2018/05/06 21:28:14 Guy.Harris Exp @ */
 
 #include "defs.h"
 
@@ -57,8 +57,10 @@ const char *const tables[] =
     "extern YYINT yytable[];",
     "extern YYINT yycheck[];",
     "",
-    "#if YYDEBUG",
+    "#if YYDEBUG || defined(yytname)",
     "extern char *yyname[];",
+    "#endif",
+    "#if YYDEBUG",
     "extern char *yyrule[];",
     "#endif",
     0
@@ -67,8 +69,9 @@ const char *const tables[] =
 const char *const global_vars[] =
 {
     "",
+    "#if YYDEBUG",
     "int      yydebug;",
-    "int      yynerrs;",
+    "#endif",
     0
 };
 
@@ -79,6 +82,7 @@ const char *const impure_vars[] =
     "int      yychar;",
     "YYSTYPE  yyval;",
     "YYSTYPE  yylval;",
+    "int      yynerrs;",
     0
 };
 
@@ -124,6 +128,7 @@ const char *const body_vars[] =
     "    int      yychar;",
     "    YYSTYPE  yyval;",
     "    YYSTYPE  yylval;",
+    "    int      yynerrs;",
     "",
     "    /* variables for the parser stack */",
     "    YYSTACKDATA yystack;",
@@ -134,7 +139,7 @@ const char *const body_1[] =
 {
     "",
     "#if YYDEBUG",
-    "#include <stdio.h>		/* needed for printf */",
+    "#include <stdio.h>	/* needed for printf */",
     "#endif",
     "",
     "#include <stdlib.h>	/* needed for malloc, etc */",
@@ -211,11 +216,21 @@ const char *const body_2[] =
     "    }",
     "#endif",
     "",
-    0,
+    0
+};
+
+const char *const init_vars[] =
+{
+    "    memset(&yyval,  0, sizeof(yyval));",
+    "    memset(&yylval, 0, sizeof(yylval));",
+    "",
+    0
 };
 
 const char *const body_3[] =
 {
+    "    yym = 0;",
+    "    yyn = 0;",
     "    yynerrs = 0;",
     "    yyerrflag = 0;",
     "    yychar = YYEMPTY;",
@@ -235,28 +250,26 @@ const char *const body_3[] =
     "    if ((yyn = yydefred[yystate]) != 0) goto yyreduce;",
     "    if (yychar < 0)",
     "    {",
-    "        if ((yychar = YYLEX) < 0) yychar = YYEOF;",
+    "        yychar = YYLEX;",
+    "        if (yychar < 0) yychar = YYEOF;",
     "#if YYDEBUG",
     "        if (yydebug)",
     "        {",
-    "            yys = yyname[YYTRANSLATE(yychar)];",
+    "            if ((yys = yyname[YYTRANSLATE(yychar)]) == NULL) yys = yyname[YYUNDFTOKEN];",
     "            printf(\"%sdebug: state %d, reading %d (%s)\\n\",",
     "                    YYPREFIX, yystate, yychar, yys);",
     "        }",
     "#endif",
     "    }",
-    "    if ((yyn = yysindex[yystate]) && (yyn += yychar) >= 0 &&",
-    "            yyn <= YYTABLESIZE && yycheck[yyn] == yychar)",
+    "    if (((yyn = yysindex[yystate]) != 0) && (yyn += yychar) >= 0 &&",
+    "            yyn <= YYTABLESIZE && yycheck[yyn] == (YYINT) yychar)",
     "    {",
     "#if YYDEBUG",
     "        if (yydebug)",
     "            printf(\"%sdebug: state %d, shifting to state %d\\n\",",
     "                    YYPREFIX, yystate, yytable[yyn]);",
     "#endif",
-    "        if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM)",
-    "        {",
-    "            goto yyoverflow;",
-    "        }",
+    "        if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM) goto yyoverflow;",
     "        yystate = yytable[yyn];",
     "        *++yystack.s_mark = yytable[yyn];",
     "        *++yystack.l_mark = yylval;",
@@ -264,18 +277,17 @@ const char *const body_3[] =
     "        if (yyerrflag > 0)  --yyerrflag;",
     "        goto yyloop;",
     "    }",
-    "    if ((yyn = yyrindex[yystate]) && (yyn += yychar) >= 0 &&",
-    "            yyn <= YYTABLESIZE && yycheck[yyn] == yychar)",
+    "    if (((yyn = yyrindex[yystate]) != 0) && (yyn += yychar) >= 0 &&",
+    "            yyn <= YYTABLESIZE && yycheck[yyn] == (YYINT) yychar)",
     "    {",
     "        yyn = yytable[yyn];",
     "        goto yyreduce;",
     "    }",
-    "    if (yyerrflag) goto yyinrecovery;",
+    "    if (yyerrflag != 0) goto yyinrecovery;",
     "",
     "    YYERROR_CALL(\"syntax error\");",
     "",
-    "    goto yyerrlab;",
-    "",
+    "    goto yyerrlab; /* redundant goto avoids 'unused label' warning */",
     "yyerrlab:",
     "    ++yynerrs;",
     "",
@@ -285,18 +297,15 @@ const char *const body_3[] =
     "        yyerrflag = 3;",
     "        for (;;)",
     "        {",
-    "            if ((yyn = yysindex[*yystack.s_mark]) && (yyn += YYERRCODE) >= 0 &&",
-    "                    yyn <= YYTABLESIZE && yycheck[yyn] == YYERRCODE)",
+    "            if (((yyn = yysindex[*yystack.s_mark]) != 0) && (yyn += YYERRCODE) >= 0 &&",
+    "                    yyn <= YYTABLESIZE && yycheck[yyn] == (YYINT) YYERRCODE)",
     "            {",
     "#if YYDEBUG",
     "                if (yydebug)",
     "                    printf(\"%sdebug: state %d, error recovery shifting\\",
     " to state %d\\n\", YYPREFIX, *yystack.s_mark, yytable[yyn]);",
     "#endif",
-    "                if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM)",
-    "                {",
-    "                    goto yyoverflow;",
-    "                }",
+    "                if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM) goto yyoverflow;",
     "                yystate = yytable[yyn];",
     "                *++yystack.s_mark = yytable[yyn];",
     "                *++yystack.l_mark = yylval;",
@@ -321,7 +330,7 @@ const char *const body_3[] =
     "#if YYDEBUG",
     "        if (yydebug)",
     "        {",
-    "            yys = yyname[YYTRANSLATE(yychar)];",
+    "            if ((yys = yyname[YYTRANSLATE(yychar)]) == NULL) yys = yyname[YYUNDFTOKEN];",
     "            printf(\"%sdebug: state %d, error recovery discards token %d (%s)\\n\",",
     "                    YYPREFIX, yystate, yychar, yys);",
     "        }",
@@ -337,10 +346,11 @@ const char *const body_3[] =
     "                YYPREFIX, yystate, yyn, yyrule[yyn]);",
     "#endif",
     "    yym = yylen[yyn];",
-    "    if (yym)",
+    "    if (yym > 0)",
     "        yyval = yystack.l_mark[1-yym];",
     "    else",
     "        memset(&yyval, 0, sizeof yyval);",
+    "",
     "    switch (yyn)",
     "    {",
     0
@@ -365,11 +375,12 @@ const char *const trailer[] =
     "        *++yystack.l_mark = yyval;",
     "        if (yychar < 0)",
     "        {",
-    "            if ((yychar = YYLEX) < 0) yychar = YYEOF;",
+    "            yychar = YYLEX;",
+    "            if (yychar < 0) yychar = YYEOF;",
     "#if YYDEBUG",
     "            if (yydebug)",
     "            {",
-    "                yys = yyname[YYTRANSLATE(yychar)];",
+    "                if ((yys = yyname[YYTRANSLATE(yychar)]) == NULL) yys = yyname[YYUNDFTOKEN];",
     "                printf(\"%sdebug: state %d, reading %d (%s)\\n\",",
     "                        YYPREFIX, YYFINAL, yychar, yys);",
     "            }",
@@ -378,8 +389,8 @@ const char *const trailer[] =
     "        if (yychar == YYEOF) goto yyaccept;",
     "        goto yyloop;",
     "    }",
-    "    if ((yyn = yygindex[yym]) && (yyn += yystate) >= 0 &&",
-    "            yyn <= YYTABLESIZE && yycheck[yyn] == yystate)",
+    "    if (((yyn = yygindex[yym]) != 0) && (yyn += yystate) >= 0 &&",
+    "            yyn <= YYTABLESIZE && yycheck[yyn] == (YYINT) yystate)",
     "        yystate = yytable[yyn];",
     "    else",
     "        yystate = yydgoto[yym];",
@@ -388,10 +399,7 @@ const char *const trailer[] =
     "        printf(\"%sdebug: after reduction, shifting from state %d \\",
     "to state %d\\n\", YYPREFIX, *yystack.s_mark, yystate);",
     "#endif",
-    "    if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM)",
-    "    {",
-    "        goto yyoverflow;",
-    "    }",
+    "    if (yystack.s_mark >= yystack.s_last && yygrowstack(&yystack) == YYENOMEM) goto yyoverflow;",
     "    *++yystack.s_mark = (YYINT) yystate;",
     "    *++yystack.l_mark = yyval;",
     "    goto yyloop;",

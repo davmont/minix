@@ -1,10 +1,10 @@
-/*	$NetBSD: lalr.c,v 1.6 2015/01/03 23:22:52 christos Exp $	*/
+/*	$NetBSD: lalr.c,v 1.11 2021/02/20 22:57:56 christos Exp $	*/
 
 #include "defs.h"
-/* Id: lalr.c,v 1.11 2014/09/18 00:26:39 tom Exp  */
+/* Id: lalr.c,v 1.13 2020/09/10 17:26:21 tom Exp  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: lalr.c,v 1.6 2015/01/03 23:22:52 christos Exp $");
+__RCSID("$NetBSD: lalr.c,v 1.11 2021/02/20 22:57:56 christos Exp $");
 
 typedef struct shorts
 {
@@ -14,12 +14,12 @@ typedef struct shorts
 shorts;
 
 static Value_t map_goto(int state, int symbol);
-static Value_t **transpose(Value_t ** R, int n);
+static Value_t **transpose(Value_t **R, int n);
 static void add_lookback_edge(int stateno, int ruleno, int gotono);
 static void build_relations(void);
 static void compute_FOLLOWS(void);
 static void compute_lookaheads(void);
-static void digraph(Value_t ** relation);
+static void digraph(Value_t **relation);
 static void initialize_F(void);
 static void initialize_LA(void);
 static void set_accessing_symbol(void);
@@ -151,12 +151,12 @@ initialize_LA(void)
     k = 0;
     for (i = 0; i < nstates; i++)
     {
-	lookaheads[i] = (Value_t) k;
+	lookaheads[i] = (Value_t)k;
 	rp = reduction_table[i];
 	if (rp)
 	    k += rp->nreds;
     }
-    lookaheads[nstates] = (Value_t) k;
+    lookaheads[nstates] = (Value_t)k;
 
     LA = NEW2(k * tokensetsize, unsigned);
     LAruleno = NEW2(k, Value_t);
@@ -187,7 +187,6 @@ set_goto_map(void)
     Value_t *temp_base;
     Value_t *temp_map;
     Value_t state2;
-    Value_t state1;
 
     goto_base = NEW2(nvars + 1, Value_t);
     temp_base = NEW2(nvars + 1, Value_t);
@@ -216,22 +215,23 @@ set_goto_map(void)
     k = 0;
     for (i = ntokens; i < nsyms; i++)
     {
-	temp_map[i] = (Value_t) k;
+	temp_map[i] = (Value_t)k;
 	k += goto_map[i];
     }
 
     for (i = ntokens; i < nsyms; i++)
 	goto_map[i] = temp_map[i];
 
-    goto_map[nsyms] = (Value_t) ngotos;
-    temp_map[nsyms] = (Value_t) ngotos;
+    goto_map[nsyms] = (Value_t)ngotos;
+    temp_map[nsyms] = (Value_t)ngotos;
 
     from_state = NEW2(ngotos, Value_t);
     to_state = NEW2(ngotos, Value_t);
 
     for (sp = first_shift; sp; sp = sp->next)
     {
-	state1 = sp->number;
+	Value_t state1 = sp->number;
+
 	for (i = sp->nshifts - 1; i >= 0; i--)
 	{
 	    state2 = sp->shift[i];
@@ -254,21 +254,19 @@ set_goto_map(void)
 static Value_t
 map_goto(int state, int symbol)
 {
-    int high;
-    int low;
-    int middle;
-    int s;
-
-    low = goto_map[symbol];
-    high = goto_map[symbol + 1];
+    int low = goto_map[symbol];
+    int high = goto_map[symbol + 1];
 
     for (;;)
     {
+	int middle;
+	int s;
+
 	assert(low <= high);
 	middle = (low + high) >> 1;
 	s = from_state[middle];
 	if (s == state)
-	    return (Value_t) (middle);
+	    return (Value_t)(middle);
 	else if (s < state)
 	    low = middle + 1;
 	else
@@ -288,7 +286,6 @@ initialize_F(void)
     Value_t *rp;
     Value_t **reads;
     int nedges;
-    int stateno;
     int symbol;
     int nwords;
 
@@ -302,7 +299,8 @@ initialize_F(void)
     rowp = F;
     for (i = 0; i < ngotos; i++)
     {
-	stateno = to_state[i];
+	int stateno = to_state[i];
+
 	sp = shift_table[stateno];
 
 	if (sp)
@@ -362,11 +360,8 @@ build_relations(void)
     Value_t *rp;
     shifts *sp;
     int length;
-    int nedges;
     int done_flag;
-    Value_t state1;
     Value_t stateno;
-    int symbol1;
     int symbol2;
     Value_t *shortp;
     Value_t *edge;
@@ -379,9 +374,9 @@ build_relations(void)
 
     for (i = 0; i < ngotos; i++)
     {
-	nedges = 0;
-	state1 = from_state[i];
-	symbol1 = accessing_symbol[to_state[i]];
+	int nedges = 0;
+	int symbol1 = accessing_symbol[to_state[i]];
+	Value_t state1 = from_state[i];
 
 	for (rulep = derives[symbol1]; *rulep >= 0; rulep++)
 	{
@@ -467,19 +462,18 @@ add_lookback_edge(int stateno, int ruleno, int gotono)
 
     sp = NEW(shorts);
     sp->next = lookback[i];
-    sp->value = (Value_t) gotono;
+    sp->value = (Value_t)gotono;
     lookback[i] = sp;
 }
 
 static Value_t **
-transpose(Value_t ** R2, int n)
+transpose(Value_t **R2, int n)
 {
     Value_t **new_R;
     Value_t **temp_R;
     Value_t *nedges;
     Value_t *sp;
     int i;
-    int k;
 
     nedges = NEW2(n, Value_t);
 
@@ -498,7 +492,8 @@ transpose(Value_t ** R2, int n)
 
     for (i = 0; i < n; i++)
     {
-	k = nedges[i];
+	int k = nedges[i];
+
 	if (k > 0)
 	{
 	    sp = NEW2(k + 1, Value_t);
@@ -516,7 +511,7 @@ transpose(Value_t ** R2, int n)
 	if (sp)
 	{
 	    while (*sp >= 0)
-		*temp_R[*sp++]++ = (Value_t) i;
+		*temp_R[*sp++]++ = (Value_t)i;
 	}
     }
 
@@ -566,11 +561,11 @@ compute_lookaheads(void)
 }
 
 static void
-digraph(Value_t ** relation)
+digraph(Value_t **relation)
 {
     int i;
 
-    infinity = (Value_t) (ngotos + 2);
+    infinity = (Value_t)(ngotos + 2);
     INDEX = NEW2(ngotos + 1, Value_t);
     VERTICES = NEW2(ngotos + 1, Value_t);
     top = 0;
@@ -602,7 +597,7 @@ traverse(int i)
     Value_t height;
     unsigned *base;
 
-    VERTICES[++top] = (Value_t) i;
+    VERTICES[++top] = (Value_t)i;
     INDEX[i] = height = top;
 
     base = F + i * tokensetsize;
@@ -650,10 +645,10 @@ traverse(int i)
 void
 lalr_leaks(void)
 {
-    int i;
-
     if (includes != 0)
     {
+	int i;
+
 	for (i = 0; i < ngotos; i++)
 	{
 	    free(includes[i]);

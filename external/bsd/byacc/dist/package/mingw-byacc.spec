@@ -1,8 +1,8 @@
 Summary: byacc - public domain Berkeley LALR Yacc parser generator
 %define AppProgram byacc
-%define AppVersion 20141128
+%define AppVersion 20210109
 %define UseProgram yacc
-# $XTermId: mingw-byacc.spec,v 1.8 2014/11/28 15:42:17 tom Exp $
+# Id: mingw-byacc.spec,v 1.31 2021/01/09 14:32:51 tom Exp 
 Name: %{AppProgram}
 Version: %{AppVersion}
 Release: 1
@@ -21,12 +21,12 @@ license which includes the generated C.
 
 %prep
 
+%define debug_package %{nil}
+
 %setup -q -n %{AppProgram}-%{AppVersion}
 
 %build
-
-INSTALL_PROGRAM='${INSTALL}' \
-	./configure \
+%configure --verbose \
 		--program-prefix=b \
 		--target %{_target_platform} \
 		--prefix=%{_prefix} \
@@ -55,6 +55,9 @@ strip $RPM_BUILD_ROOT%{_bindir}/%{AppProgram}
 
 %changelog
 # each patch should add its ChangeLog entries here
+
+* Sun Jul 09 2017 Thomas Dickey
+- use predefined "configure"
 
 * Wed Sep 25 2013 Thomas Dickey
 - cloned from byacc.spec
