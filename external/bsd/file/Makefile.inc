@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile.inc,v 1.5 2014/01/17 20:24:20 martin Exp $
+#	$NetBSD: Makefile.inc,v 1.7 2019/12/17 18:59:39 christos Exp $
 
 WARNS=4
 DIST=${NETBSDSRCDIR}/external/bsd/file/dist
@@ -16,12 +16,20 @@ MAGIC?=		${MFILESDIR}/magic
 
 VERSION != ${TOOL_SED} -ne "s/^PACKAGE_VERSION='\([^']*\)'/\1/p" ${DIST}/configure
 
-CPPFLAGS+=	-DMAGIC='"${MAGIC}"' -DHAVE_CONFIG_H -DQUICK -DBUILTIN_ELF \
+CPPFLAGS+=	-DMAGIC='"${MAGIC}"' -DHAVE_CONFIG_H -DBUILTIN_ELF \
 		-DELFCORE -DVERSION='"${VERSION}"'
+.if !defined(__MINIX)
+# Force-define QUICK (mmap+mprotect RO mapping of magic db).  On MINIX
+# we deliberately leave it auto-detected via file.h's HAVE_MMAP +
+# HAVE_SYS_MMAN_H gate — config.h undefines HAVE_MMAP, so QUICK does
+# not get auto-defined, and apprentice.c uses the malloc+read fallback.
+CPPFLAGS+=	-DQUICK
+.endif
 CPPFLAGS+=	-I${.CURDIR}/../include -I${DIST}/src
 
-.if ${ACTIVE_CC}=="gcc" && ${HAVE_GCC}=="48"
-CPPFLAGS.readelf.c	+= -Wno-error=maybe-uninitialized
-.endif
-
 .PATH:		${DIST}/src ${DIST}/doc
+
+DPLIBS+=     lzma    ${NETBSDSRCDIR}/external/public-domain/xz/lib
+DPLIBS+=     bz2     ${NETBSDSRCDIR}/lib/libbz2
+DPLIBS+=     z       ${NETBSDSRCDIR}/lib/libz
+

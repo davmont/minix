@@ -1,9 +1,13 @@
-#!/usr/bin/env python
+# coding: utf-8
+
 '''
 Python bindings for libmagic
 '''
 
 import ctypes
+import threading
+
+from collections import namedtuple
 
 from ctypes import *
 from ctypes.util import find_library
@@ -32,7 +36,7 @@ MAGIC_PRESERVE_ATIME = PRESERVE_ATIME = 128
 MAGIC_RAW = RAW = 256
 MAGIC_ERROR = ERROR = 512
 MAGIC_MIME_ENCODING = MIME_ENCODING = 1024
-MAGIC_MIME = MIME = 1040
+MAGIC_MIME = MIME = 1040  # MIME_TYPE + MIME_ENCODING
 MAGIC_APPLE = APPLE = 2048
 
 MAGIC_NO_CHECK_COMPRESS = NO_CHECK_COMPRESS = 4096
@@ -46,6 +50,16 @@ MAGIC_NO_CHECK_TOKENS = NO_CHECK_TOKENS = 1048576
 MAGIC_NO_CHECK_ENCODING = NO_CHECK_ENCODING = 2097152
 
 MAGIC_NO_CHECK_BUILTIN = NO_CHECK_BUILTIN = 4173824
+
+MAGIC_PARAM_INDIR_MAX = PARAM_INDIR_MAX = 0
+MAGIC_PARAM_NAME_MAX = PARAM_NAME_MAX = 1
+MAGIC_PARAM_ELF_PHNUM_MAX = PARAM_ELF_PHNUM_MAX = 2
+MAGIC_PARAM_ELF_SHNUM_MAX = PARAM_ELF_SHNUM_MAX = 3
+MAGIC_PARAM_ELF_NOTES_MAX = PARAM_ELF_NOTES_MAX = 4
+MAGIC_PARAM_REGEX_MAX = PARAM_REGEX_MAX = 5
+MAGIC_PARAM_BYTES_MAX = PARAM_BYTES_MAX = 6
+
+FileMagic = namedtuple('FileMagic', ('mime_type', 'encoding', 'name'))
 
 
 class magic_set(Structure):
@@ -101,6 +115,14 @@ _errno = _libraries['magic'].magic_errno
 _errno.restype = c_int
 _errno.argtypes = [magic_t]
 
+_getparam = _libraries['magic'].magic_getparam
+_getparam.restype = c_int
+_getparam.argtypes = [magic_t, c_int, c_void_p]
+
+_setparam = _libraries['magic'].magic_setparam
+_setparam.restype = c_int
+_setparam.argtypes = [magic_t, c_int, c_void_p]
+
 
 class Magic(object):
     def __init__(self, ms):
@@ -112,26 +134,43 @@ class Magic(object):
         """
         _close(self._magic_t)
 
+    @staticmethod
+    def __tostr(s):
+        if s is None:
+            return None
+        if isinstance(s, str):
+            return s
+        try:  # keep Python 2 compatibility
+            return str(s, 'utf-8')
+        except TypeError:
+            return str(s)
+
+    @staticmethod
+    def __tobytes(b):
+        if b is None:
+            return None
+        if isinstance(b, bytes):
+            return b
+        try:  # keep Python 2 compatibility
+            return bytes(b, 'utf-8')
+        except TypeError:
+            return bytes(b)
+
     def file(self, filename):
         """
         Returns a textual description of the contents of the argument passed
         as a filename or None if an error occurred and the MAGIC_ERROR flag
-        is set.  A call to errno() will return the numeric error code.
+        is set. A call to errno() will return the numeric error code.
         """
-        try:  # attempt python3 approach first
-            if isinstance(filename, bytes):
-                bi = filename
-            else:
-                bi = bytes(filename, 'utf-8')
-            return str(_file(self._magic_t, bi), 'utf-8')
-        except:
-            return _file(self._magic_t, filename.encode('utf-8'))
+        return Magic.__tostr(_file(self._magic_t, Magic.__tobytes(filename)))
 
     def descriptor(self, fd):
         """
-        Like the file method, but the argument is a file descriptor.
+        Returns a textual description of the contents of the argument passed
+        as a file descriptor or None if an error occurred and the MAGIC_ERROR
+        flag is set. A call to errno() will return the numeric error code.
         """
-        return _descriptor(self._magic_t, fd)
+        return Magic.__tostr(_descriptor(self._magic_t, fd))
 
     def buffer(self, buf):
         """
@@ -139,20 +178,14 @@ class Magic(object):
         as a buffer or None if an error occurred and the MAGIC_ERROR flag
         is set. A call to errno() will return the numeric error code.
         """
-        try:  # attempt python3 approach first
-            return str(_buffer(self._magic_t, buf, len(buf)), 'utf-8')
-        except:
-            return _buffer(self._magic_t, buf, len(buf))
+        return Magic.__tostr(_buffer(self._magic_t, buf, len(buf)))
 
     def error(self):
         """
         Returns a textual explanation of the last error or None
         if there was no error.
         """
-        try:  # attempt python3 approach first
-            return str(_error(self._magic_t), 'utf-8')
-        except:
-            return _error(self._magic_t)
+        return Magic.__tostr(_error(self._magic_t))
 
     def setflags(self, flags):
         """
@@ -173,35 +206,38 @@ class Magic(object):
 
         Returns 0 on success and -1 on failure.
         """
-        return _load(self._magic_t, filename)
+        return _load(self._magic_t, Magic.__tobytes(filename))
 
     def compile(self, dbs):
         """
         Compile entries in the colon separated list of database files
         passed as argument or the default database file if no argument.
-        Returns 0 on success and -1 on failure.
         The compiled files created are named from the basename(1) of each file
         argument with ".mgc" appended to it.
+
+        Returns 0 on success and -1 on failure.
         """
-        return _compile(self._magic_t, dbs)
+        return _compile(self._magic_t, Magic.__tobytes(dbs))
 
     def check(self, dbs):
         """
         Check the validity of entries in the colon separated list of
         database files passed as argument or the default database file
         if no argument.
+
         Returns 0 on success and -1 on failure.
         """
-        return _check(self._magic_t, dbs)
+        return _check(self._magic_t, Magic.__tobytes(dbs))
 
     def list(self, dbs):
         """
         Check the validity of entries in the colon separated list of
         database files passed as argument or the default database file
         if no argument.
+
         Returns 0 on success and -1 on failure.
         """
-        return _list(self._magic_t, dbs)
+        return _list(self._magic_t, Magic.__tobytes(dbs))
 
     def errno(self):
         """
@@ -212,10 +248,114 @@ class Magic(object):
         """
         return _errno(self._magic_t)
 
+    def getparam(self, param):
+        """
+        Returns the param value if successful and -1 if the parameter
+        was unknown.
+        """
+        v = c_int()
+        i = _getparam(self._magic_t, param, byref(v))
+        if i == -1:
+            return -1
+        return v.value
+
+    def setparam(self, param, value):
+        """
+        Returns 0 if successful and -1 if the parameter was unknown.
+        """
+        v = c_int(value)
+        return _setparam(self._magic_t, param, byref(v))
+
 
 def open(flags):
     """
     Returns a magic object on success and None on failure.
     Flags argument as for setflags.
     """
-    return Magic(_open(flags))
+    magic_t = _open(flags)
+    if magic_t is None:
+        return None
+    return Magic(magic_t)
+
+
+# Objects used by `detect_from_` functions
+class error(Exception):
+    pass
+
+class MagicDetect(object):
+    def __init__(self):
+        self.mime_magic = open(MAGIC_MIME)
+        if self.mime_magic is None:
+            raise error
+        if self.mime_magic.load() == -1:
+            self.mime_magic.close()
+            self.mime_magic = None
+            raise error
+        self.none_magic = open(MAGIC_NONE)
+        if self.none_magic is None:
+            self.mime_magic.close()
+            self.mime_magic = None
+            raise error
+        if self.none_magic.load() == -1:
+            self.none_magic.close()
+            self.none_magic = None
+            self.mime_magic.close()
+            self.mime_magic = None
+            raise error
+
+    def __del__(self):
+        if self.mime_magic is not None:
+            self.mime_magic.close()
+        if self.none_magic is not None:
+            self.none_magic.close()
+
+threadlocal = threading.local()
+
+def _detect_make():
+    v = getattr(threadlocal, "magic_instance", None)
+    if v is None:
+        v = MagicDetect()
+        setattr(threadlocal, "magic_instance", v)
+    return v
+
+def _create_filemagic(mime_detected, type_detected):
+    try:
+        mime_type, mime_encoding = mime_detected.split('; ')
+    except ValueError:
+        raise ValueError(mime_detected)
+
+    return FileMagic(name=type_detected, mime_type=mime_type,
+                     encoding=mime_encoding.replace('charset=', ''))
+
+
+def detect_from_filename(filename):
+    '''Detect mime type, encoding and file type from a filename
+
+    Returns a `FileMagic` namedtuple.
+    '''
+    x = _detect_make()
+    return _create_filemagic(x.mime_magic.file(filename),
+                             x.none_magic.file(filename))
+
+
+def detect_from_fobj(fobj):
+    '''Detect mime type, encoding and file type from file-like object
+
+    Returns a `FileMagic` namedtuple.
+    '''
+
+    file_descriptor = fobj.fileno()
+    x = _detect_make()
+    return _create_filemagic(x.mime_magic.descriptor(file_descriptor),
+                             x.none_magic.descriptor(file_descriptor))
+
+
+def detect_from_content(byte_content):
+    '''Detect mime type, encoding and file type from bytes
+
+    Returns a `FileMagic` namedtuple.
+    '''
+
+    x = _detect_make()
+    return _create_filemagic(x.mime_magic.buffer(byte_content),
+                             x.none_magic.buffer(byte_content))
