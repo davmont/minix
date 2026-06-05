@@ -1,4 +1,4 @@
-/*	$NetBSD: options.c,v 1.3 2014/01/26 21:43:45 christos Exp $ */
+/*	$NetBSD: options.c,v 1.7 2019/10/04 09:01:59 mrg Exp $ */
 /*-
  * Copyright (c) 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -16,7 +16,7 @@
 static const char sccsid[] = "Id: options.c,v 10.65 2002/01/18 22:34:43 skimo Exp  (Berkeley) Date: 2002/01/18 22:34:43 ";
 #endif /* not lint */
 #else
-__RCSID("$NetBSD: options.c,v 1.3 2014/01/26 21:43:45 christos Exp $");
+__RCSID("$NetBSD: options.c,v 1.7 2019/10/04 09:01:59 mrg Exp $");
 #endif
 
 #include <sys/types.h>
@@ -100,9 +100,11 @@ OPTLIST const optlist[] = {
 	{L("fileencoding"),f_encoding,	OPT_STR,	OPT_WC},
 /* O_FLASH	    HPUX */
 	{L("flash"),	NULL,		OPT_1BOOL,	0},
-#ifdef GTAGS
 /* O_GTAGSMODE	    FreeBSD/NetBSD */
+#ifdef GTAGS
 	{L("gtagsmode"),NULL,		OPT_0BOOL,	0},
+#else
+	{L("gtagsmode"),NULL,		OPT_0BOOL,	OPT_NDISP|OPT_NOSAVE|OPT_NOSET},
 #endif
 /* O_HARDTABS	    4BSD */
 	{L("hardtabs"),	NULL,		OPT_NUM,	0},
@@ -110,6 +112,18 @@ OPTLIST const optlist[] = {
 	{L("iclower"),	f_recompile,	OPT_0BOOL,	0},
 /* O_IGNORECASE	    4BSD */
 	{L("ignorecase"),	f_recompile,	OPT_0BOOL,	0},
+/* O_IMCTRL	nvi-m17n/NetBSD */
+#ifdef IMCTRL
+	{L("imctrl"),	f_imctrl,	OPT_0BOOL,	0},
+#else
+	{L("imctrl"),	NULL,		OPT_0BOOL,	OPT_NDISP|OPT_NOSAVE|OPT_NOSET},
+#endif
+/* O_IMKEY	nvi-m17n/NetBSD */
+#ifdef IMCTRL
+	{L("imkey"),	NULL,		OPT_STR,	0},
+#else
+	{L("imkey"),	NULL,		OPT_STR,	OPT_NDISP|OPT_NOSAVE},
+#endif
 /* O_INPUTENCODING */
 	{L("inputencoding"),f_encoding,	OPT_STR,	OPT_WC},
 /* O_KEYTIME	  4.4BSD */
@@ -273,10 +287,10 @@ static OABBREV const abbrev[] = {
 	{L("ed"),	O_EDCOMPATIBLE},	/*     4BSD */
 	{L("et"),	O_EXPANDTAB},		/* NetBSD 5.0 */
 	{L("ex"),	O_EXRC},		/* System V (undocumented) */
+	{L("fe"),	O_FILEENCODING},
 #ifdef GTAGS
 	{L("gt"),	O_GTAGSMODE},		/* FreeBSD, NetBSD */
 #endif
-	{L("fe"),	O_FILEENCODING},
 	{L("ht"),	O_HARDTABS},		/*     4BSD */
 	{L("ic"),	O_IGNORECASE},		/*     4BSD */
 	{L("ie"),	O_INPUTENCODING},
@@ -342,7 +356,7 @@ opts_init(SCR *sp, int *oargs)
 #define	OI(indx, str) {							\
 	a.len = STRLEN(str);						\
 	if ((const CHAR_T*)str != b2)/* GCC puts strings in text-space. */\
-		(void)MEMCPY(b2, str, a.len+1);				\
+		(void)MEMMOVE(b2, str, a.len+1);			\
 	if (opts_set(sp, argv, NULL)) {					\
 		 optindx = indx;					\
 		goto err;						\
@@ -403,6 +417,9 @@ opts_init(SCR *sp, int *oargs)
 	OI(O_TABSTOP, L("tabstop=8"));
 	(void)SPRINTF(b2, SIZE(b2), L("tags=%s"), _PATH_TAGS);
 	OI(O_TAGS, b2);
+#ifdef IMCTRL
+	OI(O_IMKEY, L("imkey=/?aioAIO"));
+#endif
 
 	/*
 	 * XXX

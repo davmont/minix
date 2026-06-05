@@ -1,10 +1,6 @@
-#	$NetBSD: Makefile,v 1.6 2015/01/23 03:04:06 christos Exp $
+#	$NetBSD: Makefile,v 1.25 2021/02/26 02:54:21 rin Exp $
 
 .include <bsd.own.mk>
-
-USE_WIDECHAR?=yes
-
-CWARNFLAGS.clang+=	-Wno-uninitialized -Wno-format-security
 
 .if defined(__MINIX)
 .if !empty(DBG:M-Og) || !empty(CFLAGS:M-Og) || \
@@ -14,20 +10,42 @@ CWARNFLAGS.gcc+=	-Wno-maybe-uninitialized
 .endif
 .endif # defined(__MINIX)
 
-CPPFLAGS+=-I${DIST}/include -I${.CURDIR} -I. -DGTAGS
+USE_WIDECHAR?=yes
+
+.if ${USE_WIDECHAR} == "yes"
+USE_BUILTIN_REGEX?=yes	# Although our regex supports widechar nvi requires
+			# a non-standard API
+.else
+USE_BUILTIN_REGEX?=no
+.endif
+
+WARNS=	5
+
+COPTS.exf.c+=		-Wno-format-nonliteral
+COPTS.msg.c+=		-Wno-format-nonliteral
+.if ${USE_WIDECHAR} != "yes"
+COPTS.v_increment.c+=	-Wno-format-nonliteral
+CWARNFLAGS.gcc+=	-Wno-unused
+CWARNFLAGS.clang+=	-Wno-unsequenced
+.endif
+CWARNFLAGS.clang+=	-Wno-error=string-compare
+
+CPPFLAGS+=-I${DIST}/include -I${.CURDIR} -I.
+CPPFLAGS+=-DGTAGS -DIMCTRL
+CPPFLAGS+=-DHAVE_OPENPTY -DHAVE_UTIL_H
+.if !defined(__MINIX)
+# MINIX libc has no sigtimedwait(); cl_main.c falls back to a busy wait.
+CPPFLAGS+=-DHAVE_SIGTIMEDWAIT
+.endif
+CPPFLAGS+=-DHAVE_MVWCHGAT
+
 #DBG=-g
 #CPPFLAGS+=-DLOGDEBUG -DTRACE
 #CPPFLAGS+=-DDBDEBUG -DTRACE
 #CPPFLAGS+=-DQUEUEDEBUG
 
-#CWARNFLAGS+=-Wno-parentheses -Wno-unused -Wno-missing-prototypes
-#.if defined(HAVE_GCC)
-#CWARNFLAGS+=-Wno-pointer-sign
-#COPTS+=-fno-strict-aliasing
-#.endif
-
-LDADD+=	-lcurses -lterminfo
-DPADD+=	${LIBCURSES} ${LIBTERMINFO}
+LDADD+=	-lcurses -lterminfo -lutil
+DPADD+=	${LIBCURSES} ${LIBTERMINFO} ${LIBUTIL}
 PROG=	vi
 SRCS=	api.c cl_bsd.c cl_funcs.c cl_main.c cl_read.c cl_screen.c cl_term.c \
 	conv.c cut.c delete.c ex.c ex_abbrev.c ex_append.c \
@@ -39,8 +57,6 @@ SRCS=	api.c cl_bsd.c cl_funcs.c cl_main.c cl_read.c cl_screen.c cl_term.c \
 	ex_shift.c ex_source.c ex_stop.c ex_subst.c ex_tag.c ex_tcl.c \
 	ex_txt.c ex_undo.c ex_usage.c ex_util.c ex_version.c ex_visual.c \
 	ex_write.c ex_yank.c ex_z.c exf.c getc.c gs.c \
-	ip_funcs.c ip_read.c ip_screen.c ip_term.c \
-	ip_run.c ip_send.c ip_trans.c ipc_cmd.c ipc_method.c \
 	key.c trace.c \
 	main.c mark.c msg.c nothread.c options.c options_f.c put.c recover.c \
 	screen.c search.c seq.c util.c v_at.c v_ch.c v_cmd.c v_delete.c \
@@ -51,10 +67,17 @@ SRCS=	api.c cl_bsd.c cl_funcs.c cl_main.c cl_read.c cl_screen.c cl_term.c \
 	v_z.c v_zexit.c vi.c vs_line.c vs_msg.c vs_refresh.c \
 	vs_relative.c vs_smap.c vs_split.c
 
+NOTUSED=ip_funcs.c ip_read.c ip_screen.c ip_term.c \
+	ip_run.c ip_send.c ip_trans.c ipc_cmd.c ipc_method.c
+
 # For wide char support
 .if ${USE_WIDECHAR} == "yes"
+CPPFLAGS+=-DUSE_WIDECHAR
+.endif
+.if ${USE_BUILTIN_REGEX} == "yes"
 SRCS+=	regcomp.c regerror.c regexec.c regfree.c
-CPPFLAGS+=-I${DIST}/regex -D__REGEX_PRIVATE -DUSE_WIDECHAR
+CPPFLAGS+=-I${DIST}/regex -D__REGEX_PRIVATE
+COPTS.regexec.c+= ${${ACTIVE_CC} == "gcc":? -Wno-old-style-definition :}
 .endif
 
 # For db3 db1 emulation
@@ -90,7 +113,7 @@ DPSRCS+=${i}_extern.h
 CLEANFILES+=${i}_extern.h
 # does not work, DIST isn't set yet here
 #_${i}_SRCS != echo ${DIST}/${i}/*.c ${DIST}/${i}/*.xs
-${i}_extern.h: ${SRCS}
+${i}_extern.h: ${SRCS} ${NOTUSED}
 	${_MKTARGET_CREATE}
 	@${TOOL_SED} -n "s/^ \* PUBLIC: \(.*\)/\1/p" ${.ALLSRC:M${DIST}/$i/*} > ${.TARGET}.tmp
 	@if cmp -s ${.TARGET}.tmp ${.TARGET}; then \
@@ -113,16 +136,11 @@ version.h:	../../Makefile.inc
 
 .include "${.CURDIR}/../../Makefile.inc"
 
-WARNS=	4
-
 .PATH: ${DIST}/vi ${DIST}/ex ${DIST}/cl
 .PATH: ${DIST}/common
 .PATH: ${DIST}/ipc
 .PATH: ${DIST}/ip
 .PATH: ${DIST}/regex
 .PATH: ${DIST}/docs/vi.man
-
-COPTS.exf.c += -Wno-format-nonliteral
-COPTS.msg.c += -Wno-format-nonliteral
 
 .include <bsd.prog.mk>

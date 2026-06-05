@@ -823,6 +823,10 @@ vs_sm_down(SCR *sp, MARK *rp, db_recno_t count, scroll_t scmd, SMAP *smp)
 {
 	SMAP *ssmp, s1, s2;
 	int cursor_set, ychanged, zset;
+#if defined(__minix)
+	/* LSC: -Werror=maybe-uninitialized, with -O3 */
+	ssmp = NULL;
+#endif /* defined(__minix) */
 
 	/* Check to see if movement is possible. */
 	if (HMAP->lno == 1 &&

@@ -1,4 +1,4 @@
-/*	$NetBSD: cl_funcs.c,v 1.4 2014/01/26 21:43:45 christos Exp $ */
+/*	$NetBSD: cl_funcs.c,v 1.9 2018/08/07 08:05:47 rin Exp $ */
 /*-
  * Copyright (c) 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -16,7 +16,7 @@
 static const char sccsid[] = "Id: cl_funcs.c,v 10.72 2002/03/02 23:18:33 skimo Exp  (Berkeley) Date: 2002/03/02 23:18:33 ";
 #endif /* not lint */
 #else
-__RCSID("$NetBSD: cl_funcs.c,v 1.4 2014/01/26 21:43:45 christos Exp $");
+__RCSID("$NetBSD: cl_funcs.c,v 1.9 2018/08/07 08:05:47 rin Exp $");
 #endif
 
 #include <sys/types.h>
@@ -144,22 +144,20 @@ cl_attr(SCR *sp, scr_attr_t attribute, int on)
 	 * do this automatically -- so, this attribute isn't as controlled by
 	 * the higher level screen as closely as one might like.
 	 */
-	if (on) {
-		if (clp->ti_te != TI_SENT) {
-			clp->ti_te = TI_SENT;
-			if (clp->smcup == NULL)
-				(void)cl_getcap(sp, "smcup", &clp->smcup);
-			if (clp->smcup != NULL)
-				(void)tputs(clp->smcup, 1, cl_putchar);
-		}
-	} else
-		if (clp->ti_te != TE_SENT) {
+		if (on) {
+			if (clp->ti_te != TI_SENT) {
+				clp->ti_te = TI_SENT;
+				if (clp->smcup == NULL)
+					(void)cl_getcap(sp, "smcup", &clp->smcup);
+				if (clp->smcup != NULL)
+					(void)tputs(clp->smcup, 1, cl_putchar);
+			}
+		} else if (clp->ti_te != TE_SENT) {
 			clp->ti_te = TE_SENT;
 			if (clp->rmcup == NULL)
 				(void)cl_getcap(sp, "rmcup", &clp->rmcup);
 			if (clp->rmcup != NULL)
 				(void)tputs(clp->rmcup, 1, cl_putchar);
-			(void)fflush(stdout);
 		}
 		(void)fflush(stdout);
 		break;
@@ -314,9 +312,12 @@ cl_cursor(SCR *sp, size_t *yp, size_t *xp)
 int
 cl_deleteln(SCR *sp)
 {
-	CHAR_T ch;
 	WINDOW *win;
-	size_t col, lno, spcnt, y, x;
+	size_t y, x;
+#ifndef HAVE_MVWCHGAT
+	CHAR_T ch;
+	size_t col, lno, spcnt;
+#endif
 
 	win = CLSP(sp) ? CLSP(sp) : stdscr;
 
@@ -340,13 +341,13 @@ cl_deleteln(SCR *sp)
 	 */
 	if (!F_ISSET(sp, SC_SCR_EXWROTE) && IS_SPLIT(sp)) {
 		getyx(win, y, x);
-#ifdef mvchgat
+#ifdef HAVE_MVWCHGAT
 		mvwchgat(win, RLNO(sp, LASTLINE(sp)), 0, -1, A_NORMAL, 0, NULL);
 #else
 		for (lno = RLNO(sp, LASTLINE(sp)), col = spcnt = 0;;) {
 			(void)wmove(win, lno, col);
 			ch = winch(win);
-			if (isblank(ch))
+			if (ISBLANK(ch))
 				++spcnt;
 			else {
 				(void)wmove(win, lno, col - spcnt);
@@ -464,6 +465,41 @@ cl_ex_adjust(SCR *sp, exadj_t action)
 	return (0);
 }
 
+#ifdef IMCTRL
+/*
+ * cl_imctrl --
+ *	Control the state of input method by using escape sequences compatible
+ *	to Tera Term and RLogin.
+ *
+ * PUBLIC: void cl_imctrl __P((SCR *, imctrl_t));
+ */
+void
+cl_imctrl(SCR *sp, imctrl_t action)
+{
+#define	TT_IM_OFF	"\033[<t"	/* TTIMEST */
+#define	TT_IM_RESTORE	"\033[<r"	/* TTIMERS */
+#define	TT_IM_SAVE	"\033[<s"	/* TTIMESV */
+
+	if (!O_ISSET(sp, O_IMCTRL) && action != IMCTRL_INIT)
+		return;
+
+	switch (action) {
+	case IMCTRL_INIT:
+		(void)printf(TT_IM_OFF TT_IM_SAVE);
+		break;
+	case IMCTRL_OFF:
+		(void)printf(TT_IM_SAVE TT_IM_OFF);
+		break;
+	case IMCTRL_ON:
+		(void)printf(TT_IM_RESTORE);
+		break;
+	default:
+		abort();
+	}
+	(void)fflush(stdout);
+}
+#endif
+
 /*
  * cl_insertln --
  *	Push down the current line, discarding the bottom line.
@@ -500,17 +536,21 @@ cl_keyval(SCR *sp, scr_keyval_t val, CHAR_T *chp, int *dnep)
 	clp = CLP(sp);
 	switch (val) {
 	case KEY_VEOF:
-		*dnep = (*chp = clp->orig.c_cc[VEOF]) == _POSIX_VDISABLE;
+		*dnep =
+		    (*chp = clp->orig.c_cc[VEOF]) == (CHAR_T)_POSIX_VDISABLE;
 		break;
 	case KEY_VERASE:
-		*dnep = (*chp = clp->orig.c_cc[VERASE]) == _POSIX_VDISABLE;
+		*dnep =
+		    (*chp = clp->orig.c_cc[VERASE]) == (CHAR_T)_POSIX_VDISABLE;
 		break;
 	case KEY_VKILL:
-		*dnep = (*chp = clp->orig.c_cc[VKILL]) == _POSIX_VDISABLE;
+		*dnep = 
+		    (*chp = clp->orig.c_cc[VKILL]) == (CHAR_T)_POSIX_VDISABLE;
 		break;
 #ifdef VWERASE
 	case KEY_VWERASE:
-		*dnep = (*chp = clp->orig.c_cc[VWERASE]) == _POSIX_VDISABLE;
+		*dnep =
+		    (*chp = clp->orig.c_cc[VWERASE]) == (CHAR_T)_POSIX_VDISABLE;
 		break;
 #endif
 	default:
