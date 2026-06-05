@@ -3,6 +3,11 @@
 
 .if defined(__MINIX)
 .PATH: ${.CURDIR}/sys
+
+# MINIX stubs for POSIX functions whose underlying syscalls/subsystems
+# aren't implemented.  See _minix_posix_stubs.c for the rules.
+SRCS+=	_minix_posix_stubs.c
+
 .else
 # sys sources
 .PATH: ${ARCHDIR}/sys ${.CURDIR}/sys
