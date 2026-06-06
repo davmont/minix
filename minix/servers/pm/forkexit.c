@@ -310,6 +310,77 @@ do_lwp_exit(void)
 }
 
 /*===========================================================================*
+ *				lwp_unpark_one				     *
+ *===========================================================================*/
+static int
+lwp_unpark_one(int lwpid)
+{
+/* Wake the LWP identified by 'lwpid' (its kernel endpoint).  If it is parked,
+ * complete its _lwp_park() with OK.  If it is not parked yet, remember the
+ * unpark so its next _lwp_park() returns immediately — this is what makes the
+ * primitive race-free: PM serializes all park/unpark calls, so a wakeup can
+ * never be lost between a thread deciding to park and actually parking.
+ */
+  struct mproc *target;
+  int slot;
+
+  if (pm_isokendpt((endpoint_t) lwpid, &slot) != OK)
+	return ESRCH;
+  target = &mproc[slot];
+  if (!(target->mp_flags & IN_USE))
+	return ESRCH;
+
+  if (target->mp_flags & MP_LWP_PARKED) {
+	target->mp_flags &= ~MP_LWP_PARKED;
+	reply(slot, OK);		/* its _lwp_park() returns 0 */
+  } else {
+	target->mp_flags |= MP_LWP_UNPARKED;	/* pending: next park won't block */
+  }
+  return OK;
+}
+
+/*===========================================================================*
+ *				do_lwp_park				     *
+ *===========================================================================*/
+int
+do_lwp_park(void)
+{
+/* Block the calling thread until another thread unparks it (NetBSD-style
+ * lwpid-based park; the 'hint' addresses are advisory and ignored here). */
+  register struct mproc *rmp = mp;
+  int unpark;
+
+  /* libpthread optimization: atomically unpark another LWP before parking. */
+  unpark = m_in.m_lc_pm_lwp_park.unpark;
+  if (unpark != 0)
+	(void) lwp_unpark_one(unpark);
+
+  /* Consume a pending unpark instead of blocking (no lost wakeups). */
+  if (rmp->mp_flags & MP_LWP_UNPARKED) {
+	rmp->mp_flags &= ~MP_LWP_UNPARKED;
+	return OK;
+  }
+
+  /* TODO: honour m_lc_pm_lwp_park.{has_timeout,sec,nsec} via mp_timer so that
+   * pthread_cond_timedwait() can time out; for now a timed park blocks like an
+   * untimed one. */
+
+  /* Park: do not reply, so the caller blocks in its SENDREC until unparked. */
+  rmp->mp_flags |= MP_LWP_PARKED;
+  return SUSPEND;
+}
+
+/*===========================================================================*
+ *				do_lwp_unpark				     *
+ *===========================================================================*/
+int
+do_lwp_unpark(void)
+{
+/* Wake a specific LWP (by lwpid) that is, or will be, parked. */
+  return lwp_unpark_one(m_in.m_lc_pm_lwp_unpark.target);
+}
+
+/*===========================================================================*
  *				do_srv_fork				     *
  *===========================================================================*/
 int

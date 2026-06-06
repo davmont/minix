@@ -109,6 +109,8 @@ EXTERN struct mproc {
 #define TAINTED		0x40000 /* process is 'tainted' */
 #define EVENT_CALL	0x80000	/* waiting for process event subscriber */
 #define MP_LWP	       0x100000	/* this slot is a non-leader thread (LWP) */
+#define MP_LWP_PARKED  0x200000	/* thread blocked in _lwp_park(), awaiting unpark */
+#define MP_LWP_UNPARKED 0x400000	/* pending unpark: next _lwp_park() won't block */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)
