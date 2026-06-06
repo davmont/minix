@@ -9,8 +9,8 @@ USE_FORT?= yes	# network client/server
 
 WARNS?=	1
 
-CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses \
-			-Wno-atomic-alignment
+CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses
+# -Wno-atomic-alignment is not understood by MINIX's older in-tree clang.
 
 .include <bsd.own.mk>
 

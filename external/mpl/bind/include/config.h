@@ -395,7 +395,9 @@
 #define HAVE_STDLIB_H 1
 
 /* Define to 1 if you have the <stdnoreturn.h> header file. */
-#define HAVE_STDNORETURN_H 1
+/* MINIX: the in-tree clang predates <stdnoreturn.h>; fall back to
+ * __attribute__((noreturn)) via HAVE_FUNC_ATTRIBUTE_NORETURN (see attributes.h). */
+/* #undef HAVE_STDNORETURN_H */
 
 /* Define to 1 if you have the <strings.h> header file. */
 #define HAVE_STRINGS_H 1
