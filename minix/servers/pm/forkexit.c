@@ -156,11 +156,12 @@ do_lwp_create(void)
   static unsigned int next_lwp = 0;
   int n = 0, s, leader;
   endpoint_t child_ep;
-  vir_bytes entry, stack;
+  vir_bytes entry, stack, tlsbase;
   message m;
 
   entry = m_in.m_lc_pm_lwp_create.entry;
   stack = m_in.m_lc_pm_lwp_create.stack;
+  tlsbase = m_in.m_lc_pm_lwp_create.tlsbase;
   if (entry == 0 || stack == 0)
 	return EINVAL;
 
@@ -216,7 +217,7 @@ do_lwp_create(void)
 
   /* Point the new thread at its entry point and (preallocated) stack. */
   if((s=sys_exec(child_ep, stack, (vir_bytes) 0 /* name */, entry,
-	(vir_bytes) 0 /* ps_strings */)) != OK) {
+	(vir_bytes) 0 /* ps_strings */, tlsbase)) != OK) {
 	rmc->mp_scheduler = NONE;
 	exit_proc(rmc, -1, FALSE /*dump_core*/);
 	return s;

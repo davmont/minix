@@ -1200,8 +1200,9 @@ typedef struct {
 	vir_bytes stack;
 	vir_bytes name;
 	vir_bytes ps_str;
+	vir_bytes tlsbase;	/* initial %fs (TLS) base, or 0 to leave it */
 
-	uint8_t padding[36];
+	uint8_t padding[28];
 } mess_lsys_krn_sys_exec;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_exec);
 

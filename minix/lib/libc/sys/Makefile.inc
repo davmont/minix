@@ -28,6 +28,7 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 # Minix specific syscalls / utils.
 SRCS+= kernel_utils.c sprofile.c stack_utils.c _mcontext.c
 SRCS+= _lwp_create.c _lwp_self.c _lwp_exit.c _lwp_park.c _lwp_unpark.c
+SRCS+= lwp_stubs.c
 
 # Emulation for missing lchown/lchmod/lchflags
 OBJS+= lchflags.o lchmod.o lchown.o

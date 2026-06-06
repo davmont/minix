@@ -66,9 +66,16 @@ int	__libc_sigaction14(int, const struct sigaction * __restrict,
     defined(_NETBSD_SOURCE)
 int	pthread_sigmask(int, const sigset_t * __restrict,
 	    sigset_t * __restrict);
-#if !defined(__minix)
+/* pthread_t is only defined for thread-aware userland; declare pthread_kill
+ * when building libpthread.  On MINIX <sys/types.h> gates the opaque pthread
+ * types off, so pull them in directly here (self-contained, and never seen by
+ * libmthread, which does not define __LIBPTHREAD_SOURCE__). */
+#if !defined(__minix) || defined(__LIBPTHREAD_SOURCE__)
+#if defined(__minix)
+#include <pthread_types.h>
+#endif
 int	pthread_kill(pthread_t, int);
-#endif /* !defined(__minix) */
+#endif
 int	__libc_thr_sigsetmask(int, const sigset_t * __restrict,
 	    sigset_t * __restrict);
 #ifndef __LIBPTHREAD_SOURCE__

@@ -52,8 +52,14 @@ pthread_getcpuclockid(pthread_t thread, clockid_t *clock_id)
 	    thread->pt_magic == PT_MAGIC);
 
 	saved_errno = errno;
+#if !defined(__minix)
 	if (clock_getcpuclockid2(P_LWPID, (id_t)thread->pt_lid, clock_id) == -1)
 		error = errno;
+#else
+	/* MINIX has no per-LWP CPU clocks (clock_getcpuclockid2/P_LWPID). */
+	(void)clock_id;
+	error = ENOTSUP;
+#endif
 	errno = saved_errno;
 
 	return error;

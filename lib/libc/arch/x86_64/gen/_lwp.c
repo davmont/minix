@@ -41,9 +41,11 @@ __RCSID("$NetBSD: _lwp.c,v 1.7 2011/02/24 04:28:43 joerg Exp $");
 #include <lwp.h>
 #include <stdlib.h>
 
-#if !defined(__minix)
-/* Needs _lwp_exit(2), which MINIX does not provide; MINIX only uses _lwp.c
- * for the _lwp_setprivate()/_lwp_getprivate() TLS helpers below. */
+/* MINIX now provides _lwp_exit(2) and a working getcontext(3), so the standard
+ * NetBSD _lwp_makecontext() is used unchanged: it lays the stack out 16-byte
+ * aligned with _lwp_exit as the return address (so a thread that returns from
+ * its start routine exits cleanly) and records the TLS base in _mc_tlsbase,
+ * which _lwp_create() forwards to the kernel as the new thread's %fs base. */
 void
 _lwp_makecontext(ucontext_t *u, void (*start)(void *),
     void *arg, void *private, caddr_t stack_base, size_t stack_size)
@@ -72,7 +74,6 @@ _lwp_makecontext(ucontext_t *u, void (*start)(void *),
 	u->uc_mcontext._mc_tlsbase = (uintptr_t)private;
 	u->uc_flags |= _UC_TLSBASE;
 }
-#endif /* !defined(__minix) */
 
 #if defined(__minix)
 /*

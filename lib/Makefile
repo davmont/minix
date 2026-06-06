@@ -21,6 +21,11 @@ SUBDIR+=	.WAIT
 SUBDIR+=	libc
 SUBDIR+=	.WAIT
 
+# POSIX threads.  Built after libc (links against it) and installs <pthread.h>
+# et al.  MINIX gained the kernel/server _lwp_* support needed by libpthread.
+SUBDIR+=	libpthread
+SUBDIR+=	.WAIT
+
 .if defined(__MINIX)
 SUBDIR+=	../minix/lib/libasyn \
 		../minix/lib/libaudiodriver \
