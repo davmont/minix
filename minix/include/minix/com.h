@@ -640,6 +640,9 @@
 #	define VMF_ENDPOINT		m1_i1
 #	define VMF_SLOTNO		m1_i2
 #	define VMF_CHILD_ENDPOINT	m1_i3	/* result */
+#	define VMF_FORKFLAGS		m1_ull1
+#		define VMFF_LWP		0x1	/* thread: child shares parent
+						 * address space (CR3) */
 #define VM_BRK			(VM_RQ_BASE+2)
 #define VM_EXEC_NEWMEM		(VM_RQ_BASE+3)
 #	define VMEN_ENDPOINT		m1_i1

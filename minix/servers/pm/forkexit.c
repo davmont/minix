@@ -75,7 +75,7 @@ do_fork(void)
 	panic("do_fork finds wrong child slot: %d", next_child);
 
   /* Memory part of the forking. */
-  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep)) != OK) {
+  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep, 0)) != OK) {
 	return s;
   }
 
@@ -145,14 +145,83 @@ do_fork(void)
 int
 do_lwp_create(void)
 {
-/* Create a new LWP (thread) sharing the caller's address space.  The thread's
- * entry/stack/arg/tls come from the ucontext at m_lc_pm_lwp_create.ctx.
- *
- * Phase-2 scaffolding: the plumbing (libc stub -> PM call -> reply) is in
- * place and exercised by the lwptest harness; the CR3-sharing fork itself
- * (VM + kernel) is implemented in following steps.
+/* Create a new LWP (thread): a process that SHARES the caller's address space
+ * (the same page-table root / CR3) and starts at a caller-supplied entry point
+ * and stack.  The entry/stack come from the ucontext, already extracted by the
+ * libc stub into the request message.
  */
-  return ENOSYS;
+  register struct mproc *rmp = mp;	/* parent (caller) */
+  register struct mproc *rmc;		/* child (the new thread) */
+  static unsigned int next_lwp = 0;
+  int n = 0, s;
+  endpoint_t child_ep;
+  vir_bytes entry, stack;
+
+  entry = m_in.m_lc_pm_lwp_create.entry;
+  stack = m_in.m_lc_pm_lwp_create.stack;
+  if (entry == 0 || stack == 0)
+	return EINVAL;
+
+  if ((procs_in_use == NR_PROCS) ||
+	(procs_in_use >= NR_PROCS-LAST_FEW && rmp->mp_effuid != 0)) {
+	printf("PM: process table full, can't create lwp\n");
+	return(EAGAIN);
+  }
+
+  /* Find a free 'mproc' slot for the thread. */
+  do {
+	next_lwp = (next_lwp+1) % NR_PROCS;
+	n++;
+  } while((mproc[next_lwp].mp_flags & IN_USE) && n <= NR_PROCS);
+  if(n > NR_PROCS)
+	return(EAGAIN);
+
+  /* Memory part: the child shares the parent's address space (CR3). */
+  if((s=vm_fork(rmp->mp_endpoint, next_lwp, &child_ep, VMFF_LWP)) != OK)
+	return s;
+  /* PM may not fail after vm_fork(), as VM has called sys_fork(). */
+
+  rmc = &mproc[next_lwp];
+  procs_in_use++;
+  *rmc = *rmp;				/* copy parent's slot */
+  rmc->mp_sigact = mpsigact[next_lwp];	/* restore mp_sigact ptr */
+  memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
+  rmc->mp_parent = who_p;
+  rmc->mp_tracer = NO_TRACER;
+  rmc->mp_trace_flags = 0;
+  (void) sigemptyset(&rmc->mp_sigtrace);
+  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_child_utime = 0;
+  rmc->mp_child_stime = 0;
+  rmc->mp_exitstatus = 0;
+  rmc->mp_sigstatus = 0;
+  rmc->mp_endpoint = child_ep;		/* passed back by VM */
+  rmc->mp_pid = get_free_pid();
+  rmc->mp_started = getticks();
+  if (rmc->mp_flags & PRIV_PROC) {
+	assert(rmc->mp_scheduler == NONE);
+	rmc->mp_scheduler = SCHED_PROC_NR;
+  }
+
+  /* Point the new thread at its entry point and (preallocated) stack. */
+  if((s=sys_exec(child_ep, stack, (vir_bytes) 0 /* name */, entry,
+	(vir_bytes) 0 /* ps_strings */)) != OK) {
+	rmc->mp_scheduler = NONE;
+	exit_proc(rmc, -1, FALSE /*dump_core*/);
+	return s;
+  }
+
+  /* Make the thread runnable. */
+  if (rmc->mp_scheduler != KERNEL && rmc->mp_scheduler != NONE) {
+	if((s=sched_start_user(rmc->mp_scheduler, rmc)) != OK) {
+		rmc->mp_scheduler = NONE;
+		exit_proc(rmc, -1, FALSE /*dump_core*/);
+		return s;
+	}
+  }
+
+  /* The thread now runs at its entry point; reply success to the parent. */
+  return OK;
 }
 
 /*===========================================================================*
@@ -196,7 +265,7 @@ do_srv_fork(void)
   if(next_child >= NR_PROCS || (mproc[next_child].mp_flags & IN_USE))
 	panic("do_fork finds wrong child slot: %d", next_child);
 
-  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep)) != OK) {
+  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep, 0)) != OK) {
 	return s;
   }
 

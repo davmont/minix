@@ -67,6 +67,31 @@ int do_fork(message *msg)
   vmc->vm_bytecopies = 0;
 #endif
 
+  /*
+   * Thread (LWP) fork: the child SHARES the parent's address space — the same
+   * page-table root (CR3) — instead of getting a private copy.  Skip pt_new()
+   * and map_proc_copy(); the kernel keeps the parent's CR3 in the child (the
+   * struct copy in kernel do_fork inherits it on amd64) because we do NOT
+   * request PFF_VMINHIBIT and do NOT pt_bind() a new pagetable.
+   *
+   * NOTE: the child's own vir_region tree stays empty for now; the thread runs
+   * on already-mapped memory (its stack is preallocated by the caller).
+   * Servicing the thread's own page faults against the parent's regions is the
+   * Phase-2 follow-up (see the pthread port plan).
+   */
+  if(msg->VMF_FORKFLAGS & VMFF_LWP) {
+	vmc->vm_pt = vmp->vm_pt;	/* share parent's page tables */
+	vmc->vm_flags &= VMF_INUSE;
+	acl_fork(vmc);
+	if((r=sys_fork(vmp->vm_endpoint, childproc,
+		&vmc->vm_endpoint, 0 /* no VMINHIBIT */, &msgaddr)) != OK) {
+		return r;
+	}
+	msg->VMF_CHILD_ENDPOINT = vmc->vm_endpoint;
+	SANITYCHECK(SCL_FUNCTIONS);
+	return OK;
+  }
+
   if(pt_new(&vmc->vm_pt) != OK) {
 	return ENOMEM;
   }

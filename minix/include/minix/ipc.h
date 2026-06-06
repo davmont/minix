@@ -451,11 +451,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_exit);
 
 typedef struct {
-	vir_bytes	ctx;	/* ucontext_t * (entry/stack/arg/tls) */
+	vir_bytes	entry;	/* thread entry point (pc) */
+	vir_bytes	stack;	/* thread stack pointer (top) */
+	vir_bytes	arg;	/* first argument (in %rdi) */
+	vir_bytes	tlsbase; /* TLS base for the new thread (%fs) */
 	unsigned long	flags;
-	vir_bytes	newlid;	/* lwpid_t * out (may be NULL) */
 
-	uint8_t padding[32];
+	uint8_t padding[16];
 } mess_lc_pm_lwp_create;
 _ASSERT_MSG_SIZE(mess_lc_pm_lwp_create);
 
