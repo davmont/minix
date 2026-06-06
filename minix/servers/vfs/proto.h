@@ -121,6 +121,7 @@ void thread_cleanup(void);
 void pm_exit(void);
 int do_fcntl(void);
 void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid);
+void pm_lwp(endpoint_t leader_e, endpoint_t thread_e, pid_t pid);
 void pm_setgid(endpoint_t proc_e, int egid, int rgid);
 void pm_setuid(endpoint_t proc_e, int euid, int ruid);
 void pm_setgroups(endpoint_t proc_e, int ngroups, gid_t *addr);

@@ -157,6 +157,7 @@ do_lwp_create(void)
   int n = 0, s, leader;
   endpoint_t child_ep;
   vir_bytes entry, stack;
+  message m;
 
   entry = m_in.m_lc_pm_lwp_create.entry;
   stack = m_in.m_lc_pm_lwp_create.stack;
@@ -221,19 +222,20 @@ do_lwp_create(void)
 	return s;
   }
 
-  /* Make the thread runnable. */
-  if (rmc->mp_scheduler != KERNEL && rmc->mp_scheduler != NONE) {
-	if((s=sched_start_user(rmc->mp_scheduler, rmc)) != OK) {
-		rmc->mp_scheduler = NONE;
-		exit_proc(rmc, -1, FALSE /*dump_core*/);
-		return s;
-	}
-  }
+  /* Register the thread with VFS so it shares the group leader's open-file
+   * table.  The thread is deliberately NOT made runnable here: it is scheduled
+   * only once VFS acknowledges (handle_vfs_reply / VFS_PM_LWP_REPLY), so it can
+   * never run a VFS call before VFS knows about it. */
+  memset(&m, 0, sizeof(m));
+  m.m_type = VFS_PM_LWP;
+  m.VFS_PM_ENDPT = child_ep;
+  m.VFS_PM_PENDPT = mproc[leader].mp_endpoint;
+  m.VFS_PM_CPID = rmc->mp_pid;
+  tell_vfs(rmc, &m);
 
-  /* Return the new thread's lwpid (its kernel endpoint) to the caller. */
+  /* Return the new thread's lwpid (its kernel endpoint) to the creator now; the
+   * creator need not wait for VFS registration to complete. */
   rmp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) child_ep;
-
-  /* The thread now runs at its entry point; reply success to the parent. */
   return OK;
 }
 
@@ -266,6 +268,7 @@ do_lwp_exit(void)
  */
   register struct mproc *rmp = mp;	/* the calling thread */
   int r, proc_nr_e;
+  message m;
 
   /* Only a non-leader thread may vanish silently.  Anything else (a plain
    * process, or a group leader — including the main thread) becomes a normal
@@ -290,23 +293,40 @@ do_lwp_exit(void)
 	printf("PM: do_lwp_exit: sched_stop failed: %d\n", r);
   rmp->mp_scheduler = NONE;
 
-  /* Announce the exit to VM, destroy the kernel proc, then release the
-   * thread's VM state (mirrors exit_proc()/exit_restart() ordering).  VM
-   * decrements the group refcount and frees only this thread's (empty)
-   * region tree — never the shared page tables. */
-  if ((r = vm_willexit(proc_nr_e)) != OK)
-	panic("do_lwp_exit: vm_willexit failed: %d", r);
-  if ((r = sys_clear(proc_nr_e)) != OK)
-	panic("do_lwp_exit: sys_clear failed: %d", r);
-  if ((r = vm_exit(proc_nr_e)) != OK)
-	panic("do_lwp_exit: vm_exit failed: %d", r);
+  /* Drop this thread's reference to the shared VFS open-file table.  The rest
+   * of the teardown (kernel proc + VM state + the PM slot) is finished once VFS
+   * replies — see handle_vfs_reply()/VFS_PM_LWP_EXIT_REPLY. */
+  memset(&m, 0, sizeof(m));
+  m.m_type = VFS_PM_LWP_EXIT;
+  m.VFS_PM_ENDPT = proc_nr_e;
+  tell_vfs(rmp, &m);
 
-  /* Release the PM slot. */
+  return SUSPEND;		/* the thread is gone; no reply */
+}
+
+/*===========================================================================*
+ *				lwp_exit_finish				     *
+ *===========================================================================*/
+void
+lwp_exit_finish(struct mproc *rmp)
+{
+/* Second half of _lwp_exit(), run after VFS has released the thread's reference
+ * to the shared open-file table.  Destroy the kernel proc and the thread's VM
+ * state (VM decrements the address-space refcount and frees only this thread's
+ * empty region tree — never the shared page tables), then free the PM slot. */
+  endpoint_t proc_nr_e = rmp->mp_endpoint;
+  int r;
+
+  if ((r = vm_willexit(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: vm_willexit failed: %d", r);
+  if ((r = sys_clear(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: sys_clear failed: %d", r);
+  if ((r = vm_exit(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: vm_exit failed: %d", r);
+
   rmp->mp_pid = 0;
   rmp->mp_flags = 0;
   procs_in_use--;
-
-  return SUSPEND;		/* the thread is gone; no reply */
 }
 
 /*===========================================================================*

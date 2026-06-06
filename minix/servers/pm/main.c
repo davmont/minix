@@ -401,6 +401,28 @@ handle_vfs_reply(void)
 
 	break;
 
+  case VFS_PM_LWP_REPLY:
+	/* A new thread (LWP) is now registered with VFS sharing the leader's
+	 * open-file table.  Make it runnable; the creator was already told the
+	 * lwpid synchronously, so there is no caller to wake here. */
+	r = OK;
+	if (rmp->mp_scheduler != KERNEL && rmp->mp_scheduler != NONE)
+		r = sched_start_user(rmp->mp_scheduler, rmp);
+	if (r != OK) {
+		/* Could not schedule the thread; tear it down. */
+		rmp->mp_scheduler = NONE;
+		exit_proc(rmp, -1, FALSE /*dump_core*/);
+	}
+
+	break;
+
+  case VFS_PM_LWP_EXIT_REPLY:
+	/* VFS has released the exiting thread's reference to the shared file
+	 * table; finish destroying the thread. */
+	lwp_exit_finish(rmp);
+
+	return; /* thread is gone; no default action */
+
   case VFS_PM_UNPAUSE_REPLY:
 	/* The target process must always be stopped while unpausing; otherwise
 	 * it could just end up pausing itself on a new call afterwards.

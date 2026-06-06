@@ -716,6 +716,21 @@ void service_pm_postponed(void)
 
 	break;
 
+  case VFS_PM_LWP_EXIT:
+	/* A thread (LWP) exits: drop its reference to the shared open-file table
+	 * and free its slot.  free_proc()'s refcount gate keeps the fds open for
+	 * the surviving threads; only the last sharer's exit closes them. */
+	proc_e = job_m_in.VFS_PM_ENDPT;
+
+	assert(proc_e == fp->fp_endpoint);
+
+	pm_exit();
+
+	m_out.m_type = VFS_PM_LWP_EXIT_REPLY;
+	m_out.VFS_PM_ENDPT = proc_e;
+
+	break;
+
   case VFS_PM_DUMPCORE:
 	proc_e = job_m_in.VFS_PM_ENDPT;
 	term_signal = job_m_in.VFS_PM_TERM_SIG;
@@ -832,6 +847,7 @@ static void service_pm(void)
   case VFS_PM_EXIT:
   case VFS_PM_DUMPCORE:
   case VFS_PM_UNPAUSE:
+  case VFS_PM_LWP_EXIT:
 	{
 		endpoint_t proc_e = m_in.VFS_PM_ENDPT;
 
@@ -874,6 +890,20 @@ static void service_pm(void)
 		}
 
 		m_out.VFS_PM_ENDPT = proc_e;
+	}
+	break;
+  case VFS_PM_LWP:
+	{
+		/* New thread (LWP): register it sharing the leader's open-file
+		 * table.  PENDPT is the group leader, ENDPT the new thread. */
+		endpoint_t leader_e = m_in.VFS_PM_PENDPT;
+		endpoint_t thread_e = m_in.VFS_PM_ENDPT;
+		pid_t thread_pid = m_in.VFS_PM_CPID;
+
+		pm_lwp(leader_e, thread_e, thread_pid);
+
+		m_out.m_type = VFS_PM_LWP_REPLY;
+		m_out.VFS_PM_ENDPT = thread_e;
 	}
 	break;
   case VFS_PM_SETGROUPS:

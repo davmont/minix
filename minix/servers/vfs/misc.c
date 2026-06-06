@@ -641,6 +641,50 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
 }
 
 /*===========================================================================*
+ *				pm_lwp					     *
+ *===========================================================================*/
+void pm_lwp(endpoint_t leader_e, endpoint_t thread_e, pid_t pid)
+{
+/* A new thread (LWP) of an existing process has been created.  Unlike fork(),
+ * the thread SHARES the leader's open-file table: its fproc points fp_fd at the
+ * leader's filedesc and bumps the refcount, so all threads of the process see
+ * one fd namespace, cwd, root and umask (POSIX).  Only PM makes this call.
+ */
+  struct fproc *lp, *tp;
+  int leaderno, threadno;
+  mutex_t t_fp_lock;
+
+  okendpt(leader_e, &leaderno);
+
+  /* As in pm_fork(), don't isokendpt() the new thread: its endpoint is not yet
+   * recorded in fproc. */
+  threadno = _ENDPOINT_P(thread_e);
+  if (threadno < 0 || threadno >= NR_PROCS)
+	panic("VFS: bogus thread for lwp: %d", thread_e);
+  if (fproc[threadno].fp_pid != PID_FREE)
+	panic("VFS: lwp on top of in-use slot: %d", threadno);
+
+  lp = &fproc[leaderno];
+  tp = &fproc[threadno];
+
+  /* Copy the leader's process state to the thread (creds, name, tty, ...),
+   * keeping the slot's own mutex. */
+  t_fp_lock = tp->fp_lock;
+  *tp = *lp;
+  tp->fp_lock = t_fp_lock;
+
+  /* SHARE the leader's open-file table rather than duplicating it: no per-fd
+   * filp_count++ and no dup_vnode() of cwd/root — the single table keeps those
+   * references, counted once.  We only add a sharer of the table itself. */
+  tp->fp_fd = lp->fp_fd;
+  tp->fp_fd->fd_refcnt++;
+
+  tp->fp_pid = pid;
+  tp->fp_endpoint = thread_e;
+  tp->fp_flags = FP_NOFLAGS;
+}
+
+/*===========================================================================*
  *				free_proc				     *
  *===========================================================================*/
 static void free_proc(int flags)
@@ -657,14 +701,22 @@ static void free_proc(int flags)
   if (fp_is_blocked(fp))
 	unpause();
 
-  /* Loop on file descriptors, closing any that are open. */
-  for (i = 0; i < OPEN_MAX; i++) {
-	(void) close_fd(fp, i, FALSE /*may_suspend*/);
-  }
+  /* Detach from the (possibly shared) open-file table.  On a real exit we
+   * decrement the refcount and tear the table down only when the last sharer
+   * leaves: a thread (LWP) leaving a table its siblings still use must NOT
+   * close their fds or release their cwd/root.  The reboot path (no FP_EXITING)
+   * closes unconditionally — it is idempotent and may run more than once per
+   * process, so it must not touch the refcount. */
+  if (!(flags & FP_EXITING) || --fp->fp_fd->fd_refcnt == 0) {
+	/* Loop on file descriptors, closing any that are open. */
+	for (i = 0; i < OPEN_MAX; i++) {
+		(void) close_fd(fp, i, FALSE /*may_suspend*/);
+	}
 
-  /* Release root and working directories. */
-  if (fp->fp_fd->fd_rd) { put_vnode(fp->fp_fd->fd_rd); fp->fp_fd->fd_rd = NULL; }
-  if (fp->fp_fd->fd_wd) { put_vnode(fp->fp_fd->fd_wd); fp->fp_fd->fd_wd = NULL; }
+	/* Release root and working directories. */
+	if (fp->fp_fd->fd_rd) { put_vnode(fp->fp_fd->fd_rd); fp->fp_fd->fd_rd = NULL; }
+	if (fp->fp_fd->fd_wd) { put_vnode(fp->fp_fd->fd_wd); fp->fp_fd->fd_wd = NULL; }
+  }
 
   /* The rest of these actions is only done when processes actually exit. */
   if (!(flags & FP_EXITING)) return;

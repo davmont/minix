@@ -535,6 +535,8 @@
 #define VFS_PM_UNPAUSE	(VFS_PM_RQ_BASE + 9)	/* Interrupt process call */
 #define VFS_PM_REBOOT	(VFS_PM_RQ_BASE + 10)	/* System reboot */
 #define VFS_PM_SETGROUPS	(VFS_PM_RQ_BASE + 11)	/* Set groups */
+#define VFS_PM_LWP	(VFS_PM_RQ_BASE + 12)	/* New thread; share leader's fds */
+#define VFS_PM_LWP_EXIT	(VFS_PM_RQ_BASE + 13)	/* Thread exits; drop its fd ref */
 
 /* Replies from VFS to PM */
 #define VFS_PM_SETUID_REPLY	(VFS_PM_RS_BASE + 1)
@@ -548,6 +550,8 @@
 #define VFS_PM_UNPAUSE_REPLY	(VFS_PM_RS_BASE + 9)
 #define VFS_PM_REBOOT_REPLY	(VFS_PM_RS_BASE + 10)
 #define VFS_PM_SETGROUPS_REPLY	(VFS_PM_RS_BASE + 11)
+#define VFS_PM_LWP_REPLY	(VFS_PM_RS_BASE + 12)
+#define VFS_PM_LWP_EXIT_REPLY	(VFS_PM_RS_BASE + 13)
 
 /* Standard parameters for all requests and replies, except PM_REBOOT */
 #  define VFS_PM_ENDPT		m7_i1	/* process endpoint */
