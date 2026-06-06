@@ -59,8 +59,9 @@
 #define PM_GETPROCNR		(PM_BASE + 46)
 #define PM_GETSYSINFO		(PM_BASE + 47)
 #define PM_LWP_CREATE		(PM_BASE + 48)	/* _lwp_create(2) — thread create */
+#define PM_LWP_SELF		(PM_BASE + 49)	/* _lwp_self(2) — own lwpid */
 
-#define NR_PM_CALLS		49	/* highest number from base plus one */
+#define NR_PM_CALLS		50	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

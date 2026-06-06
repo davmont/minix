@@ -59,5 +59,6 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_GETEPINFO)	= do_getepinfo,		/* getepinfo(2) */
 	CALL(PM_GETPROCNR)	= do_getprocnr,		/* getprocnr(2) */
 	CALL(PM_GETSYSINFO)	= do_getsysinfo,	/* getsysinfo(2) */
-	CALL(PM_LWP_CREATE)	= do_lwp_create		/* _lwp_create(2) */
+	CALL(PM_LWP_CREATE)	= do_lwp_create,	/* _lwp_create(2) */
+	CALL(PM_LWP_SELF)	= do_lwp_self		/* _lwp_self(2) */
 };

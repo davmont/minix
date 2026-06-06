@@ -462,6 +462,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_lwp_create);
 
 typedef struct {
+	int32_t		lwpid;	/* assigned/own lwp id (= kernel endpoint) */
+
+	uint8_t padding[52];
+} mess_pm_lc_lwp;
+_ASSERT_MSG_SIZE(mess_pm_lc_lwp);
+
+typedef struct {
 	pid_t pid;
 
 	uint8_t padding[52];
@@ -2467,6 +2474,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;
 		mess_lc_pm_lwp_create	m_lc_pm_lwp_create;
+		mess_pm_lc_lwp		m_pm_lc_lwp;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;

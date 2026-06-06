@@ -104,6 +104,7 @@ do_fork(void)
 
   /* Inherit only these flags. In normal fork(), PRIV_PROC is not inherited. */
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
   rmc->mp_exitstatus = 0;
@@ -153,7 +154,7 @@ do_lwp_create(void)
   register struct mproc *rmp = mp;	/* parent (caller) */
   register struct mproc *rmc;		/* child (the new thread) */
   static unsigned int next_lwp = 0;
-  int n = 0, s;
+  int n = 0, s, leader;
   endpoint_t child_ep;
   vir_bytes entry, stack;
 
@@ -176,6 +177,13 @@ do_lwp_create(void)
   if(n > NR_PROCS)
 	return(EAGAIN);
 
+  /* Establish the thread group.  If the caller is not yet threaded it becomes
+   * the group leader; the new thread joins the caller's group.  Group members
+   * resolve a shared getpid() via the leader (see do_get / PM_GETPID). */
+  if (rmp->mp_lwp_group == NO_LWP_GROUP)
+	rmp->mp_lwp_group = (int)(rmp - mproc);
+  leader = rmp->mp_lwp_group;
+
   /* Memory part: the child shares the parent's address space (CR3). */
   if((s=vm_fork(rmp->mp_endpoint, next_lwp, &child_ep, VMFF_LWP)) != OK)
 	return s;
@@ -186,17 +194,19 @@ do_lwp_create(void)
   *rmc = *rmp;				/* copy parent's slot */
   rmc->mp_sigact = mpsigact[next_lwp];	/* restore mp_sigact ptr */
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
-  rmc->mp_parent = who_p;
   rmc->mp_tracer = NO_TRACER;
   rmc->mp_trace_flags = 0;
   (void) sigemptyset(&rmc->mp_sigtrace);
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
+  rmc->mp_lwp_group = leader;		/* join the caller's thread group */
+  rmc->mp_parent = mproc[leader].mp_parent;  /* same parent as the process */
   rmc->mp_child_utime = 0;
   rmc->mp_child_stime = 0;
   rmc->mp_exitstatus = 0;
   rmc->mp_sigstatus = 0;
   rmc->mp_endpoint = child_ep;		/* passed back by VM */
-  rmc->mp_pid = get_free_pid();
+  rmc->mp_pid = get_free_pid();		/* unique internal pid; getpid() overlays */
   rmc->mp_started = getticks();
   if (rmc->mp_flags & PRIV_PROC) {
 	assert(rmc->mp_scheduler == NONE);
@@ -220,7 +230,23 @@ do_lwp_create(void)
 	}
   }
 
+  /* Return the new thread's lwpid (its kernel endpoint) to the caller. */
+  rmp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) child_ep;
+
   /* The thread now runs at its entry point; reply success to the parent. */
+  return OK;
+}
+
+/*===========================================================================*
+ *				do_lwp_self				     *
+ *===========================================================================*/
+int
+do_lwp_self(void)
+{
+/* Return the caller's own lwpid.  We use the kernel endpoint as the lwpid: it
+ * is unique, stable for the thread's lifetime, and is exactly the handle the
+ * kernel/PM use to address the thread (for future _lwp_kill/_lwp_unpark). */
+  mp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) who_e;
   return OK;
 }
 
@@ -283,6 +309,7 @@ do_srv_fork(void)
   }
   /* inherit only these flags */
   rmc->mp_flags &= (IN_USE|PRIV_PROC|DELAY_CALL);
+  rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
   rmc->mp_exitstatus = 0;

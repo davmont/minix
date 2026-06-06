@@ -59,9 +59,16 @@ do_get(void)
 		break;
 
 	case PM_GETPID:
-		r = mproc[who_p].mp_pid;
-		rmp->mp_reply.m_pm_lc_getpid.parent_pid = mproc[rmp->mp_parent].mp_pid;
+	{
+		/* Threads created via _lwp_create() share the process identity of
+		 * their group leader, so getpid()/getppid() must resolve through it. */
+		struct mproc *idp = rmp;
+		if (rmp->mp_lwp_group != NO_LWP_GROUP)
+			idp = &mproc[rmp->mp_lwp_group];
+		r = idp->mp_pid;
+		rmp->mp_reply.m_pm_lc_getpid.parent_pid = mproc[idp->mp_parent].mp_pid;
 		break;
+	}
 
 	case PM_GETPGRP:
 		r = rmp->mp_procgrp;

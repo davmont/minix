@@ -149,6 +149,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 	rmp->mp_magic = MP_MAGIC;
 	rmp->mp_sigact = mpsigact[rmp - mproc];
 	rmp->mp_eventsub = NO_EVENTSUB;
+	rmp->mp_lwp_group = NO_LWP_GROUP;
   }
 
   /* Build the set of signals which cause core dumps, and the set of signals
