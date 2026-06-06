@@ -19,6 +19,7 @@
 
 #include "pm.h"
 #include <sys/wait.h>
+#include <sys/lwp.h>		/* LWP_DETACHED */
 #include <assert.h>
 #include <minix/callnr.h>
 #include <minix/com.h>
@@ -201,6 +202,8 @@ do_lwp_create(void)
   (void) sigemptyset(&rmc->mp_sigtrace);
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
   rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
+  if (m_in.m_lc_pm_lwp_create.flags & LWP_DETACHED)
+	rmc->mp_flags |= MP_LWP_DETACHED;	/* self-reaps on exit; not joinable */
   rmc->mp_lwp_group = leader;		/* join the caller's thread group */
   rmc->mp_parent = mproc[leader].mp_parent;  /* same parent as the process */
   rmc->mp_child_utime = 0;
@@ -215,9 +218,11 @@ do_lwp_create(void)
 	rmc->mp_scheduler = SCHED_PROC_NR;
   }
 
-  /* Point the new thread at its entry point and (preallocated) stack. */
+  /* Point the new thread at its entry point and (preallocated) stack, and hand
+   * it the trampoline cookie via %rdi (the thread's first-argument register). */
   if((s=sys_exec(child_ep, stack, (vir_bytes) 0 /* name */, entry,
-	(vir_bytes) 0 /* ps_strings */, tlsbase)) != OK) {
+	(vir_bytes) 0 /* ps_strings */, tlsbase,
+	m_in.m_lc_pm_lwp_create.arg /* %rdi cookie */)) != OK) {
 	rmc->mp_scheduler = NONE;
 	exit_proc(rmc, -1, FALSE /*dump_core*/);
 	return s;
@@ -314,9 +319,17 @@ lwp_exit_finish(struct mproc *rmp)
 /* Second half of _lwp_exit(), run after VFS has released the thread's reference
  * to the shared open-file table.  Destroy the kernel proc and the thread's VM
  * state (VM decrements the address-space refcount and frees only this thread's
- * empty region tree — never the shared page tables), then free the PM slot. */
+ * empty region tree — never the shared page tables).  Then, depending on
+ * whether the thread is joinable:
+ *   - detached: free the PM slot immediately (self-reap);
+ *   - joinable, with a thread already blocked in _lwp_wait() for it: wake the
+ *     joiner and free the slot;
+ *   - joinable, no joiner yet: keep the slot as a zombie (MP_LWP_ZOMBIE),
+ *     retaining mp_endpoint as the lwpid, until a _lwp_wait() reaps it.
+ */
   endpoint_t proc_nr_e = rmp->mp_endpoint;
-  int r;
+  struct mproc *joiner;
+  int r, i;
 
   if ((r = vm_willexit(proc_nr_e)) != OK)
 	panic("lwp_exit_finish: vm_willexit failed: %d", r);
@@ -325,9 +338,82 @@ lwp_exit_finish(struct mproc *rmp)
   if ((r = vm_exit(proc_nr_e)) != OK)
 	panic("lwp_exit_finish: vm_exit failed: %d", r);
 
+  if (!(rmp->mp_flags & MP_LWP_DETACHED)) {
+	/* Joinable: is a sibling already blocked joining this thread (or any)? */
+	for (i = 0; i < NR_PROCS; i++) {
+		joiner = &mproc[i];
+		if (!(joiner->mp_flags & MP_LWP_JOINING)) continue;
+		if (joiner->mp_lwp_group != rmp->mp_lwp_group) continue;
+		if (joiner->mp_lwp_jointgt != ANY_LWP &&
+		    joiner->mp_lwp_jointgt != proc_nr_e) continue;
+		/* Wake the joiner; its _lwp_wait() returns the departed lwpid. */
+		joiner->mp_flags &= ~MP_LWP_JOINING;
+		joiner->mp_lwp_jointgt = 0;
+		joiner->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) proc_nr_e;
+		reply(joiner - mproc, OK);
+		break;
+	}
+	if (i == NR_PROCS) {
+		/* No joiner yet: become a zombie awaiting _lwp_wait(). */
+		rmp->mp_flags |= MP_LWP_ZOMBIE;
+		return;	/* keep mp_pid/mp_endpoint for the eventual reap */
+	}
+  }
+
+  /* Detached, or joinable+joined: release the PM slot. */
   rmp->mp_pid = 0;
   rmp->mp_flags = 0;
   procs_in_use--;
+}
+
+/*===========================================================================*
+ *				do_lwp_wait				     *
+ *===========================================================================*/
+int
+do_lwp_wait(void)
+{
+/* Join a thread (LWP): block until the target sibling terminates, then reap it.
+ * wait_for is the target lwpid (its kernel endpoint), or 0 to join any joinable
+ * sibling.  Returns the departed lwpid in the reply. */
+  register struct mproc *rmp = mp;	/* the joiner */
+  endpoint_t wait_for;
+  struct mproc *t, *zombie = NULL, *alive = NULL;
+  int i;
+
+  if (rmp->mp_lwp_group == NO_LWP_GROUP)
+	return ESRCH;			/* not a threaded process */
+
+  wait_for = (endpoint_t) m_in.m_lc_pm_lwp_wait.wait_for;
+
+  /* Find a joinable sibling matching wait_for; prefer one that already exited. */
+  for (i = 0; i < NR_PROCS; i++) {
+	t = &mproc[i];
+	if (!(t->mp_flags & IN_USE)) continue;
+	if (t == rmp) continue;
+	if (t->mp_lwp_group != rmp->mp_lwp_group) continue;
+	if (t->mp_flags & MP_LWP_DETACHED) continue;	/* cannot join detached */
+	if (wait_for != 0 && t->mp_endpoint != wait_for) continue;
+	if (t->mp_flags & MP_LWP_ZOMBIE) { zombie = t; break; }
+	if (alive == NULL) alive = t;
+  }
+
+  if (zombie != NULL) {
+	/* Reap the already-exited thread. */
+	endpoint_t departed = zombie->mp_endpoint;
+	zombie->mp_pid = 0;
+	zombie->mp_flags = 0;
+	procs_in_use--;
+	rmp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) departed;
+	return OK;
+  }
+
+  if (alive == NULL)
+	return ESRCH;			/* no such joinable sibling */
+
+  /* Target still running: block until it exits (lwp_exit_finish wakes us). */
+  rmp->mp_lwp_jointgt = (wait_for != 0) ? wait_for : ANY_LWP;
+  rmp->mp_flags |= MP_LWP_JOINING;
+  return SUSPEND;
 }
 
 /*===========================================================================*

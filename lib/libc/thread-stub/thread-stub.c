@@ -280,7 +280,9 @@ __libc_rwlock_catchall_stub(rwlock_t *l)
 
 #define	TSD_KEYS_MAX	64
 
-static struct {
+/* Exported (not static) so libpthread (pthread_tsd.c) can migrate TSD keys
+ * created via the libc stubs before it was loaded; see <tsd.h>. */
+struct {
 	void *tsd_val;
 	void (*tsd_dtor)(void *);
 	int tsd_inuse;
