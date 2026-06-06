@@ -36,6 +36,12 @@ struct vmproc {
 	 * thread's page faults can be resolved against it.  NO_LWP_LEADER for a
 	 * normal process. */
 	int		vm_lwp_leader;
+
+	/* On a thread-group LEADER: number of live members sharing this address
+	 * space (the leader itself plus its threads).  0 on a non-leader / plain
+	 * process.  The shared page tables are freed only on the 1->0 transition
+	 * (the last member's exit) — see free_proc(). */
+	int		vm_lwp_refcount;
 };
 
 /* Sentinel for vm_lwp_leader: this vmproc is not a thread. */

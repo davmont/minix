@@ -60,8 +60,9 @@
 #define PM_GETSYSINFO		(PM_BASE + 47)
 #define PM_LWP_CREATE		(PM_BASE + 48)	/* _lwp_create(2) — thread create */
 #define PM_LWP_SELF		(PM_BASE + 49)	/* _lwp_self(2) — own lwpid */
+#define PM_LWP_EXIT		(PM_BASE + 50)	/* _lwp_exit(2) — thread exit */
 
-#define NR_PM_CALLS		50	/* highest number from base plus one */
+#define NR_PM_CALLS		51	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

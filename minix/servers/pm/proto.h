@@ -25,6 +25,7 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 int do_fork(void);
 int do_lwp_create(void);
 int do_lwp_self(void);
+int do_lwp_exit(void);
 int do_srv_fork(void);
 int do_exit(void);
 void exit_proc(struct mproc *rmp, int exit_status, int dump_core);

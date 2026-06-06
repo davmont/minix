@@ -251,6 +251,65 @@ do_lwp_self(void)
 }
 
 /*===========================================================================*
+ *				do_lwp_exit				     *
+ *===========================================================================*/
+int
+do_lwp_exit(void)
+{
+/* Terminate the calling thread (LWP) only.  The process — and its shared
+ * address space — lives on as long as other threads in the group remain; VM
+ * frees the shared page tables when the last member exits (see free_proc()).
+ *
+ * This is a lightweight teardown: unlike exit_proc() there is no zombie, no
+ * parent notification and no VFS exit (a thread is not separately registered
+ * with VFS, and reaping happens at process granularity).
+ */
+  register struct mproc *rmp = mp;	/* the calling thread */
+  int r, proc_nr_e;
+
+  /* Only a non-leader thread may vanish silently.  Anything else (a plain
+   * process, or a group leader — including the main thread) becomes a normal
+   * process exit; leader-first teardown with live siblings is not yet
+   * supported (VM warns and preserves the siblings' address space). */
+  if (rmp->mp_lwp_group == NO_LWP_GROUP || !(rmp->mp_flags & MP_LWP)) {
+	exit_proc(rmp, 0, FALSE /*dump_core*/);
+	return SUSPEND;
+  }
+
+  proc_nr_e = rmp->mp_endpoint;
+
+  /* Stop the thread so it cannot run between the teardown steps. */
+  if (!(rmp->mp_flags & PROC_STOPPED)) {
+	if ((r = sys_stop(proc_nr_e)) != OK)
+		panic("do_lwp_exit: sys_stop failed: %d", r);
+	rmp->mp_flags |= PROC_STOPPED;
+  }
+
+  /* Give up scheduling this thread. */
+  if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
+	printf("PM: do_lwp_exit: sched_stop failed: %d\n", r);
+  rmp->mp_scheduler = NONE;
+
+  /* Announce the exit to VM, destroy the kernel proc, then release the
+   * thread's VM state (mirrors exit_proc()/exit_restart() ordering).  VM
+   * decrements the group refcount and frees only this thread's (empty)
+   * region tree — never the shared page tables. */
+  if ((r = vm_willexit(proc_nr_e)) != OK)
+	panic("do_lwp_exit: vm_willexit failed: %d", r);
+  if ((r = sys_clear(proc_nr_e)) != OK)
+	panic("do_lwp_exit: sys_clear failed: %d", r);
+  if ((r = vm_exit(proc_nr_e)) != OK)
+	panic("do_lwp_exit: vm_exit failed: %d", r);
+
+  /* Release the PM slot. */
+  rmp->mp_pid = 0;
+  rmp->mp_flags = 0;
+  procs_in_use--;
+
+  return SUSPEND;		/* the thread is gone; no reply */
+}
+
+/*===========================================================================*
  *				do_srv_fork				     *
  *===========================================================================*/
 int

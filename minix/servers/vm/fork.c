@@ -63,6 +63,7 @@ int do_fork(message *msg)
   vmc->vm_endpoint = NONE;	/* In case someone tries to use it. */
   vmc->vm_pt = origpt;
   vmc->vm_lwp_leader = NO_LWP_LEADER;	/* not a thread unless set below */
+  vmc->vm_lwp_refcount = 0;		/* not a group leader unless set below */
 
 #if VMSTATS
   vmc->vm_bytecopies = 0;
@@ -88,6 +89,15 @@ int do_fork(message *msg)
 	 * leader; otherwise the creator is the leader. */
 	vmc->vm_lwp_leader =
 	    (vmp->vm_lwp_leader != NO_LWP_LEADER) ? vmp->vm_lwp_leader : proc;
+	vmc->vm_lwp_refcount = 0;	/* a thread is never a group leader */
+	/* Account this new member on the leader's refcount (counting the leader
+	 * itself the first time a thread is added to the group). */
+	{
+		struct vmproc *ldr = &vmproc[vmc->vm_lwp_leader];
+		if (ldr->vm_lwp_refcount == 0)
+			ldr->vm_lwp_refcount = 1;	/* the leader itself */
+		ldr->vm_lwp_refcount++;			/* this new thread */
+	}
 	acl_fork(vmc);
 	if((r=sys_fork(vmp->vm_endpoint, childproc,
 		&vmc->vm_endpoint, 0 /* no VMINHIBIT */, &msgaddr)) != OK) {
