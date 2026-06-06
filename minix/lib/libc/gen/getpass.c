@@ -13,6 +13,7 @@
 
 #ifdef __weak_alias
 __weak_alias(getpass, _getpass)
+__weak_alias(getpass_r, _getpass_r)
 #endif
 
 static int intr;
@@ -71,4 +72,16 @@ char *getpass(const char *prompt)
 	if (intr) raise(SIGINT);
 
 	return password;
+}
+
+/* Reentrant variant: read into a caller-supplied buffer.  MINIX does not
+ * provide the full NetBSD getpassfd() machinery; wrap the simple getpass(). */
+char *getpass_r(const char *prompt, char *buf, size_t len)
+{
+	char *p = getpass(prompt);
+
+	if (p == NULL)
+		return NULL;
+	strlcpy(buf, p, len);
+	return buf;
 }
