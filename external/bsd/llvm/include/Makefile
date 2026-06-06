@@ -50,6 +50,7 @@ INCS=	arm_acle.h \
 	arm_neon.h
 .endif
 INCS+=	stdatomic.h
+INCS+=	stdnoreturn.h	# C11; needed by OpenSSL 3 + BIND 9.18 headers
 INCSDIR=	/usr/include/clang-${CLANG_VERSION:R}
 
 .PATH:	${LLVM_SRCDIR}/include/llvm/IR \
