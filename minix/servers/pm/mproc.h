@@ -84,6 +84,8 @@ EXTERN struct mproc {
    * leader (the original process), so all threads in a group resolve the
    * same getpid().  NO_LWP_GROUP means the process is not (yet) threaded. */
   int mp_lwp_group;		/* slot of thread-group leader, or NO_LWP_GROUP */
+  endpoint_t mp_lwp_jointgt;	/* while MP_LWP_JOINING: lwpid being joined, or
+				 * ANY_LWP for _lwp_wait(0); 0 otherwise */
 
   int mp_magic;			/* sanity check, MP_MAGIC */
 } mproc[NR_PROCS];
@@ -111,8 +113,14 @@ EXTERN struct mproc {
 #define MP_LWP	       0x100000	/* this slot is a non-leader thread (LWP) */
 #define MP_LWP_PARKED  0x200000	/* thread blocked in _lwp_park(), awaiting unpark */
 #define MP_LWP_UNPARKED 0x400000	/* pending unpark: next _lwp_park() won't block */
+#define MP_LWP_DETACHED 0x800000 /* thread created detached: self-reaps on exit */
+#define MP_LWP_ZOMBIE  0x1000000	/* joinable thread exited, awaiting _lwp_wait() */
+#define MP_LWP_JOINING 0x2000000	/* thread blocked in _lwp_wait() for another LWP */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)
+
+/* mp_lwp_jointgt value meaning "_lwp_wait(0)": join any joinable sibling. */
+#define ANY_LWP		((endpoint_t) -1)
 
 #define MP_MAGIC	0xC0FFEE0

@@ -30,7 +30,7 @@ int _kernel_call(int syscallnr, message *msgptr);
 int sys_abort(int how);
 int sys_enable_iop(endpoint_t proc_ep);
 int sys_exec(endpoint_t proc_ep, vir_bytes stack_ptr, vir_bytes progname,
-	vir_bytes pc, vir_bytes ps_str, vir_bytes tlsbase);
+	vir_bytes pc, vir_bytes ps_str, vir_bytes tlsbase, vir_bytes arg);
 int sys_fork(endpoint_t parent, endpoint_t child, endpoint_t *, 
 	u32_t vm, vir_bytes *);
 int sys_clear(endpoint_t proc_ep);

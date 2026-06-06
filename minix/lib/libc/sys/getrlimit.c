@@ -20,10 +20,21 @@ int getrlimit(int resource, struct rlimit *rlp)
 	
 	switch (resource)
 	{
+		case RLIMIT_STACK:
+			/* Report a finite stack limit.  libpthread sizes every
+			 * thread stack from RLIMIT_STACK's soft limit; returning
+			 * RLIM_INFINITY (as the other resources do) makes it try
+			 * to mmap an astronomically large per-thread stack, which
+			 * fails with ENOMEM and breaks pthread_create().  Use the
+			 * conventional 8 MB soft / 64 MB hard limits.
+			 */
+			rlp->rlim_cur = (rlim_t) 8 * 1024 * 1024;
+			rlp->rlim_max = (rlim_t) 64 * 1024 * 1024;
+			return 0;
+
 		case RLIMIT_CPU:
 		case RLIMIT_FSIZE:
 		case RLIMIT_DATA:
-		case RLIMIT_STACK:
 		case RLIMIT_CORE:
 		case RLIMIT_RSS:
 		case RLIMIT_MEMLOCK:
@@ -31,9 +42,9 @@ int getrlimit(int resource, struct rlimit *rlp)
 		case RLIMIT_AS:
 		/* case RLIMIT_VMEM: Same as RLIMIT_AS */
 		case RLIMIT_NTHR:
-			/* no limit enforced (however architectural limits 
-			 * may apply) 
-			 */	
+			/* no limit enforced (however architectural limits
+			 * may apply)
+			 */
 			limit = RLIM_INFINITY;
 			break;
 

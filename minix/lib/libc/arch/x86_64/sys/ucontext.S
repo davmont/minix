@@ -88,8 +88,14 @@ ENTRY(_getcontext)
 /*
  * int setcontext(const ucontext_t *ucp)
  *   Restore context from *ucp.  Does not return on success.
+ *
+ * The public name 'setcontext' is a WEAK alias of the strong '_setcontext'
+ * (NetBSD pattern).  libpthread's pthread_specific.c does
+ * __strong_alias(setcontext, pthread_setcontext) to preserve the pthread
+ * private pointer across context switches; making libc's setcontext weak
+ * lets that strong override win at link time instead of colliding.
  */
-ENTRY(setcontext)
+WEAK_ALIAS(setcontext, _setcontext)
 ENTRY(_setcontext)
 	/* Check for NULL */
 	test	%rdi, %rdi

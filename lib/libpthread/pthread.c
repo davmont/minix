@@ -142,7 +142,14 @@ __strong_alias(__libc_thr_init,pthread__init)
  * Static library kludge.  Place a reference to a symbol any library
  * file which does not already have a reference here.
  */
+#if defined(__minix)
+/* pthread_cancelstub.c (which defines this binder) is not built on MINIX; the
+ * binder only exists to force-link the cancel stubs into static binaries, so a
+ * dummy definition suffices here. */
+int pthread__cancel_stub_binder;
+#else
 extern int pthread__cancel_stub_binder;
+#endif
 
 void *pthread__static_lib_binder[] = {
 	&pthread__cancel_stub_binder,

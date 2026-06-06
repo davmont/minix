@@ -54,6 +54,13 @@ int do_exec(struct proc * caller, message * m_ptr)
    * ld.elf_so install the TCB itself via WRFSBASE. */
   if (m_ptr->m_lsys_krn_sys_exec.tlsbase != 0)
 	rp->p_seg.p_fsbase = (reg_t) m_ptr->m_lsys_krn_sys_exec.tlsbase;
+
+  /* Pass an initial first argument (%rdi) if one was supplied — used to hand a
+   * new thread its trampoline cookie (the pthread_t).  arch_proc_init() set up
+   * the standard entry register state; a normal exec passes 0 here (program
+   * entry takes its arguments from the stack, not %rdi). */
+  if (m_ptr->m_lsys_krn_sys_exec.arg != 0)
+	rp->p_reg.rdi = (reg_t) m_ptr->m_lsys_krn_sys_exec.arg;
 #endif
 
   /* No reply to EXEC call */

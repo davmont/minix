@@ -488,6 +488,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_lwp_unpark);
 
 typedef struct {
+	int32_t		wait_for;	/* lwpid to join, or 0 for any sibling */
+
+	uint8_t padding[52];
+} mess_lc_pm_lwp_wait;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_wait);
+
+typedef struct {
 	pid_t pid;
 
 	uint8_t padding[52];
@@ -1201,8 +1208,10 @@ typedef struct {
 	vir_bytes name;
 	vir_bytes ps_str;
 	vir_bytes tlsbase;	/* initial %fs (TLS) base, or 0 to leave it */
+	vir_bytes arg;		/* initial %rdi (first arg), or 0; passes a new
+				 * thread's trampoline cookie to its entry point */
 
-	uint8_t padding[28];
+	uint8_t padding[20];
 } mess_lsys_krn_sys_exec;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_exec);
 
@@ -2497,6 +2506,7 @@ typedef struct noxfer_message {
 		mess_pm_lc_lwp		m_pm_lc_lwp;
 		mess_lc_pm_lwp_park	m_lc_pm_lwp_park;
 		mess_lc_pm_lwp_unpark	m_lc_pm_lwp_unpark;
+		mess_lc_pm_lwp_wait	m_lc_pm_lwp_wait;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;
