@@ -62,6 +62,7 @@ int do_fork(message *msg)
   region_init(&vmc->vm_regions_avl);
   vmc->vm_endpoint = NONE;	/* In case someone tries to use it. */
   vmc->vm_pt = origpt;
+  vmc->vm_lwp_leader = NO_LWP_LEADER;	/* not a thread unless set below */
 
 #if VMSTATS
   vmc->vm_bytecopies = 0;
@@ -82,6 +83,11 @@ int do_fork(message *msg)
   if(msg->VMF_FORKFLAGS & VMFF_LWP) {
 	vmc->vm_pt = vmp->vm_pt;	/* share parent's page tables */
 	vmc->vm_flags &= VMF_INUSE;
+	/* Record the thread-group leader: the vmproc whose region tree owns the
+	 * shared address space.  If the creator is itself a thread, inherit its
+	 * leader; otherwise the creator is the leader. */
+	vmc->vm_lwp_leader =
+	    (vmp->vm_lwp_leader != NO_LWP_LEADER) ? vmp->vm_lwp_leader : proc;
 	acl_fork(vmc);
 	if((r=sys_fork(vmp->vm_endpoint, childproc,
 		&vmc->vm_endpoint, 0 /* no VMINHIBIT */, &msgaddr)) != OK) {

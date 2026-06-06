@@ -459,6 +459,7 @@ void init_vm(void)
 
 	for(i = 0; i < ELEMENTS(vmproc); i++) {
 		vmproc[i].vm_slot = i;
+		vmproc[i].vm_lwp_leader = NO_LWP_LEADER;
 	}
 
 	/* Initialize ACL data structures. */
