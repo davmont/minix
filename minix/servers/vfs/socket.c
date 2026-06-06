@@ -158,9 +158,9 @@ make_sock_fd(dev_t dev, int flags)
 	filp->filp_flags = O_RDWR | flags;
 	filp->filp_count = 1;
 
-	fp->fp_filp[fd] = filp;
+	fp->fp_fd->fd_filp[fd] = filp;
 	if (flags & O_CLOEXEC)
-		FD_SET(fd, &fp->fp_cloexec_set);
+		FD_SET(fd, &fp->fp_fd->fd_cloexec_set);
 
 	/* Release locks, and return the new file descriptor. */
 	unlock_filp(filp); /* this also unlocks the vnode now! */

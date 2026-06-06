@@ -322,11 +322,11 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 		int newfd = -1;
 		if(get_fd(vmfp, 0, R_BIT, &newfd, &newfilp) == OK) {
 			assert(newfd >= 0 && newfd < OPEN_MAX);
-			assert(!vmfp->fp_filp[newfd]);
+			assert(!vmfp->fp_fd->fd_filp[newfd]);
 			newfilp->filp_count = 1;
 			newfilp->filp_vno = vp;
 			newfilp->filp_flags = O_RDONLY;
-			vmfp->fp_filp[newfd] = newfilp;
+			vmfp->fp_fd->fd_filp[newfd] = newfilp;
 			/* dup_vnode(vp); */
 			execi.vmfd = newfd;
 			execi.args.memmap = vfs_memmap;
@@ -724,7 +724,7 @@ static void clo_exec(struct fproc *rfp)
 
   /* Check the file desriptors one by one for presence of FD_CLOEXEC. */
   for (i = 0; i < OPEN_MAX; i++)
-	if ( FD_ISSET(i, &rfp->fp_cloexec_set))
+	if ( FD_ISSET(i, &rfp->fp_fd->fd_cloexec_set))
 		(void) close_fd(rfp, i, FALSE /*may_suspend*/);
 }
 

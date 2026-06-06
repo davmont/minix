@@ -78,6 +78,10 @@ int do_getsysinfo(void)
 	src_addr = (vir_bytes) dmap;
 	len = sizeof(struct dmap) * NR_DEVICES;
 	break;
+    case SI_FILEDESC_TAB:
+	src_addr = (vir_bytes) fdesc;
+	len = sizeof(struct filedesc) * NR_PROCS;
+	break;
     case SI_PROCLIGHT_TAB:
 	/* Fill the light process table for the MIB service upon request. */
 	rfpl = &fproc_light[0];
@@ -139,10 +143,10 @@ int do_fcntl(void)
 	if (fcntl_argx < 0 || fcntl_argx >= OPEN_MAX) r = EINVAL;
 	else if ((r = get_fd(fp, fcntl_argx, 0, &new_fd, NULL)) == OK) {
 		f->filp_count++;
-		fp->fp_filp[new_fd] = f;
-		assert(!FD_ISSET(new_fd, &fp->fp_cloexec_set));
+		fp->fp_fd->fd_filp[new_fd] = f;
+		assert(!FD_ISSET(new_fd, &fp->fp_fd->fd_cloexec_set));
 		if (fcntl_req == F_DUPFD_CLOEXEC)
-			FD_SET(new_fd, &fp->fp_cloexec_set);
+			FD_SET(new_fd, &fp->fp_fd->fd_cloexec_set);
 		r = new_fd;
 	}
 	break;
@@ -150,16 +154,16 @@ int do_fcntl(void)
     case F_GETFD:
 	/* Get close-on-exec flag (FD_CLOEXEC in POSIX Table 6-2). */
 	r = 0;
-	if (FD_ISSET(fd, &fp->fp_cloexec_set))
+	if (FD_ISSET(fd, &fp->fp_fd->fd_cloexec_set))
 		r = FD_CLOEXEC;
 	break;
 
     case F_SETFD:
 	/* Set close-on-exec flag (FD_CLOEXEC in POSIX Table 6-2). */
 	if (fcntl_argx & FD_CLOEXEC)
-		FD_SET(fd, &fp->fp_cloexec_set);
+		FD_SET(fd, &fp->fp_fd->fd_cloexec_set);
 	else
-		FD_CLR(fd, &fp->fp_cloexec_set);
+		FD_CLR(fd, &fp->fp_fd->fd_cloexec_set);
 	break;
 
     case F_GETFL:
@@ -367,7 +371,7 @@ int dupvm(struct fproc *rfp, int pfd, int *vmfd, struct filp **newfilp)
 
 	f->filp_count++;
 	assert(f->filp_count > 0);
-	vmf->fp_filp[procfd] = f;
+	vmf->fp_fd->fd_filp[procfd] = f;
 
 	*newfilp = f;
 
@@ -582,9 +586,7 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
  * system uses the same slot numbers as the kernel.  Only PM makes this call.
  */
   struct fproc *cp;
-#if !defined(NDEBUG)
   struct fproc *pp;
-#endif /* !defined(NDEBUG) */
   int i, parentno, childno;
   mutex_t c_fp_lock;
 
@@ -607,14 +609,19 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
   fproc[childno] = fproc[parentno];
   fproc[childno].fp_lock = c_fp_lock;
 
-  /* Increase the counters in the 'filp' table. */
   cp = &fproc[childno];
-#if !defined(NDEBUG)
   pp = &fproc[parentno];
-#endif /* !defined(NDEBUG) */
 
+  /* fork() gives the child an independent copy of the open-file table (the
+   * struct copy above aliased fp_fd to the parent's).  Give the child its own
+   * same-slot filedesc and copy the parent's table into it. */
+  cp->fp_fd = &fdesc[childno];
+  *cp->fp_fd = *pp->fp_fd;
+  cp->fp_fd->fd_refcnt = 1;
+
+  /* Increase the counters in the 'filp' table. */
   for (i = 0; i < OPEN_MAX; i++)
-	if (cp->fp_filp[i] != NULL) cp->fp_filp[i]->filp_count++;
+	if (cp->fp_fd->fd_filp[i] != NULL) cp->fp_fd->fd_filp[i]->filp_count++;
 
   /* Fill in new process and endpoint id. */
   cp->fp_pid = cpid;
@@ -629,8 +636,8 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
   cp->fp_flags = FP_NOFLAGS;
 
   /* Record the fact that both root and working dir have another user. */
-  if (cp->fp_rd) dup_vnode(cp->fp_rd);
-  if (cp->fp_wd) dup_vnode(cp->fp_wd);
+  if (cp->fp_fd->fd_rd) dup_vnode(cp->fp_fd->fd_rd);
+  if (cp->fp_fd->fd_wd) dup_vnode(cp->fp_fd->fd_wd);
 }
 
 /*===========================================================================*
@@ -656,8 +663,8 @@ static void free_proc(int flags)
   }
 
   /* Release root and working directories. */
-  if (fp->fp_rd) { put_vnode(fp->fp_rd); fp->fp_rd = NULL; }
-  if (fp->fp_wd) { put_vnode(fp->fp_wd); fp->fp_wd = NULL; }
+  if (fp->fp_fd->fd_rd) { put_vnode(fp->fp_fd->fd_rd); fp->fp_fd->fd_rd = NULL; }
+  if (fp->fp_fd->fd_wd) { put_vnode(fp->fp_fd->fd_wd); fp->fp_fd->fd_wd = NULL; }
 
   /* The rest of these actions is only done when processes actually exit. */
   if (!(flags & FP_EXITING)) return;
@@ -687,7 +694,7 @@ static void free_proc(int flags)
           if (rfp->fp_tty == dev) rfp->fp_tty = 0;
 
           for (i = 0; i < OPEN_MAX; i++) {
-		if ((rfilp = rfp->fp_filp[i]) == NULL) continue;
+		if ((rfilp = rfp->fp_fd->fd_filp[i]) == NULL) continue;
 		if (rfilp->filp_mode == FILP_CLOSED) continue;
 		vp = rfilp->filp_vno;
 		if (!S_ISCHR(vp->v_mode)) continue;

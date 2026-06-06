@@ -135,7 +135,7 @@ eat_path(struct lookup *resolve, struct fproc *rfp)
 /* Resolve path to a vnode. advance does the actual work. */
   struct vnode *start_dir;
 
-  start_dir = (resolve->l_path[0] == '/' ? rfp->fp_rd : rfp->fp_wd);
+  start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd : rfp->fp_fd->fd_wd);
   return advance(start_dir, resolve, rfp);
 }
 
@@ -176,7 +176,7 @@ last_dir(struct lookup *resolve, struct fproc *rfp)
 	if (loop_start != NULL)
 		start_dir = loop_start;
 	else
-		start_dir = (resolve->l_path[0] == '/' ? rfp->fp_rd:rfp->fp_wd);
+		start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd:rfp->fp_fd->fd_wd);
 
 	len = strlen(resolve->l_path);
 
@@ -407,7 +407,7 @@ lookup(struct vnode *start_node, struct lookup *resolve, node_details_t *result_
 	return(ENOENT);
   }
 
-  if (!rfp->fp_rd || !rfp->fp_wd) {
+  if (!rfp->fp_fd->fd_rd || !rfp->fp_fd->fd_wd) {
 	printf("VFS: lookup %d: no rd/wd\n", rfp->fp_endpoint);
 	return(ENOENT);
   }
@@ -420,8 +420,8 @@ lookup(struct vnode *start_node, struct lookup *resolve, node_details_t *result_
 
   /* Is the process' root directory on the same partition?,
    * if so, set the chroot directory too. */
-  if (rfp->fp_rd->v_dev == start_node->v_dev)
-	root_ino = rfp->fp_rd->v_inode_nr;
+  if (rfp->fp_fd->fd_rd->v_dev == start_node->v_dev)
+	root_ino = rfp->fp_fd->fd_rd->v_inode_nr;
   else
 	root_ino = 0;
 
@@ -473,7 +473,7 @@ lookup(struct vnode *start_node, struct lookup *resolve, node_details_t *result_
 
 	/* Symlink encountered with absolute path */
 	if (r == ESYMLINK) {
-		dir_vp = rfp->fp_rd;
+		dir_vp = rfp->fp_fd->fd_rd;
 		vmp = NULL;
 	} else if (r == EENTERMOUNT) {
 		/* Entering a new partition */
@@ -525,8 +525,8 @@ lookup(struct vnode *start_node, struct lookup *resolve, node_details_t *result_
 
 	/* Is the process' root directory on the same partition?,
 	 * if so, set the chroot directory too. */
-	if (dir_vp->v_dev == rfp->fp_rd->v_dev)
-		root_ino = rfp->fp_rd->v_inode_nr;
+	if (dir_vp->v_dev == rfp->fp_fd->fd_rd->v_dev)
+		root_ino = rfp->fp_fd->fd_rd->v_inode_nr;
 	else
 		root_ino = 0;
 
@@ -704,7 +704,7 @@ canonical_path(char orig_path[PATH_MAX], struct fproc *rfp)
 
   /* We've got the filename and the actual directory holding the file. From
    * here we start building up the canonical path by climbing up the tree */
-  while (dir_vp != rfp->fp_rd) {
+  while (dir_vp != rfp->fp_fd->fd_rd) {
 
 	strlcpy(temp_path, "..", NAME_MAX+1);
 
@@ -882,7 +882,7 @@ int do_socketpath(void)
 
 	if ((dirp = last_dir(&resolve, rfp)) == NULL) return(err_code);
 
-	bits = S_IFSOCK | (ACCESSPERMS & rfp->fp_umask);
+	bits = S_IFSOCK | (ACCESSPERMS & rfp->fp_fd->fd_umask);
 
 	if (!S_ISDIR(dirp->v_mode))
 		r = ENOTDIR;

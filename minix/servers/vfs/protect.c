@@ -186,8 +186,8 @@ int do_umask(void)
 
   new_umask = job_m_in.m_lc_vfs_umask.mask;
 
-  complement = ~fp->fp_umask;	/* set 'r' to complement of old mask */
-  fp->fp_umask = ~(new_umask & RWX_MODES);
+  complement = ~fp->fp_fd->fd_umask;	/* set 'r' to complement of old mask */
+  fp->fp_fd->fd_umask = ~(new_umask & RWX_MODES);
   return(complement);		/* return complement of old mask */
 }
 

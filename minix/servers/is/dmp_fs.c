@@ -16,6 +16,7 @@
 #include <minix/dmap.h>
 
 struct fproc fproc[NR_PROCS];
+struct filedesc fdesc[NR_PROCS];
 struct dmap dmap[NR_DEVICES];
 
 /*===========================================================================*
@@ -32,6 +33,13 @@ fproc_dmp(void)
 	printf("Error obtaining table from VFS. Perhaps recompile IS?\n");
 	return;
   }
+  /* The fd table now lives in a separate (shared-able) filedesc structure;
+   * fetch it too.  fp_fd points into VFS memory, so we index fdesc by slot
+   * (correct for non-threads; a thread shares its leader's slot's table). */
+  if (getsysinfo(VFS_PROC_NR, SI_FILEDESC_TAB, fdesc, sizeof(fdesc)) != OK) {
+	printf("Error obtaining filedesc table from VFS. Perhaps recompile IS?\n");
+	return;
+  }
 
   printf("File System (FS) process table dump\n");
   printf("-nr- -pid- -tty- -umask- --uid-- --gid-- -ldr-fds-sus-rev-proc-\n");
@@ -40,11 +48,11 @@ fproc_dmp(void)
   	if (fp->fp_pid <= 0) continue;
   	if (++n > 22) break;
 	for (j = nfds = 0; j < OPEN_MAX; j++)
-		if (fp->fp_filp[j] != NULL) nfds++;
+		if (fdesc[i].fd_filp[j] != NULL) nfds++;
 	printf("%3d  %4d  %2d/%d  0x%05x %2d (%2d) %2d (%2d) %3d %3d %3d %3d ",
 		i, fp->fp_pid,
 		major(fp->fp_tty), minor(fp->fp_tty),
-		fp->fp_umask,
+		fdesc[i].fd_umask,
 		fp->fp_realuid, fp->fp_effuid, fp->fp_realgid, fp->fp_effgid,
 		!!(fp->fp_flags & FP_SESLDR), nfds,
 		fp->fp_blocked_on, !!(fp->fp_flags & FP_REVIVED)
