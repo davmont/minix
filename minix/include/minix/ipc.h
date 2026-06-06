@@ -451,6 +451,15 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_exit);
 
 typedef struct {
+	vir_bytes	ctx;	/* ucontext_t * (entry/stack/arg/tls) */
+	unsigned long	flags;
+	vir_bytes	newlid;	/* lwpid_t * out (may be NULL) */
+
+	uint8_t padding[32];
+} mess_lc_pm_lwp_create;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_create);
+
+typedef struct {
 	pid_t pid;
 
 	uint8_t padding[52];
@@ -2455,6 +2464,7 @@ typedef struct noxfer_message {
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;
+		mess_lc_pm_lwp_create	m_lc_pm_lwp_create;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;

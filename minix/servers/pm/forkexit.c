@@ -140,6 +140,22 @@ do_fork(void)
 }
 
 /*===========================================================================*
+ *				do_lwp_create				     *
+ *===========================================================================*/
+int
+do_lwp_create(void)
+{
+/* Create a new LWP (thread) sharing the caller's address space.  The thread's
+ * entry/stack/arg/tls come from the ucontext at m_lc_pm_lwp_create.ctx.
+ *
+ * Phase-2 scaffolding: the plumbing (libc stub -> PM call -> reply) is in
+ * place and exercised by the lwptest harness; the CR3-sharing fork itself
+ * (VM + kernel) is implemented in following steps.
+ */
+  return ENOSYS;
+}
+
+/*===========================================================================*
  *				do_srv_fork				     *
  *===========================================================================*/
 int
