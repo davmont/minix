@@ -21,5 +21,10 @@ LDADD+=		-larchive
 DPADD+=		${LIBZ} ${LIBBZ2}
 LDADD+=		-lz -lbz2
 
-DPADD+=		${LIBLZMA} ${LIBPTHREAD}
-LDADD+=		-llzma -lpthread
+DPADD+=		${LIBLZMA}
+LDADD+=		-llzma
+.if !defined(__MINIX)
+# MINIX has no libpthread yet; liblzma is built single-threaded here.
+DPADD+=		${LIBPTHREAD}
+LDADD+=		-lpthread
+.endif
