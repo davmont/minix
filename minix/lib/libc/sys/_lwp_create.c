@@ -23,9 +23,22 @@ _lwp_create(const ucontext_t *ucp, unsigned long flags, lwpid_t *new_lwp)
 	if (ucp == NULL)
 		return EINVAL;
 
-	/* Top of the thread stack, 16-byte aligned. */
-	sp = (uintptr_t)ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size;
-	sp &= ~(uintptr_t)15;
+	/*
+	 * Prefer the stack pointer prepared in the context (this is what
+	 * _lwp_makecontext() sets, already laid out per the SysV AMD64 ABI).
+	 * If the caller only supplied uc_stack (no _REG_RSP), derive the top of
+	 * the stack ourselves: 16-byte aligned and then biased by 8 so that the
+	 * thread enters its start function with rsp == 8 (mod 16), exactly as if
+	 * a CALL had pushed a return address.  Without this bias the first SSE
+	 * access in the callee (e.g. the movaps that zeroes a message buffer)
+	 * faults with #GP on the misaligned stack slot.
+	 */
+	sp = (uintptr_t)ucp->uc_mcontext.__gregs[_REG_RSP];
+	if (sp == 0) {
+		sp = (uintptr_t)ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size;
+		sp &= ~(uintptr_t)15;
+		sp -= 8;
+	}
 
 	memset(&m, 0, sizeof(m));
 	m.m_lc_pm_lwp_create.entry = ucp->uc_mcontext.__gregs[_REG_RIP];
@@ -34,6 +47,11 @@ _lwp_create(const ucontext_t *ucp, unsigned long flags, lwpid_t *new_lwp)
 	m.m_lc_pm_lwp_create.tlsbase = ucp->uc_mcontext._mc_tlsbase;
 	m.m_lc_pm_lwp_create.flags = flags;
 
-	(void)new_lwp;	/* lwpid not yet returned to the caller */
-	return _syscall(PM_PROC_NR, PM_LWP_CREATE, &m);
+	if (_syscall(PM_PROC_NR, PM_LWP_CREATE, &m) < 0)
+		return -1;
+
+	/* PM returns the new thread's lwpid (its kernel endpoint). */
+	if (new_lwp != NULL)
+		*new_lwp = (lwpid_t) m.m_pm_lc_lwp.lwpid;
+	return 0;
 }
