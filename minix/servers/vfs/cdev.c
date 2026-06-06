@@ -121,9 +121,9 @@ cdev_clone(int fd, dev_t dev, devminor_t new_minor)
 	}
 	lock_vnode(vp, VNODE_OPCL);
 
-	assert(fp->fp_filp[fd] != NULL);
-	unlock_vnode(fp->fp_filp[fd]->filp_vno);
-	put_vnode(fp->fp_filp[fd]->filp_vno);
+	assert(fp->fp_fd->fd_filp[fd] != NULL);
+	unlock_vnode(fp->fp_fd->fd_filp[fd]->filp_vno);
+	put_vnode(fp->fp_fd->fd_filp[fd]->filp_vno);
 
 	vp->v_fs_e = res.fs_e;
 	vp->v_vmnt = NULL;
@@ -133,7 +133,7 @@ cdev_clone(int fd, dev_t dev, devminor_t new_minor)
 	vp->v_sdev = dev;
 	vp->v_fs_count = 1;
 	vp->v_ref_count = 1;
-	fp->fp_filp[fd]->filp_vno = vp;
+	fp->fp_fd->fd_filp[fd]->filp_vno = vp;
 
 	return OK;
 }

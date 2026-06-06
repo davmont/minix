@@ -342,6 +342,11 @@
 #define	__BEGIN_DECLS		__BEGIN_PUBLIC_DECLS
 #define	__END_DECLS		__END_PUBLIC_DECLS
 
+/* Expands to nothing; for macros that must be a valid statement/expression. */
+#ifndef __nothing
+#define	__nothing		/* nothing */
+#endif
+
 /*
  * Non-static C99 inline functions are optional bodies.  They don't
  * create global symbols if not used, but can be replaced if desirable.

@@ -75,7 +75,7 @@ static void handle_memory_continue(struct vmproc *vmp, message *m, void *arg, vo
 
 static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry)
 {
-	struct vmproc *vmp;
+	struct vmproc *vmp, *rvmp;
 	int s, result;
 	struct vir_region *region;
 	vir_bytes offset;
@@ -110,8 +110,23 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	vmp = &vmproc[p];
 	assert(vmp->vm_flags & VMF_INUSE);
 
+	/*
+	 * Thread (LWP) page fault: a thread shares its group leader's page tables
+	 * but has its own empty region tree.  Resolve the fault against the
+	 * leader's regions (rvmp); filling the leader's vm_pt fills the shared
+	 * page tables the thread runs on.  vmp stays the faulting thread so a
+	 * fatal fault is signalled to it and CLEAR_PAGEFAULT targets it.
+	 */
+	rvmp = vmp;
+	if(vmp->vm_lwp_leader != NO_LWP_LEADER) {
+		assert(vmp->vm_lwp_leader >= 0 &&
+			vmp->vm_lwp_leader < NR_PROCS);
+		rvmp = &vmproc[vmp->vm_lwp_leader];
+		assert(rvmp->vm_flags & VMF_INUSE);
+	}
+
 	/* See if address is valid at all. */
-	if(!(region = map_lookup(vmp, addr, NULL))) {
+	if(!(region = map_lookup(rvmp, addr, NULL))) {
 		if(PFERR_PROT(err))  {
 			printf("VM: pagefault: SIGSEGV %d protected addr 0x%lx; %s\n",
 				ep, addr, pf_errstr(err));
@@ -142,16 +157,17 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	assert(addr >= region->vaddr);
 	offset = addr - region->vaddr;
 
-	/* Access is allowed; handle it. */
+	/* Access is allowed; handle it.  Fill via the region-owner (rvmp): for a
+	 * thread that is the group leader, whose page tables are shared. */
 	if(retry) {
-		result = map_pf(vmp, region, offset, wr, NULL, NULL, 0, &io);
+		result = map_pf(rvmp, region, offset, wr, NULL, NULL, 0, &io);
 		assert(result != SUSPEND);
 	} else {
 		struct pf_state state;
 		state.ep = ep;
 		state.vaddr = addr;
 		state.err = err;
-		result = map_pf(vmp, region, offset, wr, pf_cont,
+		result = map_pf(rvmp, region, offset, wr, pf_cont,
 			&state, sizeof(state), &io);
 	}
 	if (io)

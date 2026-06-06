@@ -451,13 +451,41 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_exit);
 
 typedef struct {
-	vir_bytes	ctx;	/* ucontext_t * (entry/stack/arg/tls) */
+	vir_bytes	entry;	/* thread entry point (pc) */
+	vir_bytes	stack;	/* thread stack pointer (top) */
+	vir_bytes	arg;	/* first argument (in %rdi) */
+	vir_bytes	tlsbase; /* TLS base for the new thread (%fs) */
 	unsigned long	flags;
-	vir_bytes	newlid;	/* lwpid_t * out (may be NULL) */
 
-	uint8_t padding[32];
+	uint8_t padding[16];
 } mess_lc_pm_lwp_create;
 _ASSERT_MSG_SIZE(mess_lc_pm_lwp_create);
+
+typedef struct {
+	int32_t		lwpid;	/* assigned/own lwp id (= kernel endpoint) */
+
+	uint8_t padding[52];
+} mess_pm_lc_lwp;
+_ASSERT_MSG_SIZE(mess_pm_lc_lwp);
+
+typedef struct {
+	int32_t		unpark;		/* lwpid to unpark first, or 0 (none) */
+	uint32_t	flags;		/* _lwp_park flags (TIMER_ABSTIME etc.) */
+	int32_t		clock_id;	/* clockid for the timeout */
+	int32_t		has_timeout;	/* nonzero if sec/nsec are valid */
+	int64_t		sec;		/* timeout, seconds */
+	int32_t		nsec;		/* timeout, nanoseconds */
+
+	uint8_t padding[28];
+} mess_lc_pm_lwp_park;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_park);
+
+typedef struct {
+	int32_t		target;		/* lwpid to unpark */
+
+	uint8_t padding[52];
+} mess_lc_pm_lwp_unpark;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_unpark);
 
 typedef struct {
 	pid_t pid;
@@ -1172,8 +1200,9 @@ typedef struct {
 	vir_bytes stack;
 	vir_bytes name;
 	vir_bytes ps_str;
+	vir_bytes tlsbase;	/* initial %fs (TLS) base, or 0 to leave it */
 
-	uint8_t padding[36];
+	uint8_t padding[28];
 } mess_lsys_krn_sys_exec;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_exec);
 
@@ -2465,6 +2494,9 @@ typedef struct noxfer_message {
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;
 		mess_lc_pm_lwp_create	m_lc_pm_lwp_create;
+		mess_pm_lc_lwp		m_pm_lc_lwp;
+		mess_lc_pm_lwp_park	m_lc_pm_lwp_park;
+		mess_lc_pm_lwp_unpark	m_lc_pm_lwp_unpark;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;

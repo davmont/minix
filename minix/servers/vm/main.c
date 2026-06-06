@@ -407,7 +407,7 @@ static void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
 
 	if(sys_exec(vmp->vm_endpoint, (vir_bytes)vsp,
 		   (vir_bytes)execi->progname, execi->pc,
-		   vsp + ((int)psp - (int)frame)) != OK)
+		   vsp + ((int)psp - (int)frame), (vir_bytes) 0 /* tlsbase */) != OK)
 		panic("vm: boot process exec of process %s (ep=%d) failed\n",
 			execi->progname,vmp->vm_endpoint);
 
@@ -459,6 +459,7 @@ void init_vm(void)
 
 	for(i = 0; i < ELEMENTS(vmproc); i++) {
 		vmproc[i].vm_slot = i;
+		vmproc[i].vm_lwp_leader = NO_LWP_LEADER;
 	}
 
 	/* Initialize ACL data structures. */

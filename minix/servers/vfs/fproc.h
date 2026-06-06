@@ -12,17 +12,28 @@
  * possible or even necessary to tell when a slot is free here.
  */
 #define LOCK_DEBUG 0
+
+/* The open-file state shared by all threads (LWPs) of a process: the file
+ * descriptor table, close-on-exec bitmap, working/root directories and umask.
+ * A single-threaded process owns one of these; the threads of a multithreaded
+ * process all point fp_fd at the leader's, sharing one fd namespace (POSIX).
+ * fd_refcnt counts the sharers; the table is torn down on the last one. */
+EXTERN struct filedesc {
+  int fd_refcnt;		/* number of fproc slots sharing this table */
+  struct vnode *fd_wd;		/* working directory; NULL during reboot */
+  struct vnode *fd_rd;		/* root directory; NULL during reboot */
+  struct filp *fd_filp[OPEN_MAX];/* the file descriptor table (free if NULL) */
+  fd_set fd_cloexec_set;	/* bit map for POSIX Table 6-2 FD_CLOEXEC */
+  mode_t fd_umask;		/* mask set by umask system call */
+} fdesc[NR_PROCS];
+
 EXTERN struct fproc {
   unsigned fp_flags;
 
   pid_t fp_pid;			/* process id */
   endpoint_t fp_endpoint;	/* kernel endpoint number of this process */
 
-  struct vnode *fp_wd;		/* working directory; NULL during reboot */
-  struct vnode *fp_rd;		/* root directory; NULL during reboot */
-
-  struct filp *fp_filp[OPEN_MAX];/* the file descriptor table (free if NULL) */
-  fd_set fp_cloexec_set;	/* bit map for POSIX Table 6-2 FD_CLOEXEC */
+  struct filedesc *fp_fd;	/* shared open-file state (see struct filedesc) */
 
   dev_t fp_tty;			/* major/minor of controlling tty */
 
@@ -66,7 +77,6 @@ EXTERN struct fproc {
   gid_t fp_effgid;		/* effective group id */
   int fp_ngroups;		/* number of supplemental groups */
   gid_t fp_sgroups[NGROUPS_MAX];/* supplemental groups */
-  mode_t fp_umask;		/* mask set by umask system call */
 
   mutex_t fp_lock;		/* mutex to lock fproc object */
   struct worker_thread *fp_worker;/* active worker thread, or NULL */

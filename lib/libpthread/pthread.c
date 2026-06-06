@@ -661,7 +661,11 @@ pthread_exit(void *retval)
 		}
 	}
 
+#if !defined(__minix)
+	/* C++11 thread_local destructors; MINIX libc has no __cxa_thread_atexit
+	 * support yet (no threaded C++ in the base system). */
 	__cxa_thread_run_atexit();
+#endif
 
 	/* Perform cleanup of thread-specific data */
 	pthread__destroy_tsd(self);

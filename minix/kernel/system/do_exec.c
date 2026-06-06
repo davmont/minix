@@ -43,9 +43,18 @@ int do_exec(struct proc * caller, message * m_ptr)
 
   /* Set process state. */
   arch_proc_init(rp,
-	(u32_t) m_ptr->m_lsys_krn_sys_exec.ip,
-	(u32_t) m_ptr->m_lsys_krn_sys_exec.stack,
-	(u32_t) m_ptr->m_lsys_krn_sys_exec.ps_str, name);
+	(vir_bytes) m_ptr->m_lsys_krn_sys_exec.ip,
+	(vir_bytes) m_ptr->m_lsys_krn_sys_exec.stack,
+	(vir_bytes) m_ptr->m_lsys_krn_sys_exec.ps_str, name);
+
+#if defined(__x86_64__)
+  /* Install an initial TLS (%fs) base if one was supplied — used to give a
+   * newly created thread its own TLS.  arch_proc_reset() (called from
+   * arch_proc_init) cleared p_fsbase to 0; a normal exec passes 0 here and lets
+   * ld.elf_so install the TCB itself via WRFSBASE. */
+  if (m_ptr->m_lsys_krn_sys_exec.tlsbase != 0)
+	rp->p_seg.p_fsbase = (reg_t) m_ptr->m_lsys_krn_sys_exec.tlsbase;
+#endif
 
   /* No reply to EXEC call */
   RTS_UNSET(rp, RTS_RECEIVING);

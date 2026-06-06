@@ -75,7 +75,7 @@ do_fork(void)
 	panic("do_fork finds wrong child slot: %d", next_child);
 
   /* Memory part of the forking. */
-  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep)) != OK) {
+  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep, 0)) != OK) {
 	return s;
   }
 
@@ -104,6 +104,7 @@ do_fork(void)
 
   /* Inherit only these flags. In normal fork(), PRIV_PROC is not inherited. */
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
   rmc->mp_exitstatus = 0;
@@ -145,14 +146,259 @@ do_fork(void)
 int
 do_lwp_create(void)
 {
-/* Create a new LWP (thread) sharing the caller's address space.  The thread's
- * entry/stack/arg/tls come from the ucontext at m_lc_pm_lwp_create.ctx.
- *
- * Phase-2 scaffolding: the plumbing (libc stub -> PM call -> reply) is in
- * place and exercised by the lwptest harness; the CR3-sharing fork itself
- * (VM + kernel) is implemented in following steps.
+/* Create a new LWP (thread): a process that SHARES the caller's address space
+ * (the same page-table root / CR3) and starts at a caller-supplied entry point
+ * and stack.  The entry/stack come from the ucontext, already extracted by the
+ * libc stub into the request message.
  */
-  return ENOSYS;
+  register struct mproc *rmp = mp;	/* parent (caller) */
+  register struct mproc *rmc;		/* child (the new thread) */
+  static unsigned int next_lwp = 0;
+  int n = 0, s, leader;
+  endpoint_t child_ep;
+  vir_bytes entry, stack, tlsbase;
+  message m;
+
+  entry = m_in.m_lc_pm_lwp_create.entry;
+  stack = m_in.m_lc_pm_lwp_create.stack;
+  tlsbase = m_in.m_lc_pm_lwp_create.tlsbase;
+  if (entry == 0 || stack == 0)
+	return EINVAL;
+
+  if ((procs_in_use == NR_PROCS) ||
+	(procs_in_use >= NR_PROCS-LAST_FEW && rmp->mp_effuid != 0)) {
+	printf("PM: process table full, can't create lwp\n");
+	return(EAGAIN);
+  }
+
+  /* Find a free 'mproc' slot for the thread. */
+  do {
+	next_lwp = (next_lwp+1) % NR_PROCS;
+	n++;
+  } while((mproc[next_lwp].mp_flags & IN_USE) && n <= NR_PROCS);
+  if(n > NR_PROCS)
+	return(EAGAIN);
+
+  /* Establish the thread group.  If the caller is not yet threaded it becomes
+   * the group leader; the new thread joins the caller's group.  Group members
+   * resolve a shared getpid() via the leader (see do_get / PM_GETPID). */
+  if (rmp->mp_lwp_group == NO_LWP_GROUP)
+	rmp->mp_lwp_group = (int)(rmp - mproc);
+  leader = rmp->mp_lwp_group;
+
+  /* Memory part: the child shares the parent's address space (CR3). */
+  if((s=vm_fork(rmp->mp_endpoint, next_lwp, &child_ep, VMFF_LWP)) != OK)
+	return s;
+  /* PM may not fail after vm_fork(), as VM has called sys_fork(). */
+
+  rmc = &mproc[next_lwp];
+  procs_in_use++;
+  *rmc = *rmp;				/* copy parent's slot */
+  rmc->mp_sigact = mpsigact[next_lwp];	/* restore mp_sigact ptr */
+  memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
+  rmc->mp_tracer = NO_TRACER;
+  rmc->mp_trace_flags = 0;
+  (void) sigemptyset(&rmc->mp_sigtrace);
+  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
+  rmc->mp_lwp_group = leader;		/* join the caller's thread group */
+  rmc->mp_parent = mproc[leader].mp_parent;  /* same parent as the process */
+  rmc->mp_child_utime = 0;
+  rmc->mp_child_stime = 0;
+  rmc->mp_exitstatus = 0;
+  rmc->mp_sigstatus = 0;
+  rmc->mp_endpoint = child_ep;		/* passed back by VM */
+  rmc->mp_pid = get_free_pid();		/* unique internal pid; getpid() overlays */
+  rmc->mp_started = getticks();
+  if (rmc->mp_flags & PRIV_PROC) {
+	assert(rmc->mp_scheduler == NONE);
+	rmc->mp_scheduler = SCHED_PROC_NR;
+  }
+
+  /* Point the new thread at its entry point and (preallocated) stack. */
+  if((s=sys_exec(child_ep, stack, (vir_bytes) 0 /* name */, entry,
+	(vir_bytes) 0 /* ps_strings */, tlsbase)) != OK) {
+	rmc->mp_scheduler = NONE;
+	exit_proc(rmc, -1, FALSE /*dump_core*/);
+	return s;
+  }
+
+  /* Register the thread with VFS so it shares the group leader's open-file
+   * table.  The thread is deliberately NOT made runnable here: it is scheduled
+   * only once VFS acknowledges (handle_vfs_reply / VFS_PM_LWP_REPLY), so it can
+   * never run a VFS call before VFS knows about it. */
+  memset(&m, 0, sizeof(m));
+  m.m_type = VFS_PM_LWP;
+  m.VFS_PM_ENDPT = child_ep;
+  m.VFS_PM_PENDPT = mproc[leader].mp_endpoint;
+  m.VFS_PM_CPID = rmc->mp_pid;
+  tell_vfs(rmc, &m);
+
+  /* Return the new thread's lwpid (its kernel endpoint) to the creator now; the
+   * creator need not wait for VFS registration to complete. */
+  rmp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) child_ep;
+  return OK;
+}
+
+/*===========================================================================*
+ *				do_lwp_self				     *
+ *===========================================================================*/
+int
+do_lwp_self(void)
+{
+/* Return the caller's own lwpid.  We use the kernel endpoint as the lwpid: it
+ * is unique, stable for the thread's lifetime, and is exactly the handle the
+ * kernel/PM use to address the thread (for future _lwp_kill/_lwp_unpark). */
+  mp->mp_reply.m_pm_lc_lwp.lwpid = (int32_t) who_e;
+  return OK;
+}
+
+/*===========================================================================*
+ *				do_lwp_exit				     *
+ *===========================================================================*/
+int
+do_lwp_exit(void)
+{
+/* Terminate the calling thread (LWP) only.  The process — and its shared
+ * address space — lives on as long as other threads in the group remain; VM
+ * frees the shared page tables when the last member exits (see free_proc()).
+ *
+ * This is a lightweight teardown: unlike exit_proc() there is no zombie, no
+ * parent notification and no VFS exit (a thread is not separately registered
+ * with VFS, and reaping happens at process granularity).
+ */
+  register struct mproc *rmp = mp;	/* the calling thread */
+  int r, proc_nr_e;
+  message m;
+
+  /* Only a non-leader thread may vanish silently.  Anything else (a plain
+   * process, or a group leader — including the main thread) becomes a normal
+   * process exit; leader-first teardown with live siblings is not yet
+   * supported (VM warns and preserves the siblings' address space). */
+  if (rmp->mp_lwp_group == NO_LWP_GROUP || !(rmp->mp_flags & MP_LWP)) {
+	exit_proc(rmp, 0, FALSE /*dump_core*/);
+	return SUSPEND;
+  }
+
+  proc_nr_e = rmp->mp_endpoint;
+
+  /* Stop the thread so it cannot run between the teardown steps. */
+  if (!(rmp->mp_flags & PROC_STOPPED)) {
+	if ((r = sys_stop(proc_nr_e)) != OK)
+		panic("do_lwp_exit: sys_stop failed: %d", r);
+	rmp->mp_flags |= PROC_STOPPED;
+  }
+
+  /* Give up scheduling this thread. */
+  if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
+	printf("PM: do_lwp_exit: sched_stop failed: %d\n", r);
+  rmp->mp_scheduler = NONE;
+
+  /* Drop this thread's reference to the shared VFS open-file table.  The rest
+   * of the teardown (kernel proc + VM state + the PM slot) is finished once VFS
+   * replies — see handle_vfs_reply()/VFS_PM_LWP_EXIT_REPLY. */
+  memset(&m, 0, sizeof(m));
+  m.m_type = VFS_PM_LWP_EXIT;
+  m.VFS_PM_ENDPT = proc_nr_e;
+  tell_vfs(rmp, &m);
+
+  return SUSPEND;		/* the thread is gone; no reply */
+}
+
+/*===========================================================================*
+ *				lwp_exit_finish				     *
+ *===========================================================================*/
+void
+lwp_exit_finish(struct mproc *rmp)
+{
+/* Second half of _lwp_exit(), run after VFS has released the thread's reference
+ * to the shared open-file table.  Destroy the kernel proc and the thread's VM
+ * state (VM decrements the address-space refcount and frees only this thread's
+ * empty region tree — never the shared page tables), then free the PM slot. */
+  endpoint_t proc_nr_e = rmp->mp_endpoint;
+  int r;
+
+  if ((r = vm_willexit(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: vm_willexit failed: %d", r);
+  if ((r = sys_clear(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: sys_clear failed: %d", r);
+  if ((r = vm_exit(proc_nr_e)) != OK)
+	panic("lwp_exit_finish: vm_exit failed: %d", r);
+
+  rmp->mp_pid = 0;
+  rmp->mp_flags = 0;
+  procs_in_use--;
+}
+
+/*===========================================================================*
+ *				lwp_unpark_one				     *
+ *===========================================================================*/
+static int
+lwp_unpark_one(int lwpid)
+{
+/* Wake the LWP identified by 'lwpid' (its kernel endpoint).  If it is parked,
+ * complete its _lwp_park() with OK.  If it is not parked yet, remember the
+ * unpark so its next _lwp_park() returns immediately — this is what makes the
+ * primitive race-free: PM serializes all park/unpark calls, so a wakeup can
+ * never be lost between a thread deciding to park and actually parking.
+ */
+  struct mproc *target;
+  int slot;
+
+  if (pm_isokendpt((endpoint_t) lwpid, &slot) != OK)
+	return ESRCH;
+  target = &mproc[slot];
+  if (!(target->mp_flags & IN_USE))
+	return ESRCH;
+
+  if (target->mp_flags & MP_LWP_PARKED) {
+	target->mp_flags &= ~MP_LWP_PARKED;
+	reply(slot, OK);		/* its _lwp_park() returns 0 */
+  } else {
+	target->mp_flags |= MP_LWP_UNPARKED;	/* pending: next park won't block */
+  }
+  return OK;
+}
+
+/*===========================================================================*
+ *				do_lwp_park				     *
+ *===========================================================================*/
+int
+do_lwp_park(void)
+{
+/* Block the calling thread until another thread unparks it (NetBSD-style
+ * lwpid-based park; the 'hint' addresses are advisory and ignored here). */
+  register struct mproc *rmp = mp;
+  int unpark;
+
+  /* libpthread optimization: atomically unpark another LWP before parking. */
+  unpark = m_in.m_lc_pm_lwp_park.unpark;
+  if (unpark != 0)
+	(void) lwp_unpark_one(unpark);
+
+  /* Consume a pending unpark instead of blocking (no lost wakeups). */
+  if (rmp->mp_flags & MP_LWP_UNPARKED) {
+	rmp->mp_flags &= ~MP_LWP_UNPARKED;
+	return OK;
+  }
+
+  /* TODO: honour m_lc_pm_lwp_park.{has_timeout,sec,nsec} via mp_timer so that
+   * pthread_cond_timedwait() can time out; for now a timed park blocks like an
+   * untimed one. */
+
+  /* Park: do not reply, so the caller blocks in its SENDREC until unparked. */
+  rmp->mp_flags |= MP_LWP_PARKED;
+  return SUSPEND;
+}
+
+/*===========================================================================*
+ *				do_lwp_unpark				     *
+ *===========================================================================*/
+int
+do_lwp_unpark(void)
+{
+/* Wake a specific LWP (by lwpid) that is, or will be, parked. */
+  return lwp_unpark_one(m_in.m_lc_pm_lwp_unpark.target);
 }
 
 /*===========================================================================*
@@ -196,7 +442,7 @@ do_srv_fork(void)
   if(next_child >= NR_PROCS || (mproc[next_child].mp_flags & IN_USE))
 	panic("do_fork finds wrong child slot: %d", next_child);
 
-  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep)) != OK) {
+  if((s=vm_fork(rmp->mp_endpoint, next_child, &child_ep, 0)) != OK) {
 	return s;
   }
 
@@ -214,6 +460,7 @@ do_srv_fork(void)
   }
   /* inherit only these flags */
   rmc->mp_flags &= (IN_USE|PRIV_PROC|DELAY_CALL);
+  rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
   rmc->mp_exitstatus = 0;

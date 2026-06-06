@@ -71,6 +71,7 @@ typedef	__greg_t	__gregset_t[_NGREG];
 #define _REG_RIP	20	/* instruction pointer (PC) */
 #define _REG_CS		21
 #define _REG_RFLAGS	22	/* flags (PSW) */
+#define _REG_RFL	22	/* flags (alias for _REG_RFLAGS; NetBSD spelling) */
 #define _REG_RSP	23	/* stack pointer */
 #define _REG_URSP	23	/* user stack pointer (alias for _REG_RSP) */
 #define _REG_SS		24

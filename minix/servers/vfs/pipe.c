@@ -84,17 +84,17 @@ static int create_pipe(int fil_des[2], int flags)
 	unlock_vmnt(vmp);
 	return(r);
   }
-  rfp->fp_filp[fil_des[0]] = fil_ptr0;
+  rfp->fp_fd->fd_filp[fil_des[0]] = fil_ptr0;
   fil_ptr0->filp_count = 1;		/* mark filp in use */
   if ((r = get_fd(fp, 0, W_BIT, &fil_des[1], &fil_ptr1)) != OK) {
-	rfp->fp_filp[fil_des[0]] = NULL;
+	rfp->fp_fd->fd_filp[fil_des[0]] = NULL;
 	fil_ptr0->filp_count = 0;	/* mark filp free */
 	unlock_filp(fil_ptr0);
 	unlock_vnode(vp);
 	unlock_vmnt(vmp);
 	return(r);
   }
-  rfp->fp_filp[fil_des[1]] = fil_ptr1;
+  rfp->fp_fd->fd_filp[fil_des[1]] = fil_ptr1;
   fil_ptr1->filp_count = 1;
 
   /* Create a named pipe inode on PipeFS */
@@ -102,9 +102,9 @@ static int create_pipe(int fil_des[2], int flags)
 		  NO_DEV, &res);
 
   if (r != OK) {
-	rfp->fp_filp[fil_des[0]] = NULL;
+	rfp->fp_fd->fd_filp[fil_des[0]] = NULL;
 	fil_ptr0->filp_count = 0;
-	rfp->fp_filp[fil_des[1]] = NULL;
+	rfp->fp_fd->fd_filp[fil_des[1]] = NULL;
 	fil_ptr1->filp_count = 0;
 	unlock_filp(fil_ptr1);
 	unlock_filp(fil_ptr0);
@@ -133,8 +133,8 @@ static int create_pipe(int fil_des[2], int flags)
   fil_ptr0->filp_flags = O_RDONLY | (flags & ~O_ACCMODE);
   fil_ptr1->filp_flags = O_WRONLY | (flags & ~O_ACCMODE);
   if (flags & O_CLOEXEC) {
-	FD_SET(fil_des[0], &rfp->fp_cloexec_set);
-	FD_SET(fil_des[1], &rfp->fp_cloexec_set);
+	FD_SET(fil_des[0], &rfp->fp_fd->fd_cloexec_set);
+	FD_SET(fil_des[1], &rfp->fp_fd->fd_cloexec_set);
   }
 
   unlock_filps(fil_ptr0, fil_ptr1);
@@ -412,7 +412,7 @@ void release(struct vnode * vp, int op, int count)
 			fd = rp->fp_popen.fd;
 		else
 			fd = rp->fp_pipe.fd;
-		f = rp->fp_filp[fd];
+		f = rp->fp_fd->fd_filp[fd];
 		if (f == NULL || f->filp_mode == FILP_CLOSED)
 			continue;
 		if (f->filp_vno != vp)

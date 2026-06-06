@@ -106,7 +106,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 
   /* If O_CREATE is set, try to make the file. */
   if (oflags & O_CREAT) {
-        omode = I_REGULAR | (omode & ALLPERMS & fp->fp_umask);
+        omode = I_REGULAR | (omode & ALLPERMS & fp->fp_fd->fd_umask);
 	vp = new_node(&resolve, oflags, omode);
 	r = err_code;
 	if (r == OK) exist = FALSE;	/* We just created the file */
@@ -130,12 +130,12 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
   }
 
   /* Claim the file descriptor and filp slot and fill them in. */
-  fp->fp_filp[fd] = filp;
+  fp->fp_fd->fd_filp[fd] = filp;
   filp->filp_count = 1;
   filp->filp_vno = vp;
   filp->filp_flags = oflags;
   if (oflags & O_CLOEXEC)
-	FD_SET(fd, &fp->fp_cloexec_set);
+	FD_SET(fd, &fp->fp_fd->fd_cloexec_set);
 
   /* Only do the normal open code if we didn't just create the file. */
   if (exist) {
@@ -244,7 +244,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 				filp->filp_count = 0; /* don't find self */
 				if ((filp2 = find_filp(vp, b)) != NULL) {
 				    /* Co-reader or writer found. Use it.*/
-				    fp->fp_filp[fd] = filp2;
+				    fp->fp_fd->fd_filp[fd] = filp2;
 				    filp2->filp_count++;
 				    filp2->filp_vno = vp;
 				    filp2->filp_flags = oflags;
@@ -280,7 +280,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
   /* If error, release inode. */
   if (r != OK) {
 	if (r != SUSPEND) {
-		fp->fp_filp[fd] = NULL;
+		fp->fp_fd->fd_filp[fd] = NULL;
 		filp->filp_count = 0;
 		filp->filp_vno = NULL;
 		put_vnode(vp);
@@ -413,10 +413,10 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
 			unlock_vnode(vp);
 			unlock_vmnt(dir_vmp);
 
-			old_wd = fp->fp_wd; /* Save orig. working dirp */
-			fp->fp_wd = dirp;
+			old_wd = fp->fp_fd->fd_wd; /* Save orig. working dirp */
+			fp->fp_fd->fd_wd = dirp;
 			vp = new_node(resolve, oflags, bits);
-			fp->fp_wd = old_wd; /* Restore */
+			fp->fp_fd->fd_wd = old_wd; /* Restore */
 
 			if (vp != NULL) {
 				put_vnode(dirp);
@@ -538,7 +538,7 @@ int do_mknod(void)
   if (!super_user && !S_ISFIFO(mode_bits))
 	return(EPERM);
 
-  bits = (mode_bits & S_IFMT) | (mode_bits & ACCESSPERMS & fp->fp_umask);
+  bits = (mode_bits & S_IFMT) | (mode_bits & ACCESSPERMS & fp->fp_fd->fd_umask);
 
   /* Open directory that's going to hold the new node. */
   if (fetch_name(vname1, vname1_length, fullpath) != OK) return(err_code);
@@ -580,7 +580,7 @@ int do_mkdir(void)
   resolve.l_vmnt_lock = VMNT_WRITE;
   resolve.l_vnode_lock = VNODE_WRITE;
 
-  bits = I_DIRECTORY | (dirmode & RWX_MODES & fp->fp_umask);
+  bits = I_DIRECTORY | (dirmode & RWX_MODES & fp->fp_fd->fd_umask);
   if ((vp = last_dir(&resolve, fp)) == NULL) return(err_code);
 
   /* Make sure that the object is a directory */
@@ -703,11 +703,11 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
   /* first, make all future get_filp2()'s fail; otherwise
    * we might try to close the same fd in different threads
    */
-  rfp->fp_filp[fd_nr] = NULL;
+  rfp->fp_fd->fd_filp[fd_nr] = NULL;
 
   r = close_filp(rfilp, may_suspend);
 
-  FD_CLR(fd_nr, &rfp->fp_cloexec_set);
+  FD_CLR(fd_nr, &rfp->fp_fd->fd_cloexec_set);
 
   /* Check to see if the file is locked.  If so, release all locks. */
   if (nr_locks > 0) {

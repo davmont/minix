@@ -233,7 +233,7 @@ static void do_pending_pipe(void)
   nbytes = job_m_in.m_lc_vfs_readwrite.len;
   cum_io = job_m_in.m_lc_vfs_readwrite.cum_io;
 
-  f = fp->fp_filp[fd];
+  f = fp->fp_fd->fd_filp[fd];
   assert(f != NULL);
 
   locktype = (job_call_nr == VFS_READ) ? VNODE_READ : VNODE_WRITE;
@@ -401,10 +401,13 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
   self = NULL;
   verbose = 0;
 
-  /* Initialize proc endpoints to NONE */
+  /* Initialize proc endpoints to NONE, and give each slot its own (same-slot)
+   * open-file table.  Threads later repoint fp_fd at their group leader's. */
   for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
 	rfp->fp_endpoint = NONE;
 	rfp->fp_pid = PID_FREE;
+	rfp->fp_fd = &fdesc[rfp - fproc];
+	rfp->fp_fd->fd_refcnt = 1;
   }
 
   /* Initialize the process table with help of the process manager messages.
@@ -430,7 +433,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
 	rfp->fp_effuid = (uid_t) SYS_UID;
 	rfp->fp_realgid = (gid_t) SYS_GID;
 	rfp->fp_effgid = (gid_t) SYS_GID;
-	rfp->fp_umask = ~0;
+	rfp->fp_fd->fd_umask = ~0;
   } while (TRUE);			/* continue until process NONE */
   mess.m_type = OK;			/* tell PM that we succeeded */
   s = ipc_send(PM_PROC_NR, &mess);		/* send synchronization message */
@@ -478,9 +481,9 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
 	 * correct values.
 	 */
 	for (i = 0; i < OPEN_MAX; i++)
-		rfp->fp_filp[i] = NULL;
-	rfp->fp_rd = NULL;
-	rfp->fp_wd = NULL;
+		rfp->fp_fd->fd_filp[i] = NULL;
+	rfp->fp_fd->fd_rd = NULL;
+	rfp->fp_fd->fd_wd = NULL;
   }
 
   init_vnodes();		/* init vnodes */
@@ -713,6 +716,21 @@ void service_pm_postponed(void)
 
 	break;
 
+  case VFS_PM_LWP_EXIT:
+	/* A thread (LWP) exits: drop its reference to the shared open-file table
+	 * and free its slot.  free_proc()'s refcount gate keeps the fds open for
+	 * the surviving threads; only the last sharer's exit closes them. */
+	proc_e = job_m_in.VFS_PM_ENDPT;
+
+	assert(proc_e == fp->fp_endpoint);
+
+	pm_exit();
+
+	m_out.m_type = VFS_PM_LWP_EXIT_REPLY;
+	m_out.VFS_PM_ENDPT = proc_e;
+
+	break;
+
   case VFS_PM_DUMPCORE:
 	proc_e = job_m_in.VFS_PM_ENDPT;
 	term_signal = job_m_in.VFS_PM_TERM_SIG;
@@ -829,6 +847,7 @@ static void service_pm(void)
   case VFS_PM_EXIT:
   case VFS_PM_DUMPCORE:
   case VFS_PM_UNPAUSE:
+  case VFS_PM_LWP_EXIT:
 	{
 		endpoint_t proc_e = m_in.VFS_PM_ENDPT;
 
@@ -871,6 +890,20 @@ static void service_pm(void)
 		}
 
 		m_out.VFS_PM_ENDPT = proc_e;
+	}
+	break;
+  case VFS_PM_LWP:
+	{
+		/* New thread (LWP): register it sharing the leader's open-file
+		 * table.  PENDPT is the group leader, ENDPT the new thread. */
+		endpoint_t leader_e = m_in.VFS_PM_PENDPT;
+		endpoint_t thread_e = m_in.VFS_PM_ENDPT;
+		pid_t thread_pid = m_in.VFS_PM_CPID;
+
+		pm_lwp(leader_e, thread_e, thread_pid);
+
+		m_out.m_type = VFS_PM_LWP_REPLY;
+		m_out.VFS_PM_ENDPT = thread_e;
 	}
 	break;
   case VFS_PM_SETGROUPS:

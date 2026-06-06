@@ -46,10 +46,14 @@ CPPFLAGS+=-I${NETBSDSRCDIR}/sys -I${.CURDIR}/../libc
 # NetBSD-10 moved several private libc headers (atexit.h, ...) into
 # libc/include; MINIX's older libc still keeps them in their subdirs.
 CPPFLAGS+=	-I${.CURDIR}/../libc/stdlib
-# Phase-0 characterization only: MINIX gates __HAVE_TLS_VARIANT_II off in
-# sys/arch/amd64/include/types.h.  Define it locally so libpthread compiles
-# far enough to surface the _lwp_* ABI gap.  Phase 1 enables TLS globally.
+# TLS Variant II is enabled globally on amd64 (sys/arch/amd64/include/types.h);
+# kept here harmlessly.
 CPPFLAGS+=	-D__HAVE_TLS_VARIANT_II
+# The cancellation-point stubs (pthread_cancelstub.c) wrap ~40 syscalls as
+# _sys_<call>, which MINIX libc does not provide.  Drop them: pthread_cancel()
+# then cannot interrupt a thread blocked in a syscall, but create/join/mutex/
+# cond/rwlock all work.  (Follow-up: provide MINIX cancellation points.)
+PTHREAD_CANCELSTUB=	no
 .endif
 
 # providing alternative MI implementations for creating an lwp is

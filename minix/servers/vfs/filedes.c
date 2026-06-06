@@ -95,7 +95,7 @@ int check_fds(struct fproc *rfp, int nfds)
   assert(nfds >= 1);
 
   for (i = 0; i < OPEN_MAX; i++) {
-	if (rfp->fp_filp[i] == NULL) {
+	if (rfp->fp_fd->fd_filp[i] == NULL) {
 		if (--nfds == 0)
 			return OK;
 	}
@@ -117,9 +117,9 @@ int get_fd(struct fproc *rfp, int start, mode_t bits, int *k, struct filp **fpt)
   register struct filp *f;
   register int i;
 
-  /* Search the fproc fp_filp table for a free file descriptor. */
+  /* Search the fproc fp_fd->fd_filp table for a free file descriptor. */
   for (i = start; i < OPEN_MAX; i++) {
-	if (rfp->fp_filp[i] == NULL) {
+	if (rfp->fp_fd->fd_filp[i] == NULL) {
 		/* A file descriptor has been located. */
 		*k = i;
 		break;
@@ -187,10 +187,10 @@ get_filp2(
   filp = NULL;
   if (fild < 0 || fild >= OPEN_MAX)
 	err_code = EBADF;
-  else if (locktype != VNODE_OPCL && rfp->fp_filp[fild] != NULL &&
-		rfp->fp_filp[fild]->filp_mode == FILP_CLOSED)
+  else if (locktype != VNODE_OPCL && rfp->fp_fd->fd_filp[fild] != NULL &&
+		rfp->fp_fd->fd_filp[fild]->filp_mode == FILP_CLOSED)
 	err_code = EIO; /* disallow all use except close(2) */
-  else if ((filp = rfp->fp_filp[fild]) == NULL)
+  else if ((filp = rfp->fp_fd->fd_filp[fild]) == NULL)
 	err_code = EBADF;
   else if (locktype != VNODE_NONE)	/* Only lock the filp if requested */
 	lock_filp(filp, locktype);	/* All is fine */
@@ -618,14 +618,14 @@ int do_copyfd(void)
   case COPYFD_TO:
 	/* Find a free file descriptor slot in the local or remote process. */
 	for (fd = 0; fd < OPEN_MAX; fd++)
-		if (rfp->fp_filp[fd] == NULL)
+		if (rfp->fp_fd->fd_filp[fd] == NULL)
 			break;
 
 	/* If found, fill the slot and return the slot number. */
 	if (fd < OPEN_MAX) {
-		rfp->fp_filp[fd] = rfilp;
+		rfp->fp_fd->fd_filp[fd] = rfilp;
 		if (flags & COPYFD_CLOEXEC)
-			FD_SET(fd, &rfp->fp_cloexec_set);
+			FD_SET(fd, &rfp->fp_fd->fd_cloexec_set);
 		rfilp->filp_count++;
 		r = fd;
 	} else
@@ -639,7 +639,7 @@ int do_copyfd(void)
 	 */
 	if (rfilp->filp_count > 1) {
 		rfilp->filp_count--;
-		rfp->fp_filp[fd] = NULL;
+		rfp->fp_fd->fd_filp[fd] = NULL;
 		r = OK;
 	} else
 		r = EBADF;

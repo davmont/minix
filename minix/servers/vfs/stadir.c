@@ -39,7 +39,7 @@ int do_fchdir(void)
 
   /* Is the file descriptor valid? */
   if ((rfilp = get_filp(rfd, VNODE_READ)) == NULL) return(err_code);
-  r = change_into(&fp->fp_wd, rfilp->filp_vno);
+  r = change_into(&fp->fp_fd->fd_wd, rfilp->filp_vno);
   unlock_filp(rfilp);
   return(r);
 }
@@ -68,7 +68,7 @@ int do_chdir(void)
   resolve.l_vnode_lock = VNODE_READ;
   if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
 
-  r = change_into(&fp->fp_wd, vp);
+  r = change_into(&fp->fp_fd->fd_wd, vp);
 
   unlock_vnode(vp);
   unlock_vmnt(vmp);
@@ -102,7 +102,7 @@ int do_chroot(void)
   resolve.l_vnode_lock = VNODE_READ;
   if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
 
-  r = change_into(&fp->fp_rd, vp);
+  r = change_into(&fp->fp_fd->fd_rd, vp);
 
   unlock_vnode(vp);
   unlock_vmnt(vmp);
