@@ -104,6 +104,29 @@ typedef struct {
 #define _UC_MACHINE_PC(uc)	((uc)->uc_mcontext.__gregs[_REG_RIP])
 #define _UC_MACHINE_INTRV(uc)	((uc)->uc_mcontext.__gregs[_REG_RAX])
 
+#if defined(_RTLD_SOURCE) || defined(_LIBC_SOURCE) || \
+    defined(__LIBPTHREAD_SOURCE__)
+#include <sys/tls.h>
+
+/*
+ * Fast (syscall-free) read of the TLS thread pointer.  On amd64 the
+ * Variant-II TCB is at the %fs base and its first member (tcb_self) points to
+ * itself, so %fs:0 yields the TCB pointer.  Paired with _lwp_setprivate()
+ * (WRFSBASE) in libc.
+ */
+__BEGIN_DECLS
+static __inline void *
+__lwp_getprivate_fast(void)
+{
+	void *__tmp;
+
+	__asm volatile("movq %%fs:0, %0" : "=r" (__tmp));
+
+	return __tmp;
+}
+__END_DECLS
+#endif
+
 #if defined(__minix)
 #define _UC_MACHINE_STACK(uc)		((uc)->uc_mcontext.__gregs[_REG_RSP])
 #define _UC_MACHINE_SET_STACK(uc, sp)	_UC_MACHINE_STACK(uc) = (sp)

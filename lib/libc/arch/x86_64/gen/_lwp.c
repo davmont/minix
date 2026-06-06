@@ -41,6 +41,9 @@ __RCSID("$NetBSD: _lwp.c,v 1.7 2011/02/24 04:28:43 joerg Exp $");
 #include <lwp.h>
 #include <stdlib.h>
 
+#if !defined(__minix)
+/* Needs _lwp_exit(2), which MINIX does not provide; MINIX only uses _lwp.c
+ * for the _lwp_setprivate()/_lwp_getprivate() TLS helpers below. */
 void
 _lwp_makecontext(ucontext_t *u, void (*start)(void *),
     void *arg, void *private, caddr_t stack_base, size_t stack_size)
@@ -69,3 +72,29 @@ _lwp_makecontext(ucontext_t *u, void (*start)(void *),
 	u->uc_mcontext._mc_tlsbase = (uintptr_t)private;
 	u->uc_flags |= _UC_TLSBASE;
 }
+#endif /* !defined(__minix) */
+
+#if defined(__minix)
+/*
+ * MINIX: NetBSD installs the TLS thread pointer with the _lwp_setprivate(2)
+ * system call, which MINIX does not provide.  The amd64 port enables
+ * CR4.FSGSBASE, so the %fs base (the Variant-II TLS thread pointer) can be
+ * read/written directly from userland with RD/WRFSBASE.  The kernel saves and
+ * restores the user %fs base across context switches (see context_stop() and
+ * restore_user_context()), so a plain WRFSBASE here is all ld.elf_so needs to
+ * install a thread's TCB.
+ */
+void
+_lwp_setprivate(void *ptr)
+{
+	__asm__ __volatile__("wrfsbase %0" : : "r" ((uintptr_t)ptr));
+}
+
+void *
+_lwp_getprivate(void)
+{
+	void *ptr;
+	__asm__ __volatile__("rdfsbase %0" : "=r" (ptr));
+	return ptr;
+}
+#endif /* defined(__minix) */

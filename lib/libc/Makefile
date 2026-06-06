@@ -105,6 +105,9 @@ SUBDIR+= pkgconfig
 .include "${.CURDIR}/time/Makefile.inc"
 .if defined(__MINIX)
 .include "${NETBSDSRCDIR}/minix/lib/libc/sys/Makefile.inc"
+# MINIX: TLS (Variant II) is now enabled on amd64, so build the libc TLS
+# support (tls.c provides __libc_static_tls_setup, used by the C startup).
+.include "${.CURDIR}/tls/Makefile.inc"
 .else
 .if ${RUMPRUN} != "yes"
 .include "${.CURDIR}/tls/Makefile.inc"
