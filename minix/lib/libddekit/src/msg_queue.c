@@ -18,7 +18,11 @@ struct ddekit_minix_msg_q {
 	
 	unsigned from, to;
 
-	message messages[MESSAGE_QUEUE_SIZE];
+	/* Use the underlying struct (natural 8-byte alignment) rather than the
+	 * 16-byte-aligned `message' typedef: clang >= ~16 rejects an array whose
+	 * element size (104 on amd64) isn't a multiple of its alignment (16).
+	 * Layout is identical and access here is via memcpy, so alignment is moot. */
+	struct noxfer_message messages[MESSAGE_QUEUE_SIZE];
 	int ipc_status[MESSAGE_QUEUE_SIZE];
 	ddekit_sem_t *msg_w_sem, *msg_r_sem;
 	int msg_r_pos, msg_w_pos;

@@ -46,6 +46,13 @@ CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=gnu99 :}
 # until the sources are cleaned up.  Was implicit with the old clang 3.6.
 CFLAGS+=	-fcommon
 
+# MINIX's in-tree binutils ld is 2.23.2 (2013), which predates the relaxable
+# GOT relocations (R_X86_64_GOTPCRELX, binutils >= 2.26) that modern clang emits
+# by default -> "unresolvable R_X86_64_NONE relocation" at PIC/.so link time.
+# Emit the classic R_X86_64_GOTPCREL until binutils is updated.
+CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
+CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
+
 .if defined(WARNS)
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wno-sign-compare -Wno-pointer-sign :}
 .if ${WARNS} > 0
