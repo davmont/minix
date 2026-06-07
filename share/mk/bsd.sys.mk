@@ -53,6 +53,12 @@ CFLAGS+=	-fcommon
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
 CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
 
+# MINIX's in-tree C++ code (atf, kyua, lutok, bind tools) is 2014-era NetBSD that
+# still uses std::auto_ptr, removed from the default C++ standard.  libc++ 22 only
+# provides it under this opt-in macro; enable it globally rather than per-package
+# (it only makes the template available -- unused, it costs nothing).
+CXXFLAGS+=	-D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR
+
 .if defined(WARNS)
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wno-sign-compare -Wno-pointer-sign :}
 .if ${WARNS} > 0
