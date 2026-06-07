@@ -93,6 +93,9 @@ SRCS+=	sem.c
 # MINIX has no lib/librt).  Use our userland POSIX-semaphore implementation
 # (sem.c in this directory) layered on pthread mutex + condition variables.
 SRCS+=	sem.c
+# MINIX has no sigtimedwait(2) and the cancelstub sigwait is compiled out, so
+# provide a userland sigwait(3) over sigaction+sigsuspend (Hurd-style).
+SRCS+=	sigwait_minix.c
 .endif
 # Architecture-dependent files
 .if exists(${ARCHDIR}/pthread_md.S)
