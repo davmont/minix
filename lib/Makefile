@@ -287,7 +287,9 @@ SUBDIR+=	../external/bsd/openldap/lib	# depends on libcrypto, ...
 #==================== 3rd library dependency barrier ====================
 SUBDIR+=	.WAIT
 
-SUBDIR+=	../external/bsd/bind/lib	# depends on heimdal, libcrypto
+SUBDIR+=	../external/mit/libuv/lib	# BIND 9.18 netmgr; depends on libpthread
+SUBDIR+=	.WAIT
+SUBDIR+=	../external/mpl/bind/lib	# BIND 9.18; depends on libcrypto, libuv
 
 .if ${MKDTRACE} != "no"
 SUBDIR+=        ../external/cddl/osnet/lib/libdtrace	# depends on libproc
