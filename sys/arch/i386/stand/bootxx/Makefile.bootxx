@@ -125,9 +125,15 @@ LIBKERN=
 .PATH:	${S}/../common/lib/libc/string
 # bootxx is a 15-sector (7,680-byte) first-stage loader; only link in
 # exactly the string/mem symbols that the native i386 build requires.
-# strtoul and the 64-bit math helpers are NOT needed here and would
+# strtoul and most 64-bit math helpers are NOT needed here and would
 # transitively pull in panic/printf/subr_prf, blowing the size budget.
 SRCS+=	memcpy.c memset.c memcmp.c memmove.c memchr.c strlen.c
+# clang >= ~16 emits a __ashrdi3 call for the 64-bit off_t arithmetic in
+# minixfs3.c that clang 3.6 used to inline.  ashrdi3.c is pure quad arithmetic
+# (only quad.h), so it does not drag in panic/printf and stays within budget.
+.PATH:	${S}/../common/lib/libc/quad
+CPPFLAGS+=	-I${S}/../common/lib/libc/quad
+SRCS+=	ashrdi3.c
 .else
 # use MINIX minc
 LIBKERN= ${DESTDIR}/usr/lib/libminc.a
