@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- tgmath.h ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,20 +17,23 @@
 
 */
 
-#include <__config>
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/__config>
+#else
+#  include <__config>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifdef __cplusplus
-
-#include <ctgmath>
-
-#else  // __cplusplus
-
-#include_next <tgmath.h>
-
-#endif // __cplusplus
+#  include <cmath>
+#  include <complex>
+#else
+#  if __has_include_next(<tgmath.h>)
+#    include_next <tgmath.h>
+#  endif
+#endif
 
 #endif // _LIBCPP_TGMATH_H

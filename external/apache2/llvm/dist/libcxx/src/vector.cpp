@@ -1,4 +1,4 @@
-//===------------------------- vector.cpp ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,10 +6,25 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "vector"
+#include <vector>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS __vector_base_common<true>;
+#if _LIBCPP_AVAILABILITY_MINIMUM_HEADER_VERSION < 15
+
+template <bool>
+struct __vector_base_common;
+
+template <>
+struct __vector_base_common<true> {
+  [[noreturn]] _LIBCPP_EXPORTED_FROM_ABI void __throw_length_error() const;
+  [[noreturn]] _LIBCPP_EXPORTED_FROM_ABI void __throw_out_of_range() const;
+};
+
+void __vector_base_common<true>::__throw_length_error() const { std::__throw_length_error("vector"); }
+
+void __vector_base_common<true>::__throw_out_of_range() const { std::__throw_out_of_range("vector"); }
+
+#endif // _LIBCPP_AVAILABILITY_MINIMUM_HEADER_VERSION < 15
 
 _LIBCPP_END_NAMESPACE_STD
