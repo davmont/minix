@@ -82,7 +82,7 @@
 ./usr/include/c++
 ./usr/include/c++/experimental
 ./usr/include/c++/ext
-./usr/include/clang-3.6
+./usr/include/clang-13.0
 ./usr/include/crypto
 ./usr/include/ddekit
 ./usr/include/ddekit/minix

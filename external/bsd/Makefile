@@ -30,11 +30,7 @@ SUBDIR+= openldap
 .if (${MKLIBCXX} != "no")
 SUBDIR+= libc++
 .endif
-.if (${MKLLVM} != "no")
-.if (${MKLLVMCMDS} != "no") && defined(__MINIX)
-SUBDIR+= llvm
-.endif # (${MKLLVMCMDS} != "no") && defined(__MINIX)
-.endif
+# LLVM moved to external/apache2/llvm (LLVM 13, Apache-2.0 relicense).
 .if (${MKPCC} != "no")
 SUBDIR+= pcc
 .endif
