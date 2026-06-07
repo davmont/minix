@@ -7,6 +7,10 @@ BIND9_MAKEFILE_INC=yes
 
 USE_FORT?= yes	# network client/server
 
+# BIND 9.18 ships its manuals as reStructuredText built with Sphinx, and the
+# MINIX import prunes dist/doc/, so there are no man-page sources to install.
+MKMAN=	no
+
 WARNS?=	1
 
 CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses
