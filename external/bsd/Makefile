@@ -39,7 +39,10 @@ SUBDIR+= libproc
 SUBDIR+= librtld_db
 .endif
 
-#MINIX:
-SUBDIR+= blacklist dhcp nvi
+#MINIX: ISC DHCP retired -- it is EOL upstream (superseded by Kea) and uses the
+# pre-9.18 libisc socket/timer/hash APIs that BIND 9.18 removed in its libuv
+# netmgr rewrite, so it cannot link against the system BIND.  The modern dhcpcd
+# (external/bsd/dhcpcd, the rc default) provides DHCP client functionality.
+SUBDIR+= blacklist nvi
 
 .include <bsd.subdir.mk>

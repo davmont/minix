@@ -212,6 +212,7 @@
 ./usr/include/ufs/lfs
 ./usr/include/ufs/mfs
 ./usr/include/ufs/ufs
+./usr/include/uv
 ./usr/lib
 ./usr/lib/i18n
 ./usr/lib/bc
@@ -243,6 +244,7 @@
 ./usr/libdata/debug/usr/tests/minix-posix/ddekit
 ./usr/libdata/debug/usr/tests/minix-posix/rmibtest
 ./usr/libexec
+./usr/libexec/named
 ./usr/log
 ./usr/man
 ./usr/man/man1
