@@ -70,6 +70,15 @@
 #define bswap_32(x) BSWAP_32(x)
 #define bswap_64(x) BSWAP_64(x)
 
+#elif defined(__minix)
+
+/*
+ * MINIX (like the BSDs) provides the htobeNN, htoleNN, beNNtoh, leNNtoh and
+ * bswapNN families via <sys/endian.h>.  Select it before the __GNUC__ branch
+ * below, because clang defines __GNUC__ and MINIX has no <byteswap.h>.
+ */
+#include <sys/endian.h>
+
 #elif defined(__ANDROID__) || defined(__CYGWIN__) || defined(__GNUC__) || \
 	defined(__GNU__)
 

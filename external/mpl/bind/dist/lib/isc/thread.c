@@ -98,7 +98,8 @@ isc_thread_setname(isc_thread_t thread, const char *name) {
 	 * macOS has pthread_setname_np but only works on the
 	 * current thread so it's not used here
 	 */
-#if defined(__NetBSD__)
+#if defined(__NetBSD__) || defined(__minix)
+	/* MINIX inherits NetBSD's 3-argument pthread_setname_np. */
 	(void)pthread_setname_np(thread, name, NULL);
 #else  /* if defined(__NetBSD__) */
 	(void)pthread_setname_np(thread, name);

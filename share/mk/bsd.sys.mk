@@ -34,10 +34,13 @@ CPPFLAGS+=	-Wp,-iremap,${DESTDIR}/:/
 CPPFLAGS+=	-Wp,-iremap,${X11SRCDIR}:/usr/xsrc
 .endif
 
-# NetBSD sources use C99 style, with some GCC extensions.
-CFLAGS+=	${${ACTIVE_CC} == "clang":? -std=gnu99 :}
-CFLAGS+=	${${ACTIVE_CC} == "gcc":? -std=gnu99 :}
-CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=gnu99 :}
+# NetBSD sources use C99 style, with some GCC extensions.  Honor a per-package
+# CSTD override (the NetBSD mechanism) so newer code (e.g. BIND 9.18, which needs
+# C11 max_align_t/_Atomic) can request gnu18 etc. instead of the gnu99 default.
+CSTD?=		gnu99
+CFLAGS+=	${${ACTIVE_CC} == "clang":? -std=${CSTD} :}
+CFLAGS+=	${${ACTIVE_CC} == "gcc":? -std=${CSTD} :}
+CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=${CSTD} :}
 
 # The MINIX tree relies on tentative definitions being merged (pre-C11 / GCC
 # "common" semantics): e.g. environ and __ps_strings appear in several libc

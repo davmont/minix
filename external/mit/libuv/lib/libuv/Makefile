@@ -22,6 +22,12 @@ SRCS+=	bsd-ifaddrs.c no-fsevents.c no-proctitle.c posix-hrtime.c \
 
 CPPFLAGS+=	-I${LIBUVSRCDIR}/include -I${LIBUVSRCDIR}/src
 
+# libuv's uv__fs_scandir passes a dirent**-typed comparator to scandir(3), whose
+# MINIX/NetBSD prototype takes int(*)(const void*, const void*).  clang >= 16
+# promotes this mismatch to a hard error by default; it is ABI-compatible, so
+# demote it to a warning for this vendored upstream source.
+CFLAGS+=	-Wno-error=incompatible-function-pointer-types
+
 # libuv is thread-based.
 LIBDPLIBS+=	pthread	${NETBSDSRCDIR}/lib/libpthread
 

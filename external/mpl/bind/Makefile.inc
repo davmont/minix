@@ -17,7 +17,10 @@ CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses
 LIBUVDIR=	${NETBSDSRCDIR}/external/mit/libuv
 LIBUVOBJDIR!=   cd ${LIBUVDIR}/lib && ${PRINTOBJDIR}
 CPPFLAGS+=	-I${LIBUVDIR}/dist/include
-CFLAGS+=	-std=gnu18
+# BIND 9.18 needs C11 (max_align_t, _Atomic, _Noreturn).  Set CSTD so the value
+# wins over share/mk/bsd.sys.mk's default -std (a bare CFLAGS+=-std=gnu18 loses,
+# because bsd.sys.mk appends its -std after this file's CFLAGS).
+CSTD=		gnu18
 LINTFLAGS+=	-Ac11
 
 BIND_SRCDIR:=	${.PARSEDIR}
