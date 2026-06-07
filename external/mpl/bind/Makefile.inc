@@ -88,6 +88,13 @@ DPADD+=${LIBBLOCKLIST}
 .if !defined (LIB) || empty(LIB)
 LDADD+= -lpthread
 DPADD+= ${LIBPTHREAD}
+# MINIX links programs statically (no DT_INIT), so libisc's library constructor
+# isc__initialize() -- which sets up the memory context lock and other globals --
+# would be garbage-collected out (nothing references it directly), leaving e.g.
+# contextslock uninitialized and aborting in mem_create().  Force the object in.
+.if defined(__MINIX)
+LDFLAGS+= -Wl,-u,isc__initialize
+.endif
 .else
 LIBDPLIBS+=      pthread  ${NETBSDSRCDIR}/lib/libpthread
 .endif
