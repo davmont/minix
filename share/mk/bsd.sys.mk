@@ -39,6 +39,13 @@ CFLAGS+=	${${ACTIVE_CC} == "clang":? -std=gnu99 :}
 CFLAGS+=	${${ACTIVE_CC} == "gcc":? -std=gnu99 :}
 CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=gnu99 :}
 
+# The MINIX tree relies on tentative definitions being merged (pre-C11 / GCC
+# "common" semantics): e.g. environ and __ps_strings appear in several libc
+# files without extern.  clang >= 11 (and gcc >= 10) default to -fno-common,
+# which turns those into multiple-definition link errors.  Restore -fcommon
+# until the sources are cleaned up.  Was implicit with the old clang 3.6.
+CFLAGS+=	-fcommon
+
 .if defined(WARNS)
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wno-sign-compare -Wno-pointer-sign :}
 .if ${WARNS} > 0
