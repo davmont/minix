@@ -35,6 +35,10 @@ LLVM_TOOLCONF_OBJDIR!=	cd ${NETBSDSRCDIR}/tools/llvm && ${PRINTOBJDIR}
 LLVM_MODULE_CACHE=	${LLVM_TOOLCONF_OBJDIR}/module.cache
 HOST_CPPFLAGS+=	${CPPFLAGS}
 HOST_CXXFLAGS+=	-O2 -fno-rtti -fno-exceptions -fno-strict-aliasing
+# LLVM 13's generated TableGen .inc files (e.g. X86GenRegisterInfo.inc) use
+# uintN_t without including <cstdint>; modern host compilers (clang >= ~15,
+# gcc >= ~13) no longer pull it in transitively, so force-include it.
+HOST_CXXFLAGS+=	-include cstdint
 .sinclude "${LLVM_TOOLCONF_OBJDIR}/support-modules"
 .if ${HOST_SUPPORTS_MODULES:Uno} == "yes"
 HOST_CXXFLAGS+=	${MODULES_CXXFLAGS}
@@ -50,6 +54,7 @@ LLVM_TARGETS=	x86,powerpc,sparc,aarch64,arm,mips,amdgpu
 CXXFLAGS+=		${${ACTIVE_CC} == "clang":? ${MODULES_CXXFLAGS} :}
 
 CXXFLAGS+=	-std=c++14
+CXXFLAGS+=	-include cstdint	# see HOST_CXXFLAGS note above
 .if ${MKDEBUG:Uno} != "no"
 CXXFLAGS+=	-g1
 .endif
