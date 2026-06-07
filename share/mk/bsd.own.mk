@@ -23,6 +23,7 @@ MKKYUA?=	yes
 MKMCLINKER?=	no
 MKCLANGRT?=	no
 MKLLVM?=	yes
+MKLLVMRT?=	no	# MINIX does not build LLVM's own runtime libs (libLLVMrt)
 MKGCC?=		no
 MKGCCCMDS?=	no
 MKPROFILE?=	no

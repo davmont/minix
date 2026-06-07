@@ -9,7 +9,10 @@ SUBDIR+= \
 	librt
 .endif
 
-.if ${MKLLVM} != "no"
+# Target-side LLVM/clang (clang running ON MINIX) is gated on MKLLVMCMDS, as the
+# old external/bsd/llvm was.  The host cross-clang (tools/llvm*) is what builds
+# the system; this is the optional on-target compiler.
+.if ${MKLLVM} != "no" && ${MKLLVMCMDS:Uyes} != "no"
 SUBDIR+= \
 	lib \
 	.WAIT \
