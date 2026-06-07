@@ -164,6 +164,39 @@ toolchains::Minix::Minix(const Driver &D, const llvm::Triple &Triple,
   getFilePaths().push_back("=/usr/lib");
 }
 
+ToolChain::CXXStdlibType
+toolchains::Minix::GetCXXStdlibType(const ArgList &Args) const {
+  if (const Arg *A = Args.getLastArg(options::OPT_stdlib_EQ)) {
+    StringRef Value = A->getValue();
+    if (Value == "libstdc++")
+      return ToolChain::CST_Libstdcxx;
+    // "libc++" or anything else falls through to the MINIX default below.
+  }
+  // MINIX ships libc++ as its C++ standard library.
+  return ToolChain::CST_Libcxx;
+}
+
+void toolchains::Minix::AddClangCXXStdlibIncludeArgs(
+    const ArgList &DriverArgs, ArgStringList &CC1Args) const {
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc) ||
+      DriverArgs.hasArg(options::OPT_nostdincxx))
+    return;
+
+  switch (GetCXXStdlibType(DriverArgs)) {
+  case ToolChain::CST_Libcxx:
+    // MINIX keeps the libc++ headers flat under /usr/include/c++/.
+    addSystemInclude(DriverArgs, CC1Args,
+                     getDriver().SysRoot + "/usr/include/c++/");
+    break;
+  case ToolChain::CST_Libstdcxx:
+    addSystemInclude(DriverArgs, CC1Args,
+                     getDriver().SysRoot + "/usr/include/g++");
+    addSystemInclude(DriverArgs, CC1Args,
+                     getDriver().SysRoot + "/usr/include/g++/backward");
+    break;
+  }
+}
+
 Tool *toolchains::Minix::buildAssembler() const {
   return new tools::minix::Assembler(*this);
 }
