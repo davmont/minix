@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile,v 1.7 2014/08/20 15:19:39 joerg Exp $
+#	$NetBSD: Makefile,v 1.14 2021/05/30 01:57:00 joerg Exp $
 
 LIB=		c++
 WARNS=		4
@@ -8,16 +8,20 @@ NOLINT=		# defined
 
 .PATH: ${LIBCXX_SRCDIR}/src
 
-#__MINIX: Unsupported for now: shared_mutex.cpp
-SRCS=	algorithm.cpp bind.cpp chrono.cpp condition_variable.cpp debug.cpp \
-	exception.cpp future.cpp hash.cpp ios.cpp iostream.cpp locale.cpp \
-	memory.cpp mutex.cpp new.cpp optional.cpp random.cpp regex.cpp \
-	stdexcept.cpp \
-	string.cpp strstream.cpp system_error.cpp thread.cpp \
-	utility.cpp valarray.cpp
+SRCS=	algorithm.cpp bind.cpp charconv.cpp chrono.cpp condition_variable.cpp \
+	condition_variable_destructor.cpp debug.cpp exception.cpp format.cpp \
+	functional.cpp future.cpp hash.cpp ios.cpp ios.instantiations.cpp \
+	iostream.cpp locale.cpp memory.cpp mutex.cpp mutex_destructor.cpp \
+	new.cpp optional.cpp random.cpp random_shuffle.cpp regex.cpp \
+	shared_mutex.cpp stdexcept.cpp string.cpp strstream.cpp \
+	system_error.cpp thread.cpp utility.cpp valarray.cpp variant.cpp \
+	vector.cpp
+
+.PATH: ${LIBCXX_SRCDIR}/src/filesystem
+SRCS+=	directory_iterator.cpp operations.cpp
+
 # typeinfo.cc: prefer libcxxrt's version
 
-#__MINIX: Unsupported for now:
 LIBCXXRT_SRCS+= \
 	auxhelper.cc dynamic_cast.cc exception.cc guard.cc \
 	stdexcept.cc terminate.cc typeinfo.cc libelftc_dem_gnu3.c
@@ -35,21 +39,24 @@ CLEANFILES+=	rt_${src}
 
 .include <bsd.own.mk>
 
-CPPFLAGS+=	-nostdinc++ -cxx-isystem ${LIBCXX_SRCDIR}/include -I${LIBCXXRT_SRCDIR}/src
-CPPFLAGS+=	-DLIBCXXRT
-CXXFLAGS+=	-std=c++11
+CPPFLAGS+=	-nostdinc++ -cxx-isystem ${LIBCXX_SRCDIR}/include
+CPPFLAGS+=	-cxx-isystem ${.CURDIR}/../include -I${LIBCXXRT_SRCDIR}/src
+CPPFLAGS+=	-DLIBCXXRT -D_LIBCPP_BUILDING_LIBRARY
+CXXFLAGS+=	-std=gnu++17
 
 CWARNFLAGS.gcc+=	-Wno-error
 
 CWARNFLAGS.clang+=	-Wno-error=unused-variable -Wno-error=missing-noreturn
 CWARNFLAGS.clang+=	-Wno-error=missing-prototypes -Wno-error=sometimes-uninitialized
 CWARNFLAGS.clang+=	-Wno-error=missing-field-initializers -Wno-error=switch
-CWARNFLAGS.clang+=	-Wno-error=implicit-exception-spec-mismatch
+CWARNFLAGS.clang+=	-Wno-error=implicit-exception-spec-mismatch -Wno-error=format-nonliteral -Wno-error=format-security
 
-#LDADD+=	-Wl,-z,defs
-# libgcc_eh is GCC-specific; Clang handles EH via libcxxrt (sources included above)
-.if ${MKGCC:Uno} == "yes"
-LDADD+=	-lgcc_eh
+.if ${MKSANITIZER} != "yes"
+LDFLAGS+=	-Wl,-z,defs
+.endif
+
+.if !empty(MACHINE_ARCH:Marm*) || !empty(MACHINE_ARCH:Mearm*)
+CWARNFLAGS+=		-Wno-atomic-alignment
 .endif
 
 .include <bsd.lib.mk>
