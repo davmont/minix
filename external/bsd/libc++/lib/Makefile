@@ -8,17 +8,24 @@ NOLINT=		# defined
 
 .PATH: ${LIBCXX_SRCDIR}/src
 
-SRCS=	algorithm.cpp bind.cpp charconv.cpp chrono.cpp condition_variable.cpp \
-	condition_variable_destructor.cpp debug.cpp exception.cpp format.cpp \
-	functional.cpp future.cpp hash.cpp ios.cpp ios.instantiations.cpp \
-	iostream.cpp locale.cpp memory.cpp mutex.cpp mutex_destructor.cpp \
-	new.cpp optional.cpp random.cpp random_shuffle.cpp regex.cpp \
-	shared_mutex.cpp stdexcept.cpp string.cpp strstream.cpp \
-	system_error.cpp thread.cpp utility.cpp valarray.cpp variant.cpp \
-	vector.cpp
+# libc++ 22 src set (typeinfo.cpp omitted: libcxxrt provides type_info).
+SRCS=	algorithm.cpp any.cpp atomic.cpp barrier.cpp bind.cpp call_once.cpp \
+	charconv.cpp chrono.cpp condition_variable.cpp \
+	condition_variable_destructor.cpp error_category.cpp exception.cpp \
+	expected.cpp fstream.cpp functional.cpp future.cpp hash.cpp ios.cpp \
+	ios.instantiations.cpp iostream.cpp locale.cpp memory.cpp \
+	memory_resource.cpp mutex.cpp mutex_destructor.cpp new.cpp \
+	new_handler.cpp new_helpers.cpp optional.cpp ostream.cpp print.cpp \
+	random.cpp random_shuffle.cpp regex.cpp shared_mutex.cpp stdexcept.cpp \
+	string.cpp strstream.cpp system_error.cpp thread.cpp valarray.cpp \
+	variant.cpp vector.cpp verbose_abort.cpp
 
 .PATH: ${LIBCXX_SRCDIR}/src/filesystem
-SRCS+=	directory_iterator.cpp operations.cpp
+SRCS+=	directory_entry.cpp directory_iterator.cpp filesystem_clock.cpp \
+	filesystem_error.cpp int128_builtins.cpp operations.cpp path.cpp
+
+.PATH: ${LIBCXX_SRCDIR}/src/ryu
+SRCS+=	d2fixed.cpp d2s.cpp f2s.cpp
 
 # typeinfo.cc: prefer libcxxrt's version
 
@@ -42,7 +49,12 @@ CLEANFILES+=	rt_${src}
 CPPFLAGS+=	-nostdinc++ -cxx-isystem ${LIBCXX_SRCDIR}/include
 CPPFLAGS+=	-cxx-isystem ${.CURDIR}/../include -I${LIBCXXRT_SRCDIR}/src
 CPPFLAGS+=	-DLIBCXXRT -D_LIBCPP_BUILDING_LIBRARY
-CXXFLAGS+=	-std=gnu++17
+# libc++ 22 from_chars shares float-parsing headers with llvm-libc
+# (shared/fp_bits.h -> src/__support/...); add the imported libc include root.
+CPPFLAGS+=	-I${LIBCXX_SRCDIR}/../libc
+# ryu float<->string code includes "include/ryu/ryu.h" relative to src/.
+CPPFLAGS+=	-I${LIBCXX_SRCDIR}/src
+CXXFLAGS+=	-std=gnu++23
 
 CWARNFLAGS.gcc+=	-Wno-error
 
