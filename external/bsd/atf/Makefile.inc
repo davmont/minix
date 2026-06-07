@@ -2,6 +2,10 @@
 
 .include <bsd.own.mk>
 
+# MINIX: ATF is C++03-era code that uses std::auto_ptr, removed from the default
+# C++ standard and only provided by libc++ 22 under this opt-in macro.
+CPPFLAGS+=	-D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR
+
 TOPDIR=		${NETBSDSRCDIR}/external/bsd/atf
 SRCDIR=		${TOPDIR}/dist
 
