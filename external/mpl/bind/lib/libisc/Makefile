@@ -7,7 +7,8 @@ LIB=isc
 .include <bsd.own.mk>
 
 LIBUVDIR=${NETBSDSRCDIR}/external/mit/libuv
-LIBUVOBJDIR!=   cd ${LIBUVDIR}/lib && ${PRINTOBJDIR}
+# The libuv library is built in lib/libuv (a SUBDIR), not lib/ itself.
+LIBUVOBJDIR!=   cd ${LIBUVDIR}/lib/libuv && ${PRINTOBJDIR}
 CPPFLAGS+=-I${LIBUVDIR}/dist/include
 CFLAGS+=-std=gnu18
 

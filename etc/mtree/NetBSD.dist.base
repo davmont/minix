@@ -219,6 +219,7 @@
 ./usr/lib/keymaps
 ./usr/lib/lua
 ./usr/lib/lua/5.3
+./usr/lib/named
 ./usr/lib/pkgconfig
 ./usr/lib/security
 ./usr/libdata

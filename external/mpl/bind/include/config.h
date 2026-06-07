@@ -178,14 +178,15 @@
 /* Define to 1 if you have the <glob.h> header file. */
 #define HAVE_GLOB_H 1
 
-/* Define to 1 if you have the Kerberos Framework available */
-#define HAVE_GSSAPI 1
+/* MINIX has no Kerberos/GSSAPI, so GSS-TSIG is unavailable (unlike NetBSD, whose
+ * generated config enables it).  Leave all GSSAPI knobs undefined. */
+/* #undef HAVE_GSSAPI */
 
 /* Define to 1 if you have the <gssapi/gssapi.h> header file. */
-#define HAVE_GSSAPI_GSSAPI_H 1
+/* #undef HAVE_GSSAPI_GSSAPI_H */
 
 /* Define to 1 if you have the <gssapi/gssapi_krb5.h> header file. */
-#define HAVE_GSSAPI_GSSAPI_KRB5_H 1
+/* #undef HAVE_GSSAPI_GSSAPI_KRB5_H */
 
 /* Define to 1 if you have the <gssapi.h> header file. */
 /* #undef HAVE_GSSAPI_H */
@@ -218,10 +219,11 @@
 /* #undef HAVE_KRB5_H */
 
 /* Define to 1 if you have the `krb5_init_context' function. */
-#define HAVE_KRB5_INIT_CONTEXT 1
+/* MINIX has no Kerberos. */
+/* #undef HAVE_KRB5_INIT_CONTEXT */
 
 /* Define to 1 if you have the <krb5/krb5.h> header file. */
-#define HAVE_KRB5_KRB5_H 1
+/* #undef HAVE_KRB5_KRB5_H */
 
 /* Define if libidn2 was found */
 /* #undef HAVE_LIBIDN2 */

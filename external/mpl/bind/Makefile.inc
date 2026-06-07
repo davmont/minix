@@ -15,7 +15,8 @@ CWARNFLAGS.clang+=	-Wno-unused-value -Wno-parentheses
 .include <bsd.own.mk>
 
 LIBUVDIR=	${NETBSDSRCDIR}/external/mit/libuv
-LIBUVOBJDIR!=   cd ${LIBUVDIR}/lib && ${PRINTOBJDIR}
+# The libuv library is built in lib/libuv (a SUBDIR), not lib/ itself.
+LIBUVOBJDIR!=   cd ${LIBUVDIR}/lib/libuv && ${PRINTOBJDIR}
 CPPFLAGS+=	-I${LIBUVDIR}/dist/include
 # BIND 9.18 needs C11 (max_align_t, _Atomic, _Noreturn).  Set CSTD so the value
 # wins over share/mk/bsd.sys.mk's default -std (a bare CFLAGS+=-std=gnu18 loses,
@@ -71,8 +72,14 @@ DPADD+=		${LIBEXECINFO} ${LIBKVM} ${LIBZ}
 .endif
 .endif
 
+# NetBSD renamed libblacklist -> libblocklist; MINIX still has the old name.
+.if defined(__MINIX)
+LDADD+=-lblacklist
+DPADD+=${LIBBLACKLIST}
+.else
 LDADD+=-lblocklist
 DPADD+=${LIBBLOCKLIST}
+.endif
 
 .if !defined (LIB) || empty(LIB)
 LDADD+= -lpthread
