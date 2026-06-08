@@ -238,11 +238,22 @@ static int nvme_wait_irq(struct nvme_queue *q)
 	nvme_cqe_t *cqe = &q->cq[q->cq_head];
 	message m;
 	int ipc_status, r;
+	long tick, spins;
 
-	/* Arm a watchdog so a lost completion cannot hang the driver. */
-	sys_setalarm(sys_hz() * 5, 0);
+	/* Re-poll the completion queue periodically rather than blocking on the
+	 * MSI-X interrupt forever: under emulation (and on some controllers) a
+	 * completion interrupt is occasionally not delivered even though the CQE
+	 * has been posted.  A short timer wakes us to re-check the phase tag, so
+	 * a lost interrupt costs a few milliseconds instead of failing the
+	 * command -- and, crucially, never leaves the CQ head out of sync. */
+	tick = sys_hz() / 100;			/* ~10 ms */
+	if (tick < 1)
+		tick = 1;
+	spins = 0;
 
 	while (NVME_CQE_PHASE(cqe) != q->cq_phase) {
+		sys_setalarm(tick, 0);
+
 		if ((r = driver_receive(ANY, &m, &ipc_status)) != OK)
 			panic("nvme: driver_receive failed: %d", r);
 
@@ -252,8 +263,15 @@ static int nvme_wait_irq(struct nvme_queue *q)
 				/* Our completion interrupt; re-check the CQ. */
 				break;
 			case CLOCK:
-				printf("nvme: I/O command timed out\n");
-				return EIO;
+				/* Timer tick: re-poll the CQ.  Give up only
+				 * after a long stretch of no progress (~5 s),
+				 * which indicates a genuinely wedged device. */
+				if (++spins >= 500) {
+					sys_setalarm(0, 0);
+					printf("nvme: I/O command timed out\n");
+					return EIO;
+				}
+				break;
 			default:
 				blockdriver_mq_queue(&m, ipc_status);
 			}
@@ -571,42 +589,72 @@ static int nvme_init(int devind)
  * physical addresses).  Pages 2..N are written into the single prp_list page.
  */
 static int build_prp(struct vumap_phys *phys, unsigned int nphys, size_t nbytes,
-	u64_t *prp1, u64_t *prp2)
+	u64_t *prp1, u64_t *prp2, size_t *covered)
 {
-	u64_t off;
-	size_t target, seg_start;
+	const size_t PS = NVME_PAGE_SIZE;
+	size_t off, cov, bpos, seg_start, seg_rem, want;
 	unsigned int s, nlist;
+	u64_t pa;
 
 	*prp1 = phys[0].vp_addr;
-	off = phys[0].vp_addr & (NVME_PAGE_SIZE - 1);
+	off = (size_t)(phys[0].vp_addr & (PS - 1));
 
-	/* Everything fits within the first page: no PRP2 needed. */
-	if (off + nbytes <= NVME_PAGE_SIZE) {
+	/* Bytes contiguously usable through PRP1's first page, bounded by the
+	 * extent of segment 0.  NVMe gives PRP1 everything from its offset to the
+	 * end of its page, so segment 0 must actually reach that page boundary to
+	 * chain further; otherwise this command can only cover segment 0. */
+	cov = PS - off;
+	if (cov > phys[0].vp_size)
+		cov = phys[0].vp_size;
+	if (cov > nbytes)
+		cov = nbytes;
+
+	if (cov >= nbytes || (off + cov) < PS) {
+		/* Single PRP entry suffices (everything fits, or segment 0 ends
+		 * before its page boundary so we cannot add a PRP list). */
 		*prp2 = 0;
+		*covered = cov;
 		return OK;
 	}
 
-	/* Locate the page-aligned physical address of every page after the
-	 * first by walking the segments to each page-boundary byte offset.
-	 */
+	/* PRP1 fills to its page boundary (cov == PS - off).  Add one PRP-list
+	 * entry per subsequent page, stopping at the first page that is not
+	 * page-aligned or not fully backed by a single contiguous segment -- the
+	 * caller re-vumaps and issues another command for the remainder. */
 	nlist = 0;
-	target = NVME_PAGE_SIZE - off;		/* offset of the 2nd page */
-	s = 0;
-	seg_start = 0;
-	while (target < nbytes) {
-		while (s < nphys && seg_start + phys[s].vp_size <= target) {
+	while (cov < nbytes) {
+		bpos = cov;			/* buffer offset of the next page */
+
+		seg_start = 0;
+		for (s = 0; s < nphys; s++) {
+			if (seg_start + phys[s].vp_size > bpos)
+				break;
 			seg_start += phys[s].vp_size;
-			s++;
 		}
 		if (s >= nphys)
-			return EINVAL;		/* segments don't cover it */
-		if (nlist >= NVME_PAGE_SIZE / sizeof(u64_t))
-			return EINVAL;		/* too many pages for one list */
-		prp_list[nlist++] = phys[s].vp_addr + (target - seg_start);
-		target += NVME_PAGE_SIZE;
+			break;
+
+		pa = phys[s].vp_addr + (bpos - seg_start);
+		if (pa & (PS - 1))
+			break;			/* page not page-aligned: stop */
+
+		seg_rem = phys[s].vp_size - (bpos - seg_start);
+		want = nbytes - cov;
+		if (want > PS)
+			want = PS;
+		if (want == PS && seg_rem < PS)
+			break;			/* full page not backed: stop */
+		if (want > seg_rem)
+			want = seg_rem;		/* final partial page */
+		if (nlist >= PS / sizeof(u64_t))
+			break;			/* one PRP-list page max */
+
+		prp_list[nlist++] = pa;
+		cov += want;
 	}
 
-	*prp2 = (nlist == 1) ? prp_list[0] : prp_list_phys;
+	*prp2 = (nlist == 0) ? 0 : (nlist == 1 ? prp_list[0] : prp_list_phys);
+	*covered = cov;
 	return OK;
 }
 
@@ -726,7 +774,7 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 		struct vumap_phys phys[NR_IOREQS];
 		unsigned int nphys;
 		size_t chunk = total - done;
-		size_t avail;
+		size_t avail, covered;
 		u64_t slba, prp1, prp2;
 		u32_t nblk;
 		int r, access;
@@ -763,8 +811,17 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 		if (chunk == 0)
 			return (done > 0) ? (ssize_t)done : EIO;
 
-		if ((r = build_prp(phys, nphys, chunk, &prp1, &prp2)) != OK)
+		if ((r = build_prp(phys, nphys, chunk, &prp1, &prp2,
+				&covered)) != OK)
 			return (done > 0) ? (ssize_t)done : r;
+
+		/* build_prp may cover fewer bytes than requested if the buffer is
+		 * fragmented into sub-page physical segments (PRP cannot express
+		 * those in one command); the loop handles the remainder. */
+		covered -= covered % ns_lba_size;
+		if (covered == 0)
+			return (done > 0) ? (ssize_t)done : EIO;
+		chunk = covered;
 
 		slba = (disk_pos + done) / ns_lba_size;
 		nblk = chunk / ns_lba_size;
