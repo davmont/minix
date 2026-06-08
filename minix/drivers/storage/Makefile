@@ -11,6 +11,10 @@ SUBDIR+=	filter
 SUBDIR+=	virtio_blk
 .  endif # i386 || x86_64
 
+.  if ${MACHINE_ARCH} == "x86_64"
+SUBDIR+=	nvme
+.  endif # x86_64
+
 .  if ${MACHINE_ARCH} == "earm"
 SUBDIR+=	mmc
 .  endif # ${MACHINE_ARCH} == "earm"
