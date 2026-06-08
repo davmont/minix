@@ -183,6 +183,12 @@ phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
 void       cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end);
 phys_bytes pg_alloc_page(kinfo_t *cbi);
 
+#if defined(USE_APIC)
+/* MSI/MSI-X vector allocation, implemented in arch/x86_64/apic.c. */
+int ioapic_alloc_msi(int *out_irq, u32_t *out_addr, u32_t *out_data);
+void ioapic_free_msi(int irq);
+#endif
+
 /* multiboot / pre_init */
 void multiboot_init(void);
 

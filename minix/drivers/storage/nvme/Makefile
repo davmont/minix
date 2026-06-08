@@ -2,7 +2,7 @@
 PROG=	nvme
 SRCS=	nvme.c
 
-DPADD+=	${LIBBLOCKDRIVER} ${LIBSYS} ${LIBTIMERS}
-LDADD+=	-lblockdriver -lsys -ltimers
+DPADD+=	${LIBBLOCKDRIVER} ${LIBSYS} ${LIBTIMERS} ${LIBMTHREAD}
+LDADD+=	-lblockdriver -lsys -ltimers -lmthread
 
 .include <minix.service.mk>

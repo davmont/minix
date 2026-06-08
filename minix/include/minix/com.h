@@ -305,6 +305,7 @@
 #  define IRQ_RMPOLICY      2	/* remove a slot of the IRQ table */
 #  define IRQ_ENABLE        3	/* enable interrupts */
 #  define IRQ_DISABLE       4	/* disable interrupts */
+#  define IRQ_SETPOLICY_MSI 5	/* allocate an MSI/MSI-X vector + set policy */
 #  define IRQ_REENABLE  0x001	/* reenable IRQ line after interrupt */
 #  define IRQ_BYTE      0x100	/* byte values */      
 #  define IRQ_WORD      0x200	/* word values */
