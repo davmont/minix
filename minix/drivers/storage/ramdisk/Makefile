@@ -111,6 +111,10 @@ dir.acpi:=	minix/drivers/power/acpi
 .if ${MKSMALL} != "yes"
 PROGRAMS+=		ahci
 dir.ahci:=	minix/drivers/storage/ahci
+# NVMe storage, for booting/mounting root from an NVMe disk.  See the
+# 'nvme=yes' / class 1/8/2 auto-detect branch in rc.
+PROGRAMS+=		nvme
+dir.nvme:=	minix/drivers/storage/nvme
 .endif
 .endif # ${MACHINE_ARCH} == "x86_64"
 

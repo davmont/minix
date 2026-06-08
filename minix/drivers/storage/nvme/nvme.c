@@ -437,39 +437,48 @@ static int nvme_rw(int do_write, u64_t slba, u32_t nblocks)
 /*===========================================================================*
  *			copy between the iovec and the bounce buffer	     *
  *===========================================================================*/
-static int copy_iov(endpoint_t endpt, iovec_t *iov, unsigned int count,
-	size_t skip, char *buf, size_t len, int to_iov)
+/*
+ * Move `len` bytes between the contiguous bounce buffer and the caller's I/O
+ * vector, starting `skip` bytes into the vector.  The vector entries are "safe"
+ * (grant-based) buffers; sys_vumap resolves them to physical addresses --
+ * handling every grant form the block protocol uses, which plain sys_safecopy
+ * does not -- and sys_abscopy then moves the data physically.
+ */
+static int bounce_copy(endpoint_t endpt, iovec_s_t *iov, unsigned int count,
+	size_t skip, size_t len, int to_bounce)
 {
-	unsigned int i;
-	size_t pos = 0;
+	struct vumap_vir vir[NR_IOREQS];
+	struct vumap_phys phys[NR_IOREQS];
+	unsigned int i, nvir, nphys;
+	size_t boff = 0;
+	int r, access;
 
-	for (i = 0; i < count && len > 0; i++) {
-		size_t isz = iov[i].iov_size;
-		size_t goff, n;
-		int r;
+	if (count > NR_IOREQS)
+		return EINVAL;
+	for (i = 0; i < count; i++) {
+		vir[i].vv_grant = iov[i].iov_grant;
+		vir[i].vv_size = iov[i].iov_size;
+	}
+	nvir = count;
 
-		if (skip >= pos + isz) {	/* this segment is before our range */
-			pos += isz;
-			continue;
-		}
-		goff = (skip > pos) ? skip - pos : 0;
-		n = isz - goff;
+	/* For a disk write we read the user's buffer; for a read we write it. */
+	access = to_bounce ? VUA_READ : VUA_WRITE;
+	nphys = NR_IOREQS;
+	if ((r = sys_vumap(endpt, vir, nvir, skip, access, phys, &nphys)) != OK)
+		return r;
+
+	for (i = 0; i < nphys && len > 0; i++) {
+		size_t n = phys[i].vp_size;
 		if (n > len)
 			n = len;
-
-		if (to_iov)
-			r = sys_safecopyto(endpt, iov[i].iov_addr, goff,
-				(vir_bytes)buf, n);
+		if (to_bounce)
+			r = sys_abscopy(phys[i].vp_addr, bounce_phys + boff, n);
 		else
-			r = sys_safecopyfrom(endpt, iov[i].iov_addr, goff,
-				(vir_bytes)buf, n);
+			r = sys_abscopy(bounce_phys + boff, phys[i].vp_addr, n);
 		if (r != OK)
 			return r;
-
-		buf += n;
+		boff += n;
 		len -= n;
-		skip += n;
-		pos += isz;
 	}
 
 	return (len == 0) ? OK : EINVAL;
@@ -530,6 +539,8 @@ static void nvme_geometry(devminor_t minor, struct part_geom *entry)
 static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 	endpoint_t endpt, iovec_t *iov, unsigned int count, int flags)
 {
+	/* libblockdriver hands us a "safe" (grant-based) I/O vector. */
+	iovec_s_t *iv = (iovec_s_t *)iov;
 	struct device *dev;
 	u64_t disk_pos, end;
 	size_t total, done;
@@ -542,7 +553,7 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 	/* Sum the iovec and validate alignment against the block size. */
 	total = 0;
 	for (i = 0; i < count; i++)
-		total += iov[i].iov_size;
+		total += iv[i].iov_size;
 	if (total == 0)
 		return 0;
 
@@ -576,8 +587,8 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 		nblk = chunk / ns_lba_size;
 
 		if (do_write) {
-			r = copy_iov(endpt, iov, count, done, (char *)bounce,
-				chunk, FALSE /* from iov */);
+			r = bounce_copy(endpt, iv, count, done, chunk,
+				TRUE /* into bounce */);
 			if (r != OK)
 				return (done > 0) ? (ssize_t)done : r;
 		}
@@ -587,8 +598,8 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 			return (done > 0) ? (ssize_t)done : EIO;
 
 		if (!do_write) {
-			r = copy_iov(endpt, iov, count, done, (char *)bounce,
-				chunk, TRUE /* to iov */);
+			r = bounce_copy(endpt, iv, count, done, chunk,
+				FALSE /* out of bounce */);
 			if (r != OK)
 				return (done > 0) ? (ssize_t)done : r;
 		}

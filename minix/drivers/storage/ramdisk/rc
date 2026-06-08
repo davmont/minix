@@ -125,7 +125,27 @@ then	rdrcv "RDRC: amd64 branch entered"
 	then	ahci_opt=yes
 	fi
 
-	if [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
+	# Auto-detect an NVMe controller (PCI class 01/08/02, "1/8/2/..." in
+	# /proc/pci).  An explicit nvme=yes/no boot option overrides the probe
+	# (same guarding as ahci above).
+	nvme_opt="`sysenv nvme 2>/dev/null || true`"
+	if [ -z "$nvme_opt" ] && grep -E '^[^ ]+ 1/8/2/' /proc/pci >/dev/null 2>&1
+	then	nvme_opt=yes
+	fi
+
+	# When booting from CD the boot medium is on the CD controller (AHCI/IDE),
+	# which must be c0d0 for cdprobe to find it -- so NVMe only becomes the
+	# primary disk (c0d0) for a non-CD (installed) boot; during CD boot it is
+	# brought up as a secondary disk (c1d0) instead.
+	if [ X"$nvme_opt" = Xyes ] && sysenv cdproberoot >/dev/null
+	then	nvme_primary=no
+	else	nvme_primary="$nvme_opt"
+	fi
+
+	if [ X"$nvme_primary" = Xyes ] && [ -x /service/nvme ]
+	then
+		minix-service -c up /service/nvme -dev /dev/c0d0 -label nvme_0 -args instance=0
+	elif [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
 	then
 		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
 	elif [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
@@ -134,6 +154,12 @@ then	rdrcv "RDRC: amd64 branch entered"
 	then
 		minix-service -c up /service/at_wini -dev /dev/c0d0 -label at_wini_0
 		minix-service -cr up /service/at_wini -dev /dev/c1d0 -label at_wini_1 -args instance=1 2>/dev/null || :
+	fi
+
+	# If NVMe is present but did not become the primary disk (CD boot, or
+	# another controller won c0d0), expose it as a secondary disk.
+	if [ X"$nvme_opt" = Xyes ] && [ X"$nvme_primary" != Xyes ] && [ -x /service/nvme ]
+	then	minix-service -cr up /service/nvme -dev /dev/c1d0 -label nvme_0 -args instance=0 2>/dev/null || :
 	fi
 	umount /proc >/dev/null
 fi
