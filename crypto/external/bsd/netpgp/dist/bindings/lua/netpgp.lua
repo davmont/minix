@@ -32,7 +32,7 @@
 -- command line args
 dofile "optparse.lua"
 
-opt = OptionParser{usage="%prog [options] file", version="20090711"}                           
+opt = OptionParser{usage="%prog [options] file", version="20180430"}                           
 
 opt.add_option{"-s", "--sign", action="store_true", dest="sign", help="--sign [--detached] [--armour] file"}
 opt.add_option{"-v", "--verify", action="store_true", dest="verify", help="--verify [--armour] file"}
@@ -50,7 +50,7 @@ if f then
 	extension = ".dylib"
 	io.close(f)
 end
-glupkg = package.loadlib("libluanetpgp" .. extension, "luaopen_netpgp")
+glupkg = assert(package.loadlib("libluanetpgp" .. extension, "luaopen_netpgp"))
 netpgp = glupkg()
 
 -- initialise
@@ -72,11 +72,13 @@ end
 if options.homedir then
 	netpgp.homedir(pgp, options.homedir)
 end
+if options.decrypt or options.sign then
+	netpgp.setvar(pgp, "need seckey", 1)
+end
 
 -- initialise everything
 netpgp.init(pgp)
 
-local i
 for i = 1, #args do
 	if options.encrypt then
 		-- encrypt a file
@@ -89,7 +91,7 @@ for i = 1, #args do
 	end
 	if options.sign then
 		-- detached signature
-		netpgp.sign_file(pgp, args[1], output, armour, detached)
+		netpgp.sign_file(pgp, args[1], args[1] .. ".sig", armour, detached)
 		os.execute("ls -l " .. args[1] .. ".sig")
 	end
 	if options.verify then

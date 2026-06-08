@@ -24,16 +24,15 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_read_support_format_empty.c 191524 2009-04-26 18:24:14Z kientzle $");
 
 #include "archive.h"
 #include "archive_entry.h"
 #include "archive_private.h"
 #include "archive_read_private.h"
 
-static int	archive_read_format_empty_bid(struct archive_read *);
+static int	archive_read_format_empty_bid(struct archive_read *, int);
 static int	archive_read_format_empty_read_data(struct archive_read *,
-		    const void **, size_t *, off_t *);
+		    const void **, size_t *, int64_t *);
 static int	archive_read_format_empty_read_header(struct archive_read *,
 		    struct archive_entry *);
 int
@@ -42,13 +41,19 @@ archive_read_support_format_empty(struct archive *_a)
 	struct archive_read *a = (struct archive_read *)_a;
 	int r;
 
+	archive_check_magic(_a, ARCHIVE_READ_MAGIC,
+	    ARCHIVE_STATE_NEW, "archive_read_support_format_empty");
+
 	r = __archive_read_register_format(a,
 	    NULL,
-	    NULL,
+	    "empty",
 	    archive_read_format_empty_bid,
 	    NULL,
 	    archive_read_format_empty_read_header,
 	    archive_read_format_empty_read_data,
+	    NULL,
+	    NULL,
+	    NULL,
 	    NULL,
 	    NULL);
 
@@ -57,14 +62,11 @@ archive_read_support_format_empty(struct archive *_a)
 
 
 static int
-archive_read_format_empty_bid(struct archive_read *a)
+archive_read_format_empty_bid(struct archive_read *a, int best_bid)
 {
-	ssize_t avail;
-
-	(void)__archive_read_ahead(a, 1, &avail);
-	if (avail != 0)
-		return (-1);
-	return (1);
+	if (best_bid < 1 && __archive_read_ahead(a, 1, NULL) == NULL)
+		return (1);
+	return (-1);
 }
 
 static int
@@ -82,7 +84,7 @@ archive_read_format_empty_read_header(struct archive_read *a,
 
 static int
 archive_read_format_empty_read_data(struct archive_read *a,
-    const void **buff, size_t *size, off_t *offset)
+    const void **buff, size_t *size, int64_t *offset)
 {
 	(void)a; /* UNUSED */
 	(void)buff; /* UNUSED */

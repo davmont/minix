@@ -1,4 +1,4 @@
-/*	$NetBSD: bzlib.c,v 1.3 2015/02/05 01:26:54 agc Exp $	*/
+/*	$NetBSD: bzlib.c,v 1.5 2020/05/04 00:18:34 agc Exp $	*/
 
 
 /*-------------------------------------------------------------*/
@@ -35,7 +35,11 @@
 #include "bzlib_private.h"
 
 
-/*	$NetBSD: bzlib.c,v 1.3 2015/02/05 01:26:54 agc Exp $	*/
+#ifndef USE_ARG
+#define	USE_ARG(x)	/*LINTED*/(void)&(x)
+#endif
+
+/*	$NetBSD: bzlib.c,v 1.5 2020/05/04 00:18:34 agc Exp $	*/
 
 
 /*-------------------------------------------------------------*/
@@ -60,7 +64,7 @@
 
 
 /*---------------------------------------------*/
-Int32 BZ2_rNums[512] = { 
+Int32 netpgpv_BZ2_rNums[512] = { 
    619, 720, 127, 481, 931, 816, 813, 233, 566, 247, 
    985, 724, 205, 454, 863, 491, 741, 242, 949, 214, 
    733, 859, 335, 708, 621, 574, 73, 654, 730, 472, 
@@ -122,7 +126,7 @@ Int32 BZ2_rNums[512] = {
 
 /*---------------------------------------------------*/
 #ifndef BZ_NO_STDIO
-void BZ2_bz__AssertH__fail ( int errcode )
+void netpgpv_BZ2_bz__AssertH__fail ( int errcode )
 {
    fprintf(stderr, 
       "\n\nbzip2/libbzip2: internal error number %d.\n"
@@ -134,7 +138,7 @@ void BZ2_bz__AssertH__fail ( int errcode )
       "timely and accurate bug reports eventually lead to higher\n"
       "quality software.  Thanks.  Julian Seward, 10 December 2007.\n\n",
       errcode,
-      BZ2_bzlibVersion()
+      netpgpv_BZ2_bzlibVersion()
    );
 
    if (errcode == 1007) {
@@ -245,7 +249,7 @@ void default_bzfree ( void* opaque, void* addr )
 /*---------------------------------------------------*/
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzDecompressInit) 
+int BZ_API(netpgpv_BZ2_bzDecompressInit) 
                      ( bz_stream* strm, 
                        int        verbosity,
                        int        small )
@@ -440,7 +444,7 @@ Bool unRLE_obuf_to_output_FAST ( DState* s )
 
 
 /*---------------------------------------------------*/
-__inline__ Int32 BZ2_indexIntoF ( Int32 indx, Int32 *cftab )
+__inline__ Int32 netpgpv_BZ2_indexIntoF ( Int32 indx, Int32 *cftab )
 {
    Int32 nb, na, mid;
    nb = 0;
@@ -561,7 +565,7 @@ Bool unRLE_obuf_to_output_SMALL ( DState* s )
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzDecompress) ( bz_stream *strm )
+int BZ_API(netpgpv_BZ2_bzDecompress) ( bz_stream *strm )
 {
    Bool    corrupt;
    DState* s;
@@ -595,7 +599,7 @@ int BZ_API(BZ2_bzDecompress) ( bz_stream *strm )
          }
       }
       if (s->state >= BZ_X_MAGIC_1) {
-         Int32 r = BZ2_decompress ( s );
+         Int32 r = netpgpv_BZ2_decompress ( s );
          if (r == BZ_STREAM_END) {
             if (s->verbosity >= 3)
                VPrintf2 ( "\n    combined CRCs: stored = 0x%08x, computed = 0x%08x", 
@@ -615,7 +619,7 @@ int BZ_API(BZ2_bzDecompress) ( bz_stream *strm )
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzDecompressEnd)  ( bz_stream *strm )
+int BZ_API(netpgpv_BZ2_bzDecompressEnd)  ( bz_stream *strm )
 {
    DState* s;
    if (strm == NULL) return BZ_PARAM_ERROR;
@@ -669,7 +673,7 @@ static Bool myfeof ( FILE* f )
 
 
 /*---------------------------------------------------*/
-BZFILE* BZ_API(BZ2_bzReadOpen) 
+BZFILE* BZ_API(netpgpv_BZ2_bzReadOpen) 
                    ( int*  bzerror, 
                      FILE* f, 
                      int   verbosity,
@@ -716,7 +720,7 @@ BZFILE* BZ_API(BZ2_bzReadOpen)
       nUnused--;
    }
 
-   ret = BZ2_bzDecompressInit ( &(bzf->strm), verbosity, small );
+   ret = netpgpv_BZ2_bzDecompressInit ( &(bzf->strm), verbosity, small );
    if (ret != BZ_OK)
       { BZ_SETERR(ret); free(bzf); return NULL; };
 
@@ -729,7 +733,7 @@ BZFILE* BZ_API(BZ2_bzReadOpen)
 
 
 /*---------------------------------------------------*/
-void BZ_API(BZ2_bzReadClose) ( int *bzerror, BZFILE *b )
+void BZ_API(netpgpv_BZ2_bzReadClose) ( int *bzerror, BZFILE *b )
 {
    bzFile* bzf = (bzFile*)b;
 
@@ -741,13 +745,13 @@ void BZ_API(BZ2_bzReadClose) ( int *bzerror, BZFILE *b )
       { BZ_SETERR(BZ_SEQUENCE_ERROR); return; };
 
    if (bzf->initialisedOk)
-      (void)BZ2_bzDecompressEnd ( &(bzf->strm) );
+      (void)netpgpv_BZ2_bzDecompressEnd ( &(bzf->strm) );
    free ( bzf );
 }
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzRead) 
+int BZ_API(netpgpv_BZ2_bzRead) 
            ( int*    bzerror, 
              BZFILE* b, 
              void*   buf, 
@@ -785,7 +789,7 @@ int BZ_API(BZ2_bzRead)
          bzf->strm.next_in = bzf->buf;
       }
 
-      ret = BZ2_bzDecompress ( &(bzf->strm) );
+      ret = netpgpv_BZ2_bzDecompress ( &(bzf->strm) );
 
       if (ret != BZ_OK && ret != BZ_STREAM_END)
          { BZ_SETERR(ret); return 0; };
@@ -807,7 +811,7 @@ int BZ_API(BZ2_bzRead)
 
 
 /*---------------------------------------------------*/
-void BZ_API(BZ2_bzReadGetUnused) 
+void BZ_API(netpgpv_BZ2_bzReadGetUnused) 
                      ( int*    bzerror, 
                        BZFILE* b, 
                        void**  unused, 
@@ -829,7 +833,7 @@ void BZ_API(BZ2_bzReadGetUnused)
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzBuffToBuffDecompress) 
+int BZ_API(netpgpv_BZ2_bzBuffToBuffDecompress) 
                            ( char*         dest, 
                              unsigned int* destLen,
                              char*         source, 
@@ -849,7 +853,7 @@ int BZ_API(BZ2_bzBuffToBuffDecompress)
    strm.bzalloc = NULL;
    strm.bzfree = NULL;
    strm.opaque = NULL;
-   ret = BZ2_bzDecompressInit ( &strm, verbosity, small );
+   ret = netpgpv_BZ2_bzDecompressInit ( &strm, verbosity, small );
    if (ret != BZ_OK) return ret;
 
    strm.next_in = source;
@@ -857,26 +861,26 @@ int BZ_API(BZ2_bzBuffToBuffDecompress)
    strm.avail_in = sourceLen;
    strm.avail_out = *destLen;
 
-   ret = BZ2_bzDecompress ( &strm );
+   ret = netpgpv_BZ2_bzDecompress ( &strm );
    if (ret == BZ_OK) goto output_overflow_or_eof;
    if (ret != BZ_STREAM_END) goto errhandler;
 
    /* normal termination */
    *destLen -= strm.avail_out;
-   BZ2_bzDecompressEnd ( &strm );
+   netpgpv_BZ2_bzDecompressEnd ( &strm );
    return BZ_OK;
 
    output_overflow_or_eof:
    if (strm.avail_out > 0) {
-      BZ2_bzDecompressEnd ( &strm );
+      netpgpv_BZ2_bzDecompressEnd ( &strm );
       return BZ_UNEXPECTED_EOF;
    } else {
-      BZ2_bzDecompressEnd ( &strm );
+      netpgpv_BZ2_bzDecompressEnd ( &strm );
       return BZ_OUTBUFF_FULL;
    };      
 
    errhandler:
-   BZ2_bzDecompressEnd ( &strm );
+   netpgpv_BZ2_bzDecompressEnd ( &strm );
    return ret; 
 }
 
@@ -896,7 +900,7 @@ int BZ_API(BZ2_bzBuffToBuffDecompress)
 /*--
    return version like "0.9.5d, 4-Sept-1999".
 --*/
-const char * BZ_API(BZ2_bzlibVersion)(void)
+const char * BZ_API(netpgpv_BZ2_bzlibVersion)(void)
 {
    return BZ_VERSION;
 }
@@ -969,7 +973,7 @@ BZFILE * bzopen_or_bzdopen
 
    if (writing) {
    } else {
-      bzfp = BZ2_bzReadOpen(&bzerr,fp,verbosity,smallMode,
+      bzfp = netpgpv_BZ2_bzReadOpen(&bzerr,fp,verbosity,smallMode,
                             unused,nUnused);
    }
    if (bzfp == NULL) {
@@ -986,7 +990,7 @@ BZFILE * bzopen_or_bzdopen
       ex) bzopen("file","w9")
       case path="" or NULL => use stdin or stdout.
 --*/
-BZFILE * BZ_API(BZ2_bzopen)
+BZFILE * BZ_API(netpgpv_BZ2_bzopen)
                ( const char *path,
                  const char *mode )
 {
@@ -995,7 +999,7 @@ BZFILE * BZ_API(BZ2_bzopen)
 
 
 /*---------------------------------------------------*/
-BZFILE * BZ_API(BZ2_bzdopen)
+BZFILE * BZ_API(netpgpv_BZ2_bzdopen)
                ( int fd,
                  const char *mode )
 {
@@ -1004,11 +1008,11 @@ BZFILE * BZ_API(BZ2_bzdopen)
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzread) (BZFILE* b, void* buf, int len )
+int BZ_API(netpgpv_BZ2_bzread) (BZFILE* b, void* buf, int len )
 {
    int bzerr, nread;
    if (((bzFile*)b)->lastErr == BZ_STREAM_END) return 0;
-   nread = BZ2_bzRead(&bzerr,b,buf,len);
+   nread = netpgpv_BZ2_bzRead(&bzerr,b,buf,len);
    if (bzerr == BZ_OK || bzerr == BZ_STREAM_END) {
       return nread;
    } else {
@@ -1018,7 +1022,7 @@ int BZ_API(BZ2_bzread) (BZFILE* b, void* buf, int len )
 
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzflush) (BZFILE *b)
+int BZ_API(netpgpv_BZ2_bzflush) (BZFILE *b)
 {
 	USE_ARG(b);
    /* do nothing now... */
@@ -1027,7 +1031,7 @@ int BZ_API(BZ2_bzflush) (BZFILE *b)
 
 
 /*---------------------------------------------------*/
-void BZ_API(BZ2_bzclose) (BZFILE* b)
+void BZ_API(netpgpv_BZ2_bzclose) (BZFILE* b)
 {
    int bzerr;
    FILE *fp;
@@ -1036,7 +1040,7 @@ void BZ_API(BZ2_bzclose) (BZFILE* b)
    fp = ((bzFile *)b)->handle;
    if(((bzFile*)b)->writing){
    }else{
-      BZ2_bzReadClose(&bzerr,b);
+      netpgpv_BZ2_bzReadClose(&bzerr,b);
    }
    if(fp!=stdin && fp!=stdout){
       fclose(fp);
@@ -1068,7 +1072,7 @@ static const char *bzerrorstrings[] = {
 };
 
 
-const char * BZ_API(BZ2_bzerror) (BZFILE *b, int *errnum)
+const char * BZ_API(netpgpv_BZ2_bzerror) (BZFILE *b, int *errnum)
 {
    int err = ((bzFile *)b)->lastErr;
 
@@ -1082,7 +1086,7 @@ const char * BZ_API(BZ2_bzerror) (BZFILE *b, int *errnum)
 /*-------------------------------------------------------------*/
 /*--- end                                           bzlib.c ---*/
 /*-------------------------------------------------------------*/
-/*	$NetBSD: bzlib.c,v 1.3 2015/02/05 01:26:54 agc Exp $	*/
+/*	$NetBSD: bzlib.c,v 1.5 2020/05/04 00:18:34 agc Exp $	*/
 
 
 /*-------------------------------------------------------------*/
@@ -1187,7 +1191,7 @@ void makeMaps_d ( DState* s )
 
 
 /*---------------------------------------------------*/
-Int32 BZ2_decompress ( DState* s )
+Int32 netpgpv_BZ2_decompress ( DState* s )
 {
    UChar      uc;
    Int32      retVal;
@@ -1420,7 +1424,7 @@ Int32 BZ2_decompress ( DState* s )
             if (s->len[t][i] > maxLen) maxLen = s->len[t][i];
             if (s->len[t][i] < minLen) minLen = s->len[t][i];
          }
-         BZ2_hbCreateDecodeTables ( 
+         netpgpv_BZ2_hbCreateDecodeTables ( 
             &(s->limit[t][0]), 
             &(s->base[t][0]), 
             &(s->perm[t][0]), 
@@ -1728,7 +1732,7 @@ Int32 BZ2_decompress ( DState* s )
 /*-------------------------------------------------------------*/
 /*--- end                                      decompress.c ---*/
 /*-------------------------------------------------------------*/
-/*	$NetBSD: bzlib.c,v 1.3 2015/02/05 01:26:54 agc Exp $	*/
+/*	$NetBSD: bzlib.c,v 1.5 2020/05/04 00:18:34 agc Exp $	*/
 
 
 /*-------------------------------------------------------------*/
@@ -1758,7 +1762,7 @@ Int32 BZ2_decompress ( DState* s )
   comp.compression FAQ.
 --*/
 
-UInt32 BZ2_crc32Table[256] = {
+UInt32 netpgpv_BZ2_crc32Table[256] = {
 
    /*-- Ugly, innit? --*/
 
@@ -1832,7 +1836,7 @@ UInt32 BZ2_crc32Table[256] = {
 /*-------------------------------------------------------------*/
 /*--- end                                        crctable.c ---*/
 /*-------------------------------------------------------------*/
-/*	$NetBSD: bzlib.c,v 1.3 2015/02/05 01:26:54 agc Exp $	*/
+/*	$NetBSD: bzlib.c,v 1.5 2020/05/04 00:18:34 agc Exp $	*/
 
 
 /*-------------------------------------------------------------*/
@@ -1894,7 +1898,7 @@ UInt32 BZ2_crc32Table[256] = {
 
 
 /*---------------------------------------------------*/
-void BZ2_hbMakeCodeLengths ( UChar *len, 
+void netpgpv_BZ2_hbMakeCodeLengths ( UChar *len, 
                              Int32 *freq,
                              Int32 alphaSize,
                              Int32 maxLen )
@@ -1983,7 +1987,7 @@ void BZ2_hbMakeCodeLengths ( UChar *len,
 
 
 /*---------------------------------------------------*/
-void BZ2_hbAssignCodes ( Int32 *code,
+void netpgpv_BZ2_hbAssignCodes ( Int32 *code,
                          UChar *length,
                          Int32 minLen,
                          Int32 maxLen,
@@ -2001,7 +2005,7 @@ void BZ2_hbAssignCodes ( Int32 *code,
 
 
 /*---------------------------------------------------*/
-void BZ2_hbCreateDecodeTables ( Int32 *limit,
+void netpgpv_BZ2_hbCreateDecodeTables ( Int32 *limit,
                                 Int32 *base,
                                 Int32 *perm,
                                 UChar *length,

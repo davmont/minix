@@ -100,7 +100,14 @@
  * is.
  */
 
-#ifndef __minix
+/*
+ * On MINIX, libc is normally built without _REENTRANT (no threads), so the
+ * pthread-based lock types are not pulled in — avoiding a build-time coupling
+ * to libpthread's <pthread.h>.  When _REENTRANT IS set (i.e. building
+ * libpthread itself, or thread-aware code), use the standard NetBSD
+ * definitions so mutex_t/cond_t/... resolve to the pthread types.
+ */
+#if !defined(__minix) || defined(_REENTRANT)
 
 #include <pthread.h>
 #include <signal.h>

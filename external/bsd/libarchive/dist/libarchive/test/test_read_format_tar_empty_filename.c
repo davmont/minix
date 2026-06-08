@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: src/lib/libarchive/test/test_read_format_tar_empty_filename.c,v 1.2 2008/09/01 05:38:33 kientzle Exp $");
 
 /*
  * Tar entries with empty filenames are unusual, but shouldn't crash us.
@@ -35,7 +34,7 @@ DEFINE_TEST(test_read_format_tar_empty_filename)
 	struct archive *a;
 
 	assert((a = archive_read_new()) != NULL);
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_compression_all(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_filter_all(a));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_format_all(a));
 	extract_reference_file(name);
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_open_filename(a, name, 10240));
@@ -49,18 +48,16 @@ DEFINE_TEST(test_read_format_tar_empty_filename)
 	assertEqualInt(0, archive_entry_gid(ae));
 	assertEqualString("wheel", archive_entry_gname(ae));
 	assertEqualInt(040775, archive_entry_mode(ae));
+	assertEqualInt(archive_entry_is_encrypted(ae), 0);
+	assertEqualIntA(a, archive_read_has_encrypted_entries(a), ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED);
 
 	/* Verify the end-of-archive. */
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 
 	/* Verify that the format detection worked. */
-	assertEqualInt(archive_compression(a), ARCHIVE_COMPRESSION_NONE);
+	assertEqualInt(archive_filter_code(a, 0), ARCHIVE_FILTER_NONE);
 	assertEqualInt(archive_format(a), ARCHIVE_FORMAT_TAR_USTAR);
 
 	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
-#if ARCHIVE_VERSION_NUMBER < 2000000
-	archive_read_finish(a);
-#else
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
-#endif
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }

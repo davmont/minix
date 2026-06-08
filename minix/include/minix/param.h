@@ -44,6 +44,18 @@ typedef struct kinfo {
 	int vm_allocated_bytes; /* allocated by kernel to load vm */
 	int kernel_allocated_bytes;		/* used by kernel */
 	int kernel_allocated_bytes_dynamic;	/* used by kernel (runtime) */
+
+	/* UEFI / Multiboot2-derived.  Appended at the end of the struct so
+	 * that userland callers built against an older layout (which copy a
+	 * prefix via SYS_GETINFO) are unaffected.  Zero when not provided,
+	 * e.g. on the legacy BIOS / Multiboot1 boot path. */
+	phys_bytes acpi_rsdp;	/* phys addr of ACPI RSDP, or 0 if unknown */
+	phys_bytes fb_addr;	/* linear framebuffer phys base, 0 if none */
+	unsigned int fb_pitch;	/* bytes per scanline */
+	unsigned int fb_width;	/* pixels */
+	unsigned int fb_height;	/* pixels */
+	unsigned int fb_bpp;	/* bits per pixel */
+	unsigned int fb_type;	/* MULTIBOOT2_FRAMEBUFFER_TYPE_* */
 } kinfo_t;
 #endif /* _MINIX_SYSTEM */
 

@@ -40,10 +40,16 @@ ENTRY(_getcontext)
 	cmp	$[_UC_IGNFPU|_UC_IGNSIGM], %eax
 	jz	5f			/* skip getuctx if both ignored */
 	PIC_PROLOGUE
-	push	%rdi
+	/*
+	 * Preserve ucp across the call with a SINGLE push.  On entry rsp is
+	 * 8 mod 16 (the call to getcontext pushed the return address onto a
+	 * 16-aligned stack); one 8-byte push makes it 0 mod 16, satisfying the
+	 * System V AMD64 requirement that rsp be 16-byte aligned at a call.
+	 * The previous code pushed twice (staying 8 mod 16), so getuctx ran on a
+	 * misaligned stack and faulted on the first movaps in it or its callees.
+	 */
 	push	%rdi
 	call	PIC_PLT(_C_LABEL(getuctx))
-	pop	%rdi
 	pop	%rdi
 	PIC_EPILOGUE
 
@@ -82,8 +88,14 @@ ENTRY(_getcontext)
 /*
  * int setcontext(const ucontext_t *ucp)
  *   Restore context from *ucp.  Does not return on success.
+ *
+ * The public name 'setcontext' is a WEAK alias of the strong '_setcontext'
+ * (NetBSD pattern).  libpthread's pthread_specific.c does
+ * __strong_alias(setcontext, pthread_setcontext) to preserve the pthread
+ * private pointer across context switches; making libc's setcontext weak
+ * lets that strong override win at link time instead of colliding.
  */
-ENTRY(setcontext)
+WEAK_ALIAS(setcontext, _setcontext)
 ENTRY(_setcontext)
 	/* Check for NULL */
 	test	%rdi, %rdi
@@ -113,10 +125,9 @@ ENTRY(_setcontext)
 	cmp	$[_UC_IGNFPU|_UC_IGNSIGM], %eax
 	jz	4f
 	PIC_PROLOGUE
-	push	%rdi
+	/* Single push: 16-align rsp for the call (see getcontext above). */
 	push	%rdi
 	call	PIC_PLT(_C_LABEL(setuctx))
-	pop	%rdi
 	pop	%rdi
 	PIC_EPILOGUE
 

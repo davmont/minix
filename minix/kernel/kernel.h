@@ -4,6 +4,45 @@
 /* boot verbose */
 #define CONFIG_BOOT_VERBOSE
 
+/*
+ * SMP verbose: emit single-character COM1 markers on every cross-CPU
+ * sched IPI, every cross-cpu enqueue, every AP iretq to user, and at
+ * various AP-bringup stages.  Off by default — the markers were
+ * invaluable while debugging the amd64 SMP bringup and we keep them
+ * compiled out for production because at ~10 KB/s of marker traffic
+ * they saturate the 115200-baud serial line and slow real workloads
+ * to a crawl.  Re-enable to diagnose future SMP regressions.
+ */
+/* #define CONFIG_SMP_VERBOSE */
+
+/*
+ * IPC fastpath toggles.
+ *
+ *   CONFIG_IPC_FASTPATH         (on) — Phase 1 + 4a rendezvous-SENDREC
+ *     specialisation in proc.c.  Same-CPU does direct switch via
+ *     proc_ptr+switch_address_space; cross-CPU does the existing enqueue
+ *     +IPI.  Slow path remains the reference implementation; predicate
+ *     misses fall through unchanged.  Comment out to A/B against slow
+ *     path only.
+ *
+ *   CONFIG_IPC_FASTPATH_STATS   (off) — per-branch eligibility-miss
+ *     counters dumped on demand.  Diagnostic only.
+ *
+ *   CONFIG_IPC_FASTPATH_PROBE   (off) — busy-wait probe inserted into
+ *     the fastpath hit path to verify (via p50 delta) that it fires.
+ *     Diagnostic only.
+ *
+ *   CONFIG_IPC_FASTPATH_TIMING  (on) — RDTSC cycle accumulators per
+ *     call-type (xcpu / same-cpu / slow-sr) exposed via kuserinfo for
+ *     userspace analysis (ipcbench reads + prints).  ~5 cycles overhead
+ *     per IPC; useful enough as a regression detector to leave on by
+ *     default.
+ */
+#define CONFIG_IPC_FASTPATH
+/* #define CONFIG_IPC_FASTPATH_STATS */
+/* #define CONFIG_IPC_FASTPATH_PROBE */
+#define CONFIG_IPC_FASTPATH_TIMING
+
 #ifndef CONFIG_MAX_CPUS
 #define CONFIG_MAX_CPUS	1
 #endif

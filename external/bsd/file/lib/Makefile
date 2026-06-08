@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile,v 1.6 2013/12/01 20:15:42 christos Exp $
+#	$NetBSD: Makefile,v 1.15 2019/12/17 18:59:39 christos Exp $
 #
 
 USE_FORT?= yes	# data driven bugs?
@@ -8,7 +8,7 @@ USE_FORT?= yes	# data driven bugs?
 .include "../Makefile.inc"
 
 LIB=		magic
-LIBDPLIBS+=	z	${NETBSDSRCDIR}/lib/libz
+LIBDPLIBS+=	${DPLIBS}
 CPPFLAGS+=-I.
 
 .if ${MACHINE_ARCH} == "i386"
@@ -18,8 +18,10 @@ CPPFLAGS+=-I.
 .endif
 
 SRCS=		magic.c apprentice.c softmagic.c ascmagic.c compress.c	\
-		is_tar.c readelf.c print.c fsmagic.c apptype.c funcs.c \
-		cdf.c readcdf.c cdf_time.c encoding.c
+		is_json.c is_tar.c readelf.c print.c fsmagic.c apptype.c \
+		funcs.c cdf.c readcdf.c cdf_time.c encoding.c der.c buffer.c \
+		is_csv.c
+DPSRCS=		magic.h
 MAN=		libmagic.3
 MLINKS+=	libmagic.3 magic_open.3 \
 		libmagic.3 magic_close.3 \
@@ -39,5 +41,7 @@ magic.c:	magic.h
 magic.h:        magic.h.in
 	${TOOL_SED} -e "s/X.YY/${VERSION:S/.//g}/" < ${.ALLSRC} > ${.TARGET}
 CLEANFILES+=	magic.h
+
+CFLAGS+=	${${ACTIVE_CC} == "gcc" && ${HAVE_GCC:U0} == 8:? -Wno-maybe-uninitialized :}
 
 .include <bsd.lib.mk>

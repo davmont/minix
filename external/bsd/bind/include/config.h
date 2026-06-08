@@ -581,3 +581,21 @@ int sigwait(const unsigned int *set, int *sig);
 /* Define to empty if the keyword `volatile' does not work. Warning: valid
    code using `volatile' can become incorrect without. Disable with care. */
 /* #undef volatile */
+
+#if defined(__minix)
+/*
+ * MINIX: OpenSSL 3.0 made the low-level crypto structs (EVP_CIPHER_CTX,
+ * RSA, DSA, ...) opaque, but BIND 9.10's crypto code (lib/isc/aes.c,
+ * lib/dns/opensslecdsa_link.c, ...) still allocates them on the stack and
+ * reaches into their fields.  Build BIND crypto-less (no DNSSEC) until it
+ * is upgraded to 9.18; NAMED_USE_OPENSSL=no in Makefile.inc drops -DOPENSSL.
+ */
+#undef HAVE_OPENSSL_DSA
+#undef HAVE_OPENSSL_AES
+#undef HAVE_OPENSSL_ECDSA
+#undef HAVE_OPENSSL_EVP_AES
+#undef HAVE_OPENSSL_GOST
+/* AES_SIT (DNS source-identity cookies) needs isc_aes128_crypt(), which is
+ * only provided by aes.c when OpenSSL AES is available.  Disable it too. */
+#undef AES_SIT
+#endif /* defined(__minix) */

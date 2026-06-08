@@ -10,28 +10,31 @@
  * LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  * FOR A PARTICULAR PURPOSE.
  *
- * Original code by Hannes Gredler (hannes@juniper.net)
+ * Original code by Hannes Gredler (hannes@gredler.at)
  *  and Steinar Haug (sthaug@nethelp.no)
  */
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: print-ldp.c,v 1.6 2015/03/31 21:59:35 christos Exp $");
+__RCSID("$NetBSD: print-ldp.c,v 1.10 2019/10/01 16:06:16 christos Exp $");
 #endif
 
-#define NETDISSECT_REWORKED
+/* \summary: Label Distribution Protocol (LDP) printer */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <tcpdump-stdinc.h>
+#include <netdissect-stdinc.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 #include "addrtoname.h"
 
 #include "l2vpn.h"
 #include "af.h"
+
+static const char tstr[] = " [|LDP]";
 
 /*
  * ldp common header
@@ -214,7 +217,7 @@ static const struct tok ldp_fec_martini_ifparm_vccv_cv_values[] = {
     { 0, NULL}
 };
 
-static int ldp_pdu_print(netdissect_options *, register const u_char *);
+static u_int ldp_pdu_print(netdissect_options *, register const u_char *);
 
 /*
  * ldp tlv header
@@ -289,12 +292,10 @@ ldp_tlv_print(netdissect_options *ndo,
         TLV_TCHECK(4);
         ND_PRINT((ndo, "\n\t      IPv4 Transport Address: %s", ipaddr_string(ndo, tptr)));
         break;
-#ifdef INET6
     case LDP_TLV_IPV6_TRANSPORT_ADDR:
         TLV_TCHECK(16);
         ND_PRINT((ndo, "\n\t      IPv6 Transport Address: %s", ip6addr_string(ndo, tptr)));
         break;
-#endif
     case LDP_TLV_CONFIG_SEQ_NUMBER:
         TLV_TCHECK(4);
         ND_PRINT((ndo, "\n\t      Sequence Number: %u", EXTRACT_32BITS(tptr)));
@@ -316,7 +317,6 @@ ldp_tlv_print(netdissect_options *ndo,
 		tptr+=sizeof(struct in_addr);
 	    }
             break;
-#ifdef INET6
         case AFNUM_INET6:
 	    while(tlv_tlen >= sizeof(struct in6_addr)) {
 		ND_TCHECK2(*tptr, sizeof(struct in6_addr));
@@ -325,7 +325,6 @@ ldp_tlv_print(netdissect_options *ndo,
 		tptr+=sizeof(struct in6_addr);
 	    }
             break;
-#endif
         default:
             /* unknown AF */
             break;
@@ -370,7 +369,6 @@ ldp_tlv_print(netdissect_options *ndo,
 		else
 		    ND_PRINT((ndo, ": IPv4 prefix %s", buf));
 	    }
-#ifdef INET6
 	    else if (af == AFNUM_INET6) {
 		i=decode_prefix6(ndo, tptr, tlv_tlen, buf, sizeof(buf));
 		if (i == -2)
@@ -382,7 +380,6 @@ ldp_tlv_print(netdissect_options *ndo,
 		else
 		    ND_PRINT((ndo, ": IPv6 prefix %s", buf));
 	    }
-#endif
 	    else
 		ND_PRINT((ndo, ": Address family %u prefix", af));
 	    break;
@@ -390,16 +387,20 @@ ldp_tlv_print(netdissect_options *ndo,
 	    break;
 	case LDP_FEC_MARTINI_VC:
             /*
+             * We assume the type was supposed to be one of the MPLS
+             * Pseudowire Types.
+             */
+            TLV_TCHECK(7);
+            vc_info_len = *(tptr+2);
+
+            /*
 	     * According to RFC 4908, the VC info Length field can be zero,
 	     * in which case not only are there no interface parameters,
 	     * there's no VC ID.
 	     */
-            TLV_TCHECK(7);
-            vc_info_len = *(tptr+2);
-
             if (vc_info_len == 0) {
                 ND_PRINT((ndo, ": %s, %scontrol word, group-ID %u, VC-info-length: %u",
-                       tok2str(l2vpn_encaps_values, "Unknown", EXTRACT_16BITS(tptr)&0x7fff),
+                       tok2str(mpls_pw_types_values, "Unknown", EXTRACT_16BITS(tptr)&0x7fff),
                        EXTRACT_16BITS(tptr)&0x8000 ? "" : "no ",
                        EXTRACT_32BITS(tptr+3),
                        vc_info_len));
@@ -409,7 +410,7 @@ ldp_tlv_print(netdissect_options *ndo,
             /* Make sure we have the VC ID as well */
             TLV_TCHECK(11);
 	    ND_PRINT((ndo, ": %s, %scontrol word, group-ID %u, VC-ID %u, VC-info-length: %u",
-		   tok2str(l2vpn_encaps_values, "Unknown", EXTRACT_16BITS(tptr)&0x7fff),
+		   tok2str(mpls_pw_types_values, "Unknown", EXTRACT_16BITS(tptr)&0x7fff),
 		   EXTRACT_16BITS(tptr)&0x8000 ? "" : "no ",
                    EXTRACT_32BITS(tptr+3),
 		   EXTRACT_32BITS(tptr+7),
@@ -441,19 +442,24 @@ ldp_tlv_print(netdissect_options *ndo,
 
                 switch(vc_info_tlv_type) {
                 case LDP_FEC_MARTINI_IFPARM_MTU:
+                    ND_TCHECK_16BITS(tptr + 2);
                     ND_PRINT((ndo, ": %u", EXTRACT_16BITS(tptr+2)));
                     break;
 
                 case LDP_FEC_MARTINI_IFPARM_DESC:
                     ND_PRINT((ndo, ": "));
-                    for (idx = 2; idx < vc_info_tlv_len; idx++)
+                    for (idx = 2; idx < vc_info_tlv_len; idx++) {
+                        ND_TCHECK_8BITS(tptr + idx);
                         safeputchar(ndo, *(tptr + idx));
+                    }
                     break;
 
                 case LDP_FEC_MARTINI_IFPARM_VCCV:
+                    ND_TCHECK_8BITS(tptr + 2);
                     ND_PRINT((ndo, "\n\t\t  Control Channels (0x%02x) = [%s]",
                            *(tptr+2),
                            bittok2str(ldp_fec_martini_ifparm_vccv_cc_values, "none", *(tptr+2))));
+                    ND_TCHECK_8BITS(tptr + 3);
                     ND_PRINT((ndo, "\n\t\t  CV Types (0x%02x) = [%s]",
                            *(tptr+3),
                            bittok2str(ldp_fec_martini_ifparm_vccv_cv_values, "none", *(tptr+3))));
@@ -492,7 +498,7 @@ ldp_tlv_print(netdissect_options *ndo,
 	break;
 
     case LDP_TLV_FT_SESSION:
-	TLV_TCHECK(8);
+	TLV_TCHECK(12);
 	ft_flags = EXTRACT_16BITS(tptr);
 	ND_PRINT((ndo, "\n\t      Flags: [%sReconnect, %sSave State, %sAll-Label Protection, %s Checkpoint, %sRe-Learn State]",
 	       ft_flags&0x8000 ? "" : "No ",
@@ -500,6 +506,7 @@ ldp_tlv_print(netdissect_options *ndo,
 	       ft_flags&0x4 ? "" : "No ",
 	       ft_flags&0x2 ? "Sequence Numbered Label" : "All Labels",
 	       ft_flags&0x1 ? "" : "Don't "));
+	/* 16 bits (FT Flags) + 16 bits (Reserved) */
 	tptr+=4;
 	ui = EXTRACT_32BITS(tptr);
 	if (ui)
@@ -540,7 +547,7 @@ ldp_tlv_print(netdissect_options *ndo,
     return(tlv_len+4); /* Type & Length fields not included */
 
 trunc:
-    ND_PRINT((ndo, "\n\t\t packet exceeded snapshot"));
+    ND_PRINT((ndo, "%s", tstr));
     return 0;
 
 badtlv:
@@ -552,17 +559,23 @@ void
 ldp_print(netdissect_options *ndo,
           register const u_char *pptr, register u_int len)
 {
-    int processed;
+    u_int processed;
     while (len > (sizeof(struct ldp_common_header) + sizeof(struct ldp_msg_header))) {
         processed = ldp_pdu_print(ndo, pptr);
         if (processed == 0)
             return;
+        if (len < processed) {
+            ND_PRINT((ndo, " [remaining length %u < %u]", len, processed));
+            ND_PRINT((ndo, "%s", istr));
+            break;
+
+        }
         len -= processed;
         pptr += processed;
     }
 }
 
-static int
+static u_int
 ldp_pdu_print(netdissect_options *ndo,
               register const u_char *pptr)
 {
@@ -692,7 +705,7 @@ ldp_pdu_print(netdissect_options *ndo,
     }
     return pdu_len+4;
 trunc:
-    ND_PRINT((ndo, "\n\t\t packet exceeded snapshot"));
+    ND_PRINT((ndo, "%s", tstr));
     return 0;
 }
 

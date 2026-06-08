@@ -65,6 +65,29 @@ typedef	_BSD_WCHAR_T_	wchar_t;
 #endif
 #define	offsetof(type, member) __offsetof__((reinterpret_cast<size_t> \
     (&reinterpret_cast<const volatile char &>(static_cast<type *>(0)->member))))
-#endif  
- 
+#endif
+
+/*
+ * max_align_t (C11 7.19 / C++11): a type whose alignment is at least as great
+ * as that of every scalar type.  libc's <stddef.h> wins over the compiler's on
+ * MINIX's include path, so define it here; libc++'s <cstddef> does
+ * `using ::max_align_t;` and needs it in the global namespace.  Guarded so a
+ * compiler-provided definition does not clash.
+ */
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || \
+    (defined(__cplusplus) && __cplusplus >= 201103L)
+#if !defined(__CLANG_MAX_ALIGN_T_DEFINED) && !defined(_GCC_MAX_ALIGN_T) && \
+    !defined(__DEFINED_max_align_t) && !defined(__max_align_t_defined)
+#define __CLANG_MAX_ALIGN_T_DEFINED
+#define _GCC_MAX_ALIGN_T
+#define __DEFINED_max_align_t
+#define __max_align_t_defined
+typedef union {
+	long long	__max_align_ll;
+	long double	__max_align_ld;
+	void		*__max_align_p;
+} max_align_t;
+#endif
+#endif
+
 #endif /* _STDDEF_H_ */

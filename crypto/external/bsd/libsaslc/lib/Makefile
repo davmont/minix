@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.8 2013/09/11 23:04:09 joerg Exp $
+# $NetBSD: Makefile,v 1.9.14.2 2023/11/26 12:51:24 bouyer Exp $
 
 .include <bsd.own.mk>
 
@@ -54,10 +54,13 @@ EXTDIST=${.CURDIR}/../dist
 INCS+= saslc.h
 INCSDIR=/usr/include
 
-LIBDPLIBS+= crypto ${NETBSDSRCDIR}/crypto/external/bsd/openssl/lib/libcrypto
-LIBDPLIBS+= ssl ${NETBSDSRCDIR}/crypto/external/bsd/openssl/lib/libssl
+LIBDPLIBS+= crypto ${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
+LIBDPLIBS+= ssl ${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libssl
 .if (${MKKERBEROS} != "no")
 LIBDPLIBS+= gssapi ${NETBSDSRCDIR}/crypto/external/bsd/heimdal/lib/libgssapi
+
 .endif
+
+COPTS.crypto.c+=-Wno-error=deprecated-declarations
 
 .include <bsd.lib.mk>

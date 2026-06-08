@@ -28,7 +28,7 @@ MKLINT:=	no
 MKPICINSTALL:=	no
 . if defined(NOSTATICLIB) && ${MKPICLIB} != "no"
 MKSTATICLIB:=	no
-. else
+. elif ${LIBISPRIVATE} != "pic"
 MKPIC:=		no
 . endif
 MKPROFILE:=	no
@@ -58,7 +58,16 @@ LIBDO.${_lib}!=	cd "${_dir}" && ${PRINTOBJDIR}
 LDADD+=		-l${_lib}
 .else
 LDADD+=		-L${LIBDO.${_lib}} -l${_lib}
-DPADD+=		${LIBDO.${_lib}}/lib${_lib}.so	# Don't use _LIB_PREFIX
+# Prefer the PIC archive over the .so for LIBISPRIVATE=pic libraries
+# (which only produce lib${_lib}_pic.a, no .so), fall back to .so for
+# regular shared libraries, and finally to the static .a.
+.if exists(${LIBDO.${_lib}}/lib${_lib}_pic.a)
+DPADD+=		${LIBDO.${_lib}}/lib${_lib}_pic.a
+.elif exists(${LIBDO.${_lib}}/lib${_lib}.so)
+DPADD+=		${LIBDO.${_lib}}/lib${_lib}.so
+.else
+DPADD+=		${LIBDO.${_lib}}/lib${_lib}.a
+.endif
 .endif
 .endfor
 .endif									# }

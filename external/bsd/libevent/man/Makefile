@@ -1,9 +1,8 @@
-# $NetBSD: Makefile,v 1.5 2014/04/19 08:03:21 wiz Exp $
+# $NetBSD: Makefile,v 1.8 2017/02/01 12:32:54 christos Exp $
 
 # Try to undo the doxygen lossage in the man pages.
 
 HSRCS1= \
-buffer.h.3 \
 buffer_compat.h.3 \
 dns.h.3 \
 dns_compat.h.3 \
@@ -25,7 +24,6 @@ ev${i:S/.h.3/.3/g}: $i
 
 HSRCS2= \
 bufferevent_ssl.h.3 \
-event.h.3 \
 event_compat.h.3
 
 .for i in ${HSRCS2}
@@ -41,23 +39,33 @@ MAN1=${SRCS1:S/^/ev/g}
 .for i in ${SRCS1}
 ev$i: $i
 	${TOOL_SED}  -e 's/"deprecated"/"evdeprecated"/g' \
-		-e 's/^deprecated/^evdeprecated/g' < ${.ALLSRC} > ${.TARGET}
+		-e 's/^deprecated/evdeprecated/g' < ${.ALLSRC} > ${.TARGET}
 .endfor
+
+evbuffer.h.3: buffer.h.3
+	cp ${.ALLSRC} ${.TARGET}
+HMAN3=evbuffer.h.3
 
 MAN+= \
 bufferevent.3 \
+bufferevent.h.3 \
+evbuffer.3 \
 evbuffer_cb_info.3 \
 evbuffer_iovec.3 \
 evbuffer_ptr.3 \
+event.3 \
+event.h.3 \
 event_base.3 \
 event_config.3 \
 evthread_condition_callbacks.3 \
 evthread_lock_callbacks.3 \
-evutil_addrinfo.3
+evutil_addrinfo.3 \
+evutil_monotonic_timer.3
 
-MAN+= ${HMAN1} ${HMAN2} ${MAN1}
 
-CLEANFILES+=${HMAN1} ${HMAN2} ${MAN1}
+MAN+= ${HMAN1} ${HMAN2} ${HMAN3} ${MAN1}
+
+CLEANFILES+=${HMAN1} ${HMAN2} ${HMAN3} ${MAN1}
 
 USETBL=	yes
 

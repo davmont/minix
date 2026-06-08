@@ -1,26 +1,8 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2003-2008 Tim Kientzle
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
 #if defined(HAVE_UTIME_H)
@@ -28,7 +10,6 @@
 #elif defined(HAVE_SYS_UTIME_H)
 #include <sys/utime.h>
 #endif
-__FBSDID("$FreeBSD: src/usr.bin/cpio/test/test_option_a.c,v 1.3 2008/08/24 06:21:00 kientzle Exp $");
 
 static struct {
 	const char *name;
@@ -71,8 +52,13 @@ test_create(void)
 		 * #ifdef this section out.  Most of the test below is
 		 * still valid. */
 		memset(&times, 0, sizeof(times));
+#if defined(_WIN32) && !defined(CYGWIN)
+		times.actime = 86400;
+		times.modtime = 86400;
+#else
 		times.actime = 1;
 		times.modtime = 3;
+#endif
 		assertEqualInt(0, utime(files[i].name, &times));
 
 		/* Record whatever atime the file ended up with. */
@@ -96,7 +82,8 @@ DEFINE_TEST(test_option_a)
 	test_create();
 
 	/* Sanity check; verify that atimes really do get modified. */
-	assert((p = slurpfile(NULL, "f0")) != NULL);
+	p = slurpfile(NULL, "f0");
+	assert(p != NULL);
 	free(p);
 	assertEqualInt(0, stat("f0", &st));
 	if (st.st_atime == files[0].atime_sec) {

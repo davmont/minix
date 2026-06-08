@@ -50,6 +50,7 @@
 ./service/igc                                           minix-base
 ./service/ip1000                                        minix-base
 ./service/lance                                         minix-base
+./service/nvme                                          minix-base
 ./service/pci                                           minix-base
 ./service/pckbd                                         minix-base
 ./service/printer                                       minix-base

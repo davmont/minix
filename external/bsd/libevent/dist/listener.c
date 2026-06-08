@@ -1,4 +1,4 @@
-/*	$NetBSD: listener.c,v 1.1.1.2 2015/01/29 06:38:08 spz Exp $	*/
+/*	$NetBSD: listener.c,v 1.1.1.4 2021/04/07 02:43:13 christos Exp $	*/
 /*
  * Copyright (c) 2009-2012 Niels Provos, Nick Mathewson
  *
@@ -25,29 +25,31 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-
 #include "event2/event-config.h"
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: listener.c,v 1.1.1.2 2015/01/29 06:38:08 spz Exp $");
+__RCSID("$NetBSD: listener.c,v 1.1.1.4 2021/04/07 02:43:13 christos Exp $");
+#include "evconfig-private.h"
 
-#ifdef WIN32
+#include <sys/types.h>
+
+#ifdef _WIN32
 #ifndef _WIN32_WINNT
 /* Minimum required for InitializeCriticalSectionAndSpinCount */
 #define _WIN32_WINNT 0x0403
 #endif
 #include <winsock2.h>
+#include <winerror.h>
 #include <ws2tcpip.h>
 #include <mswsock.h>
 #endif
 #include <errno.h>
-#ifdef _EVENT_HAVE_SYS_SOCKET_H
+#ifdef EVENT__HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
 #endif
-#ifdef _EVENT_HAVE_FCNTL_H
+#ifdef EVENT__HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
-#ifdef _EVENT_HAVE_UNISTD_H
+#ifdef EVENT__HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 
@@ -59,7 +61,7 @@ __RCSID("$NetBSD: listener.c,v 1.1.1.2 2015/01/29 06:38:08 spz Exp $");
 #include "util-internal.h"
 #include "log-internal.h"
 #include "evthread-internal.h"
-#ifdef WIN32
+#ifdef _WIN32
 #include "iocp-internal.h"
 #include "defer-internal.h"
 #include "event-internal.h"
@@ -82,6 +84,7 @@ struct evconnlistener {
 	void *user_data;
 	unsigned flags;
 	short refcnt;
+	int accept4_flags;
 	unsigned enabled : 1;
 };
 
@@ -90,7 +93,7 @@ struct evconnlistener_event {
 	struct event listener;
 };
 
-#ifdef WIN32
+#ifdef _WIN32
 struct evconnlistener_iocp {
 	struct evconnlistener base;
 	evutil_socket_t fd;
@@ -160,10 +163,10 @@ evconnlistener_new(struct event_base *base,
 {
 	struct evconnlistener_event *lev;
 
-#ifdef WIN32
-	if (base && event_base_get_iocp(base)) {
+#ifdef _WIN32
+	if (base && event_base_get_iocp_(base)) {
 		const struct win32_extension_fns *ext =
-			event_get_win32_extension_fns();
+			event_get_win32_extension_fns_();
 		if (ext->AcceptEx && ext->GetAcceptExSockaddrs)
 			return evconnlistener_new_async(base, cb, ptr, flags,
 				backlog, fd);
@@ -188,6 +191,12 @@ evconnlistener_new(struct event_base *base,
 	lev->base.flags = flags;
 	lev->base.refcnt = 1;
 
+	lev->base.accept4_flags = 0;
+	if (!(flags & LEV_OPT_LEAVE_SOCKETS_BLOCKING))
+		lev->base.accept4_flags |= EVUTIL_SOCK_NONBLOCK;
+	if (flags & LEV_OPT_CLOSE_ON_EXEC)
+		lev->base.accept4_flags |= EVUTIL_SOCK_CLOEXEC;
+
 	if (flags & LEV_OPT_THREADSAFE) {
 		EVTHREAD_ALLOC_LOCK(lev->base.lock, EVTHREAD_LOCKTYPE_RECURSIVE);
 	}
@@ -195,7 +204,8 @@ evconnlistener_new(struct event_base *base,
 	event_assign(&lev->listener, base, fd, EV_READ|EV_PERSIST,
 	    listener_read_cb, lev);
 
-	evconnlistener_enable(&lev->base);
+	if (!(flags & LEV_OPT_DISABLED))
+	    evconnlistener_enable(&lev->base);
 
 	return &lev->base;
 }
@@ -209,51 +219,54 @@ evconnlistener_new_bind(struct event_base *base, evconnlistener_cb cb,
 	evutil_socket_t fd;
 	int on = 1;
 	int family = sa ? sa->sa_family : AF_UNSPEC;
+	int socktype = SOCK_STREAM | EVUTIL_SOCK_NONBLOCK;
 
 	if (backlog == 0)
 		return NULL;
 
-	fd = socket(family, SOCK_STREAM, 0);
+	if (flags & LEV_OPT_CLOSE_ON_EXEC)
+		socktype |= EVUTIL_SOCK_CLOEXEC;
+
+	fd = evutil_socket_(family, socktype, 0);
 	if (fd == -1)
 		return NULL;
 
-	if (evutil_make_socket_nonblocking(fd) < 0) {
-		evutil_closesocket(fd);
-		return NULL;
-	}
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void*)&on, sizeof(on))<0)
+		goto err;
 
-	if (flags & LEV_OPT_CLOSE_ON_EXEC) {
-		if (evutil_make_socket_closeonexec(fd) < 0) {
-			evutil_closesocket(fd);
-			return NULL;
-		}
-	}
-
-	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void*)&on, sizeof(on))<0) {
-		evutil_closesocket(fd);
-		return NULL;
-	}
 	if (flags & LEV_OPT_REUSEABLE) {
-		if (evutil_make_listen_socket_reuseable(fd) < 0) {
-			evutil_closesocket(fd);
-			return NULL;
-		}
+		if (evutil_make_listen_socket_reuseable(fd) < 0)
+			goto err;
+	}
+
+	if (flags & LEV_OPT_REUSEABLE_PORT) {
+		if (evutil_make_listen_socket_reuseable_port(fd) < 0)
+			goto err;
+	}
+
+	if (flags & LEV_OPT_DEFERRED_ACCEPT) {
+		if (evutil_make_tcp_listen_socket_deferred(fd) < 0)
+			goto err;
+	}
+
+	if (flags & LEV_OPT_BIND_IPV6ONLY) {
+		if (evutil_make_listen_socket_ipv6only(fd) < 0)
+			goto err;
 	}
 
 	if (sa) {
-		if (bind(fd, sa, socklen)<0) {
-			evutil_closesocket(fd);
-			return NULL;
-		}
+		if (bind(fd, sa, socklen)<0)
+			goto err;
 	}
 
 	listener = evconnlistener_new(base, cb, ptr, flags, backlog, fd);
-	if (!listener) {
-		evutil_closesocket(fd);
-		return NULL;
-	}
+	if (!listener)
+		goto err;
 
 	return listener;
+err:
+	evutil_closesocket(fd);
+	return NULL;
 }
 
 void
@@ -391,12 +404,8 @@ listener_read_cb(evutil_socket_t fd, short what, void *p)
 	LOCK(lev);
 	while (1) {
 		struct sockaddr_storage ss;
-#ifdef WIN32
-		int socklen = sizeof(ss);
-#else
-		socklen_t socklen = sizeof(ss);
-#endif
-		evutil_socket_t new_fd = accept(fd, (struct sockaddr*)&ss, &socklen);
+		ev_socklen_t socklen = sizeof(ss);
+		evutil_socket_t new_fd = evutil_accept4_(fd, (struct sockaddr*)&ss, &socklen, lev->accept4_flags);
 		if (new_fd < 0)
 			break;
 		if (socklen == 0) {
@@ -405,9 +414,6 @@ listener_read_cb(evutil_socket_t fd, short what, void *p)
 			evutil_closesocket(new_fd);
 			continue;
 		}
-
-		if (!(lev->flags & LEV_OPT_LEAVE_SOCKETS_BLOCKING))
-			evutil_make_socket_nonblocking(new_fd);
 
 		if (lev->cb == NULL) {
 			evutil_closesocket(new_fd);
@@ -427,6 +433,11 @@ listener_read_cb(evutil_socket_t fd, short what, void *p)
 			return;
 		}
 		--lev->refcnt;
+		if (!lev->enabled) {
+			/* the callback could have disabled the listener */
+			UNLOCK(lev);
+			return;
+		}
 	}
 	err = evutil_socket_geterror(fd);
 	if (EVUTIL_ERR_ACCEPT_RETRIABLE(err)) {
@@ -443,16 +454,17 @@ listener_read_cb(evutil_socket_t fd, short what, void *p)
 		listener_decref_and_unlock(lev);
 	} else {
 		event_sock_warn(fd, "Error from accept() call");
+		UNLOCK(lev);
 	}
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 struct accepting_socket {
 	CRITICAL_SECTION lock;
 	struct event_overlapped overlapped;
 	SOCKET s;
 	int error;
-	struct deferred_cb deferred;
+	struct event_callback deferred;
 	struct evconnlistener_iocp *lev;
 	ev_uint8_t buflen;
 	ev_uint8_t family;
@@ -462,7 +474,7 @@ struct accepting_socket {
 
 static void accepted_socket_cb(struct event_overlapped *o, ev_uintptr_t key,
     ev_ssize_t n, int ok);
-static void accepted_socket_invoke_user_cb(struct deferred_cb *cb, void *arg);
+static void accepted_socket_invoke_user_cb(struct event_callback *cb, void *arg);
 
 static void
 iocp_listener_event_add(struct evconnlistener_iocp *lev)
@@ -471,7 +483,7 @@ iocp_listener_event_add(struct evconnlistener_iocp *lev)
 		return;
 
 	lev->event_added = 1;
-	event_base_add_virtual(lev->event_base);
+	event_base_add_virtual_(lev->event_base);
 }
 
 static void
@@ -481,7 +493,7 @@ iocp_listener_event_del(struct evconnlistener_iocp *lev)
 		return;
 
 	lev->event_added = 0;
-	event_base_del_virtual(lev->event_base);
+	event_base_del_virtual_(lev->event_base);
 }
 
 static struct accepting_socket *
@@ -503,14 +515,15 @@ new_accepting_socket(struct evconnlistener_iocp *lev, int family)
 	if (!res)
 		return NULL;
 
-	event_overlapped_init(&res->overlapped, accepted_socket_cb);
-	res->s = INVALID_SOCKET;
+	event_overlapped_init_(&res->overlapped, accepted_socket_cb);
+	res->s = EVUTIL_INVALID_SOCKET;
 	res->lev = lev;
 	res->buflen = buflen;
 	res->family = family;
 
-	event_deferred_cb_init(&res->deferred,
-		accepted_socket_invoke_user_cb, res);
+	event_deferred_cb_init_(&res->deferred,
+	    event_base_get_npriorities(lev->event_base) / 2,
+	    accepted_socket_invoke_user_cb, res);
 
 	InitializeCriticalSectionAndSpinCount(&res->lock, 1000);
 
@@ -521,7 +534,7 @@ static void
 free_and_unlock_accepting_socket(struct accepting_socket *as)
 {
 	/* requires lock. */
-	if (as->s != INVALID_SOCKET)
+	if (as->s != EVUTIL_INVALID_SOCKET)
 		closesocket(as->s);
 
 	LeaveCriticalSection(&as->lock);
@@ -533,7 +546,7 @@ static int
 start_accepting(struct accepting_socket *as)
 {
 	/* requires lock */
-	const struct win32_extension_fns *ext = event_get_win32_extension_fns();
+	const struct win32_extension_fns *ext = event_get_win32_extension_fns_();
 	DWORD pending = 0;
 	SOCKET s = socket(as->family, SOCK_STREAM, 0);
 	int error = 0;
@@ -541,7 +554,7 @@ start_accepting(struct accepting_socket *as)
 	if (!as->lev->base.enabled)
 		return 0;
 
-	if (s == INVALID_SOCKET) {
+	if (s == EVUTIL_INVALID_SOCKET) {
 		error = WSAGetLastError();
 		goto report_err;
 	}
@@ -554,7 +567,7 @@ start_accepting(struct accepting_socket *as)
 	if (!(as->lev->base.flags & LEV_OPT_LEAVE_SOCKETS_BLOCKING))
 		evutil_make_socket_nonblocking(s);
 
-	if (event_iocp_port_associate(as->lev->port, s, 1) < 0) {
+	if (event_iocp_port_associate_(as->lev->port, s, 1) < 0) {
 		closesocket(s);
 		return -1;
 	}
@@ -577,8 +590,8 @@ start_accepting(struct accepting_socket *as)
 
 report_err:
 	as->error = error;
-	event_deferred_cb_schedule(
-		event_base_get_deferred_cb_queue(as->lev->event_base),
+	event_deferred_cb_schedule_(
+		as->lev->event_base,
 		&as->deferred);
 	return 0;
 }
@@ -588,18 +601,18 @@ stop_accepting(struct accepting_socket *as)
 {
 	/* requires lock. */
 	SOCKET s = as->s;
-	as->s = INVALID_SOCKET;
+	as->s = EVUTIL_INVALID_SOCKET;
 	closesocket(s);
 }
 
 static void
-accepted_socket_invoke_user_cb(struct deferred_cb *dcb, void *arg)
+accepted_socket_invoke_user_cb(struct event_callback *dcb, void *arg)
 {
 	struct accepting_socket *as = arg;
 
 	struct sockaddr *sa_local=NULL, *sa_remote=NULL;
 	int socklen_local=0, socklen_remote=0;
-	const struct win32_extension_fns *ext = event_get_win32_extension_fns();
+	const struct win32_extension_fns *ext = event_get_win32_extension_fns_();
 	struct evconnlistener *lev = &as->lev->base;
 	evutil_socket_t sock=-1;
 	void *data;
@@ -630,7 +643,7 @@ accepted_socket_invoke_user_cb(struct deferred_cb *dcb, void *arg)
 			&socklen_remote);
 		sock = as->s;
 		cb = lev->cb;
-		as->s = INVALID_SOCKET;
+		as->s = EVUTIL_INVALID_SOCKET;
 
 		/* We need to call this so getsockname, getpeername, and
 		 * shutdown work correctly on the accepted socket. */
@@ -669,8 +682,8 @@ accepted_socket_cb(struct event_overlapped *o, ev_uintptr_t key, ev_ssize_t n, i
 	EnterCriticalSection(&as->lock);
 	if (ok) {
 		/* XXXX Don't do this if some EV_MT flag is set. */
-		event_deferred_cb_schedule(
-			event_base_get_deferred_cb_queue(as->lev->event_base),
+		event_deferred_cb_schedule_(
+			as->lev->event_base,
 			&as->deferred);
 		LeaveCriticalSection(&as->lock);
 	} else if (as->free_on_cb) {
@@ -678,7 +691,7 @@ accepted_socket_cb(struct event_overlapped *o, ev_uintptr_t key, ev_ssize_t n, i
 		free_and_unlock_accepting_socket(as);
 		listener_decref_and_unlock(lev);
 		return;
-	} else if (as->s == INVALID_SOCKET) {
+	} else if (as->s == EVUTIL_INVALID_SOCKET) {
 		/* This is okay; we were disabled by iocp_listener_disable. */
 		LeaveCriticalSection(&as->lock);
 	} else {
@@ -694,8 +707,8 @@ accepted_socket_cb(struct event_overlapped *o, ev_uintptr_t key, ev_ssize_t n, i
 		} else {
 			as->error = WSAGetLastError();
 		}
-		event_deferred_cb_schedule(
-			event_base_get_deferred_cb_queue(as->lev->event_base),
+		event_deferred_cb_schedule_(
+			as->lev->event_base,
 			&as->deferred);
 		LeaveCriticalSection(&as->lock);
 	}
@@ -716,7 +729,7 @@ iocp_listener_enable(struct evconnlistener *lev)
 		if (!as)
 			continue;
 		EnterCriticalSection(&as->lock);
-		if (!as->free_on_cb && as->s == INVALID_SOCKET)
+		if (!as->free_on_cb && as->s == EVUTIL_INVALID_SOCKET)
 			start_accepting(as);
 		LeaveCriticalSection(&as->lock);
 	}
@@ -738,7 +751,7 @@ iocp_listener_disable_impl(struct evconnlistener *lev, int shutdown)
 		if (!as)
 			continue;
 		EnterCriticalSection(&as->lock);
-		if (!as->free_on_cb && as->s != INVALID_SOCKET) {
+		if (!as->free_on_cb && as->s != EVUTIL_INVALID_SOCKET) {
 			if (shutdown)
 				as->free_on_cb = 1;
 			stop_accepting(as);
@@ -811,7 +824,7 @@ evconnlistener_new_async(struct event_base *base,
 
 	flags |= LEV_OPT_THREADSAFE;
 
-	if (!base || !event_base_get_iocp(base))
+	if (!base || !event_base_get_iocp_(base))
 		goto err;
 
 	/* XXXX duplicate code */
@@ -838,12 +851,12 @@ evconnlistener_new_async(struct event_base *base,
 	lev->base.refcnt = 1;
 	lev->base.enabled = 1;
 
-	lev->port = event_base_get_iocp(base);
+	lev->port = event_base_get_iocp_(base);
 	lev->fd = fd;
 	lev->event_base = base;
 
 
-	if (event_iocp_port_associate(lev->port, fd, 1) < 0)
+	if (event_iocp_port_associate_(lev->port, fd, 1) < 0)
 		goto err_free_lev;
 
 	EVTHREAD_ALLOC_LOCK(lev->base.lock, EVTHREAD_LOCKTYPE_RECURSIVE);

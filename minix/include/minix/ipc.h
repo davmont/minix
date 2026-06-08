@@ -298,8 +298,10 @@ _ASSERT_MSG_SIZE(mess_krn_lsys_sys_getwhoami);
 
 typedef struct {
 	int hook_id;
+	uint32_t msi_addr;	/* IRQ_SETPOLICY_MSI: MSI message address */
+	uint32_t msi_data;	/* IRQ_SETPOLICY_MSI: MSI message data */
 
-	uint8_t padding[52];
+	uint8_t padding[44];
 } mess_krn_lsys_sys_irqctl;
 _ASSERT_MSG_SIZE(mess_krn_lsys_sys_irqctl);
 
@@ -449,6 +451,50 @@ typedef struct {
 	uint8_t padding[52];
 } mess_lc_pm_exit;
 _ASSERT_MSG_SIZE(mess_lc_pm_exit);
+
+typedef struct {
+	vir_bytes	entry;	/* thread entry point (pc) */
+	vir_bytes	stack;	/* thread stack pointer (top) */
+	vir_bytes	arg;	/* first argument (in %rdi) */
+	vir_bytes	tlsbase; /* TLS base for the new thread (%fs) */
+	unsigned long	flags;
+
+	uint8_t padding[16];
+} mess_lc_pm_lwp_create;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_create);
+
+typedef struct {
+	int32_t		lwpid;	/* assigned/own lwp id (= kernel endpoint) */
+
+	uint8_t padding[52];
+} mess_pm_lc_lwp;
+_ASSERT_MSG_SIZE(mess_pm_lc_lwp);
+
+typedef struct {
+	int32_t		unpark;		/* lwpid to unpark first, or 0 (none) */
+	uint32_t	flags;		/* _lwp_park flags (TIMER_ABSTIME etc.) */
+	int32_t		clock_id;	/* clockid for the timeout */
+	int32_t		has_timeout;	/* nonzero if sec/nsec are valid */
+	int64_t		sec;		/* timeout, seconds */
+	int32_t		nsec;		/* timeout, nanoseconds */
+
+	uint8_t padding[28];
+} mess_lc_pm_lwp_park;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_park);
+
+typedef struct {
+	int32_t		target;		/* lwpid to unpark */
+
+	uint8_t padding[52];
+} mess_lc_pm_lwp_unpark;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_unpark);
+
+typedef struct {
+	int32_t		wait_for;	/* lwpid to join, or 0 for any sibling */
+
+	uint8_t padding[52];
+} mess_lc_pm_lwp_wait;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_wait);
 
 typedef struct {
 	pid_t pid;
@@ -1163,8 +1209,11 @@ typedef struct {
 	vir_bytes stack;
 	vir_bytes name;
 	vir_bytes ps_str;
+	vir_bytes tlsbase;	/* initial %fs (TLS) base, or 0 to leave it */
+	vir_bytes arg;		/* initial %rdi (first arg), or 0; passes a new
+				 * thread's trampoline cookie to its entry point */
 
-	uint8_t padding[36];
+	uint8_t padding[20];
 } mess_lsys_krn_sys_exec;
 _ASSERT_MSG_SIZE(mess_lsys_krn_sys_exec);
 
@@ -2455,6 +2504,11 @@ typedef struct noxfer_message {
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;
+		mess_lc_pm_lwp_create	m_lc_pm_lwp_create;
+		mess_pm_lc_lwp		m_pm_lc_lwp;
+		mess_lc_pm_lwp_park	m_lc_pm_lwp_park;
+		mess_lc_pm_lwp_unpark	m_lc_pm_lwp_unpark;
+		mess_lc_pm_lwp_wait	m_lc_pm_lwp_wait;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;

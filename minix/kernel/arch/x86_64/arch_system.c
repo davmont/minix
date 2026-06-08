@@ -291,6 +291,9 @@ void arch_proc_reset(struct proc *pr)
         pr->p_seg.p_pcid = PCID_KERNEL;
     }
 
+    /* No TLS thread pointer yet; userland sets %fs base later via WRFSBASE. */
+    pr->p_seg.p_fsbase = 0;
+
     /* Segment selectors for user-mode processes.  These go in 'reg' so they
      * survive the memcpy inside arch_proc_setcontext — setting them directly
      * in pr->p_reg would be overwritten by that copy. */
@@ -561,6 +564,15 @@ struct proc *arch_finish_switch_to_user(void)
     p = get_cpulocal_var(proc_ptr);
     *stk = (reg_t)(uintptr_t)p;
 
+#ifdef CONFIG_SMP_VERBOSE
+    /* DBG: '%' = AP about to iretq into a non-IDLE proc. */
+    if (cpuid != bsp_cpu_id && p->p_endpoint != IDLE) {
+        __asm__ __volatile__(
+            "mov $0x3F8, %%dx; mov $'%%', %%al; outb %%al, %%dx"
+            : : : "rax", "rdx");
+    }
+#endif
+
     /* Ensure IF is set so the process runs with interrupts enabled. */
     p->p_reg.psw |= IF_MASK;
 
@@ -610,6 +622,16 @@ void restore_user_context(struct proc *p)
 
     p->p_seg.p_kern_trap_style = KTS_NONE;
 
+    /*
+     * Restore this process's user %fs base (the TLS thread pointer).  The
+     * kernel never touches %fs base for its own use (it uses %gs/swapgs for
+     * per-CPU state), so the value lives only in the CPU register and must be
+     * reloaded for the process we are about to resume.  Captured on kernel
+     * entry (see context_stop()).  No-op until userland actually uses TLS.
+     */
+    if (use_fsgsbase)
+        write_fsbase(p->p_seg.p_fsbase);
+
     if (trap_style == KTS_SYSCALL) {
         restore_user_context_syscall(p);
         NOT_REACHABLE;
@@ -628,23 +650,29 @@ void restore_user_context(struct proc *p)
             BOOT_VERBOSE(printf(
                 "RUC#%u DISPATCH (kts=%d → restore_user_context_int)\n",
                 _ruc_int_dispatch, trap_style));
+
+            BOOT_VERBOSE({
+                /* One-shot dump: only first 30 entries to avoid flooding. */
+                static int dumped = 0;
+                if (dumped < 30) {
+                    u8_t *up = (u8_t *)(uintptr_t)p->p_reg.pc;
+                    printf("ruc: -> restore_user_context_int, cr3=0x%lx "
+                        "pcid=%u pc=0x%lx sp=0x%lx cs=0x%lx ss=0x%lx psw=0x%lx\n",
+                        (unsigned long)p->p_seg.p_cr3,
+                        (unsigned)p->p_seg.p_pcid,
+                        (unsigned long)p->p_reg.pc,
+                        (unsigned long)p->p_reg.sp,
+                        (unsigned long)p->p_reg.cs,
+                        (unsigned long)p->p_reg.ss,
+                        (unsigned long)p->p_reg.psw);
+                    printf("ruc: bytes @ pc: %02x %02x %02x %02x "
+                        "%02x %02x %02x %02x\n",
+                        up[0], up[1], up[2], up[3],
+                        up[4], up[5], up[6], up[7]);
+                    dumped++;
+                }
+            });
         }
-        BOOT_VERBOSE({
-            /* One-shot dump: only first 30 entries to avoid flooding. */
-            static int dumped = 0;
-            if (dumped < 30) {
-                u8_t *up = (u8_t *)(uintptr_t)p->p_reg.pc;
-                printf("ruc: -> restore_user_context_int, cr3=0x%lx pcid=%u "
-                    "pc=0x%lx sp=0x%lx cs=0x%lx ss=0x%lx psw=0x%lx\n",
-                    (unsigned long)p->p_seg.p_cr3, (unsigned)p->p_seg.p_pcid,
-                    (unsigned long)p->p_reg.pc, (unsigned long)p->p_reg.sp,
-                    (unsigned long)p->p_reg.cs, (unsigned long)p->p_reg.ss,
-                    (unsigned long)p->p_reg.psw);
-                printf("ruc: bytes @ pc: %02x %02x %02x %02x %02x %02x %02x %02x\n",
-                    up[0], up[1], up[2], up[3], up[4], up[5], up[6], up[7]);
-                dumped++;
-            }
-        });
         restore_user_context_int(p);
         NOT_REACHABLE;
     default:

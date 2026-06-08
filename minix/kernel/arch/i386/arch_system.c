@@ -48,6 +48,17 @@ static void ser_dump_proc_cpu(void);
 static void ser_init(void);
 #endif
 
+/*
+ * amd64 enables per-CPU features (FSGSBASE, XSAVE/XSAVEOPT) in
+ * cpu_enable_features() and sizes the FPU save area dynamically via
+ * fpu_get_save_size().  i386 has no such feature enabling — SSE/FXSAVE is set
+ * up in fpu_init() — and uses a fixed FXSAVE area (FPU_XFP_SIZE), matching the
+ * per-process fpu_state[] storage below.  Provide the i386 counterparts so the
+ * shared kernel (main.c, system/do_fork.c) links.
+ */
+void cpu_enable_features(void) { }
+size_t fpu_get_save_size(void) { return FPU_XFP_SIZE; }
+
 void fpu_init(void)
 {
 	unsigned short cw, sw;

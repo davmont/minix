@@ -15,6 +15,7 @@ int getsysinfo(endpoint_t who, int what, void *where, size_t size);
 #define SI_PROCPUB_TAB	   11	/* copy of public entries of process table */
 #define SI_PROCALL_TAB	   12	/* copy of both private and public entries */
 #define SI_PROCLIGHT_TAB   13	/* copy of light version of process table */
+#define SI_FILEDESC_TAB	   14	/* VFS: copy of the open-file (filedesc) table */
 
 #endif
 

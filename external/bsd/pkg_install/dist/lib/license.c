@@ -1,4 +1,4 @@
-/*	$NetBSD: license.c,v 1.4 2013/04/20 15:29:23 wiz Exp $	*/
+/*	$NetBSD: license.c,v 1.11 2021/04/10 19:49:59 nia Exp $	*/
 
 /*-
  * Copyright (c) 2009 Joerg Sonnenberger <joerg@NetBSD.org>.
@@ -46,40 +46,61 @@
 #define	HASH_SIZE	521
 
 const char *default_acceptable_licenses =
+    "afl-3.0 "
     "apache-1.1 apache-2.0 "
     "arphic-public "
     "artistic artistic-2.0 "
     "boost-license "
     "cc-by-sa-v3.0 "
+    "cc-by-sa-v4.0 "
+    "cc-by-v4.0 "
+    "cc0-1.0-universal "
     "cddl-1.0 "
+    "cecill-2.1 "
+    "cecill-b-v1 "
     "cpl-1.0 "
     "epl-v1.0 "
+    "eupl-v1.1 "
+    "gfsl "
     "gnu-fdl-v1.1 gnu-fdl-v1.2 gnu-fdl-v1.3 "
     "gnu-gpl-v1 "
     "gnu-gpl-v2 gnu-lgpl-v2 gnu-lgpl-v2.1 "
     "gnu-gpl-v3 gnu-lgpl-v3 "
-    "ibm-public-license-1.0 "
+    "happy "
+    "hpnd "
+    "info-zip "
     "ipafont "
+    "ipl-1.0 "
     "isc "
-    "lppl-1.3c "
+    "lppl-1.0 lppl-1.2 lppl-1.3c "
     "lucent "
     "miros "
     "mit "
     "mpl-1.0 mpl-1.1 mpl-2.0 "
     "mplusfont "
+    "odbl-v1 "
     "ofl-v1.0 ofl-v1.1 "
+    "openssl "
     "original-bsd modified-bsd 2-clause-bsd "
+    "osl "
+    "paratype "
     "php "
     "png-license "
     "postgresql-license "
     "public-domain "
     "python-software-foundation "
     "qpl-v1.0 "
+    "sgi-free-software-b-v2.0 "
+    "sissl-1.1 "
     "sleepycat-public "
+    "unicode "
     "unlicense "
+    "vera-ttf-license "
+    "w3c "
     "x11 "
     "zlib "
-    "zpl";
+    "zpl-2.0 zpl-2.1 "
+    "zsh";
 
 #ifdef DEBUG
 static size_t hash_collisions;

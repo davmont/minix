@@ -47,79 +47,65 @@ MINIX 3 is structured in four layers:
 
 ## What's New in This Fork
 
-### AMD64 / x86-64 Port
+The headline change is a working **x86-64 (amd64) kernel port** that boots
+to a login prompt on both legacy BIOS and UEFI firmware, with SMP, an IPC
+fastpath, modern CPU features, and most NetBSD userland tools intact.
+Other highlights since the upstream base:
 
-MINIX now builds and runs natively on 64-bit x86 hardware. The port covers
-the full kernel stack: 4-level page tables, long mode entry, 64-bit GDT/IDT,
-LP64 ABI, and a working cross-toolchain (`x86_64-elf64-minix`). Distribution
-builds (`build.sh -m amd64 ... release`) produce bootable amd64 images.
+- **amd64 SMP** — full AP bring-up, per-CPU GDT/IDT/TSS, BKL serialization,
+  validated on `-smp 2/4/8` up to 32 CPUs. (See the "amd64 subsystem state"
+  table below.)
+- **IPC fastpath + colocation** — SENDREC same-CPU fastpath plus a Tier 1
+  scheduler that migrates servers to their dominant client's CPU; **4.86×**
+  SMP IPC throughput improvement on `-smp 4` (p50 78k → 16k cycles).
+- **Hybrid BIOS + UEFI boot** — single CD image boots on either firmware via
+  El Torito with a GRUB-built EFI System Partition. Multiboot 2.0 + ACPI
+  RSDP handoff implemented; linear-framebuffer text console for headless
+  UEFI environments.
+- **Modern CPU features** — NX/XD enforcement, XSAVE/AVX FPU context, eager
+  FPU dispatch on amd64, SSE4 / AVX2 / AES-NI / RDRAND / x2APIC / PCID
+  detection.
+- **New drivers** — Intel I225/I226 2.5 GbE (`igc`), EHCI USB host (Phase 1),
+  OHCI scaffolding (Phase 3a), multi-controller `usbd`, AHCI / legacy IDE
+  auto-detect at boot.
+- **Allocator** — switched libc to `jemalloc`.
+- **Security hardening** — tree-wide audit replacing unsafe `strcpy` /
+  `sprintf` / `system()` patterns; buffer-overflow fixes in `kgets`, `backup`,
+  `fdisk`, `minix-service`; ELF auxvec UID/GID populated correctly.
+- **Performance** — 30+ O(N²) `strlen`-in-loop patterns eliminated across the
+  tree.
+- **Build & toolchain** — GCC 15 compatibility, LLVM/clang by default,
+  NetBSD 10 host-tools sync, C++ ATF and `kyua-cli` tests re-enabled.
+- **Test coverage** — new ATF tests for `dup2`, libc string functions, the
+  ISC event timer library, `hgfs`, `cd9660`, and PM `ptrace`.
 
-The i386 BIOS bootloaders (`boot_monitor`, `bootxx_cd9660`,
-`bootxx_minixfs3`) are built as a separate step after the main amd64 tree,
-keeping the architecture trees cleanly separated.
+For the full change log, see [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 
-### Kernel CPU Feature Extensions
+---
 
-- **NX/XD bit** — `EFER.NXE` enabled at boot on all CPUs, enforcing
-  no-execute protection on data pages.
-- **XSAVE/AVX** — FPU context save upgraded from `FXSAVE` to the `XSAVE`
-  family, preserving full AVX register state across context switches.
-- **Modern CPUID detection** — SSE4, AVX2, AES-NI, POPCNT, BMI1/2, RDRAND,
-  FSGSBASE, TSC-deadline, x2APIC, and PCID all detected and exposed to the
-  kernel.
-- **x86-64-v2 compiler optimisation** — when the build host supports it,
-  `-march=x86-64-v2` is selected automatically for faster generated code.
-- **SMP limit raised** — maximum CPU count increased from 8 to 32.
+## amd64 Subsystem State
 
-### New and Updated Drivers
+A snapshot of where each piece of the amd64 port stands. ✓ = production-grade,
+↻ = working with caveats, ⌛ = in progress, ✗ = not implemented.
 
-- **Intel igc 2.5 GbE** (`net/igc`) — initial driver for Intel I225/I226
-  Ethernet controllers.
-- **EHCI USB host controller** — USB 2.0 high-speed host support added for
-  amd64. PCI support headers extended for amd64, arm, and i386.
-- **Multi-controller USB architecture** — `usbd` refactored to manage EHCI,
-  OHCI, and UHCI controllers simultaneously through a unified registry.
-
-### Security Hardening
-
-A systematic audit of unsafe C patterns across the tree:
-
-- `strcpy` → `strlcpy` in DS server, Reincarnation Server, syslogd, makefs,
-  mtree, cd9660, profile, debug, untgz, LPdir, v7fs, and others.
-- `sprintf` → `snprintf` in crontab, `at`, and makefs cd9660 logic.
-- Shell injection via `system()` closed in `devmand` and `sz` (replaced with
-  `fork`/`exec`/`waitpid`).
-- Buffer overflow in `kgets()` fixed.
-- Length check added to `makefs` bootimagedir handling.
-
-### Performance
-
-Over 30 O(N²) `strlen`-in-loop patterns eliminated across the codebase,
-including in `rtadvd`, `svrctl`, `ftp`, `libarchive`, `isoread`,
-`libcurses/ex2`, `writeisofs`, `openssldh`, and the `__parse_cap` debug loop.
-
-### Networking
-
-- lwIP aligned for 64-bit targets (`MEM_ALIGNMENT` fix).
-- Raw socket spurious broadcast check removed.
-- `NDEV_ETH_PACKET_*` constants moved to `minix/netdriver.h`.
-
-### Tools and Utilities
-
-- **`trace`** — argument printing added for `TIOCMSET` and related char-device
-  ioctls.
-- **`syslogd`** — leading whitespace stripped before the log facility field;
-  Base64 length made exact.
-- **VFS** — missing `select` check added to the device revocation path.
-- **MIB server** — `MIB_FLAG_AUTHED` flag for authenticated `lsys` calls.
-- **Build system** — GCC 15 compatibility (`-std=gnu11`); LLVM/clang enabled
-  by default; NetBSD 10 host tools sync; `COMPAT_MAGIC` named constant.
-
-### Test Coverage
-
-New tests added for: `dup2()`, ISC event timer library (`evConsTime`,
-`evAddTime`, `evSubTime`, `evNowTime`), `hgfs_closedir`, and
-`cd9660_valid_a_chars` boundary conditions.
+| Subsystem | Status |
+|-----------|--------|
+| Boot (legacy BIOS) | ✓ |
+| Boot (UEFI / GPT, q35) | ✓ via hybrid El Torito; Multiboot 2.0 handoff |
+| SMP | ✓ up to 32 CPUs; validated on `-smp 2/4/8` |
+| IPC fastpath + Tier 1 colocation | ✓ 4.86× SMP win (p50 78k → 16k cycles) |
+| FPU / SSE | ✓ eager dispatch |
+| Storage (AHCI + IDE) | ✓ auto-detect + graceful fallback |
+| Console (serial) | ✓ |
+| Console (linear framebuffer) | ✓ for UEFI / GOP environments |
+| ACPI / APIC | ✓ |
+| Intel `igc` 2.5 GbE | ↻ basic send/receive; no coalescing/multi-queue/stats |
+| USB EHCI (USB 2.0) | ↻ Phase 1 transfer model; no isoch, no suspend/resume |
+| USB OHCI (USB 1.1) | ⌛ Phase 3a scaffolding (PCI + DMA pools); transfer scheduling next |
+| USB UHCI | ✗ |
+| USB xHCI (USB 3.x) | ✗ |
+| UEFI runtime services | ✗ shutdown/reboot via ACPI only |
+| Secure Boot | ✗ |
 
 ---
 
@@ -127,13 +113,12 @@ New tests added for: `dup2()`, ISC event timer library (`evConsTime`,
 
 | Area | Status |
 |------|--------|
-| **EFI / UEFI boot** | Not yet functional. A five-phase implementation plan is documented in `releasetools/EFI_BOOT_PLAN.md`. The existing GRUB scaffolding in the release scripts is disabled (`EFI_SIZE=0`) and references a non-existent GRUB `minix3` module. BIOS boot works normally. |
 | **Intel igc driver** | Initial send/receive only. No interrupt coalescing, multi-queue, or statistics support yet. |
-| **EHCI USB (amd64)** | Phase 1 only. Isochronous transfers and suspend/resume not implemented. OHCI and UHCI not yet wired on amd64. |
-| **Multiboot 2.0** | Kernel speaks Multiboot 1.0 only. Multiboot 2.0 would provide a clean EFI memory map and system table pointer when booting via GRUB EFI. |
-| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI/BIOS paths only. |
+| **EHCI USB (amd64)** | Phase 1 only. Isochronous transfers and suspend/resume not implemented. |
+| **amd64 USB OHCI** | Phase 3a scaffolding only (PCI discovery + DMA pools). Transfer scheduling next. |
+| **amd64 USB UHCI / xHCI** | Not yet wired. |
+| **UEFI runtime services** | No `EFI_RUNTIME_SERVICES` integration. Shutdown and reboot rely on ACPI paths only. |
 | **Secure Boot** | Not supported. Requires a signed shim and signed GRUB image. |
-| **amd64 USB OHCI/UHCI** | EHCI Phase 1 landed; OHCI and UHCI controllers not wired on amd64. |
 
 ---
 

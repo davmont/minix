@@ -1,4 +1,5 @@
-/*	$NetBSD: event_tagging.c,v 1.3 2015/01/29 07:26:02 spz Exp $	*/
+/*	$NetBSD: event_tagging.c,v 1.6 2021/04/10 19:18:45 rillig Exp $	*/
+
 /*
  * Copyright (c) 2003-2009 Niels Provos <provos@citi.umich.edu>
  * Copyright (c) 2009-2012 Niels Provos and Nick Mathewson
@@ -28,26 +29,28 @@
 
 #include "event2/event-config.h"
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: event_tagging.c,v 1.3 2015/01/29 07:26:02 spz Exp $");
+__RCSID("$NetBSD: event_tagging.c,v 1.6 2021/04/10 19:18:45 rillig Exp $");
+#include "evconfig-private.h"
 
-#ifdef _EVENT_HAVE_SYS_TYPES_H
+#ifdef EVENT__HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
-#ifdef _EVENT_HAVE_SYS_PARAM_H
+#ifdef EVENT__HAVE_SYS_PARAM_H
 #include <sys/param.h>
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <windows.h>
 #undef WIN32_LEAN_AND_MEAN
-#else
-#include <sys/ioctl.h>
 #endif
 
+#ifdef EVENT__HAVE_SYS_IOCTL_H
+#include <sys/ioctl.h>
+#endif
 #include <sys/queue.h>
-#ifdef _EVENT_HAVE_SYS_TIME_H
+#ifdef EVENT__HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 
@@ -55,10 +58,10 @@ __RCSID("$NetBSD: event_tagging.c,v 1.3 2015/01/29 07:26:02 spz Exp $");
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef WIN32
+#ifndef _WIN32
 #include <syslog.h>
 #endif
-#ifdef _EVENT_HAVE_UNISTD_H
+#ifdef EVENT__HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #include <limits.h>
@@ -94,9 +97,13 @@ __RCSID("$NetBSD: event_tagging.c,v 1.3 2015/01/29 07:26:02 spz Exp $");
        a final padding nibble with value 0 is appended.
 */
 
+EVENT2_EXPORT_SYMBOL
 int evtag_decode_int(ev_uint32_t *pnumber, struct evbuffer *evbuf);
+EVENT2_EXPORT_SYMBOL
 int evtag_decode_int64(ev_uint64_t *pnumber, struct evbuffer *evbuf);
+EVENT2_EXPORT_SYMBOL
 int evtag_encode_tag(struct evbuffer *evbuf, ev_uint32_t tag);
+EVENT2_EXPORT_SYMBOL
 int evtag_decode_tag(ev_uint32_t *ptag, struct evbuffer *evbuf);
 
 void
@@ -136,7 +143,7 @@ evtag_init(void)
 	data[0] = (data[0] & 0x0f) | ((nibbles & 0x0f) << 4);		\
 									\
 	return ((off + 1) / 2);						\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 static inline int
 encode_int_internal(ev_uint8_t *data, ev_uint32_t number)
@@ -214,7 +221,14 @@ decode_tag_internal(ev_uint32_t *ptag, struct evbuffer *evbuf, int dodrain)
 
 	while (count++ < len) {
 		ev_uint8_t lower = *data++;
-		number |= (lower & 0x7f) << shift;
+		if (shift >= 28) {
+			/* Make sure it fits into 32 bits */
+			if (shift > 28)
+				return (-1);
+			if ((lower & 0x7f) > 15)
+				return (-1);
+		}
+		number |= (lower & (unsigned)0x7f) << shift;
 		shift += 7;
 
 		if (!(lower & 0x80)) {
@@ -341,7 +355,7 @@ do {									\
 	*pnumber = number;						\
 									\
 	return (int)(len);						\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 /* Internal: decode an integer from an evbuffer, without draining it.
  *  Only integers up to 32-bits are supported.

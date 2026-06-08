@@ -30,30 +30,15 @@ NOCLANGERROR=	yes
 TOOLS_BUILDRUMP?=no
 
 .if ${TOOLCHAIN_MISSING} == "no"
-. if defined(HAVE_GCC) && ${HAVE_GCC} > 0
-TOOLCHAIN_BITS= gmake .WAIT
-TOOLCHAIN_BITS+= gmp .WAIT
-TOOLCHAIN_BITS+= mpfr .WAIT
-TOOLCHAIN_BITS+= mpc .WAIT
-. endif
+TOOLCHAIN_BITS= binutils .WAIT
 .endif
 
-.if ${TOOLCHAIN_MISSING} == "no"
-TOOLCHAIN_BITS+= binutils .WAIT
-.endif
-
-.if defined(HAVE_GCC) && ${HAVE_GCC} > 0
-. if ${TOOLCHAIN_MISSING} == "no"
-TOOLCHAIN_BITS+= gcc
-.if !defined(__MINIX)
-# The following test is broken as it still tries to create the directory
-.  if ${MKCROSSGDB:Uno} != "no" || make(obj)
-TOOLCHAIN_BITS+= gdb
-.  endif
-.endif # !defined(__MINIX)
-TOOLCHAIN_BITS+= .WAIT
-. endif
-.endif
+# GCC, gmake and the LGPL math libs (gmp/mpc/mpfr) used to live under
+# external/gpl{2,3}/ and external/lgpl3/.  MINIX builds with LLVM/clang
+# (MKLLVM=yes, MKGCC=no) and uses bmake, so those trees were never
+# entered.  Removed entirely from the source tree.  If you need GCC
+# back, restore from git history before 2026-06-04 and add it to
+# TOOLCHAIN_BITS here, conditioned on .if defined(HAVE_GCC).
 
 .if defined(HAVE_PCC)
 . if ${TOOLCHAIN_MISSING} == "no"
@@ -143,17 +128,14 @@ SUBDIR+= .WAIT config
 .if ${MKLLVM} != "no"
 SUBDIR+= \
 	llvm .WAIT \
-	llvm-lib/libLLVMSupport llvm-lib/libLLVMTableGen .WAIT \
+	llvm-lib/libLLVMDemangle llvm-lib/libLLVMSupport llvm-lib/libLLVMTableGen \
+		.WAIT \
 	llvm-tblgen llvm-clang-tblgen .WAIT \
 	llvm-include .WAIT \
 	llvm-lib .WAIT \
 	llvm-clang
-. if ${MKLLD} != "no"
-SUBDIR+=	llvm-lld
-. endif
-. if ${MKMCLINKER} != "no"
-SUBDIR+=	llvm-mcld
-. endif
+# llvm-lld / llvm-mcld dropped: MINIX links with GNU ld, and mcld is gone
+# upstream as of LLVM 13 (see external/apache2/llvm import).
 .endif
 
 .if ${MKMAN} != "no" || ${MKDOC} != "no" || ${MKHTML} != "no"

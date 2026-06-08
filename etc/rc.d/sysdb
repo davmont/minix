@@ -28,7 +28,9 @@ sysdb_start()
 	# build_* helpers below write dev.db/utmp into /var/run and
 	# services.cdb/netgroup.db into /var/db, so make sure both exist
 	# first -- otherwise install(1)/*_mkdb fail and sysdb exits non-zero.
-	mkdir -p /var/run /var/db
+	# Also create /var/log so the syslogd rc.d that follows can write
+	# /var/log/syslog and /var/log/messages without errors.
+	mkdir -p /var/run /var/db /var/log
 
 	echo -n "Building databases:"
 	echo=echo
@@ -69,7 +71,15 @@ build_netgroup()
 
 build_devdb()
 {
-	check_file /dev /var/run/dev.db dev_mkdb
+	# Only build the new constant-database format (/var/run/dev.cdb);
+	# nothing on modern MINIX consumes the legacy Berkeley DB
+	# (/var/run/dev.db).  We can't easily produce dev.db here anyway:
+	# `dev_mkdb -c` uses compat_open() which passes O_EXLOCK to
+	# dbopen(), and MINIX's filesystem layer returns EINVAL on
+	# unsupported open(2) flags — so the temp file creation fails
+	# with `dev_mkdb: failed to create temporary database
+	# /var/run/dev.db.XXXXXXX: Invalid argument`.  Skip the .db
+	# rebuild entirely.
 	check_file /dev /var/run/dev.cdb dev_mkdb
 }
 
@@ -78,8 +88,15 @@ build_password()
 	local p=/etc/master.passwd
 	# Skip the rebuild if the root filesystem is read-only (e.g. CD boot
 	# via isofs).  pwd_mkdb would otherwise abort with ENOSYS because
-	# isofs has no fdr_create and we'd noisily fail every boot.
-	if ! { : > /etc/.pwd_mkdb.probe; } 2>/dev/null; then
+	# isofs has no fdr_create.
+	#
+	# The probe MUST run in a subshell (parens), not a brace group:
+	# MINIX's /bin/sh treats a failed `>` redirection on a simple
+	# command in the current shell as a fatal error and terminates the
+	# script with exit 2 — even with `2>/dev/null`, which only silences
+	# stderr.  A subshell isolates the death so the outer `if !` can
+	# observe the non-zero exit and take the then-branch (skip).
+	if ! ( : > /etc/.pwd_mkdb.probe ) 2>/dev/null; then
 		return 0
 	fi
 	rm -f /etc/.pwd_mkdb.probe

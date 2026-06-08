@@ -1,17 +1,26 @@
-#	$NetBSD: dh.inc,v 1.2 2010/08/21 13:47:37 joerg Exp $
-#
-#	@(#) Copyright (c) 1995 Simon J. Gerraty
-#
-#	SRCS extracted from src/crypto/dist/openssl/crypto/dh/Makefile
-#
+#	$NetBSD: dh.inc,v 1.5.10.1 2023/08/11 13:41:55 martin Exp $
 
 .PATH:	${OPENSSLSRC}/crypto/dh
 
+DH_SRCS += \
+dh_ameth.c \
+dh_asn1.c \
+dh_backend.c \
+dh_check.c \
+dh_depr.c \
+dh_err.c \
+dh_gen.c \
+dh_group_params.c \
+dh_kdf.c \
+dh_key.c \
+dh_lib.c \
+dh_meth.c \
+dh_pmeth.c \
+dh_prn.c \
+dh_rfc5114.c \
 
-DH_SRCS = dh_asn1.c dh_gen.c dh_key.c dh_lib.c dh_check.c dh_err.c dh_depr.c \
-    dh_ameth.c dh_pmeth.c dh_prn.c
 SRCS += ${DH_SRCS}
 
 .for cryptosrc in ${DH_SRCS}
-CPPFLAGS.${cryptosrc} = -I${OPENSSLSRC}/crypto/dh
+CPPFLAGS.${cryptosrc} += -I${OPENSSLSRC}/crypto/dh ${DHCPPFLAGS}
 .endfor

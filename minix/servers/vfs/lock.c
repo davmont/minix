@@ -30,7 +30,7 @@ int lock_op(int fd, int req, vir_bytes arg)
 
   assert(req == F_GETLK || req == F_SETLK || req == F_SETLKW);
 
-  f = fp->fp_filp[fd];
+  f = fp->fp_fd->fd_filp[fd];
   assert(f != NULL);
 
   /* Fetch the flock structure from user space. */

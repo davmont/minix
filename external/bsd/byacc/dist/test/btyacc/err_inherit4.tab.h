@@ -1,4 +1,4 @@
-/*	$NetBSD: err_inherit4.tab.h,v 1.1.1.1 2015/01/03 22:58:25 christos Exp $	*/
+/*	$NetBSD: err_inherit4.tab.h,v 1.3 2021/02/20 22:57:57 christos Exp $	*/
 
 #ifndef _err_inherit4__defines_h_
 #define _err_inherit4__defines_h_
@@ -23,5 +23,20 @@ typedef union
 } YYSTYPE;
 #endif /* !YYSTYPE_IS_DECLARED */
 extern YYSTYPE err_inherit4_lval;
+
+#if ! defined YYLTYPE && ! defined YYLTYPE_IS_DECLARED
+/* Default: YYLTYPE is the text position type. */
+typedef struct YYLTYPE
+{
+    int first_line;
+    int first_column;
+    int last_line;
+    int last_column;
+    unsigned source;
+} YYLTYPE;
+#define YYLTYPE_IS_DECLARED 1
+#endif
+#define YYRHSLOC(rhs, k) ((rhs)[k])
+extern YYLTYPE err_inherit4_lloc;
 
 #endif /* _err_inherit4__defines_h_ */

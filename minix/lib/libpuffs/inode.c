@@ -73,7 +73,7 @@ int fs_putnode(ino_t ino_nr, unsigned int count)
 	while (pn_cur) {
 		pn_next = LIST_NEXT(pn_cur, pn_entries);
 		if (pn_cur->pn_va.va_fileid == ino) {
-			lpuffs_debug("%"PRIu64": %d %s %u %u\n",
+			lpuffs_debug("%"PRIu64": %d %s %zu %u\n",
 				ino,
 				pn_cur->pn_count,
 				(char *)pn_cur->pn_po.po_path,

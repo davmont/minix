@@ -1,9 +1,10 @@
-/*	$NetBSD: defs.h,v 1.9 2015/01/04 01:34:20 christos Exp $	*/
+/*	$NetBSD: defs.h,v 1.19 2021/02/20 22:57:56 christos Exp $	*/
+
+/* Id: defs.h,v 1.66 2020/09/10 20:21:20 tom Exp  */
 
 #if HAVE_NBTOOL_CONFIG_H
 #include "nbtool_config.h"
 #endif
-/* Id: defs.h,v 1.51 2014/10/02 22:38:13 tom Exp  */
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -21,8 +22,8 @@
 #define class myClass
 #endif
 
-#define YYMAJOR 1
-#define YYMINOR 9
+#define YYMAJOR 2
+#define YYMINOR 0
 
 #define CONCAT(first,second)    first #second
 #define CONCAT1(string,number)  CONCAT(string, number)
@@ -106,39 +107,48 @@
 
 /* keyword codes */
 
-#define TOKEN 0
-#define LEFT 1
-#define RIGHT 2
-#define NONASSOC 3
-#define MARK 4
-#define TEXT 5
-#define TYPE 6
-#define START 7
-#define UNION 8
-#define IDENT 9
-#define EXPECT 10
-#define EXPECT_RR 11
-#define PURE_PARSER 12
-#define PARSE_PARAM 13
-#define LEX_PARAM 14
-#define POSIX_YACC 15
-#define TOKEN_TABLE 16
-#define ERROR_VERBOSE 17
-#define XXXDEBUG 18
+typedef enum
+{
+    TOKEN = 0
+    ,LEFT
+    ,RIGHT
+    ,NONASSOC
+    ,MARK
+    ,TEXT
+    ,TYPE
+    ,START
+    ,UNION
+    ,IDENT
+    ,EXPECT
+    ,EXPECT_RR
+    ,PURE_PARSER
+    ,PARSE_PARAM
+    ,LEX_PARAM
+    ,POSIX_YACC
+    ,TOKEN_TABLE
+    ,ERROR_VERBOSE
+    ,XXXDEBUG
+    ,XCODE
 
 #if defined(YYBTYACC)
-#define LOCATIONS 19
-#define DESTRUCTOR 20
-#define INITIAL_ACTION 21
+    ,LOCATIONS
+    ,DESTRUCTOR
+    ,INITIAL_ACTION
 #endif
+}
+KEY_CASES;
 
 /*  symbol classes  */
 
-#define UNKNOWN 0
-#define TERM 1
-#define NONTERM 2
-#define ACTION 3
-#define ARGUMENT 4
+typedef enum
+{
+    UNKNOWN = 0
+    ,TERM
+    ,NONTERM
+    ,ACTION
+    ,ARGUMENT
+}
+SYM_CASES;
 
 /*  the undefined value  */
 
@@ -151,9 +161,10 @@
 
 /*  character macros  */
 
-#define IS_IDENT(c)	(isalnum(c) || (c) == '_' || (c) == '.' || (c) == '$')
+#define IS_NAME1(c)	(isalpha(UCH(c)) || (c) == '_' || (c) == '$')
+#define IS_NAME2(c)	(isalnum(UCH(c)) || (c) == '_' || (c) == '$')
+#define IS_IDENT(c)	(isalnum(UCH(c)) || (c) == '_' || (c) == '.' || (c) == '$')
 #define	IS_OCTAL(c)	((c) >= '0' && (c) <= '7')
-#define	NUMERIC_VALUE(c)	((c) - '0')
 
 /*  symbol macros  */
 
@@ -206,7 +217,7 @@ struct bucket
 #if defined(YYBTYACC)
     char **argnames;
     char **argtags;
-    int  args;
+    int args;
     char *destructor;
 #endif
     Value_t value;
@@ -277,6 +288,7 @@ struct param
 
 /* global variables */
 
+extern char dflag2;
 extern char dflag;
 extern char gflag;
 extern char iflag;
@@ -312,12 +324,14 @@ extern const char *const hdr_defs[];
 extern const char *const hdr_vars[];
 extern const char *const body_1[];
 extern const char *const body_vars[];
+extern const char *const init_vars[];
 extern const char *const body_2[];
 extern const char *const body_3[];
 extern const char *const trailer[];
 
 extern char *code_file_name;
 extern char *input_file_name;
+extern size_t input_file_name_len;
 extern char *defines_file_name;
 extern char *externs_file_name;
 
@@ -414,6 +428,21 @@ extern param *parse_param;
 #endif
 #endif
 
+#ifdef __GNUC__
+#define ATTRIBUTE_NORETURN __attribute__((noreturn))
+#elif defined(_MSC_VER)
+#define ATTRIBUTE_NORETURN __declspec(noreturn)
+#else
+#define ATTRIBUTE_NORETURN
+#endif
+
+#if defined(NDEBUG) && defined(_MSC_VER)
+#define NODEFAULT   __assume(0);
+#else
+#define NODEFAULT
+#endif
+#define NOTREACHED	NODEFAULT
+
 #ifndef GCC_UNUSED
 #if defined(__unused)
 #define GCC_UNUSED		__unused
@@ -423,36 +452,49 @@ extern param *parse_param;
 #endif
 
 #ifndef GCC_PRINTFLIKE
-#define GCC_PRINTFLIKE(fmt,var) /*nothing*/
+#define GCC_PRINTFLIKE(fmt,var)	/*nothing */
 #endif
 
 /* closure.c */
-extern void closure(Value_t * nucleus, int n);
+extern void closure(Value_t *nucleus, int n);
 extern void finalize_closure(void);
 extern void set_first_derives(void);
 
 /* error.c */
+struct ainfo
+{
+    int a_lineno;
+    char *a_line;
+    char *a_cptr;
+};
+
 extern void arg_number_disagree_warning(int a_lineno, char *a_name);
 extern void arg_type_disagree_warning(int a_lineno, int i, char *a_name);
+ATTRIBUTE_NORETURN
 extern void at_error(int a_lineno, char *a_line, char *a_cptr) GCC_NORETURN;
 extern void at_warning(int a_lineno, int i);
+ATTRIBUTE_NORETURN
 extern void bad_formals(void) GCC_NORETURN;
-extern void default_action_warning(void);
-struct ainfo {
-	int a_lineno;
-	char *a_line;
-	char *a_cptr;
-};
+extern void default_action_warning(char *s);
 extern void destructor_redeclared_warning(const struct ainfo *);
+ATTRIBUTE_NORETURN
 extern void dollar_error(int a_lineno, char *a_line, char *a_cptr) GCC_NORETURN;
 extern void dollar_warning(int a_lineno, int i);
+ATTRIBUTE_NORETURN
 extern void fatal(const char *msg) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void illegal_character(char *c_cptr) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void illegal_tag(int t_lineno, char *t_line, char *t_cptr) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void missing_brace(void) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void no_grammar(void) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void no_space(void) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void open_error(const char *filename) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void over_unionized(char *u_cptr) GCC_NORETURN;
 extern void prec_redeclared(void);
 extern void reprec_warning(char *s);
@@ -460,25 +502,43 @@ extern void restarted_warning(void);
 extern void retyped_warning(char *s);
 extern void revalued_warning(char *s);
 extern void start_requires_args(char *a_name);
+ATTRIBUTE_NORETURN
 extern void syntax_error(int st_lineno, char *st_line, char *st_cptr) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void terminal_lhs(int s_lineno) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void terminal_start(char *s) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void tokenized_start(char *s) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void undefined_goal(char *s) GCC_NORETURN;
 extern void undefined_symbol_warning(char *s);
+ATTRIBUTE_NORETURN
 extern void unexpected_EOF(void) GCC_NORETURN;
-extern void unknown_arg_warning(int d_lineno, const char *dlr_opt, const char *d_arg, const char *d_line, const char *d_cptr);
+extern void unknown_arg_warning(int d_lineno, const char *dlr_opt,
+				const char *d_arg, const char *d_line,
+				const char *d_cptr);
+ATTRIBUTE_NORETURN
 extern void unknown_rhs(int i) GCC_NORETURN;
 extern void unsupported_flag_warning(const char *flag, const char *details);
-extern void unterminated_action(const struct ainfo *);
+ATTRIBUTE_NORETURN
+extern void unterminated_action(const struct ainfo *) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void unterminated_comment(const struct ainfo *) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void unterminated_string(const struct ainfo *) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void unterminated_text(const struct ainfo *) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void unterminated_union(const struct ainfo *) GCC_NORETURN;
 extern void untyped_arg_warning(int a_lineno, const char *dlr_opt, const char *a_name);
+ATTRIBUTE_NORETURN
 extern void untyped_lhs(void) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void untyped_rhs(int i, char *s) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void used_reserved(char *s) GCC_NORETURN;
+ATTRIBUTE_NORETURN
 extern void unterminated_arglist(const struct ainfo *) GCC_NORETURN;
 extern void wrong_number_args_warning(const char *which, const char *a_name);
 extern void wrong_type_for_arg_warning(int i, char *a_name);
@@ -498,6 +558,7 @@ extern void show_shifts(void);
 
 /* main.c */
 extern void *allocate(size_t n);
+ATTRIBUTE_NORETURN
 extern void done(int k) GCC_NORETURN;
 
 /* mkpar.c */
@@ -513,6 +574,7 @@ struct mstring
 extern void msprintf(struct mstring *, const char *, ...) GCC_PRINTFLIKE(2,3);
 extern int mputchar(struct mstring *, int);
 extern struct mstring *msnew(void);
+extern struct mstring *msrenew(char *);
 extern char *msdone(struct mstring *);
 extern int strnscmp(const char *, const char *);
 extern unsigned int strnshash(const char *);
@@ -526,6 +588,24 @@ extern void output(void);
 
 /* reader.c */
 extern void reader(void);
+
+typedef enum
+{
+    CODE_HEADER = 0
+    ,CODE_REQUIRES
+    ,CODE_PROVIDES
+    ,CODE_TOP
+    ,CODE_IMPORTS
+    ,CODE_MAX		/* this must be last */
+}
+CODE_CASES;
+extern struct code_lines
+{
+    const char *name;
+    char *lines;
+    size_t num;
+}
+code_lines[CODE_MAX];
 
 /* skeleton.c (generated by skel2c) */
 extern void write_section(FILE * fp, const char *const section[]);

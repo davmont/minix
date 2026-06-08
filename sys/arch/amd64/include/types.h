@@ -92,9 +92,13 @@ typedef	unsigned char		__cpu_simple_lock_nv_t;
 #define	__HAVE_INTR_CONTROL
 #define	__HAVE_MM_MD_OPEN
 #define	__HAVE___LWP_GETPRIVATE_FAST
-#if !defined(__minix)
+/*
+ * TLS (Variant II) is enabled on MINIX/amd64: ld.elf_so sets up each
+ * program's TCB and installs it into the %fs base via _lwp_setprivate()
+ * (a userland WRFSBASE, since CR4.FSGSBASE is enabled), and the kernel
+ * saves/restores the user %fs base across context switches.
+ */
 #define	__HAVE_TLS_VARIANT_II
-#endif /* !defined(__minix) */
 #define	__HAVE_COMMON___TLS_GET_ADDR
 
 #if defined(_KERNEL)

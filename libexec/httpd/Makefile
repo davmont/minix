@@ -62,6 +62,9 @@ CWARNFLAGS.gcc+=	-Wno-maybe-uninitialized
 
 LDADD+=	-lssl -lcrypto
 DPADD+=	${LIBSSL} ${LIBCRYPTO}
+# OpenSSL 3.0 deprecates ERR_func_error_string() and other 1.x APIs that
+# ssl-bozo.c still uses; don't let the deprecation warnings fail the build.
+COPTS.ssl-bozo.c+=	-Wno-error=deprecated-declarations
 
 .else
 

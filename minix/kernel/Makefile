@@ -26,6 +26,18 @@ CFLAGS+= -fno-common
 .endif
 LDFLAGS+= -T ${LINKERSCRIPT}
 LDFLAGS+= -nostdlib -L${DESTDIR}/usr/lib
+
+# Keep the multiboot header within the first 8 KB of the kernel file.  On x86
+# the default linker max-page-size is 2 MB, which pads the first PT_LOAD's
+# file offset out to 2 MB and pushes the .multiboot section (carrying the
+# 0x1BADB002 magic) far past the window multiboot loaders scan -- GRUB only
+# searches the first 8192 bytes, so a UEFI/GRUB boot fails with "no multiboot
+# header found".  Shrinking max-page-size to 4 KB changes only the ELF *file*
+# layout; segment load addresses (p_paddr/p_vaddr) are unchanged, so the
+# existing BIOS multiboot path is unaffected.
+.if ${MACHINE_ARCH} == "x86_64" || ${MACHINE_ARCH} == "i386"
+LDFLAGS+= -Wl,-z,max-page-size=0x1000
+.endif
 CFLAGS += -fno-stack-protector
 
 CPPFLAGS+= -D__kernel__ 

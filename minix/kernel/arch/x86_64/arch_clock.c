@@ -257,6 +257,16 @@ void context_stop(struct proc * p)
 	u64_t tsc, tsc_delta;
 	u64_t * __tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
 	unsigned int cpu, tpt, counter;
+
+	/*
+	 * Save the user %fs base (TLS thread pointer) of the process leaving the
+	 * CPU.  The kernel never modifies %fs base (it uses %gs/swapgs for
+	 * per-CPU state), so the register still holds this process's value;
+	 * restore_user_context() reloads it when the process is resumed.  Skip
+	 * the KERNEL pseudo-process.  No-op until userland actually uses TLS.
+	 */
+	if (use_fsgsbase && p != proc_addr(KERNEL))
+		p->p_seg.p_fsbase = read_fsbase();
 #ifdef CONFIG_SMP
 	int must_bkl_unlock = 0;
 
@@ -405,7 +415,42 @@ void context_stop_idle(void)
 	is_idle = get_cpu_var(cpu, cpu_is_idle);
 	get_cpu_var(cpu, cpu_is_idle) = 0;
 
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+	/*
+	 * Nested IPI path needs to process smp_sched_handler() WITH BKL —
+	 * the handler dequeues processes, and without serialization we
+	 * corrupt the run queue (BSP may be concurrently enqueuing).
+	 *
+	 * Two cases:
+	 *   - bkl_held_by_cpu[cpu] == 1: we were in kernel work holding BKL
+	 *     when IPI fired.  Calling context_stop(idle_proc) would
+	 *     BKL_LOCK an already-held lock and self-deadlock.  Account
+	 *     inline and call smp_sched_handler with already-held BKL.
+	 *   - bkl_held_by_cpu[cpu] == 0: we were halted in idle (idle drops
+	 *     BKL via context_stop(KERNEL) before halt_cpu).  Take BKL,
+	 *     account inline, process flags, release BKL.
+	 *
+	 * Either way the BKL state on return matches the state on entry,
+	 * so the trailing iretq lands in a context with consistent locking.
+	 */
+	{
+		struct proc *idle_p = get_cpulocal_var_ptr(idle_proc);
+		u64_t *__tsc_ctr_switch = get_cpulocal_var_ptr(tsc_ctr_switch);
+		u64_t tsc;
+		int held = bkl_held_by_cpu[cpu];
+
+		if (!held)
+			BKL_LOCK();
+		read_tsc_64(&tsc);
+		idle_p->p_cycles += tsc - *__tsc_ctr_switch;
+		*__tsc_ctr_switch = tsc;
+		smp_sched_handler();
+		if (!held)
+			BKL_UNLOCK();
+	}
+#else
 	context_stop(get_cpulocal_var_ptr(idle_proc));
+#endif
 
 	if (is_idle)
 		restart_local_timer();
@@ -480,6 +525,22 @@ void
 get_cpu_ticks(unsigned int cpu, uint64_t ticks[CPUSTATES])
 {
 	int i;
+
+	/*
+	 * tsc_per_tick[cpu] is populated when init_local_timer() runs on
+	 * that CPU.  For a CPU number that exists in the config (cpu <
+	 * CONFIG_MAX_CPUS — the only check the do_getinfo handler makes)
+	 * but is past ncpus or was never timer-initialised, the value is
+	 * still zero.  top(1) hits exactly this case by iterating over
+	 * CONFIG_MAX_CPUS in its sysctl(kern.cp_times) call — and the
+	 * unguarded divide previously panicked the kernel.  Return zeros
+	 * for uninitialised CPUs instead.
+	 */
+	if (tsc_per_tick[cpu] == 0) {
+		for (i = 0; i < CPUSTATES; i++)
+			ticks[i] = 0;
+		return;
+	}
 
 	/* TODO: make this inter-CPU safe! */
 	for (i = 0; i < CPUSTATES; i++)

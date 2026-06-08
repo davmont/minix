@@ -106,6 +106,16 @@ RAMDISK_INC_ACPI= 1
 PROGRAMS+=		acpi
 dir.acpi:=	minix/drivers/power/acpi
 .endif
+# Needed to boot on UEFI/q35-class machines, whose CD/disk is on a SATA
+# (AHCI) controller rather than legacy IDE.  See the 'ahci=yes' branch in rc.
+.if ${MKSMALL} != "yes"
+PROGRAMS+=		ahci
+dir.ahci:=	minix/drivers/storage/ahci
+# NVMe storage, for booting/mounting root from an NVMe disk.  See the
+# 'nvme=yes' / class 1/8/2 auto-detect branch in rc.
+PROGRAMS+=		nvme
+dir.nvme:=	minix/drivers/storage/nvme
+.endif
 .endif # ${MACHINE_ARCH} == "x86_64"
 
 .if ${MACHINE_ARCH} == "earm"

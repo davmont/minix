@@ -21,6 +21,11 @@ SUBDIR+=	.WAIT
 SUBDIR+=	libc
 SUBDIR+=	.WAIT
 
+# POSIX threads.  Built after libc (links against it) and installs <pthread.h>
+# et al.  MINIX gained the kernel/server _lwp_* support needed by libpthread.
+SUBDIR+=	libpthread
+SUBDIR+=	.WAIT
+
 .if defined(__MINIX)
 SUBDIR+=	../minix/lib/libasyn \
 		../minix/lib/libaudiodriver \
@@ -202,8 +207,6 @@ SUBDIR+=	libnpf		# depends on libprop
 SUBDIR+=	../crypto/external/bsd/openssl/lib # depends on libcrypt
 .endif
 
-SUBDIR+=	../external/bsd/file/lib	# depends on libz
-
 .if (${MKISCSI} != "no")
 SUBDIR+=	../external/bsd/iscsi/lib	# depends on libpthread
 .endif
@@ -238,6 +241,12 @@ SANITIZER_DIR=../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libasan
 #SUBDIR+=	${SANITIZER_DIR}
 .endif
 
+# file/lib (libmagic) links liblzma via DPLIBS (see file/Makefile.inc), so like
+# libarchive it must be built after xz/lib.  It used to sit in the same parallel
+# .WAIT group as xz/lib, which races on a clean build (cleandir wipes the objdir
+# liblzma.a before file/lib's dependall finds it -> "don't know how to make
+# liblzma.a").  Place it after the 2nd dependency barrier instead.
+SUBDIR+=	../external/bsd/file/lib		# depends on libz, libxz
 SUBDIR+=	../external/bsd/libarchive/lib	# depends on libxz
 
 .if (${MKNPF} != "no")
@@ -282,7 +291,9 @@ SUBDIR+=	../external/bsd/openldap/lib	# depends on libcrypto, ...
 #==================== 3rd library dependency barrier ====================
 SUBDIR+=	.WAIT
 
-SUBDIR+=	../external/bsd/bind/lib	# depends on heimdal, libcrypto
+SUBDIR+=	../external/mit/libuv/lib	# BIND 9.18 netmgr; depends on libpthread
+SUBDIR+=	.WAIT
+SUBDIR+=	../external/mpl/bind/lib	# BIND 9.18; depends on libcrypto, libuv
 
 .if ${MKDTRACE} != "no"
 SUBDIR+=        ../external/cddl/osnet/lib/libdtrace	# depends on libproc

@@ -124,6 +124,7 @@ int	_sched_getaffinity(pid_t, lwpid_t, size_t, cpuset_t *);
 int	_sched_setaffinity(pid_t, lwpid_t, size_t, const cpuset_t *);
 int	_sched_getparam(pid_t, lwpid_t, int *, struct sched_param *);
 int	_sched_setparam(pid_t, lwpid_t, int, const struct sched_param *);
+int	_sched_protect(int);
 __END_DECLS
 
 /*

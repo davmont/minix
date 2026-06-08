@@ -1,13 +1,13 @@
-/*	$NetBSD: main.c,v 1.11 2015/01/04 01:34:20 christos Exp $	*/
+/*	$NetBSD: main.c,v 1.20 2021/02/21 00:36:06 christos Exp $	*/
 
 #include "defs.h"
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: main.c,v 1.11 2015/01/04 01:34:20 christos Exp $");
-/* Id: main.c,v 1.54 2014/10/06 22:40:07 tom Exp  */
+__RCSID("$NetBSD: main.c,v 1.20 2021/02/21 00:36:06 christos Exp $");
+/* Id: main.c,v 1.70 2020/09/10 17:32:55 tom Exp  */
 
 #include <signal.h>
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(__MINGW32__)
 #include <unistd.h>		/* for _exit() */
 #else
 #include <stdlib.h>		/* for _exit() */
@@ -38,6 +38,7 @@ static MY_TMPFILES *my_tmpfiles;
 #endif /* USE_MKSTEMP */
 
 char dflag;
+char dflag2;
 char gflag;
 char iflag;
 char lflag;
@@ -53,14 +54,14 @@ const char *myname = "yacc";
 int lineno;
 int outline;
 
-static char empty_string[] = "";
 static char default_file_prefix[] = "y";
 static int explicit_file_name;
 
 static char *file_prefix = default_file_prefix;
 
 char *code_file_name;
-char *input_file_name = empty_string;
+char *input_file_name;
+size_t input_file_name_len = 0;
 char *defines_file_name;
 char *externs_file_name;
 
@@ -156,7 +157,7 @@ done(int k)
     if (rflag)
 	DO_FREE(code_file_name);
 
-    if (dflag)
+    if (dflag && !dflag2)
 	DO_FREE(defines_file_name);
 
     if (iflag)
@@ -216,6 +217,7 @@ usage(void)
 	,"  -b file_prefix        set filename prefix (default \"y.\")"
 	,"  -B                    create a backtracking parser"
 	,"  -d                    write definitions (" DEFINES_SUFFIX ")"
+	,"  -H defines_file       write definitions to defines_file"
 	,"  -i                    write interface (y.tab.i)"
 	,"  -g                    write a graphical description"
 	,"  -l                    suppress #line directives"
@@ -236,7 +238,7 @@ usage(void)
     for (n = 0; n < sizeof(msg) / sizeof(msg[0]); ++n)
 	fprintf(stderr, "%s\n", msg[n]);
 
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 static void
@@ -254,6 +256,7 @@ setflag(int ch)
 
     case 'd':
 	dflag = 1;
+	dflag2 = 0;
 	break;
 
     case 'g':
@@ -272,7 +275,7 @@ setflag(int ch)
 #if defined(YYBTYACC)
 	locations = 1;
 #else
-	unsupported_flag_warning("-B", "reconfigure with --enable-btyacc");
+	unsupported_flag_warning("-L", "reconfigure with --enable-btyacc");
 #endif
 	break;
 
@@ -314,6 +317,47 @@ static void
 getargs(int argc, char *argv[])
 {
     int i;
+#ifdef HAVE_GETOPT
+    int ch;
+
+    if (argc > 0)
+	myname = argv[0];
+
+    while ((ch = getopt(argc, argv, "Bb:dgH:ilLo:Pp:rstVvy")) != -1)
+    {
+	switch (ch)
+	{
+	case 'b':
+	    file_prefix = optarg;
+	    break;
+	case 'H':
+	    dflag = dflag2 = 1;
+	    defines_file_name = optarg;
+	    break;
+	case 'o':
+	    output_file_name = optarg;
+	    explicit_file_name = 1;
+	    break;
+	case 'p':
+	    symbol_prefix = optarg;
+	    break;
+	default:
+	    setflag(ch);
+	    break;
+	}
+    }
+    if ((i = optind) < argc)
+    {
+	/* getopt handles "--" specially, while we handle "-" specially */
+	if (!strcmp(argv[i], "-"))
+	{
+	    if ((i + 1) < argc)
+		usage();
+	    input_file = stdin;
+	    return;
+	}
+    }
+#else
     char *s;
     int ch;
 
@@ -342,6 +386,16 @@ getargs(int argc, char *argv[])
 		file_prefix = s;
 	    else if (++i < argc)
 		file_prefix = argv[i];
+	    else
+		usage();
+	    continue;
+
+	case 'H':
+	    dflag = dflag2 = 1;
+	    if (*++s)
+		defines_file_name = s;
+	    else if (++i < argc)
+		defines_file_name = argv[i];
 	    else
 		usage();
 	    continue;
@@ -385,10 +439,15 @@ getargs(int argc, char *argv[])
       end_of_option:;
     }
 
-  no_more_options:;
+  no_more_options:
+
+#endif /* HAVE_GETOPT */
     if (i + 1 != argc)
 	usage();
-    input_file_name = argv[i];
+    input_file_name_len = strlen(argv[i]);
+    input_file_name = TMALLOC(char, input_file_name_len + 1);
+    NO_SPACE(input_file_name);
+    strcpy(input_file_name, argv[i]);
 }
 
 void *
@@ -419,32 +478,46 @@ alloc_file_name(size_t len, const char *suffix)
     return result;
 }
 
+static char *
+find_suffix(char *name, const char *suffix)
+{
+    size_t len = strlen(name);
+    size_t slen = strlen(suffix);
+    if (len >= slen)
+    {
+	name += len - slen;
+	if (strcmp(name, suffix) == 0)
+	    return name;
+    }
+    return NULL;
+}
+
 static void
 create_file_names(void)
 {
     size_t len;
     const char *defines_suffix;
     const char *externs_suffix;
-    char *prefix;
+    char *suffix;
 
-    prefix = NULL;
+    suffix = NULL;
     defines_suffix = DEFINES_SUFFIX;
     externs_suffix = EXTERNS_SUFFIX;
 
     /* compute the file_prefix from the user provided output_file_name */
     if (output_file_name != 0)
     {
-	if (!(prefix = strstr(output_file_name, OUTPUT_SUFFIX))
-	    && (prefix = strstr(output_file_name, ".c")))
+	if (!(suffix = find_suffix(output_file_name, OUTPUT_SUFFIX))
+	    && (suffix = find_suffix(output_file_name, ".c")))
 	{
 	    defines_suffix = ".h";
 	    externs_suffix = ".i";
 	}
     }
 
-    if (prefix != NULL)
+    if (suffix != NULL)
     {
-	len = (size_t) (prefix - output_file_name);
+	len = (size_t) (suffix - output_file_name);
 	file_prefix = TMALLOC(char, len + 1);
 	NO_SPACE(file_prefix);
 	strncpy(file_prefix, output_file_name, len)[len] = 0;
@@ -466,27 +539,27 @@ create_file_names(void)
     else
 	code_file_name = output_file_name;
 
-    if (dflag)
+    if (dflag && !dflag2)
     {
 	if (explicit_file_name)
 	{
-	    char *suffix;
+	    char *xsuffix;
 	    defines_file_name = strdup(output_file_name);
 	    if (defines_file_name == 0)
 		no_space();
 	    /* does the output_file_name have a known suffix */
-            suffix = strrchr(output_file_name, '.');
-            if (suffix != 0 &&
-		(!strcmp(suffix, ".c") ||   /* good, old-fashioned C */
-                 !strcmp(suffix, ".C") ||   /* C++, or C on Windows */
-                 !strcmp(suffix, ".cc") ||  /* C++ */
-                 !strcmp(suffix, ".cxx") || /* C++ */
-                 !strcmp(suffix, ".cpp")))  /* C++ (Windows) */
+            xsuffix = strrchr(output_file_name, '.');
+            if (xsuffix != 0 &&
+		(!strcmp(xsuffix, ".c") ||   /* good, old-fashioned C */
+                 !strcmp(xsuffix, ".C") ||   /* C++, or C on Windows */
+                 !strcmp(xsuffix, ".cc") ||  /* C++ */
+                 !strcmp(xsuffix, ".cxx") || /* C++ */
+                 !strcmp(xsuffix, ".cpp")))  /* C++ (Windows) */
             {
                 strncpy(defines_file_name, output_file_name,
-                        suffix - output_file_name + 1);
-                defines_file_name[suffix - output_file_name + 1] = 'h';
-                defines_file_name[suffix - output_file_name + 2] = 0;
+                        xsuffix - output_file_name + 1);
+                defines_file_name[xsuffix - output_file_name + 1] = 'h';
+                defines_file_name[xsuffix - output_file_name + 2] = 0;
             } else {
                 fprintf(stderr,"%s: suffix of output file name %s"
                                " not recognized, no -d file generated.\n",
@@ -515,7 +588,7 @@ create_file_names(void)
 	CREATE_FILE_NAME(graph_file_name, GRAPH_SUFFIX);
     }
 
-    if (prefix != NULL)
+    if (suffix != NULL)
     {
 	FREE(file_prefix);
     }
@@ -589,14 +662,14 @@ my_mkstemp(char *temp)
 static FILE *
 open_tmpfile(const char *label)
 {
+#define MY_FMT "%s/%.*sXXXXXX"
     FILE *result;
 #if USE_MKSTEMP
-    int fd;
     const char *tmpdir;
     char *name;
-    const char *mark;
 
-    if ((tmpdir = getenv("TMPDIR")) == 0 || access(tmpdir, W_OK) != 0)
+    if (((tmpdir = getenv("TMPDIR")) == 0 || access(tmpdir, W_OK) != 0) ||
+	((tmpdir = getenv("TEMP")) == 0 || access(tmpdir, W_OK) != 0))
     {
 #ifdef P_tmpdir
 	tmpdir = P_tmpdir;
@@ -607,39 +680,47 @@ open_tmpfile(const char *label)
 	    tmpdir = ".";
     }
 
-    name = malloc(strlen(tmpdir) + 10 + strlen(label));
+    /* The size of the format is guaranteed to be longer than the result from
+     * printing empty strings with it; this calculation accounts for the
+     * string-lengths as well.
+     */
+    name = malloc(strlen(tmpdir) + sizeof(MY_FMT) + strlen(label));
 
     result = 0;
     if (name != 0)
     {
+	int fd;
+	const char *mark;
+
 	mode_t save_umask = umask(0177);
 
 	if ((mark = strrchr(label, '_')) == 0)
 	    mark = label + strlen(label);
 
-	sprintf(name, "%s/%.*sXXXXXX", tmpdir, (int)(mark - label), label);
+	sprintf(name, MY_FMT, tmpdir, (int)(mark - label), label);
 	fd = mkstemp(name);
-	if (fd >= 0)
+	if (fd >= 0
+	    && (result = fdopen(fd, "w+")) != 0)
 	{
-	    result = fdopen(fd, "w+");
-	    if (result != 0)
+	    MY_TMPFILES *item;
+
+	    if (my_tmpfiles == 0)
 	    {
-		MY_TMPFILES *item;
-
-		if (my_tmpfiles == 0)
-		{
-		    atexit(close_tmpfiles);
-		}
-
-		item = NEW(MY_TMPFILES);
-		NO_SPACE(item);
-
-		item->name = name;
-		NO_SPACE(item->name);
-
-		item->next = my_tmpfiles;
-		my_tmpfiles = item;
+		atexit(close_tmpfiles);
 	    }
+
+	    item = NEW(MY_TMPFILES);
+	    NO_SPACE(item);
+
+	    item->name = name;
+	    NO_SPACE(item->name);
+
+	    item->next = my_tmpfiles;
+	    my_tmpfiles = item;
+	}
+	else
+	{
+	    FREE(name);
 	}
 	(void)umask(save_umask);
     }
@@ -650,6 +731,7 @@ open_tmpfile(const char *label)
     if (result == 0)
 	open_error(label);
     return result;
+#undef MY_FMT
 }
 
 static void
@@ -691,7 +773,7 @@ open_files(void)
 	fprintf(graph_file, "\t*/\n");
     }
 
-    if (dflag)
+    if (dflag || dflag2)
     {
 	defines_file = fopen(defines_file_name, "w");
 	if (defines_file == 0)

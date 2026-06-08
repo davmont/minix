@@ -1,17 +1,18 @@
-#	$NetBSD: rand.inc,v 1.1 2009/07/19 23:30:44 christos Exp $
-#
-#	@(#) Copyright (c) 1995 Simon J. Gerraty
-#
-#	SRCS extracted from src/crypto/dist/openssl/crypto/rand/Makefile
-#
+#	$NetBSD: rand.inc,v 1.4.10.1 2023/08/11 13:41:55 martin Exp $
 
 .PATH:	${OPENSSLSRC}/crypto/rand
 
+RAND_SRCS += \
+prov_seed.c \
+rand_deprecated.c \
+rand_err.c \
+rand_lib.c \
+rand_meth.c \
+rand_pool.c \
+randfile.c \
 
-RAND_SRCS = md_rand.c randfile.c rand_lib.c rand_err.c rand_egd.c \
-	rand_win.c rand_unix.c rand_os2.c
 SRCS += ${RAND_SRCS}
 
 .for cryptosrc in ${RAND_SRCS}
-CPPFLAGS.${cryptosrc} = -I${OPENSSLSRC}/crypto/rand
+CPPFLAGS.${cryptosrc} += -I${OPENSSLSRC}/crypto/rand ${RANDCPPFLAGS}
 .endfor

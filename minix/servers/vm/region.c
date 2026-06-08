@@ -1110,7 +1110,15 @@ int map_unmap_region(struct vmproc *vmp, struct vir_region *r,
 		USE(r,
 		r->vaddr += len;);
 
-		remslots = phys_slot(r->length);
+		/*
+		 * Number of phys_region slots that survive the front shrink.
+		 * r->length is still the pre-shrink length here, so subtract
+		 * the freed slots; using phys_slot(r->length) would make the
+		 * memmove below over-read the physblocks array by 'freeslots'
+		 * entries (harmless for 1-page unmaps, but corrupts the heap
+		 * for large front trims, e.g. jemalloc's aligned-chunk trim).
+		 */
+		remslots = phys_slot(r->length) - freeslots;
 
 		region_insert(&vmp->vm_regions_avl, r);
 

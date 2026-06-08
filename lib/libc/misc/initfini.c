@@ -101,15 +101,25 @@ _libc_init(void)
 	__libc_atomic_init();
 #endif /* defined(__minix) && defined(_REENTRANT) */
 
-#if defined(__HAVE_TLS_VARIANT_I) || defined(__HAVE_TLS_VARIANT_II)
-	/* Initialize TLS for statically linked programs. */
+#if (defined(__HAVE_TLS_VARIANT_I) || defined(__HAVE_TLS_VARIANT_II)) && \
+    !defined(_LIBMINC)
+	/* Initialize TLS for statically linked programs.  Skipped for libminc,
+	 * the minimal server/driver libc, which has no TLS support. */
 	__libc_static_tls_setup();
 #endif
 
-#if defined(__minix) && defined(_REENTRANT)
-	/* Threads */
+#if defined(__minix) && !defined(_LIBMINC)
+	/*
+	 * Threads.  Call unconditionally (for the full libc): __libc_thr_init
+	 * resolves to libc's weak no-op stub for non-threaded programs, and to
+	 * libpthread's pthread__init (which clears __uselibcstub) when -lpthread
+	 * is linked.  Gating this on _REENTRANT was wrong: libc is not built
+	 * _REENTRANT, so the call vanished and pthread_create fell through to the
+	 * libc stub, which raise(SIGABRT)s.  Skipped for libminc, which provides
+	 * no thread layer.
+	 */
 	__libc_thr_init();
-#endif /* defined(__minix) && defined(_REENTRANT) */
+#endif /* defined(__minix) && !defined(_LIBMINC) */
 
 	/* Initialize the atexit mutexes */
 	__libc_atexit_init();

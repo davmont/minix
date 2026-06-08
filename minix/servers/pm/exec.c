@@ -194,7 +194,9 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 	}
 
 	/* Call kernel to exec with SP and PC set by VFS. */
-	r = sys_exec(rmp->mp_endpoint, sp, (vir_bytes)rmp->mp_name, pc, ps_str);
+	r = sys_exec(rmp->mp_endpoint, sp, (vir_bytes)rmp->mp_name, pc, ps_str,
+		(vir_bytes) 0 /* tlsbase: ld.elf_so installs the TCB */,
+		(vir_bytes) 0 /* arg: entry takes args from the stack */);
 	if (r != OK) panic("sys_exec failed: %d", r);
 }
 

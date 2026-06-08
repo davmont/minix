@@ -1,8 +1,4 @@
-#ifndef OHASH_H
-#define OHASH_H
-/* $OpenBSD: ohash.h,v 1.9 2006/01/16 15:52:25 espie Exp $ */
-/* ex:ts=8 sw=4: 
- */
+/* $OpenBSD: ohash.h,v 1.2 2014/06/02 18:52:03 deraadt Exp $ */
 
 /* Copyright (c) 1999, 2004 Marc Espie <espie@openbsd.org>
  *
@@ -19,21 +15,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifndef OHASH_H
+#define OHASH_H
+
 /* Open hashing support. 
  * Open hashing was chosen because it is much lighter than other hash
  * techniques, and more efficient in most cases.
  */
 
+/* user-visible data structure */
 struct ohash_info {
 	ptrdiff_t key_offset;
 	void *data;	/* user data */
-	void *(*halloc)(size_t, void *);
-	void (*hfree)(void *, size_t, void *);
+	void *(*calloc)(size_t, size_t, void *);
+	void (*free)(void *, void *);
 	void *(*alloc)(size_t, void *);
 };
 
 struct _ohash_record;
 
+/* private structure. It's there just so you can do a sizeof */
 struct ohash {
 	struct _ohash_record 	*t;
 	struct ohash_info 	info;
@@ -48,15 +49,13 @@ struct ohash {
  * a hashing table index (opaque) to be used in find/insert/remove.
  * The keys are stored at a known position in the client data.
  */
-__BEGIN_DECLS
 void ohash_init(struct ohash *, unsigned, struct ohash_info *);
 void ohash_delete(struct ohash *);
 
 unsigned int ohash_lookup_interval(struct ohash *, const char *,
 	    const char *, uint32_t);
 unsigned int ohash_lookup_memory(struct ohash *, const char *,
-	    size_t, uint32_t)
-		__attribute__ ((__bounded__(__string__,2,3)));
+	    size_t, uint32_t);
 void *ohash_find(struct ohash *, unsigned int);
 void *ohash_remove(struct ohash *, unsigned int);
 void *ohash_insert(struct ohash *, unsigned int, void *);
@@ -69,5 +68,5 @@ uint32_t ohash_interval(const char *, const char **);
 
 unsigned int ohash_qlookupi(struct ohash *, const char *, const char **);
 unsigned int ohash_qlookup(struct ohash *, const char *);
-__END_DECLS
+
 #endif

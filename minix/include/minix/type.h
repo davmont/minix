@@ -205,6 +205,14 @@ struct arm_frclock {
 struct kuserinfo {
 	size_t kui_size;	/* size of this structure, for ABI testing */
 	vir_bytes kui_user_sp;	/* initial stack pointer for exec'd process */
+	/* IPC fastpath instrumentation (Phase B): caller-side kernel-time
+	 * cycle accumulators, separated by path taken in do_ipc. */
+	u64_t kui_ipcf_xcpu_cycles;
+	u64_t kui_ipcf_xcpu_count;
+	u64_t kui_ipcf_same_cpu_cycles;
+	u64_t kui_ipcf_same_cpu_count;
+	u64_t kui_ipcf_slow_cycles;
+	u64_t kui_ipcf_slow_count;
 };
 
 /* If MINIX_KIF_USERINFO is set, use this to check for a particular field. */

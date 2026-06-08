@@ -215,13 +215,15 @@ static int sef_cb_init_fresh(int type, sef_init_info_t *UNUSED(info))
   /* Find the PCI device to use. If none found, terminate immediately. */
   devind = w_probe(skip, &vid, &did);
   if (devind < 0) {
-	/* For now, complain only if even the first at_wini instance cannot
-	 * find a device. There may be only one IDE controller after all,
-	 * but if there are none, the system should probably be booted with
-	 * another driver, and that's something the user might want to know.
+	/* No (more) IDE controller.  This is normal on modern UEFI/q35-class
+	 * machines that have only AHCI/SATA: exit cleanly with ENODEV so the
+	 * service manager / CD-boot probe can fall through to another storage
+	 * driver, rather than panicking and taking the boot down.  (A missing
+	 * controller is a configuration fact, not a driver fault.)
 	 */
 	if (w_instance == 0)
-		panic("no matching device found");
+		printf("at_wini: no IDE controller found; "
+		    "leaving disks to another driver\n");
 	return ENODEV;	/* the actual error code doesn't matter */
   }
 

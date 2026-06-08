@@ -8,11 +8,16 @@ _MAKEFILE_OPENSSL_INCLUDED=1
 OPENSSLSRC=	${CRYPTODIST}/external/bsd/openssl/dist
 CPPFLAGS+=	-DOPENSSLDIR=\"/etc/openssl\"
 CPPFLAGS+=	-DENGINESDIR=\"/usr/lib/openssl\"
-CPPFLAGS+=	-DDSO_DLFCN -DHAVE_DLFCN_H
+CPPFLAGS+=	-DMODULESDIR=\"/usr/lib/openssl/modules\"
+# OpenSSL 3.0 sets DSO_DLFCN/HAVE_DLFCN_H itself via crypto/dso_conf.h;
+# don't double-define them here.
 
 .if defined(__MINIX)
 CPPFLAGS+=	-DOPENSSL_NO_SCTP
 CPPFLAGS+=	-DOPENSSL_DISABLE_OLD_DES_SUPPORT
+# MINIX libc lacks mprotect()/mlock(); the secure-memory facility
+# (mem_sec.c) needs them.  Compile it as a no-op.
+CPPFLAGS+=	-DOPENSSL_NO_SECURE_MEMORY
 .endif # defined(__MINIX)
 
 .endif

@@ -64,8 +64,6 @@ lib/libc/compat__*
 build.log
 build_tail.txt
 makefs.log
-minix_x86.iso
-minix_x86.img
 .vscode
 .claude
 # tools/compat generated headers (copied from sys/ at build time via include/.stamp)
@@ -93,8 +91,6 @@ vers.c
 i386
 machine
 x86
-minix_amd64.iso
-minix_amd64.iso.bak
 machines.lo.o
 
 # Bootxx build artifacts
@@ -129,3 +125,11 @@ boot/minix/.temp/mod09_vm
 boot/minix/.temp/mod10_pfs
 boot/minix/.temp/mod11_mfs
 boot/minix/.temp/mod12_init
+
+# Locally-built release / boot media.  The releasetools/*image.sh scripts write
+# these to the repo root; they are large artifacts and must never be committed.
+# Blanket patterns (rather than per-name entries) so newly-named images are
+# covered too.
+/minix_*.iso
+/minix_*.iso.bak
+/minix_*.img

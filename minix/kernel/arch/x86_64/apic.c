@@ -125,6 +125,21 @@ struct irq {
 static struct irq io_apic_irq[NR_IRQ_VECTORS];
 
 /*
+ * MSI / MSI-X support.  These message-signalled interrupts do not come in
+ * through an IO-APIC pin; the device writes a chosen (address, data) pair that
+ * the Local APIC turns into a vector.  We allocate a free "irq number" from the
+ * range [MSI_IRQ_BASE, NR_IRQ_VECTORS) -- above the IO-APIC GSIs (which start at
+ * gsi_base 0) -- whose IDT vector LAPIC_VECTOR(irq) is already installed
+ * (apic_hwint0..N).  Delivery then reuses the normal irq_handle() path; only the
+ * EOI (plain LAPIC EOI, edge-triggered) and the masking (none -- the device's
+ * MSI-X table, owned by the driver, is the moral equivalent of the redirection
+ * entry) differ, which the msi_irq[] guards below handle.
+ */
+#define MSI_IRQ_BASE	32	/* IO-APIC GSIs live below this */
+#define MSI_ADDR_BASE	0xfee00000U	/* LAPIC message address base */
+static char msi_irq[NR_IRQ_VECTORS];	/* nonzero => this irq is an MSI */
+
+/*
  * to make APIC work if SMP is not configured, we need to set the maximal number
  * of CPUS to 1, cpuid to return 0 and the current cpu is always BSP
  */
@@ -384,6 +399,12 @@ static void ioapic_eoi_edge(__unused struct irq * irq)
 
 void ioapic_eoi(int irq)
 {
+	/* MSI interrupts are edge-triggered and acknowledged with a plain
+	 * LAPIC EOI; there is no IO-APIC redirection entry to touch. */
+	if (msi_irq[irq]) {
+		apic_eoi();
+		return;
+	}
 	if (ioapic_enabled) {
 		io_apic_irq[irq].eoi(&io_apic_irq[irq]);
 	}
@@ -484,6 +505,11 @@ static void ioapic_enable_irq(unsigned irq)
 
 void ioapic_unmask_irq(unsigned irq)
 {
+	/* No per-vector hardware mask reachable from the kernel for MSI (the
+	 * MSI-X table lives in a device BAR owned by the driver).  MSI is
+	 * edge-triggered, so the software irq_actids gating is sufficient. */
+	if (msi_irq[irq])
+		return;
 	if (ioapic_enabled)
 		ioapic_enable_irq(irq);
 	else
@@ -493,6 +519,8 @@ void ioapic_unmask_irq(unsigned irq)
 
 void ioapic_mask_irq(unsigned irq)
 {
+	if (msi_irq[irq])
+		return;
 	if (ioapic_enabled)
 		ioapic_disable_irq(irq);
 	else
@@ -1427,6 +1455,11 @@ void ioapic_set_irq(unsigned irq)
 
 	assert(irq < NR_IRQ_VECTORS);
 
+	/* MSI irqs have no IO-APIC pin; their delivery state was set up by
+	 * ioapic_alloc_msi().  Nothing to program here. */
+	if (msi_irq[irq])
+		return;
+
 	/* shared irq, already set */
 	if (io_apic_irq[irq].ioa && io_apic_irq[irq].eoi)
 		return;
@@ -1459,9 +1492,64 @@ void ioapic_unset_irq(unsigned irq)
 {
 	assert(irq < NR_IRQ_VECTORS);
 
+	/* MSI irqs are released through ioapic_free_msi(). */
+	if (msi_irq[irq]) {
+		ioapic_free_msi(irq);
+		return;
+	}
+
 	ioapic_disable_irq(irq);
 	io_apic_irq[irq].ioa = NULL;
 	io_apic_irq[irq].eoi = NULL;
+}
+
+/*
+ * Allocate a free MSI/MSI-X vector and return the (address, data) pair the
+ * device must be programmed with to raise it.  The vector is wired into the
+ * normal irq_handle() path under the returned irq number, so the caller of the
+ * SYS_IRQCTL/IRQ_SETPOLICY_MSI kernel call installs a hook on *out_irq exactly
+ * as it would for a legacy line.  Returns OK or a negative-free errno.
+ */
+int ioapic_alloc_msi(int *out_irq, u32_t *out_addr, u32_t *out_data)
+{
+	int irq;
+
+	/* MSI needs the LAPIC; in pure 8259 mode there is nowhere to deliver. */
+	if (!ioapic_enabled)
+		return EINVAL;
+
+	for (irq = MSI_IRQ_BASE; irq < NR_IRQ_VECTORS; irq++) {
+		if (!msi_irq[irq] && io_apic_irq[irq].ioa == NULL &&
+				io_apic_irq[irq].eoi == NULL)
+			break;
+	}
+	if (irq >= NR_IRQ_VECTORS)
+		return ENOSPC;
+
+	msi_irq[irq] = 1;
+	io_apic_irq[irq].ioa = NULL;		/* not an IO-APIC pin */
+	io_apic_irq[irq].pin = 0;
+	io_apic_irq[irq].vector = LAPIC_VECTOR(irq);
+	io_apic_irq[irq].eoi = ioapic_eoi_edge;	/* plain LAPIC EOI */
+	io_apic_irq[irq].state = 0;
+
+	/* MSI message: address selects the destination LAPIC (physical mode,
+	 * routed to the BSP), data carries the vector with fixed delivery and
+	 * edge trigger (the zero bits). */
+	*out_addr = MSI_ADDR_BASE | ((u32_t) bsp_lapic_id << 12);
+	*out_data = LAPIC_VECTOR(irq);
+	*out_irq = irq;
+	return OK;
+}
+
+void ioapic_free_msi(int irq)
+{
+	assert(irq >= 0 && irq < NR_IRQ_VECTORS);
+	msi_irq[irq] = 0;
+	io_apic_irq[irq].ioa = NULL;
+	io_apic_irq[irq].eoi = NULL;
+	io_apic_irq[irq].vector = 0;
+	io_apic_irq[irq].state = 0;
 }
 
 void ioapic_reset_pic(void)

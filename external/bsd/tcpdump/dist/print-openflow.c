@@ -30,20 +30,25 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define NETDISSECT_REWORKED
+#include <sys/cdefs.h>
+#ifndef lint
+__RCSID("$NetBSD: print-openflow.c,v 1.4 2019/10/01 16:06:16 christos Exp $");
+#endif
+
+/* \summary: version-independent OpenFlow printer */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <tcpdump-stdinc.h>
+#include <netdissect-stdinc.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 #include "openflow.h"
 #include "oui.h"
 
 static const char tstr[] = " [|openflow]";
-static const char cstr[] = " (corrupt)";
 
 #define OF_VER_1_0    0x01
 
@@ -83,7 +88,7 @@ of_header_body_print(netdissect_options *ndo, const u_char *cp, const u_char *ep
 	uint32_t xid;
 
 	if (ep < cp + OF_HEADER_LEN)
-		goto corrupt;
+		goto invalid;
 	/* version */
 	ND_TCHECK2(*cp, 1);
 	version = *cp;
@@ -107,7 +112,7 @@ of_header_body_print(netdissect_options *ndo, const u_char *cp, const u_char *ep
 	 * segment. */
 	if (length < OF_HEADER_LEN) {
 		of_header_print(ndo, version, type, length, xid);
-		goto corrupt;
+		goto invalid;
 	}
 	/* Decode known protocol versions further without printing the header (the
 	 * type decoding is version-specific. */
@@ -120,8 +125,8 @@ of_header_body_print(netdissect_options *ndo, const u_char *cp, const u_char *ep
 		return cp + length - OF_HEADER_LEN; /* done with current message */
 	}
 
-corrupt: /* fail current packet */
-	ND_PRINT((ndo, "%s", cstr));
+invalid: /* fail current packet */
+	ND_PRINT((ndo, "%s", istr));
 	ND_TCHECK2(*cp, ep - cp);
 	return ep;
 trunc:
@@ -132,11 +137,9 @@ trunc:
 /* Print a TCP segment worth of OpenFlow messages presuming the segment begins
  * on a message boundary. */
 void
-openflow_print(netdissect_options *ndo, const u_char *cp, const u_int len)
+openflow_print(netdissect_options *ndo, const u_char *cp, const u_int len _U_)
 {
-	const u_char *ep = cp + len;
-
 	ND_PRINT((ndo, ": OpenFlow"));
-	while (cp < ep)
-		cp = of_header_body_print(ndo, cp, ep);
+	while (cp < ndo->ndo_snapend)
+		cp = of_header_body_print(ndo, cp, ndo->ndo_snapend);
 }

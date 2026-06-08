@@ -18,7 +18,11 @@
 # actually call the Hesiod functions, put -DHESIOD on the CPPFLAGS line below.
 .if defined(__MINIX)
 MKYP=no #requires RPC
-USE_JEMALLOC=no
+# Use the modern jemalloc allocator (USE_JEMALLOC defaults to "yes" in
+# bsd.own.mk) on all MINIX architectures.  The historical phkmalloc
+# (stdlib/malloc.c) mis-handles certain large reallocations on amd64 (LP64),
+# handing out a page past the process break; jemalloc avoids that class of bug
+# and is the maintained NetBSD default.  Set USE_JEMALLOC=no to fall back.
 USE_FORT=no
 USE_LIBTRE=no
 

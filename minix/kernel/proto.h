@@ -204,6 +204,11 @@ void cpu_enable_features(void);
 /* P2.1 / P2.4 feature flags — set by cpu_enable_features() on each CPU */
 extern int use_fsgsbase;
 extern int use_pcid;
+#if defined(__x86_64__)
+/* amd64 FSGSBASE helpers (klib.S); only valid when use_fsgsbase != 0 */
+reg_t read_fsbase(void);
+void write_fsbase(reg_t base);
+#endif
 /* arch dependent FPU initialization per CPU */
 void   fpu_init(void);
 size_t fpu_get_save_size(void);
@@ -226,7 +231,7 @@ int vm_contiguous(const struct proc *targetproc, vir_bytes vir_buf,
 	size_t count);
 void proc_stacktrace(struct proc *proc);
 int vm_lookup(const struct proc *proc, vir_bytes virtual, phys_bytes
-	*result, u32_t *ptent);
+	*result, u64_t *ptent);
 size_t vm_lookup_range(const struct proc *proc,
        vir_bytes vir_addr, phys_bytes *phys_addr, size_t bytes);
 void arch_do_syscall(struct proc *proc);

@@ -30,7 +30,7 @@ int _kernel_call(int syscallnr, message *msgptr);
 int sys_abort(int how);
 int sys_enable_iop(endpoint_t proc_ep);
 int sys_exec(endpoint_t proc_ep, vir_bytes stack_ptr, vir_bytes progname,
-	vir_bytes pc, vir_bytes ps_str);
+	vir_bytes pc, vir_bytes ps_str, vir_bytes tlsbase, vir_bytes arg);
 int sys_fork(endpoint_t parent, endpoint_t child, endpoint_t *, 
 	u32_t vm, vir_bytes *);
 int sys_clear(endpoint_t proc_ep);
@@ -124,6 +124,10 @@ int sys_vtimer(endpoint_t proc_nr, int which, clock_t *newval, clock_t
 #define sys_irqrmpolicy(hook_id) \
     sys_irqctl(IRQ_RMPOLICY, 0, 0, hook_id)
 int sys_irqctl(int request, int irq_vec, int policy, int *irq_hook_id);
+/* Allocate an MSI/MSI-X vector; returns the message address/data to program
+ * into the device.  Release with sys_irqrmpolicy() like any other hook. */
+int sys_irqsetpolicy_msi(int policy, int *irq_hook_id, u32_t *msi_addr,
+	u32_t *msi_data);
 
 /* Shorthands for sys_vircopy() and sys_physcopy() system calls. */
 #define sys_datacopy(p1, v1, p2, v2, len) sys_vircopy(p1, v1, p2, v2, len, 0)

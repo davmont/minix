@@ -1626,7 +1626,7 @@ static char *my_strdup(char *str)
 static char *my_strtok(char *str1, char *str2)
 {
     char *ret;
-    int i, j, stop, len2;
+    int i, j, stop;
     static int start, len;
     static char *stext;
     
@@ -1644,13 +1644,11 @@ static char *my_strtok(char *str1, char *str2)
     if(start>=len)
 	return NULL;
     
-    len2 = strlen(str2);
-
     /* loop through characters */
     for(i=start; i<len; i++) {
 	/* loop through delimiters */
 	stop=0;
-	for(j=0; j<len2; j++)
+	for(j=0; j<strlen(str2); j++)
 	    if(stext[i]==str2[j])
 		stop=1;
 	
@@ -2060,12 +2058,10 @@ static int XRotDrawHorizontalString(Display *dpy, XFontStruct *font, Drawable dr
     XSetFont(dpy, my_gc, font->fid);
 	
     /* count number of sections in string */
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)
@@ -2306,12 +2302,10 @@ static RotatedTextItem *XRotCreateTextItem(Display *dpy, XFontStruct *font, floa
 	
     /* count number of sections in string */
     item->nl=1;
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		item->nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)
@@ -2843,12 +2837,10 @@ XPoint *XRotTextExtents(Display *dpy, XFontStruct *font, float angle, int x, int
     
     /* count number of sections in string */
     nl=1;
-    if(align!=NONE) {
-	int len = strlen(text);
-	for(i=0; i<len-1; i++)
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
 	    if(text[i]=='\n')
 		nl++;
-    }
     
     /* ignore newline characters if not doing alignment */
     if(align==NONE)

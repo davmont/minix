@@ -1,6 +1,6 @@
 
 #------------------------------------------------------------------------------
-# $File: kerberos,v 1.1 2014/12/10 18:45:43 christos Exp $
+# $File: kerberos,v 1.3 2019/04/19 00:42:27 christos Exp $
 # kerberos: MIT kerberos file binary formats
 #
 
@@ -24,7 +24,7 @@
 #		can refer to ${name}
 #	- Provide a way to format strings as hex values
 #
-# http://www.gnu.org/software/shishi/manual/html_node/\
+# https://www.gnu.org/software/shishi/manual/html_node/\
 #	The-Keytab-Binary-File-Format.html
 #
 
@@ -38,7 +38,7 @@
 >>>>>&0		bedate		x		\b, date=%s
 >>>>>>&0	byte		x		\b, kvno=%u
 #>>>>>>>&0	pstring/H	x
-#>>>>>>>>&0	belong		x	
+#>>>>>>>>&0	belong		x
 #>>>>>>>>>>&0	use		keytab_entry
 
 0		belong		0x05020000	Kerberos Keytab file

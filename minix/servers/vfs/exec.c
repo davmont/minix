@@ -322,11 +322,11 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 		int newfd = -1;
 		if(get_fd(vmfp, 0, R_BIT, &newfd, &newfilp) == OK) {
 			assert(newfd >= 0 && newfd < OPEN_MAX);
-			assert(!vmfp->fp_filp[newfd]);
+			assert(!vmfp->fp_fd->fd_filp[newfd]);
 			newfilp->filp_count = 1;
 			newfilp->filp_vno = vp;
 			newfilp->filp_flags = O_RDONLY;
-			vmfp->fp_filp[newfd] = newfilp;
+			vmfp->fp_fd->fd_filp[newfd] = newfilp;
 			/* dup_vnode(vp); */
 			execi.vmfd = newfd;
 			execi.args.memmap = vfs_memmap;
@@ -414,6 +414,7 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 	vir_bytes *vsp)
 {
 	AuxInfo *aux_vec, *aux_vec_end;
+	struct fproc *rfp = fproc_addr(execi->args.proc_e);
 	vir_bytes vap; /* Address in proc space of the first AuxVec. */
 	Elf_Ehdr const * const elf_header = (Elf_Ehdr *) execi->args.hdr;
 	struct ps_strings const * const psp = (struct ps_strings *)
@@ -421,8 +422,16 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 
 	size_t const execname_len = strlen(execi->execname);
 
-	if (!execi->is_dyn)
-		return OK;
+	/*
+	 * Static binaries need the aux vector too: libc's __libc_static_tls_setup()
+	 * uses dl_iterate_phdr() -> the auxv (AT_PHDR/AT_PHNUM/AT_PHENT) to find the
+	 * program's PT_TLS segment and size the main thread's TLS block.  Without it,
+	 * tls_size stays 0 and any thread_local access in the main thread (e.g. before
+	 * pthread starts, in a C library constructor) faults.  minix_stack_fill()
+	 * reserves the auxv space for every exec, so populate it here regardless of
+	 * is_dyn.  (The interpreter/rtld-specific entries below are harmless for
+	 * static executables.)
+	 */
 
 	if (execi->args.hdr_len < sizeof(*elf_header)) {
 		printf("VFS: malformed ELF headers for exec\n");
@@ -477,16 +486,22 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 		} \
 	} while(0)
 
-	AUXINFO(aux_vec, AT_BASE, execi->args.load_base);
+	/*
+	 * AT_BASE is the interpreter (rtld) base.  A static binary has no
+	 * interpreter, so it must be 0 -- not the program's own load address.
+	 * dl_iterate_phdr() uses AT_BASE as the main program's load bias when
+	 * locating PT_TLS; for a static ET_EXEC the bias is 0, and passing
+	 * load_base here made tls_initaddr = p_vaddr + load_base (double-counted
+	 * the base), crashing __libc_static_tls_setup()'s memcpy.
+	 */
+	AUXINFO(aux_vec, AT_BASE, execi->is_dyn ? execi->args.load_base : 0);
 	AUXINFO(aux_vec, AT_ENTRY, execi->args.pc);
 	AUXINFO(aux_vec, AT_EXECFD, execi->elf_main_fd);
-#if 0
-	AUXINFO(aux_vec, AT_PHDR, XXX ); /* should be &phdr[0] */
+	AUXINFO(aux_vec, AT_PHDR, execi->args.phdr);
 	AUXINFO(aux_vec, AT_PHENT, elf_header->e_phentsize);
 	AUXINFO(aux_vec, AT_PHNUM, elf_header->e_phnum);
-#endif
-	AUXINFO(aux_vec, AT_RUID, fp->fp_realuid);
-	AUXINFO(aux_vec, AT_RGID, fp->fp_realgid);
+	AUXINFO(aux_vec, AT_RUID, rfp->fp_realuid);
+	AUXINFO(aux_vec, AT_RGID, rfp->fp_realgid);
 	AUXINFO(aux_vec, AT_EUID, execi->args.new_uid);
 	AUXINFO(aux_vec, AT_EGID, execi->args.new_gid);
 	AUXINFO(aux_vec, AT_PAGESZ, PAGE_SIZE);
@@ -725,7 +740,7 @@ static void clo_exec(struct fproc *rfp)
 
   /* Check the file desriptors one by one for presence of FD_CLOEXEC. */
   for (i = 0; i < OPEN_MAX; i++)
-	if ( FD_ISSET(i, &rfp->fp_cloexec_set))
+	if ( FD_ISSET(i, &rfp->fp_fd->fd_cloexec_set))
 		(void) close_fd(rfp, i, FALSE /*may_suspend*/);
 }
 

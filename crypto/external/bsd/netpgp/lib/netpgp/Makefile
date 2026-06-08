@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.2 2014/12/05 04:52:02 agc Exp $
+# $NetBSD: Makefile,v 1.4.8.1 2023/08/11 13:40:10 martin Exp $
 
 .include <bsd.own.mk>
 
@@ -20,10 +20,14 @@ EXTDIST=${.CURDIR}/../../dist
 INCS+= netpgp.h
 INCSDIR=/usr/include
 
-OPENSSL=${NETBSDSRCDIR}/crypto/external/bsd/openssl
+OPENSSL=${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
 LIBDPLIBS+=	mj		${.CURDIR}/../../libmj
 LIBDPLIBS+=	crypto		${OPENSSL}/lib/libcrypto
 LIBDPLIBS+=	z		${NETBSDSRCDIR}/lib/libz
 LIBDPLIBS+=	bz2		${NETBSDSRCDIR}/lib/libbz2
+
+COPTS.crypto.c+=	${GCC_NO_STRINGOP_OVERFLOW}
+COPTS.openssl_crypto.c+=-Wno-error=deprecated-declarations
+COPTS.symmetric.c+=-Wno-error=deprecated-declarations
 
 .include <bsd.lib.mk>

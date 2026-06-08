@@ -23,17 +23,20 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: print-l2tp.c,v 1.5 2014/11/20 03:05:03 christos Exp $");
+__RCSID("$NetBSD: print-l2tp.c,v 1.9 2019/10/01 16:06:16 christos Exp $");
 #endif
 
-#define NETDISSECT_REWORKED
+/* \summary: Layer Two Tunneling Protocol (L2TP) printer */
+
+/* specification: RFC 2661 */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <tcpdump-stdinc.h>
+#include <netdissect-stdinc.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 
 #define L2TP_FLAG_TYPE		0x8000	/* Type (0=Data, 1=Control) */
@@ -147,7 +150,7 @@ static const struct tok l2tp_msgtype2str[] = {
 #define L2TP_AVP_PRIVATE_GRP_ID		37 /* Private Group ID */
 #define L2TP_AVP_RX_CONN_SPEED		38 /* (Rx) Connect Speed */
 #define L2TP_AVP_SEQ_REQUIRED 		39 /* Sequencing Required */
-#define L2TP_AVP_PPP_DISCON_CC		46 /* PPP Disconnect Cause Code */
+#define L2TP_AVP_PPP_DISCON_CC		46 /* PPP Disconnect Cause Code - RFC 3145 */
 
 static const struct tok l2tp_avp2str[] = {
 	{ L2TP_AVP_MSGTYPE,		"MSGTYPE" },
@@ -286,73 +289,98 @@ print_octets(netdissect_options *ndo, const u_char *dat, u_int length)
 }
 
 static void
-print_16bits_val(netdissect_options *ndo, const uint16_t *dat)
+print_16bits_val(netdissect_options *ndo, const uint8_t *dat)
 {
 	ND_PRINT((ndo, "%u", EXTRACT_16BITS(dat)));
 }
 
 static void
-print_32bits_val(netdissect_options *ndo, const uint32_t *dat)
+print_32bits_val(netdissect_options *ndo, const uint8_t *dat)
 {
-	ND_PRINT((ndo, "%lu", (u_long)EXTRACT_32BITS(dat)));
+	ND_PRINT((ndo, "%u", EXTRACT_32BITS(dat)));
 }
 
 /***********************************/
 /* AVP-specific print out routines */
 /***********************************/
 static void
-l2tp_msgtype_print(netdissect_options *ndo, const u_char *dat)
+l2tp_msgtype_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t*)dat;
-
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
 	ND_PRINT((ndo, "%s", tok2str(l2tp_msgtype2str, "MSGTYPE-#%u",
-	    EXTRACT_16BITS(ptr))));
+	    EXTRACT_16BITS(dat))));
 }
 
 static void
 l2tp_result_code_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
+	/* Result Code */
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	ND_PRINT((ndo, "%u", EXTRACT_16BITS(dat)));
+	dat += 2;
+	length -= 2;
 
-	ND_PRINT((ndo, "%u", EXTRACT_16BITS(ptr))); ptr++;	/* Result Code */
-	if (length > 2) {				/* Error Code (opt) */
-	        ND_PRINT((ndo, "/%u", EXTRACT_16BITS(ptr))); ptr++;
+	/* Error Code (opt) */
+	if (length == 0)
+		return;
+	if (length < 2) {
+		ND_PRINT((ndo, " AVP too short"));
+		return;
 	}
-	if (length > 4) {				/* Error Message (opt) */
-		ND_PRINT((ndo, " "));
-		print_string(ndo, (u_char *)ptr, length - 4);
-	}
+	ND_PRINT((ndo, "/%u", EXTRACT_16BITS(dat)));
+	dat += 2;
+	length -= 2;
+
+	/* Error Message (opt) */
+	if (length == 0)
+		return;
+	ND_PRINT((ndo, " "));
+	print_string(ndo, dat, length);
 }
 
 static void
-l2tp_proto_ver_print(netdissect_options *ndo, const uint16_t *dat)
+l2tp_proto_ver_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
 	ND_PRINT((ndo, "%u.%u", (EXTRACT_16BITS(dat) >> 8),
 	    (EXTRACT_16BITS(dat) & 0xff)));
 }
 
 static void
-l2tp_framing_cap_print(netdissect_options *ndo, const u_char *dat)
+l2tp_framing_cap_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint32_t *ptr = (uint32_t *)dat;
-
-	if (EXTRACT_32BITS(ptr) &  L2TP_FRAMING_CAP_ASYNC_MASK) {
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	if (EXTRACT_32BITS(dat) &  L2TP_FRAMING_CAP_ASYNC_MASK) {
 		ND_PRINT((ndo, "A"));
 	}
-	if (EXTRACT_32BITS(ptr) &  L2TP_FRAMING_CAP_SYNC_MASK) {
+	if (EXTRACT_32BITS(dat) &  L2TP_FRAMING_CAP_SYNC_MASK) {
 		ND_PRINT((ndo, "S"));
 	}
 }
 
 static void
-l2tp_bearer_cap_print(netdissect_options *ndo, const u_char *dat)
+l2tp_bearer_cap_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint32_t *ptr = (uint32_t *)dat;
-
-	if (EXTRACT_32BITS(ptr) &  L2TP_BEARER_CAP_ANALOG_MASK) {
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	if (EXTRACT_32BITS(dat) &  L2TP_BEARER_CAP_ANALOG_MASK) {
 		ND_PRINT((ndo, "A"));
 	}
-	if (EXTRACT_32BITS(ptr) &  L2TP_BEARER_CAP_DIGITAL_MASK) {
+	if (EXTRACT_32BITS(dat) &  L2TP_BEARER_CAP_DIGITAL_MASK) {
 		ND_PRINT((ndo, "D"));
 	}
 }
@@ -360,36 +388,46 @@ l2tp_bearer_cap_print(netdissect_options *ndo, const u_char *dat)
 static void
 l2tp_q931_cc_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	print_16bits_val(ndo, (uint16_t *)dat);
-	ND_PRINT((ndo, ", %02x", dat[2]));
-	if (length > 3) {
+	if (length < 3) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	print_16bits_val(ndo, dat);
+	ND_PRINT((ndo, ", %02x", EXTRACT_8BITS(dat + 2)));
+	dat += 3;
+	length -= 3;
+	if (length != 0) {
 		ND_PRINT((ndo, " "));
-		print_string(ndo, dat+3, length-3);
+		print_string(ndo, dat, length);
 	}
 }
 
 static void
-l2tp_bearer_type_print(netdissect_options *ndo, const u_char *dat)
+l2tp_bearer_type_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint32_t *ptr = (uint32_t *)dat;
-
-	if (EXTRACT_32BITS(ptr) &  L2TP_BEARER_TYPE_ANALOG_MASK) {
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	if (EXTRACT_32BITS(dat) &  L2TP_BEARER_TYPE_ANALOG_MASK) {
 		ND_PRINT((ndo, "A"));
 	}
-	if (EXTRACT_32BITS(ptr) &  L2TP_BEARER_TYPE_DIGITAL_MASK) {
+	if (EXTRACT_32BITS(dat) &  L2TP_BEARER_TYPE_DIGITAL_MASK) {
 		ND_PRINT((ndo, "D"));
 	}
 }
 
 static void
-l2tp_framing_type_print(netdissect_options *ndo, const u_char *dat)
+l2tp_framing_type_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint32_t *ptr = (uint32_t *)dat;
-
-	if (EXTRACT_32BITS(ptr) &  L2TP_FRAMING_TYPE_ASYNC_MASK) {
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	if (EXTRACT_32BITS(dat) &  L2TP_FRAMING_TYPE_ASYNC_MASK) {
 		ND_PRINT((ndo, "A"));
 	}
-	if (EXTRACT_32BITS(ptr) &  L2TP_FRAMING_TYPE_SYNC_MASK) {
+	if (EXTRACT_32BITS(dat) &  L2TP_FRAMING_TYPE_SYNC_MASK) {
 		ND_PRINT((ndo, "S"));
 	}
 }
@@ -401,104 +439,146 @@ l2tp_packet_proc_delay_print(netdissect_options *ndo)
 }
 
 static void
-l2tp_proxy_auth_type_print(netdissect_options *ndo, const u_char *dat)
+l2tp_proxy_auth_type_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
-
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
 	ND_PRINT((ndo, "%s", tok2str(l2tp_authentype2str,
-			     "AuthType-#%u", EXTRACT_16BITS(ptr))));
+			     "AuthType-#%u", EXTRACT_16BITS(dat))));
 }
 
 static void
-l2tp_proxy_auth_id_print(netdissect_options *ndo, const u_char *dat)
+l2tp_proxy_auth_id_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
-
-	ND_PRINT((ndo, "%u", EXTRACT_16BITS(ptr) & L2TP_PROXY_AUTH_ID_MASK));
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	ND_PRINT((ndo, "%u", EXTRACT_16BITS(dat) & L2TP_PROXY_AUTH_ID_MASK));
 }
 
 static void
-l2tp_call_errors_print(netdissect_options *ndo, const u_char *dat)
+l2tp_call_errors_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
-	uint16_t val_h, val_l;
+	uint32_t val;
 
-	ptr++;		/* skip "Reserved" */
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	dat += 2;	/* skip "Reserved" */
+	length -= 2;
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "CRCErr=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "CRCErr=%u ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "FrameErr=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "FrameErr=%u ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "HardOver=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "HardOver=%u ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "BufOver=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "BufOver=%u ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "Timeout=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "Timeout=%u ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "AlignErr=%u ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "AlignErr=%u ", val));
 }
 
 static void
-l2tp_accm_print(netdissect_options *ndo, const u_char *dat)
+l2tp_accm_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
-	uint16_t val_h, val_l;
+	uint32_t val;
 
-	ptr++;		/* skip "Reserved" */
+	if (length < 2) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	dat += 2;	/* skip "Reserved" */
+	length -= 2;
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "send=%08x ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "send=%08x ", val));
 
-	val_h = EXTRACT_16BITS(ptr); ptr++;
-	val_l = EXTRACT_16BITS(ptr); ptr++;
-	ND_PRINT((ndo, "recv=%08x ", (val_h<<16) + val_l));
+	if (length < 4) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	val = EXTRACT_32BITS(dat); dat += 4; length -= 4;
+	ND_PRINT((ndo, "recv=%08x ", val));
 }
 
 static void
 l2tp_ppp_discon_cc_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
-	uint16_t *ptr = (uint16_t *)dat;
-
-	ND_PRINT((ndo, "%04x, ", EXTRACT_16BITS(ptr))); ptr++;	/* Disconnect Code */
-	ND_PRINT((ndo, "%04x ",  EXTRACT_16BITS(ptr))); ptr++;	/* Control Protocol Number */
+	if (length < 5) {
+		ND_PRINT((ndo, "AVP too short"));
+		return;
+	}
+	/* Disconnect Code */
+	ND_PRINT((ndo, "%04x, ", EXTRACT_16BITS(dat)));
+	dat += 2;
+	length -= 2;
+	/* Control Protocol Number */
+	ND_PRINT((ndo, "%04x ",  EXTRACT_16BITS(dat)));
+	dat += 2;
+	length -= 2;
+	/* Direction */
 	ND_PRINT((ndo, "%s", tok2str(l2tp_cc_direction2str,
-			     "Direction-#%u", *((u_char *)ptr++))));
+			     "Direction-#%u", EXTRACT_8BITS(dat))));
+	dat++;
+	length--;
 
-	if (length > 5) {
+	if (length != 0) {
 		ND_PRINT((ndo, " "));
-		print_string(ndo, (const u_char *)ptr, length-5);
+		print_string(ndo, (const u_char *)dat, length);
 	}
 }
 
-static void
-l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
+static u_int
+l2tp_avp_print(netdissect_options *ndo, const u_char *dat, u_int length)
 {
 	u_int len;
-	const uint16_t *ptr = (uint16_t *)dat;
 	uint16_t attr_type;
 	int hidden = FALSE;
 
-	if (length <= 0) {
-		return;
-	}
-
 	ND_PRINT((ndo, " "));
 
-	ND_TCHECK(*ptr);	/* Flags & Length */
-	len = EXTRACT_16BITS(ptr) & L2TP_AVP_HDR_LEN_MASK;
+	ND_TCHECK_16BITS(dat);	/* Flags & Length */
+	len = EXTRACT_16BITS(dat) & L2TP_AVP_HDR_LEN_MASK;
 
 	/* If it is not long enough to contain the header, we'll give up. */
 	if (len < 6)
@@ -511,29 +591,34 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 
 	/* If it goes past the end of the remaining length of the captured
 	   data, we'll give up. */
-	ND_TCHECK2(*ptr, len);
-	/* After this point, no need to worry about truncation */
+	ND_TCHECK2(*dat, len);
 
-	if (EXTRACT_16BITS(ptr) & L2TP_AVP_HDR_FLAG_MANDATORY) {
+	/*
+	 * After this point, we don't need to check whether we go past
+	 * the length of the captured data; however, we *do* need to
+	 * check whether we go past the end of the AVP.
+	 */
+
+	if (EXTRACT_16BITS(dat) & L2TP_AVP_HDR_FLAG_MANDATORY) {
 		ND_PRINT((ndo, "*"));
 	}
-	if (EXTRACT_16BITS(ptr) & L2TP_AVP_HDR_FLAG_HIDDEN) {
+	if (EXTRACT_16BITS(dat) & L2TP_AVP_HDR_FLAG_HIDDEN) {
 		hidden = TRUE;
 		ND_PRINT((ndo, "?"));
 	}
-	ptr++;
+	dat += 2;
 
-	if (EXTRACT_16BITS(ptr)) {
+	if (EXTRACT_16BITS(dat)) {
 		/* Vendor Specific Attribute */
-	        ND_PRINT((ndo, "VENDOR%04x:", EXTRACT_16BITS(ptr))); ptr++;
-		ND_PRINT((ndo, "ATTR%04x", EXTRACT_16BITS(ptr))); ptr++;
+	        ND_PRINT((ndo, "VENDOR%04x:", EXTRACT_16BITS(dat))); dat += 2;
+		ND_PRINT((ndo, "ATTR%04x", EXTRACT_16BITS(dat))); dat += 2;
 		ND_PRINT((ndo, "("));
-		print_octets(ndo, (u_char *)ptr, len-6);
+		print_octets(ndo, dat, len-6);
 		ND_PRINT((ndo, ")"));
 	} else {
 		/* IETF-defined Attributes */
-		ptr++;
-		attr_type = EXTRACT_16BITS(ptr); ptr++;
+		dat += 2;
+		attr_type = EXTRACT_16BITS(dat); dat += 2;
 		ND_PRINT((ndo, "%s", tok2str(l2tp_avp2str, "AVP-#%u", attr_type)));
 		ND_PRINT((ndo, "("));
 		if (hidden) {
@@ -541,28 +626,36 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 		} else {
 			switch (attr_type) {
 			case L2TP_AVP_MSGTYPE:
-				l2tp_msgtype_print(ndo, (u_char *)ptr);
+				l2tp_msgtype_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_RESULT_CODE:
-				l2tp_result_code_print(ndo, (u_char *)ptr, len-6);
+				l2tp_result_code_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_PROTO_VER:
-				l2tp_proto_ver_print(ndo, ptr);
+				l2tp_proto_ver_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_FRAMING_CAP:
-				l2tp_framing_cap_print(ndo, (u_char *)ptr);
+				l2tp_framing_cap_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_BEARER_CAP:
-				l2tp_bearer_cap_print(ndo, (u_char *)ptr);
+				l2tp_bearer_cap_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_TIE_BREAKER:
-				print_octets(ndo, (u_char *)ptr, 8);
+				if (len-6 < 8) {
+					ND_PRINT((ndo, "AVP too short"));
+					break;
+				}
+				print_octets(ndo, dat, 8);
 				break;
 			case L2TP_AVP_FIRM_VER:
 			case L2TP_AVP_ASSND_TUN_ID:
 			case L2TP_AVP_RECV_WIN_SIZE:
 			case L2TP_AVP_ASSND_SESS_ID:
-				print_16bits_val(ndo, ptr);
+				if (len-6 < 2) {
+					ND_PRINT((ndo, "AVP too short"));
+					break;
+				}
+				print_16bits_val(ndo, dat);
 				break;
 			case L2TP_AVP_HOST_NAME:
 			case L2TP_AVP_VENDOR_NAME:
@@ -571,7 +664,7 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 			case L2TP_AVP_SUB_ADDRESS:
 			case L2TP_AVP_PROXY_AUTH_NAME:
 			case L2TP_AVP_PRIVATE_GRP_ID:
-				print_string(ndo, (u_char *)ptr, len-6);
+				print_string(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_CHALLENGE:
 			case L2TP_AVP_INI_RECV_LCP:
@@ -580,13 +673,17 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 			case L2TP_AVP_PROXY_AUTH_CHAL:
 			case L2TP_AVP_PROXY_AUTH_RESP:
 			case L2TP_AVP_RANDOM_VECTOR:
-				print_octets(ndo, (u_char *)ptr, len-6);
+				print_octets(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_Q931_CC:
-				l2tp_q931_cc_print(ndo, (u_char *)ptr, len-6);
+				l2tp_q931_cc_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_CHALLENGE_RESP:
-				print_octets(ndo, (u_char *)ptr, 16);
+				if (len-6 < 16) {
+					ND_PRINT((ndo, "AVP too short"));
+					break;
+				}
+				print_octets(ndo, dat, 16);
 				break;
 			case L2TP_AVP_CALL_SER_NUM:
 			case L2TP_AVP_MINIMUM_BPS:
@@ -594,33 +691,37 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 			case L2TP_AVP_TX_CONN_SPEED:
 			case L2TP_AVP_PHY_CHANNEL_ID:
 			case L2TP_AVP_RX_CONN_SPEED:
-				print_32bits_val(ndo, (uint32_t *)ptr);
+				if (len-6 < 4) {
+					ND_PRINT((ndo, "AVP too short"));
+					break;
+				}
+				print_32bits_val(ndo, dat);
 				break;
 			case L2TP_AVP_BEARER_TYPE:
-				l2tp_bearer_type_print(ndo, (u_char *)ptr);
+				l2tp_bearer_type_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_FRAMING_TYPE:
-				l2tp_framing_type_print(ndo, (u_char *)ptr);
+				l2tp_framing_type_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_PACKET_PROC_DELAY:
 				l2tp_packet_proc_delay_print(ndo);
 				break;
 			case L2TP_AVP_PROXY_AUTH_TYPE:
-				l2tp_proxy_auth_type_print(ndo, (u_char *)ptr);
+				l2tp_proxy_auth_type_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_PROXY_AUTH_ID:
-				l2tp_proxy_auth_id_print(ndo, (u_char *)ptr);
+				l2tp_proxy_auth_id_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_CALL_ERRORS:
-				l2tp_call_errors_print(ndo, (u_char *)ptr);
+				l2tp_call_errors_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_ACCM:
-				l2tp_accm_print(ndo, (u_char *)ptr);
+				l2tp_accm_print(ndo, dat, len-6);
 				break;
 			case L2TP_AVP_SEQ_REQUIRED:
 				break;	/* No Attribute Value */
 			case L2TP_AVP_PPP_DISCON_CC:
-				l2tp_ppp_discon_cc_print(ndo, (u_char *)ptr, len-6);
+				l2tp_ppp_discon_cc_print(ndo, dat, len-6);
 				break;
 			default:
 				break;
@@ -629,11 +730,11 @@ l2tp_avp_print(netdissect_options *ndo, const u_char *dat, int length)
 		ND_PRINT((ndo, ")"));
 	}
 
-	l2tp_avp_print(ndo, dat+len, length-len);
-	return;
+	return (len);
 
  trunc:
 	ND_PRINT((ndo, "|..."));
+	return (0);
 }
 
 
@@ -738,7 +839,22 @@ l2tp_print(netdissect_options *ndo, const u_char *dat, u_int length)
 		if (length - cnt == 0) {
 			ND_PRINT((ndo, " ZLB"));
 		} else {
-			l2tp_avp_print(ndo, ptr, length - cnt);
+			/*
+			 * Print AVPs.
+			 */
+			while (length - cnt != 0) {
+				u_int avp_length;
+
+				avp_length = l2tp_avp_print(ndo, ptr, length - cnt);
+				if (avp_length == 0) {
+					/*
+					 * Truncated.
+					 */
+					break;
+				}
+				cnt += avp_length;
+				ptr += avp_length;
+			}
 		}
 	} else {
 		ND_PRINT((ndo, " {"));

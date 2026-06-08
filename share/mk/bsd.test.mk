@@ -22,22 +22,19 @@ MAN.${_T}?=	# empty
 .  endfor
 .endif
 
-# C++ tests disabled: libatf-c++.a in cross-compilation sysroot is incomplete
-# with missing C++ standard library and ATF framework symbols.
-# Re-enable this section when full ATF C++ library becomes available.
-#.if defined(TESTS_CXX)
-#_TESTS+=	${TESTS_CXX}
-#PROGS_CXX+=	${TESTS_CXX}
-#.  for _T in ${TESTS_CXX}
-#BINDIR.${_T}=	${TESTSDIR}
-#LDADD.${_T}+=	-latf-c++ -latf-c
-#DPADD.${_T}+=	${LIBATF_CXX} ${LIBATF_C}
-#.if defined(__MINIX)
-#LDSTATIC.${_T}=	-dynamic
-#.endif
-#MAN.${_T}?=	# empty
-#.  endfor
-#.endif
+.if defined(TESTS_CXX)
+_TESTS+=	${TESTS_CXX}
+PROGS_CXX+=	${TESTS_CXX}
+.  for _T in ${TESTS_CXX}
+BINDIR.${_T}=	${TESTSDIR}
+LDADD.${_T}+=	-latf-c++ -latf-c
+DPADD.${_T}+=	${LIBATF_CXX} ${LIBATF_C}
+.if defined(__MINIX)
+LDSTATIC.${_T}=	-dynamic
+.endif
+MAN.${_T}?=	# empty
+.  endfor
+.endif
 
 .if defined(TESTS_SH)
 _TESTS+=		${TESTS_SH}

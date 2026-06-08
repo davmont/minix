@@ -1,4 +1,5 @@
-/*	$NetBSD: regress.h,v 1.5 2015/01/31 12:12:17 joerg Exp $	*/
+/*	$NetBSD: regress.h,v 1.8 2021/04/10 19:02:37 rillig Exp $	*/
+
 /*
  * Copyright (c) 2000-2007 Niels Provos <provos@citi.umich.edu>
  * Copyright (c) 2007-2012 Niels Provos and Nick Mathewson
@@ -25,8 +26,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef _REGRESS_H_
-#define _REGRESS_H_
+#ifndef REGRESS_H_INCLUDED_
+#define REGRESS_H_INCLUDED_
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,11 +39,13 @@ extern "C" {
 extern struct testcase_t main_testcases[];
 extern struct testcase_t evtag_testcases[];
 extern struct testcase_t evbuffer_testcases[];
+extern struct testcase_t finalize_testcases[];
 extern struct testcase_t bufferevent_testcases[];
 extern struct testcase_t bufferevent_iocp_testcases[];
 extern struct testcase_t util_testcases[];
 extern struct testcase_t signal_testcases[];
 extern struct testcase_t http_testcases[];
+extern struct testcase_t http_iocp_testcases[];
 extern struct testcase_t dns_testcases[];
 extern struct testcase_t rpc_testcases[];
 extern struct testcase_t edgetriggered_testcases[];
@@ -52,6 +55,10 @@ extern struct testcase_t ssl_testcases[];
 extern struct testcase_t listener_testcases[];
 extern struct testcase_t listener_iocp_testcases[];
 extern struct testcase_t thread_testcases[];
+
+extern struct evutil_weakrand_state test_weakrand_state;
+
+#define test_weakrand() (evutil_weakrand_(&test_weakrand_state))
 
 void regress_threads(void *);
 void test_bufferevent_zlib(void *);
@@ -63,7 +70,7 @@ extern int called;
 extern struct event_base *global_base;
 extern int in_legacy_test_wrapper;
 
-int regress_make_tmpfile(const void *data, size_t datalen);
+int regress_make_tmpfile(const void *data, size_t datalen, char **filename_out);
 
 struct basic_test_data {
 	struct event_base *base;
@@ -79,6 +86,8 @@ extern const struct testcase_setup_t basic_setup;
 extern const struct testcase_setup_t legacy_setup;
 void run_legacy_test_fn(void *ptr);
 
+extern int libevent_tests_running_in_debug_mode;
+
 /* A couple of flags that basic/legacy_setup can support. */
 #define TT_NEED_SOCKETPAIR	TT_FIRST_USER_FLAG
 #define TT_NEED_BASE		(TT_FIRST_USER_FLAG<<1)
@@ -88,6 +97,7 @@ void run_legacy_test_fn(void *ptr);
 #define TT_NO_LOGS		(TT_FIRST_USER_FLAG<<5)
 #define TT_ENABLE_IOCP_FLAG	(TT_FIRST_USER_FLAG<<6)
 #define TT_ENABLE_IOCP		(TT_ENABLE_IOCP_FLAG|TT_NEED_THREADS)
+#define TT_ENABLE_DEBUG_MODE	(TT_ENABLE_IOCP_FLAG<<7)
 
 /* All the flags that a legacy test needs. */
 #define TT_ISOLATED TT_FORK|TT_NEED_SOCKETPAIR|TT_NEED_BASE
@@ -103,16 +113,16 @@ void run_legacy_test_fn(void *ptr);
 struct evutil_addrinfo;
 struct evutil_addrinfo *ai_find_by_family(struct evutil_addrinfo *ai, int f);
 struct evutil_addrinfo *ai_find_by_protocol(struct evutil_addrinfo *ai, int p);
-int _test_ai_eq(const struct evutil_addrinfo *ai, const char *sockaddr_port,
+int test_ai_eq_(const struct evutil_addrinfo *ai, const char *sockaddr_port,
     int socktype, int protocol, int line);
 
 #define test_ai_eq(ai, str, s, p) do {					\
-		if (_test_ai_eq((ai), (str), (s), (p), __LINE__)<0)	\
+		if (test_ai_eq_((ai), (str), (s), (p), __LINE__)<0)	\
 			goto end;					\
-	} while (/*CONSTCOND*/0)
+	} while (0)
 
 #define test_timeval_diff_leq(tv1, tv2, diff, tolerance)		\
-	tt_int_op(imaxabs(timeval_msec_diff((tv1), (tv2)) - diff), <=, tolerance)
+	tt_int_op(labs(timeval_msec_diff((tv1), (tv2)) - diff), <=, tolerance)
 
 #define test_timeval_diff_eq(tv1, tv2, diff)				\
 	test_timeval_diff_leq((tv1), (tv2), (diff), 50)
@@ -123,8 +133,19 @@ long timeval_msec_diff(const struct timeval *start, const struct timeval *end);
 pid_t regress_fork(void);
 #endif
 
+#ifdef EVENT__HAVE_OPENSSL
+#include <openssl/ssl.h>
+EVP_PKEY *ssl_getkey(void);
+X509 *ssl_getcert(EVP_PKEY *key);
+SSL_CTX *get_ssl_ctx(void);
+void init_ssl(void);
+#endif
+
+void * basic_test_setup(const struct testcase_t *testcase);
+int    basic_test_cleanup(const struct testcase_t *testcase, void *ptr);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _REGRESS_H_ */
+#endif /* REGRESS_H_INCLUDED_ */

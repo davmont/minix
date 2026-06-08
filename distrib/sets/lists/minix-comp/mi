@@ -30,7 +30,12 @@
 ./usr/bin/gcov                                          minix-comp      gcccmds
 ./usr/bin/gcpp                                          minix-comp      gcccmds
 ./usr/bin/gprof                                         minix-comp      binutils
+./usr/bin/info                                          minix-comp
+./usr/bin/infokey                                       minix-comp
+./usr/bin/install-info                                  minix-comp
+./usr/bin/ld                                            minix-comp      binutils
 ./usr/bin/llvm-tblgen                                   minix-comp      llvm,llvmcmds
+./usr/bin/makeinfo                                      minix-comp
 ./usr/bin/nm                                            minix-comp      binutils
 ./usr/bin/objcopy                                       minix-comp      binutils
 ./usr/bin/objdump                                       minix-comp      binutils
@@ -1216,7 +1221,7 @@
 ./usr/include/minix/ipc.h                               minix-comp
 ./usr/include/minix/ipc_filter.h                        minix-comp
 ./usr/include/minix/ipcconst.h                          minix-comp
-./usr/include/minix/kernel_const.h                      minix-comp
+./usr/include/minix/kernel_const.h                      minix-comp      obsolete
 ./usr/include/minix/keymap.h                            minix-comp
 ./usr/include/minix/libminixfs.h                        minix-comp
 ./usr/include/minix/log.h                               minix-comp
@@ -1424,7 +1429,6 @@
 ./usr/include/openssl/des.h                             minix-comp      crypto
 ./usr/include/openssl/dh.h                              minix-comp      crypto
 ./usr/include/openssl/dsa.h                             minix-comp      crypto
-./usr/include/openssl/dso.h                             minix-comp      crypto
 ./usr/include/openssl/dtls1.h                           minix-comp      crypto
 ./usr/include/openssl/e_os2.h                           minix-comp      crypto
 ./usr/include/openssl/ebcdic.h                          minix-comp      crypto
@@ -1436,8 +1440,6 @@
 ./usr/include/openssl/evp.h                             minix-comp      crypto
 ./usr/include/openssl/hmac.h                            minix-comp      crypto
 ./usr/include/openssl/idea.h                            minix-comp      crypto
-./usr/include/openssl/krb5_asn.h                        minix-comp      crypto
-./usr/include/openssl/kssl.h                            minix-comp      crypto
 ./usr/include/openssl/lhash.h                           minix-comp      crypto
 ./usr/include/openssl/md2.h                             minix-comp      crypto
 ./usr/include/openssl/md4.h                             minix-comp      crypto
@@ -1454,7 +1456,6 @@
 ./usr/include/openssl/pem2.h                            minix-comp      crypto
 ./usr/include/openssl/pkcs12.h                          minix-comp      crypto
 ./usr/include/openssl/pkcs7.h                           minix-comp      crypto
-./usr/include/openssl/pqueue.h                          minix-comp      crypto
 ./usr/include/openssl/rand.h                            minix-comp      crypto
 ./usr/include/openssl/rc2.h                             minix-comp      crypto
 ./usr/include/openssl/rc4.h                             minix-comp      crypto
@@ -1468,7 +1469,6 @@
 ./usr/include/openssl/srtp.h                            minix-comp      crypto
 ./usr/include/openssl/ssl.h                             minix-comp      crypto
 ./usr/include/openssl/ssl2.h                            minix-comp      crypto
-./usr/include/openssl/ssl23.h                           minix-comp      crypto
 ./usr/include/openssl/ssl3.h                            minix-comp      crypto
 ./usr/include/openssl/stack.h                           minix-comp      crypto
 ./usr/include/openssl/store.h                           minix-comp      crypto
@@ -1477,7 +1477,6 @@
 ./usr/include/openssl/ts.h                              minix-comp      crypto
 ./usr/include/openssl/txt_db.h                          minix-comp      crypto
 ./usr/include/openssl/ui.h                              minix-comp      crypto
-./usr/include/openssl/ui_compat.h                       minix-comp      crypto
 ./usr/include/openssl/whrlpool.h                        minix-comp      crypto
 ./usr/include/openssl/x509.h                            minix-comp      crypto
 ./usr/include/openssl/x509_vfy.h                        minix-comp      crypto
@@ -1511,6 +1510,7 @@
 ./usr/include/protocols/rwhod.h                         minix-comp
 ./usr/include/protocols/talkd.h                         minix-comp
 ./usr/include/protocols/timed.h                         minix-comp
+./usr/include/pthread_types.h                           minix-comp
 ./usr/include/puffs.h                                   minix-comp
 ./usr/include/pwd.h                                     minix-comp
 ./usr/include/quota.h                                   minix-comp
@@ -1847,6 +1847,22 @@
 ./usr/include/utmp.h                                    minix-comp
 ./usr/include/utmpx.h                                   minix-comp
 ./usr/include/uuid.h                                    minix-comp
+./usr/include/uv                                        minix-comp
+./usr/include/uv.h                                      minix-comp
+./usr/include/uv/aix.h                                  minix-comp
+./usr/include/uv/bsd.h                                  minix-comp
+./usr/include/uv/darwin.h                               minix-comp
+./usr/include/uv/errno.h                                minix-comp
+./usr/include/uv/linux.h                                minix-comp
+./usr/include/uv/os390.h                                minix-comp
+./usr/include/uv/posix.h                                minix-comp
+./usr/include/uv/stdint-msvc2008.h                      minix-comp
+./usr/include/uv/sunos.h                                minix-comp
+./usr/include/uv/threadpool.h                           minix-comp
+./usr/include/uv/tree.h                                 minix-comp
+./usr/include/uv/unix.h                                 minix-comp
+./usr/include/uv/version.h                              minix-comp
+./usr/include/uv/win.h                                  minix-comp
 ./usr/include/uvm                                       minix-comp
 ./usr/include/uvm/uvm.h                                 minix-comp
 ./usr/include/uvm/uvm_amap.h                            minix-comp
@@ -1925,7 +1941,6 @@
 ./usr/lib/bc/libl.a                                     minix-comp      bitcode
 ./usr/lib/bc/liblua.a                                   minix-comp      bitcode
 ./usr/lib/bc/liblwip.a                                  minix-comp      bitcode
-./usr/lib/bc/liblwres.a                                 minix-comp      bitcode
 ./usr/lib/bc/liblzma.a                                  minix-comp      bitcode
 ./usr/lib/bc/libm.a                                     minix-comp      bitcode
 ./usr/lib/bc/libm387.a                                  minix-comp      bitcode
@@ -2079,6 +2094,8 @@
 ./usr/lib/libirs_pic.a                                  minix-comp
 ./usr/lib/libisc.a                                      minix-comp
 ./usr/lib/libisc_pic.a                                  minix-comp
+./usr/lib/libns.a                                       minix-comp
+./usr/lib/libns_pic.a                                   minix-comp
 ./usr/lib/libisccc.a                                    minix-comp
 ./usr/lib/libisccc_pic.a                                minix-comp
 ./usr/lib/libisccfg.a                                   minix-comp
@@ -2090,8 +2107,6 @@
 ./usr/lib/liblua_pic.a                                  minix-comp
 ./usr/lib/liblwip.a                                     minix-comp
 ./usr/lib/liblwip_pic.a                                 minix-comp
-./usr/lib/liblwres.a                                    minix-comp
-./usr/lib/liblwres_pic.a                                minix-comp
 ./usr/lib/liblzma.a                                     minix-comp
 ./usr/lib/liblzma_pic.a                                 minix-comp
 ./usr/lib/libm.a                                        minix-comp
@@ -2150,6 +2165,8 @@
 ./usr/lib/libusb_pic.a                                  minix-comp
 ./usr/lib/libutil.a                                     minix-comp
 ./usr/lib/libutil_pic.a                                 minix-comp
+./usr/lib/libuv.a                                       minix-comp
+./usr/lib/libuv_pic.a                                   minix-comp
 ./usr/lib/libvtreefs.a                                  minix-comp
 ./usr/lib/libvtreefs_pic.a                              minix-comp
 ./usr/lib/libwrap.a                                     minix-comp
@@ -2177,10 +2194,104 @@
 ./usr/man/man1/gcov.1                                   minix-comp      gcccmds
 ./usr/man/man1/gcpp.1                                   minix-comp      gcccmds
 ./usr/share                                             minix-comp      gcccmds
+./usr/share/info                                        minix-comp
 ./usr/share/info                                        minix-comp      gcccmds
+./usr/share/info/as.info                                minix-comp      binutils
+./usr/share/info/bfd.info                               minix-comp      binutils
+./usr/share/info/binutils.info                          minix-comp      binutils
 ./usr/share/info/cpp.info                               minix-comp      gcccmds
+./usr/share/info/dir                                    minix-comp
 ./usr/share/info/gcc.info                               minix-comp      gcccmds
+./usr/share/info/gprof.info                             minix-comp      binutils
+./usr/share/info/info-stnd.info                         minix-comp
+./usr/share/info/info.info                              minix-comp
+./usr/share/info/ld.info                                minix-comp      binutils
+./usr/share/info/texinfo.info                           minix-comp
+./usr/share/info/vi.info                                minix-comp
+./usr/share/locale/cs/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/da/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/de/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/de_AT/LC_MESSAGES/texinfo.mo         minix-comp      nls
+./usr/share/locale/eo/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/fr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/he/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/hr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ja/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/nb/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/nl/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/no/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/pl/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ro/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/ru/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/sv/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/tr/LC_MESSAGES/texinfo.mo            minix-comp      nls
+./usr/share/locale/zh_CN/LC_MESSAGES/texinfo.mo         minix-comp      nls
+./usr/share/locale/zh_TW/LC_MESSAGES/texinfo.mo         minix-comp      nls
 ./var                                                   minix-comp
 ./var/db                                                minix-comp
 ./var/db/obsolete                                       minix-comp
 ./var/db/obsolete/minix-comp                            minix-comp
+./usr/include/openssl/asn1err.h	minix-comp	crypto
+./usr/include/openssl/asyncerr.h	minix-comp	crypto
+./usr/include/openssl/async.h	minix-comp	crypto
+./usr/include/openssl/bioerr.h	minix-comp	crypto
+./usr/include/openssl/bnerr.h	minix-comp	crypto
+./usr/include/openssl/buffererr.h	minix-comp	crypto
+./usr/include/openssl/cmperr.h	minix-comp	crypto
+./usr/include/openssl/cmp.h	minix-comp	crypto
+./usr/include/openssl/cmp_util.h	minix-comp	crypto
+./usr/include/openssl/cmserr.h	minix-comp	crypto
+./usr/include/openssl/comperr.h	minix-comp	crypto
+./usr/include/openssl/conferr.h	minix-comp	crypto
+./usr/include/openssl/configuration.h	minix-comp	crypto
+./usr/include/openssl/conftypes.h	minix-comp	crypto
+./usr/include/openssl/core_dispatch.h	minix-comp	crypto
+./usr/include/openssl/core.h	minix-comp	crypto
+./usr/include/openssl/core_names.h	minix-comp	crypto
+./usr/include/openssl/core_object.h	minix-comp	crypto
+./usr/include/openssl/crmferr.h	minix-comp	crypto
+./usr/include/openssl/crmf.h	minix-comp	crypto
+./usr/include/openssl/cryptoerr.h	minix-comp	crypto
+./usr/include/openssl/cryptoerr_legacy.h	minix-comp	crypto
+./usr/include/openssl/cterr.h	minix-comp	crypto
+./usr/include/openssl/ct.h	minix-comp	crypto
+./usr/include/openssl/decodererr.h	minix-comp	crypto
+./usr/include/openssl/decoder.h	minix-comp	crypto
+./usr/include/openssl/dherr.h	minix-comp	crypto
+./usr/include/openssl/dsaerr.h	minix-comp	crypto
+./usr/include/openssl/ecerr.h	minix-comp	crypto
+./usr/include/openssl/encodererr.h	minix-comp	crypto
+./usr/include/openssl/encoder.h	minix-comp	crypto
+./usr/include/openssl/engineerr.h	minix-comp	crypto
+./usr/include/openssl/esserr.h	minix-comp	crypto
+./usr/include/openssl/ess.h	minix-comp	crypto
+./usr/include/openssl/evperr.h	minix-comp	crypto
+./usr/include/openssl/fipskey.h	minix-comp	crypto
+./usr/include/openssl/fips_names.h	minix-comp	crypto
+./usr/include/openssl/httperr.h	minix-comp	crypto
+./usr/include/openssl/http.h	minix-comp	crypto
+./usr/include/openssl/kdferr.h	minix-comp	crypto
+./usr/include/openssl/kdf.h	minix-comp	crypto
+./usr/include/openssl/macros.h	minix-comp	crypto
+./usr/include/openssl/objectserr.h	minix-comp	crypto
+./usr/include/openssl/ocsperr.h	minix-comp	crypto
+./usr/include/openssl/param_build.h	minix-comp	crypto
+./usr/include/openssl/params.h	minix-comp	crypto
+./usr/include/openssl/pemerr.h	minix-comp	crypto
+./usr/include/openssl/pkcs12err.h	minix-comp	crypto
+./usr/include/openssl/pkcs7err.h	minix-comp	crypto
+./usr/include/openssl/proverr.h	minix-comp	crypto
+./usr/include/openssl/provider.h	minix-comp	crypto
+./usr/include/openssl/prov_ssl.h	minix-comp	crypto
+./usr/include/openssl/randerr.h	minix-comp	crypto
+./usr/include/openssl/rsaerr.h	minix-comp	crypto
+./usr/include/openssl/self_test.h	minix-comp	crypto
+./usr/include/openssl/sslerr.h	minix-comp	crypto
+./usr/include/openssl/sslerr_legacy.h	minix-comp	crypto
+./usr/include/openssl/storeerr.h	minix-comp	crypto
+./usr/include/openssl/trace.h	minix-comp	crypto
+./usr/include/openssl/tserr.h	minix-comp	crypto
+./usr/include/openssl/types.h	minix-comp	crypto
+./usr/include/openssl/uierr.h	minix-comp	crypto
+./usr/include/openssl/x509err.h	minix-comp	crypto
+./usr/include/openssl/x509v3err.h	minix-comp	crypto

@@ -6,6 +6,29 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 FSCK=/bin/fsck_mfs
 ACPI=/service/acpi
 
+# Diagnostic markers — gated on verbose=2+ in the kernel boot command line.
+# Defined here (before the per-arch blocks) so they can be used uniformly.
+#
+# `sysenv verbose` exits non-zero when the verbose env var is not set on
+# the kernel command line (e.g. boot menu option 1).  Under `set -e` the
+# non-zero exit of the command substitution would otherwise kill the
+# script before it ever reaches the per-arch blocks.  Default to 0 on
+# any failure.
+_rdrc_verbose=$(sysenv verbose 2>/dev/null || echo 0)
+: ${_rdrc_verbose:=0}
+rdrcv() {
+	# Print only when kernel verbose level >= 2.  Implemented as a case
+	# expression on the literal verbose digit so neither branch can ever
+	# return non-zero and trip `set -e` at the call site.
+	case "${_rdrc_verbose:-0}" in
+	[2-9]|[1-9][0-9]*)
+		echo "$@"
+		;;
+	esac
+}
+
+rdrcv "RDRC: ENTER ramdisk rc, arch=`sysenv arch 2>&1`"
+
 if [ X`sysenv arch` = Xi386 ]
 then	if [ -e $ACPI -a -n "`sysenv acpi`" ]
 	then
@@ -28,10 +51,21 @@ then	if [ -e $ACPI -a -n "`sysenv acpi`" ]
 		virtio_blk=yes
         fi
 
+	# Auto-detect an AHCI/SATA controller (PCI base/sub/prog-if class
+	# 01/06/01, shown as "1/6/1/..." in /proc/pci) so a single boot entry
+	# works on both q35 (AHCI) and i440fx/-machine pc (legacy IDE) without an
+	# explicit ahci= boot option.  An explicit ahci=yes/no still wins.
+	# `sysenv ahci` exits non-zero when the ahci env var is unset (the
+	# auto-detect default).  Guard it so `set -e` doesn't abort rc here
+	# (same gotcha as `sysenv verbose` above); empty means "probe below".
+	ahci_opt="`sysenv ahci 2>/dev/null || true`"
+	if [ -z "$ahci_opt" ] && grep -E '^[^ ]+ 1/6/1/' /proc/pci >/dev/null 2>&1
+	then	ahci_opt=yes
+	fi
+
 	minix-service -cn up /service/floppy -dev /dev/fd0
-	if [ X`sysenv ahci` = Xyes ]
+	if [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
 	then
-		# this is here temporarily, for testing purposes
 		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
 	elif [ X"$virtio_blk" = Xyes ]
 	then
@@ -49,26 +83,25 @@ then	echo Starting the mmc driver
 fi
 
 if [ X`sysenv arch` = Xamd64 ]
-then	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
+then	rdrcv "RDRC: amd64 branch entered"
+	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
 	# Start ACPI before PCI so PCI's APIC-mode init can resolve the
 	# 'acpi' DS label (otherwise pci panics with "Cannot use APIC mode
 	# without ACPI!").  Required in APIC mode; harmless in PIC mode.
-	# Diagnostic markers — gated on verbose=2+ in the kernel boot
-	# command line.
-	_rdrc_verbose=$(sysenv verbose 2>/dev/null)
-	: ${_rdrc_verbose:=0}
-	rdrcv() { [ "${_rdrc_verbose:-0}" -ge 2 ] 2>/dev/null && echo "$@"; }
-
-	rdrcv "RDRC: about to start ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
+	rdrcv "RDRC: pre-ACPI; ACPI=$ACPI sysenv-acpi=[`sysenv acpi`]"
 	if [ -e $ACPI ]
 	then	minix-service -c up $ACPI && rdrcv "RDRC: ACPI started" \
 			|| rdrcv "RDRC: ACPI start FAILED"
 	else
 		rdrcv "RDRC: ACPI binary not in ramdisk ($ACPI missing)"
 	fi
+	rdrcv "RDRC: starting PCI"
 	minix-service -c up /service/pci -dev /dev/pci
+	rdrcv "RDRC: starting input"
 	minix-service -c up /service/input -dev /dev/kbdmux
+	rdrcv "RDRC: starting pckbd"
 	minix-service -c up /service/pckbd || :
+	rdrcv "RDRC: pckbd done"
 
 	# Start procfs so we can access /proc/pci for virtio detection.
 	mount -t procfs none /proc >/dev/null
@@ -79,15 +112,54 @@ then	# amd64 ramdisk: start what's available.  No legacy IDE/floppy yet.
 	then	virtio_blk=yes
 	fi
 
-	if [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
+	# Auto-detect an AHCI/SATA controller (PCI base/sub/prog-if class
+	# 01/06/01, shown as "1/6/1/..." in /proc/pci) and prefer it when present
+	# (q35/UEFI); otherwise fall back to legacy IDE (i440fx/-machine pc, whose
+	# default -cdrom hangs off the PIIX3 IDE controller).  An explicit
+	# ahci=yes/no boot option overrides the probe.
+	# `sysenv ahci` exits non-zero when the ahci env var is unset (the
+	# auto-detect default).  Guard it so `set -e` doesn't abort rc here
+	# (same gotcha as `sysenv verbose` above); empty means "probe below".
+	ahci_opt="`sysenv ahci 2>/dev/null || true`"
+	if [ -z "$ahci_opt" ] && grep -E '^[^ ]+ 1/6/1/' /proc/pci >/dev/null 2>&1
+	then	ahci_opt=yes
+	fi
+
+	# Auto-detect an NVMe controller (PCI class 01/08/02, "1/8/2/..." in
+	# /proc/pci).  An explicit nvme=yes/no boot option overrides the probe
+	# (same guarding as ahci above).
+	nvme_opt="`sysenv nvme 2>/dev/null || true`"
+	if [ -z "$nvme_opt" ] && grep -E '^[^ ]+ 1/8/2/' /proc/pci >/dev/null 2>&1
+	then	nvme_opt=yes
+	fi
+
+	# When booting from CD the boot medium is on the CD controller (AHCI/IDE),
+	# which must be c0d0 for cdprobe to find it -- so NVMe only becomes the
+	# primary disk (c0d0) for a non-CD (installed) boot; during CD boot it is
+	# brought up as a secondary disk (c1d0) instead.
+	if [ X"$nvme_opt" = Xyes ] && sysenv cdproberoot >/dev/null
+	then	nvme_primary=no
+	else	nvme_primary="$nvme_opt"
+	fi
+
+	if [ X"$nvme_primary" = Xyes ] && [ -x /service/nvme ]
+	then
+		minix-service -c up /service/nvme -dev /dev/c0d0 -label nvme_0 -args instance=0
+	elif [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
+	then
+		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
+	elif [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
 	then	minix-service -c up /service/virtio_blk -dev /dev/c0d0 -label virtio_blk_0 -args instance=0
 	elif [ -x /service/at_wini ]
 	then
-		# Default to legacy IDE on amd64.  QEMU's default -cdrom is
-		# attached to the PIIX3 IDE controller, so we need at_wini up
-		# to access the boot CD in cdprobe below.
 		minix-service -c up /service/at_wini -dev /dev/c0d0 -label at_wini_0
 		minix-service -cr up /service/at_wini -dev /dev/c1d0 -label at_wini_1 -args instance=1 2>/dev/null || :
+	fi
+
+	# If NVMe is present but did not become the primary disk (CD boot, or
+	# another controller won c0d0), expose it as a secondary disk.
+	if [ X"$nvme_opt" = Xyes ] && [ X"$nvme_primary" != Xyes ] && [ -x /service/nvme ]
+	then	minix-service -cr up /service/nvme -dev /dev/c1d0 -label nvme_0 -args instance=0 2>/dev/null || :
 	fi
 	umount /proc >/dev/null
 fi

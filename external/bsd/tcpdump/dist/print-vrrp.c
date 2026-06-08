@@ -25,17 +25,18 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: print-vrrp.c,v 1.4 2014/11/20 03:05:03 christos Exp $");
+__RCSID("$NetBSD: print-vrrp.c,v 1.7 2019/10/01 16:06:16 christos Exp $");
 #endif
 
-#define NETDISSECT_REWORKED
+/* \summary: Virtual Router Redundancy Protocol (VRRP) printer */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include <tcpdump-stdinc.h>
+#include <netdissect-stdinc.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 #include "addrtoname.h"
 
@@ -146,17 +147,21 @@ vrrp_print(netdissect_options *ndo,
 
 			vec[0].ptr = bp;
 			vec[0].len = len;
-			if (in_cksum(vec, 1))
+			if (in_cksum(vec, 1)) {
+				ND_TCHECK_16BITS(&bp[6]);
 				ND_PRINT((ndo, ", (bad vrrp cksum %x)",
 					EXTRACT_16BITS(&bp[6])));
+			}
 		}
 
 		if (version == 3 && ND_TTEST2(bp[0], len)) {
-			uint16_t cksum = nextproto4_cksum(ndo, (struct ip *)bp2, bp,
+			uint16_t cksum = nextproto4_cksum(ndo, (const struct ip *)bp2, bp,
 				len, len, IPPROTO_VRRP);
-			if (cksum)
+			if (cksum) {
+				ND_TCHECK_16BITS(&bp[6]);
 				ND_PRINT((ndo, ", (bad vrrp cksum %x)",
 					EXTRACT_16BITS(&bp[6])));
+			}
 		}
 
 		ND_PRINT((ndo, ", addrs"));

@@ -1,4 +1,4 @@
-# $NetBSD: Makefile.inc,v 1.3 2010/11/05 09:09:01 he Exp $
+# $NetBSD: Makefile.inc,v 1.5 2017/04/21 12:43:22 joerg Exp $
 
 .include <bsd.own.mk>
 
@@ -12,8 +12,8 @@ CPPFLAGS+=	-DBINDIR='"${BINDIR}"'
 DPADD+=	${LIBINSTALL}/libinstall.a
 LDADD+=	-L${LIBINSTALL} -linstall -ltermcap
 
-DPADD+=		${LIBFETCH} ${LIBSSL} ${LIBCRYPTO}
-LDADD+=		-lfetch -lssl -lcrypto
+DPADD+=		${LIBNETPGPVERIFY} ${LIBFETCH} ${LIBSSL} ${LIBCRYPTO}
+LDADD+=		-lnetpgpverify -lfetch -lssl -lcrypto
 
 DPADD+=		${LIBARCHIVE}
 LDADD+=		-larchive
@@ -23,3 +23,8 @@ LDADD+=		-lz -lbz2
 
 DPADD+=		${LIBLZMA}
 LDADD+=		-llzma
+.if !defined(__MINIX)
+# MINIX has no libpthread yet; liblzma is built single-threaded here.
+DPADD+=		${LIBPTHREAD}
+LDADD+=		-lpthread
+.endif

@@ -9,7 +9,8 @@ CONFIGURE_ENV+=	CC=${HOST_CC:Q} \
 		CXX=${HOST_CXX:Q}
 
 CONFIGURE_ARGS=	--program-prefix=${_TOOL_PREFIX} --disable-shared \
-		--disable-warnings
+		--disable-warnings \
+		--disable-libseccomp
 
 .NOTPARALLEL:
 

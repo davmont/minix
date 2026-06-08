@@ -16,6 +16,13 @@ SRCS+=	resumecontext.S swapcontext.S
 SRCS+=	_lwp.c makecontext.c
 .endif
 
+.if defined(__MINIX)
+# MINIX builds _lwp.c only for the _lwp_setprivate()/_lwp_getprivate() TLS
+# thread-pointer helpers (WRFSBASE/RDFSBASE); _lwp_makecontext is guarded
+# out there because it needs _lwp_exit (no LWP syscalls on MINIX).
+SRCS+=	_lwp.c
+.endif
+
 # Common ieee754 constants and functions
 SRCS+=	infinityf_ieee754.c infinity_ieee754.c
 SRCS+=	fpclassifyf_ieee754.c fpclassifyd_ieee754.c

@@ -24,25 +24,12 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: src/lib/libarchive/archive_write_open_memory.c,v 1.3 2007/01/09 08:05:56 kientzle Exp $");
 
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "archive.h"
-
-/*
- * This is a little tricky.  I used to allow the
- * compression handling layer to fork the compressor,
- * which means this write function gets invoked in
- * a separate process.  That would, of course, make it impossible
- * to actually use the data stored into memory here.
- * Fortunately, none of the compressors fork today and
- * I'm reluctant to use that route in the future but, if
- * forking compressors ever do reappear, this will have
- * to get a lot more complicated.
- */
 
 struct write_memory_data {
 	size_t	used;
@@ -51,7 +38,7 @@ struct write_memory_data {
 	unsigned char * buff;
 };
 
-static int	memory_write_close(struct archive *, void *);
+static int	memory_write_free(struct archive *, void *);
 static int	memory_write_open(struct archive *, void *);
 static ssize_t	memory_write(struct archive *, void *, const void *buff, size_t);
 
@@ -65,17 +52,16 @@ archive_write_open_memory(struct archive *a, void *buff, size_t buffSize, size_t
 {
 	struct write_memory_data *mine;
 
-	mine = (struct write_memory_data *)malloc(sizeof(*mine));
+	mine = calloc(1, sizeof(*mine));
 	if (mine == NULL) {
 		archive_set_error(a, ENOMEM, "No memory");
 		return (ARCHIVE_FATAL);
 	}
-	memset(mine, 0, sizeof(*mine));
 	mine->buff = buff;
 	mine->size = buffSize;
 	mine->client_size = used;
-	return (archive_write_open(a, mine,
-		    memory_write_open, memory_write, memory_write_close));
+	return (archive_write_open2(a, mine,
+		    memory_write_open, memory_write, NULL, memory_write_free));
 }
 
 static int
@@ -116,11 +102,13 @@ memory_write(struct archive *a, void *client_data, const void *buff, size_t leng
 }
 
 static int
-memory_write_close(struct archive *a, void *client_data)
+memory_write_free(struct archive *a, void *client_data)
 {
 	struct write_memory_data *mine;
 	(void)a; /* UNUSED */
 	mine = client_data;
+	if (mine == NULL)
+		return (ARCHIVE_OK);
 	free(mine);
 	return (ARCHIVE_OK);
 }

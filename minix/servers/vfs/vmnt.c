@@ -249,7 +249,7 @@ void fetch_vmnt_paths(void)
   struct vnode *cur_wd;
   char orig_path[PATH_MAX];
 
-  cur_wd = fp->fp_wd;
+  cur_wd = fp->fp_fd->fd_wd;
 
   for (vmp = &vmnt[0]; vmp < &vmnt[NR_MNTS]; vmp++) {
 	if (vmp->m_dev == NO_DEV)
@@ -270,7 +270,7 @@ void fetch_vmnt_paths(void)
 		char *mp;
 		int len;
 
-		fp->fp_wd = vmp->m_mounted_on;	/* Change our working dir */
+		fp->fp_fd->fd_wd = vmp->m_mounted_on;	/* Change our working dir */
 
 		/* Isolate the mount point name of the full path */
 		len = strlen(vmp->m_mount_path);
@@ -286,7 +286,7 @@ void fetch_vmnt_paths(void)
 			 */
 			strlcpy(vmp->m_mount_path, orig_path, PATH_MAX);
 		}
-		fp->fp_wd = cur_wd;		/* Revert working dir */
+		fp->fp_fd->fd_wd = cur_wd;		/* Revert working dir */
 	}
   }
 }

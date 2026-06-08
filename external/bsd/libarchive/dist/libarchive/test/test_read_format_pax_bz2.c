@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "test.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/test/test_read_format_pax_bz2.c 201247 2009-12-30 05:59:21Z kientzle $");
 
 static unsigned char archive[] = {
 'B','Z','h','9','1','A','Y','&','S','Y',152,180,30,185,0,0,140,127,176,212,
@@ -47,7 +46,7 @@ DEFINE_TEST(test_read_format_pax_bz2)
 	int r;
 
 	assert((a = archive_read_new()) != NULL);
-	r = archive_read_support_compression_bzip2(a);
+	r = archive_read_support_filter_bzip2(a);
 	if (r != ARCHIVE_OK) {
 		archive_read_close(a);
 		skipping("Bzip2 unavailable");
@@ -57,10 +56,13 @@ DEFINE_TEST(test_read_format_pax_bz2)
 	assertEqualIntA(a,ARCHIVE_OK,
 	    archive_read_open_memory(a, archive, sizeof(archive)));
 	assertEqualIntA(a,ARCHIVE_OK, archive_read_next_header(a, &ae));
-	assertEqualInt(archive_compression(a), ARCHIVE_COMPRESSION_BZIP2);
+	assertEqualInt(1, archive_file_count(a));
+	assertEqualInt(archive_filter_code(a, 0), ARCHIVE_FILTER_BZIP2);
 	assertEqualInt(archive_format(a), ARCHIVE_FORMAT_TAR_PAX_INTERCHANGE);
+	assertEqualInt(archive_entry_is_encrypted(ae), 0);
+	assertEqualIntA(a, archive_read_has_encrypted_entries(a), ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED);
 	assertEqualIntA(a,ARCHIVE_OK, archive_read_close(a));
-	assertEqualInt(ARCHIVE_OK, archive_read_finish(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 

@@ -23,6 +23,8 @@ MKKYUA?=	yes
 MKMCLINKER?=	no
 MKCLANGRT?=	no
 MKLLVM?=	yes
+MKLLVMRT?=	no	# MINIX does not build LLVM's own runtime libs (libLLVMrt)
+MKSANITIZER?=	no	# MINIX does not build the LLVM/GCC sanitizer runtimes
 MKGCC?=		no
 MKGCCCMDS?=	no
 MKPROFILE?=	no
@@ -30,6 +32,13 @@ MKSLJIT?=	no
 
 #MINIX-specific variables
 MKCOVERAGE?=	no
+
+# OpenSSL consumers resynced from NetBSD reference the openssl source
+# tree via ${EXTERNAL_OPENSSL_SUBDIR} and test its version via
+# ${HAVE_OPENSSL} (NetBSD sets both in its own bsd.own.mk).  We ship
+# OpenSSL 3.0, so default them here for the whole tree.
+HAVE_OPENSSL?=		30
+EXTERNAL_OPENSSL_SUBDIR?=	openssl
 
 # LSC MINIX does not support these features ATM.
 USE_FORT:=	no

@@ -64,7 +64,15 @@ int do_getinfo(struct proc * caller, message * m_ptr)
         break;
     }
     case GET_KINFO: {
-        length = sizeof(struct kinfo);
+        /*
+         * Copy only the original kinfo layout to userland.  The UEFI /
+         * Multiboot2 fields appended to struct kinfo (acpi_rsdp, fb_*) are
+         * consumed inside the kernel and through get_minix_kerninfo()'s
+         * mapped pointer, never via SYS_GETINFO.  Copying the full (now
+         * larger) sizeof(struct kinfo) would overflow the smaller kinfo
+         * buffer in userland that was built against the pre-UEFI layout.
+         */
+        length = offsetof(struct kinfo, acpi_rsdp);
         src_vir = (vir_bytes) &kinfo;
         break;
     }
@@ -200,6 +208,34 @@ int do_getinfo(struct proc * caller, message * m_ptr)
 	src_vir = (vir_bytes)ticks;
 	break;
     }
+#ifdef CONFIG_SMP
+    case GET_IPCTRAFFIC: {
+	/* Read+clear the IPC-traffic histogram for one proc.
+	 * Endpoint of target is passed in val_len2_e (SELF for caller).
+	 * Buffer must be sized for CONFIG_MAX_CPUS u32_t entries.
+	 *
+	 * Histogram lives in kernel/proc.c's ipc_sender_cpu_count[][]
+	 * array, indexed by absolute proc slot (NR_TASKS+p_nr), kept out
+	 * of struct proc to preserve its binary ABI for userspace
+	 * consumers (MIB, IS, VM) that copy GET_PROCTAB into a buffer
+	 * sized by sizeof(struct proc). */
+	extern u32_t ipc_sender_cpu_count[NR_TASKS + NR_PROCS][CONFIG_MAX_CPUS];
+	static u32_t hist_copy[CONFIG_MAX_CPUS];
+	int i, slot;
+	nr_e = (m_ptr->m_lsys_krn_sys_getinfo.val_len2_e == SELF) ?
+		caller->p_endpoint : m_ptr->m_lsys_krn_sys_getinfo.val_len2_e;
+	if (!isokendpt(nr_e, &nr)) return EINVAL;
+	p = proc_addr(nr);
+	slot = p->p_nr + NR_TASKS;
+	for (i = 0; i < CONFIG_MAX_CPUS; i++) {
+		hist_copy[i] = ipc_sender_cpu_count[slot][i];
+		ipc_sender_cpu_count[slot][i] = 0;
+	}
+	length = sizeof(hist_copy);
+	src_vir = (vir_bytes) hist_copy;
+	break;
+    }
+#endif
     default:
 	printf("do_getinfo: invalid request %d\n",
 		m_ptr->m_lsys_krn_sys_getinfo.request);

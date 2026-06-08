@@ -6,9 +6,14 @@
 #	libbluetooth
 #	libobjc libposix libppath libpthread
 #	librt libtre semaphore
-TESTS_SUBDIRS=	csu libc libcrypt libcurses libevent libexecinfo \
+#	libevent: the libevent 2.1 regress test needs threads (__libc_thr_self)
+#	          and test sources our 2.0-era test Makefile doesn't list.
+TESTS_SUBDIRS=	csu libc libcrypt libcurses libexecinfo \
 		libm libprop  \
 		libutil
+.if !defined(__MINIX)
+TESTS_SUBDIRS+=	libevent
+.endif
 
 .if (${MKRUMP} != "no") && !defined(BSD_MK_COMPAT_FILE)
 TESTS_SUBDIRS+= librumpclient librumphijack

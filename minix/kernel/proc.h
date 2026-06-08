@@ -7,12 +7,30 @@
 #ifndef __ASSEMBLY__
 
 /* Here is the declaration of the process table.  It contains all process
- * data, including registers, flags, scheduling priority, memory map, 
- * accounting, message passing (IPC) information, and so on. 
+ * data, including registers, flags, scheduling priority, memory map,
+ * accounting, message passing (IPC) information, and so on.
  *
  * Many assembly code routines reference fields in it.  The offsets to these
  * fields are defined in the assembler include file sconst.h.  When changing
  * struct proc, be sure to change sconst.h to match.
+ *
+ * **PRESERVE BINARY ABI WHEN ADDING FIELDS.**  Several userspace servers
+ * (MIB, IS, VM, and any debug tools) copy the entire kernel proc table
+ * into a locally-typed `struct proc proc_tab[NR_TASKS+NR_PROCS]` buffer
+ * via `sys_getproctab` / GET_PROCTAB.  Those buffers are statically sized
+ * at compile time by their own `sizeof(struct proc)`.  Growing this
+ * struct without rebuilding *every* such consumer in lockstep causes the
+ * kernel's copy to overrun their buffer and corrupt adjacent memory —
+ * which previously manifested as ps(1) crashes after the Tier 1 IPC
+ * colocation work added a per-CPU histogram inside this struct.
+ *
+ * Strongly prefer keeping new per-proc kernel-internal data **outside**
+ * struct proc, in a separate file-scope array indexed by absolute proc
+ * slot (`p_nr + NR_TASKS`).  See `ipc_sender_cpu_count[][]` in proc.c
+ * for the canonical example.  Adding a field here is appropriate only
+ * when the data genuinely needs to be visible to those userspace
+ * consumers (and even then, do it at the END of the struct so existing
+ * field offsets don't shift) — and you'll still need to rebuild them.
  */
 #include <minix/com.h>
 #include <minix/portio.h>

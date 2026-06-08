@@ -1,4 +1,4 @@
-# $NetBSD: t_pubkey.sh,v 1.3 2011/06/09 05:25:21 spz Exp $
+# $NetBSD: t_pubkey.sh,v 1.6.10.1 2023/08/11 13:43:42 martin Exp $
 #
 # Copyright (c) 2008, 2009, 2010 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -49,7 +49,7 @@ atf_test_case rsa
 rsa_head()
 {
 	atf_set "descr" "Checks RSA"
-	atf_set "timeout" "300"
+	atf_set "timeout" "420"
 }
 rsa_body()
 {
@@ -60,7 +60,7 @@ atf_test_case ec
 ec_head()
 {
 	atf_set "descr" "Checks EC cipher"
-	atf_set "timeout" "300"
+	atf_set "timeout" "960"
 }
 ec_body()
 {
@@ -81,7 +81,7 @@ atf_test_case ecdsa
 ecdsa_head()
 {
 	atf_set "descr" "Checks ECDSA algorithm"
-	atf_set "timeout" "300"
+	atf_set "timeout" "3000"
 }
 ecdsa_body()
 {
@@ -104,7 +104,7 @@ atf_init_test_cases()
 	atf_add_test_case dh
 	atf_add_test_case rsa
 	atf_add_test_case ec
-	atf_add_test_case ecdh
-	atf_add_test_case ecdsa
+#	atf_add_test_case ecdh
+#	atf_add_test_case ecdsa
 	atf_add_test_case srp
 }

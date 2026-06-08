@@ -74,7 +74,7 @@ HOST_CFLAGS+=	-std=gnu11 \
 		${.CURDIR}/../../common/lib/libc/md \
 		${.CURDIR}/../../common/lib/libc/stdlib \
 		${.CURDIR}/../../common/lib/libutil \
-		${.CURDIR}/../../external/bsd/flex/dist
+		${.CURDIR}/../../external/bsd/flex/dist/src
 
 DPSRCS+=	defs.mk
 CLEANFILES+=	config.log config.status configure.lineno *.stamp

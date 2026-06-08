@@ -13,6 +13,10 @@
 
 #include <minix/endpoint.h>
 
+#if defined(USE_APIC)
+#include "arch_proto.h"		/* ioapic_alloc_msi / ioapic_free_msi */
+#endif
+
 #if USE_IRQCTL
 
 static int generic_handler(irq_hook_t *hook);
@@ -118,6 +122,70 @@ int do_irqctl(struct proc * caller, message * m_ptr)
       /* Return index of the IRQ hook in use. */
       m_ptr->m_krn_lsys_sys_irqctl.hook_id = irq_hook_id + 1;
       break;
+
+  /* Allocate an MSI/MSI-X vector and install a policy for it.  Unlike
+   * IRQ_SETPOLICY the caller does not name an IRQ line: the kernel picks a
+   * free vector and returns the (address, data) pair the driver must program
+   * into the device's MSI-X table to raise it.  Delivery then reuses the same
+   * generic_handler/notify path as a legacy line.
+   */
+  case IRQ_SETPOLICY_MSI:
+#if defined(USE_APIC)
+  {
+      int msi_irq_vec;
+      u32_t msi_addr, msi_data;
+
+      privp = priv(caller);
+      if (!privp) {
+	printf("do_irqctl: no priv structure!\n");
+	return EPERM;
+      }
+
+      notify_id = m_ptr->m_lsys_krn_sys_irqctl.hook_id;
+      if (notify_id > CHAR_BIT * sizeof(irq_id_t) - 1) return(EINVAL);
+
+      /* Reserve a free MSI vector (also yields its address/data pair). */
+      r = ioapic_alloc_msi(&msi_irq_vec, &msi_addr, &msi_data);
+      if (r != OK) return(r);
+
+      /* Try to find an existing mapping to override. */
+      hook_ptr = NULL;
+      for (i=0; !hook_ptr && i<NR_IRQ_HOOKS; i++) {
+          if (irq_hooks[i].proc_nr_e == caller->p_endpoint
+              && irq_hooks[i].notify_id == notify_id) {
+              irq_hook_id = i;
+              hook_ptr = &irq_hooks[irq_hook_id];
+              rm_irq_handler(&irq_hooks[irq_hook_id]);
+          }
+      }
+      /* Otherwise grab a free hook. */
+      for (i=0; !hook_ptr && i<NR_IRQ_HOOKS; i++) {
+          if (irq_hooks[i].proc_nr_e == NONE) {
+              irq_hook_id = i;
+              hook_ptr = &irq_hooks[irq_hook_id];
+          }
+      }
+      if (hook_ptr == NULL) {
+          ioapic_free_msi(msi_irq_vec);
+          return(ENOSPC);
+      }
+
+      hook_ptr->proc_nr_e = caller->p_endpoint;
+      hook_ptr->notify_id = notify_id;
+      hook_ptr->policy = m_ptr->m_lsys_krn_sys_irqctl.policy;
+      put_irq_handler(hook_ptr, msi_irq_vec, generic_handler);
+      DEBUGBASIC(("MSI vector %d (addr 0x%x data 0x%x) registered by %s / %d\n",
+		      msi_irq_vec, msi_addr, msi_data, caller->p_name,
+		      caller->p_endpoint));
+
+      m_ptr->m_krn_lsys_sys_irqctl.hook_id = irq_hook_id + 1;
+      m_ptr->m_krn_lsys_sys_irqctl.msi_addr = msi_addr;
+      m_ptr->m_krn_lsys_sys_irqctl.msi_data = msi_data;
+  }
+      break;
+#else
+      return(ENOSYS);
+#endif
 
   case IRQ_RMPOLICY:
       if (irq_hook_id < 0 || irq_hook_id >= NR_IRQ_HOOKS ||

@@ -95,7 +95,11 @@ void prot_init(void);
 void prot_load_selectors(void);
 void idt_init(void);
 void idt_reload(void);
+void ap_set_kernel_gs_base(unsigned cpu);
+void ap_setup_syscall_msrs(void);
 void int_gate_idt(unsigned vec_nr, vir_bytes offset, unsigned dpl_type);
+
+extern struct desctableptr_s gdt_desc;
 
 struct gate_table_s {
 	void (*gate)(void);
@@ -178,6 +182,12 @@ void       add_memmap(kinfo_t *cbi, u64_t addr, u64_t len);
 phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
 void       cut_memmap(kinfo_t *cbi, phys_bytes start, phys_bytes end);
 phys_bytes pg_alloc_page(kinfo_t *cbi);
+
+#if defined(USE_APIC)
+/* MSI/MSI-X vector allocation, implemented in arch/x86_64/apic.c. */
+int ioapic_alloc_msi(int *out_irq, u32_t *out_addr, u32_t *out_data);
+void ioapic_free_msi(int irq);
+#endif
 
 /* multiboot / pre_init */
 void multiboot_init(void);

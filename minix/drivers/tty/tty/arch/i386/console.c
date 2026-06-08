@@ -27,7 +27,10 @@
 #include <minix/com.h>
 #include <minix/sys_config.h>
 #include <minix/vm.h>
+#include <minix/param.h>	/* struct kinfo (fb_* fields) */
+#include <lib.h>		/* get_minix_kerninfo() */
 #include "tty.h"
+#include "font8x8.h"
 
 /* Set this to 1 if you want console output duplicated on the first
  * serial line.
@@ -108,6 +111,124 @@ static int shutting_down = FALSE;	/* don't allow console switches */
 
 /* Color if using a color controller. */
 #define color	(vid_port == C_6845)
+
+/*===========================================================================*
+ *	EFI / Multiboot2 linear-framebuffer text console backend             *
+ *									     *
+ *  Under UEFI there is no VGA text buffer at 0xB8000.  When the kernel was   *
+ *  booted via Multiboot2 it captured the GOP linear framebuffer geometry in  *
+ *  kinfo; this driver reads it through get_minix_kerninfo() and, if present, *
+ *  renders the console into the framebuffer instead of mapping VGA text RAM. *
+ *									     *
+ *  The console layer is reused unchanged: console_memory becomes a RAM       *
+ *  shadow of character+attribute words, and the three video primitives       *
+ *  (mem_vid_copy / vid_vid_copy / set_6845) render the affected cells to the *
+ *  framebuffer.  An 8x16 cell is drawn from the 8x8 font by doubling rows.   *
+ *  Only 32-bpp framebuffers are handled; otherwise the legacy VGA path runs. *
+ *===========================================================================*/
+#define FB_GLYPH_W	8
+#define FB_GLYPH_H	16
+
+static int      fb_active = 0;		/* framebuffer console in use? */
+static char    *fb_mem = NULL;		/* mapped linear framebuffer */
+static unsigned fb_pitch_b;		/* bytes per scanline */
+static unsigned fb_width_px, fb_height_px;
+static unsigned fb_cursor_index = 0;	/* shadow index of drawn cursor */
+
+/* VGA 16-colour palette as 0x00RRGGBB (channel-order agnostic for greys;
+ * QEMU/OVMF GOP is BGRX, where this byte order is also correct). */
+static const u32_t vga_pal[16] = {
+	0x000000, 0x0000AA, 0x00AA00, 0x00AAAA,
+	0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
+	0x555555, 0x5555FF, 0x55FF55, 0x55FFFF,
+	0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
+};
+
+/*
+ * Several virtual consoles share the single framebuffer, exactly as they
+ * share VGA video memory: each owns a page of the console_memory shadow, but
+ * only the visible one (curcons) is drawn.  fb_screen_pos() returns the
+ * on-screen cell index for a shadow index if it belongs to the visible
+ * console, or -1 otherwise.
+ */
+static int fb_screen_pos(unsigned index)
+{
+	unsigned base;
+	if (!curcons) return -1;
+	base = curcons->c_org;
+	if (index < base || index >= base + scr_size) return -1;
+	return (int)(index - base);
+}
+
+/* Render one shadow cell (char+attr word) to the framebuffer, if visible. */
+static void fb_render_cell(unsigned index)
+{
+	u16_t word;
+	unsigned ch, att, col, row, x0, y0, fy;
+	u32_t fg, bg;
+	int pos = fb_screen_pos(index);
+
+	if (pos < 0) return;
+	word = ((u16_t *)console_memory)[index];
+	ch  = word & 0xFF;
+	att = (word >> 8) & 0xFF;
+	fg = vga_pal[att & 0x0F];
+	bg = vga_pal[(att >> 4) & 0x07];
+	col = (unsigned)pos % scr_width;
+	row = (unsigned)pos / scr_width;
+	x0 = col * FB_GLYPH_W; y0 = row * FB_GLYPH_H;
+	if (x0 + FB_GLYPH_W > fb_width_px || y0 + FB_GLYPH_H > fb_height_px)
+		return;
+
+	for (fy = 0; fy < FB_GLYPH_H; fy++) {
+		unsigned char bits = font8x8_basic[ch][fy >> 1]; /* double rows */
+		u32_t *px = (u32_t *)(fb_mem + (y0 + fy) * fb_pitch_b + x0 * 4);
+		unsigned fx;
+		for (fx = 0; fx < FB_GLYPH_W; fx++)
+			px[fx] = (bits & (1 << fx)) ? fg : bg;
+	}
+}
+
+static void fb_render_range(unsigned start, unsigned count)
+{
+	while (count-- > 0)
+		fb_render_cell(start++);
+}
+
+/* Redraw the whole visible console (used on VT switch). */
+static void fb_redraw_screen(void)
+{
+	unsigned i;
+	if (!curcons) return;
+	for (i = 0; i < scr_size; i++)
+		fb_render_cell(curcons->c_org + i);
+}
+
+/* Software cursor: a two-pixel underline in the foreground colour. */
+static void fb_set_cursor(unsigned index)
+{
+	unsigned x0, y0, fy, fx;
+	u16_t word;
+	u32_t fg;
+	int pos;
+
+	fb_render_cell(fb_cursor_index);	/* erase previous cursor */
+	fb_cursor_index = index;
+
+	pos = fb_screen_pos(index);
+	if (pos < 0) return;
+	x0 = ((unsigned)pos % scr_width) * FB_GLYPH_W;
+	y0 = ((unsigned)pos / scr_width) * FB_GLYPH_H;
+	if (x0 + FB_GLYPH_W > fb_width_px || y0 + FB_GLYPH_H > fb_height_px)
+		return;
+	word = ((u16_t *)console_memory)[index];
+	fg = vga_pal[(word >> 8) & 0x0F];
+	for (fy = FB_GLYPH_H - 2; fy < FB_GLYPH_H; fy++) {
+		u32_t *px = (u32_t *)(fb_mem + (y0 + fy) * fb_pitch_b + x0 * 4);
+		for (fx = 0; fx < FB_GLYPH_W; fx++)
+			px[fx] = fg;
+	}
+}
 
 /* Map from ANSI colors to the attributes used by the PC */
 static int ansi_colors[8] = {0, 4, 2, 6, 1, 5, 3, 7};
@@ -740,6 +861,15 @@ unsigned val;			/* 16-bit value to set it to */
  * Registers 14-15 tell the 6845 where to put the cursor
  */
   pvb_pair_t char_out[4];
+
+  if (fb_active) {
+	/* No 6845 behind a framebuffer.  The origin is always 0 (we force
+	 * software scrolling); only the cursor needs handling, in software. */
+	if (reg == CURSOR)
+		fb_set_cursor(val);
+	return;
+  }
+
   pv_set(char_out[0], vid_port + INDEX, reg);	/* set index register */
   pv_set(char_out[1], vid_port + DATA, (val>>8) & BYTE);    /* high byte */
   pv_set(char_out[2], vid_port + INDEX, reg + 1);	    /* again */
@@ -955,39 +1085,88 @@ tty_t *tp;
   	font_lines = bios_fontlines;
 	scr_lines = bios_rows+1;
 
-  	if (color) {
-		vid_base = COLOR_BASE;
-		vid_size = COLOR_SIZE;
-  	} else {
-		vid_base = MONO_BASE;
-		vid_size = MONO_SIZE;
-  	}
-	vid_size = EGA_SIZE;
-	wrap = 0;
+	{
+	  struct minix_kerninfo *ki = get_minix_kerninfo();
 
-	console_memory = vm_map_phys(SELF, (void *) vid_base, vid_size);
+	  if (ki && ki->kinfo && ki->kinfo->fb_addr &&
+	      ki->kinfo->fb_bpp == 32) {
+		/* UEFI/Multiboot2 linear framebuffer present: render text into
+		 * it, backed by a RAM shadow of char+attr words.  No VGA text
+		 * RAM, no 6845, software scrolling only. */
+		unsigned pow2;
 
-	if(console_memory == MAP_FAILED) 
-  		panic("Console couldn't map video memory");
+		fb_pitch_b   = ki->kinfo->fb_pitch;
+		fb_width_px  = ki->kinfo->fb_width;
+		fb_height_px = ki->kinfo->fb_height;
 
-	font_memory = vm_map_phys(SELF, (void *)GA_VIDEO_ADDRESS, GA_FONT_SIZE);
+		scr_width = fb_width_px / FB_GLYPH_W;
+		if (scr_width > CONS_RAM_WORDS) scr_width = CONS_RAM_WORDS;
+		scr_lines  = fb_height_px / FB_GLYPH_H;
+		font_lines = FB_GLYPH_H;
+		scr_size   = scr_lines * scr_width;
 
-	if(font_memory == MAP_FAILED) 
-  		panic("Console couldn't map font memory");
+		/* Give every virtual console its own shadow page, like the VGA
+		 * path -- otherwise lines >= nr_cons keep NULL tty hooks and a
+		 * write to them calls through a null pointer.  Size the shadow
+		 * (a power of two, for LIMITINDEX) to hold NR_CONS screens. */
+		for (pow2 = 1; pow2 < scr_size * NR_CONS; pow2 <<= 1) ;
+		vid_size = pow2;
+		vid_mask = vid_size - 1;
+		wrap = 0;
+		softscroll = 1;		/* no origin register -> software scroll */
 
-  	vid_size >>= 1;		/* word count */
-  	vid_mask = vid_size - 1;
+		fb_mem = vm_map_phys(SELF, (void *)ki->kinfo->fb_addr,
+		    (size_t)fb_pitch_b * fb_height_px);
+		if (fb_mem == MAP_FAILED)
+			panic("Console couldn't map framebuffer");
 
-  	/* Size of the screen (number of displayed characters.) */
-  	scr_size = scr_lines * scr_width;
+		console_memory = calloc(vid_size, sizeof(u16_t));
+		if (console_memory == NULL)
+			panic("Console couldn't allocate shadow buffer");
+		font_memory = NULL;
 
-  	/* There can be as many consoles as video memory allows. */
-  	nr_cons = vid_size / scr_size;
+		nr_cons = vid_size / scr_size;
+		if (nr_cons > NR_CONS) nr_cons = NR_CONS;
+		if (nr_cons < 1) panic("no consoles");
+		page_size = vid_size / nr_cons;
+		fb_active = 1;
+	  } else {
+		/* Legacy VGA text console. */
+	  	if (color) {
+			vid_base = COLOR_BASE;
+			vid_size = COLOR_SIZE;
+	  	} else {
+			vid_base = MONO_BASE;
+			vid_size = MONO_SIZE;
+	  	}
+		vid_size = EGA_SIZE;
+		wrap = 0;
 
-  	if (nr_cons > NR_CONS) nr_cons = NR_CONS;
-  	if (nr_cons > 1) wrap = 0;
-	if (nr_cons < 1) panic("no consoles");
-  	page_size = vid_size / nr_cons;
+		console_memory = vm_map_phys(SELF, (void *) vid_base, vid_size);
+
+		if(console_memory == MAP_FAILED)
+	  		panic("Console couldn't map video memory");
+
+		font_memory = vm_map_phys(SELF, (void *)GA_VIDEO_ADDRESS, GA_FONT_SIZE);
+
+		if(font_memory == MAP_FAILED)
+	  		panic("Console couldn't map font memory");
+
+	  	vid_size >>= 1;		/* word count */
+	  	vid_mask = vid_size - 1;
+
+	  	/* Size of the screen (number of displayed characters.) */
+	  	scr_size = scr_lines * scr_width;
+
+	  	/* There can be as many consoles as video memory allows. */
+	  	nr_cons = vid_size / scr_size;
+
+	  	if (nr_cons > NR_CONS) nr_cons = NR_CONS;
+	  	if (nr_cons > 1) wrap = 0;
+		if (nr_cons < 1) panic("no consoles");
+	  	page_size = vid_size / nr_cons;
+	  }
+	}
   }
 
   cons->c_start = line * page_size;
@@ -1105,6 +1284,9 @@ void select_console(int cons_line)
   ccurrent = cons_line;
   curcons = &cons_table[cons_line];
 
+  if (fb_active)
+	fb_redraw_screen();		/* repaint the newly-visible console */
+
   UPDATE_CURSOR(curcons, curcons->c_cur);
   UPDATE_ORIGIN(curcons, curcons->c_org);
 }
@@ -1135,6 +1317,11 @@ int con_loadfont(endpoint_t endpt, cp_grant_id_t grant)
 	{ GA_GRAPHICS_INDEX, 0x05, 0x10 },
 	{ GA_GRAPHICS_INDEX, 0x06,    0 },
   };
+
+  /* No programmable font hardware behind a linear framebuffer; the renderer
+   * uses its own built-in font. */
+  if (fb_active)
+	return ENOTTY;
 
   seq2[6].value= color ? 0x0E : 0x0A;
 
@@ -1202,6 +1389,8 @@ static void mem_vid_copy(vir_bytes src, int dst_index, int count)
 		else
 			for(i = 0; i < subcount; i++)
 				*dst_mem++ = *src_mem++;
+		if (fb_active)
+			fb_render_range(dst_index, subcount);
 		count -= subcount;
 		dst_index += subcount;
 	}
@@ -1231,6 +1420,8 @@ static void vid_vid_copy(int src_index, int dst_index, int count)
 			for(i = 0; i < subcount; i++)
 				*dst_mem++ = *src_mem++;
 		}
+		if (fb_active)
+			fb_render_range(dst_index, subcount);
 		count -= subcount;
 		dst_index += subcount;
 		src_index += subcount;

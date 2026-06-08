@@ -697,8 +697,22 @@ int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced)
 		p->p_cpu_time_left = ms_2_cpu_time(quantum);
 	}
 #ifdef CONFIG_SMP
-	if (cpu != -1)
+	if (cpu != -1) {
+		/* If we're actually moving the proc to a different CPU, drop its
+		 * FPU ownership on the old CPU and force a fresh xrstor-of-fninit
+		 * on the new CPU.  Without this, the proc's saved XSAVE area can
+		 * fail to restore cleanly when xrstor runs on a CPU that didn't
+		 * see the matching xsave, manifesting as SIGFPE on first dispatch
+		 * after migration.  Only applies to non-runnable procs taking
+		 * the lazy migration path (runnable procs go through
+		 * smp_schedule_migrate_proc above, which already saves context).
+		 */
+		if (cpu != p->p_cpu) {
+			release_fpu(p);
+			p->p_misc_flags &= ~MF_FPU_INITIALIZED;
+		}
 		p->p_cpu = cpu;
+	}
 #endif
 
 	if (niced)

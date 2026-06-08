@@ -178,8 +178,10 @@ extern const int *const uvmexp_pageshift;
 #define	VM_MINADDRESS	14
 #define	VM_MAXADDRESS	15
 #define	VM_PROC		16		/* process information */
+#define	VM_GUARD_SIZE	17		/* default stack guard size */
+#define	VM_THREAD_GUARD_SIZE 18		/* default thread stack guard size */
 
-#define	VM_MAXID	17		/* number of valid vm ids */
+#define	VM_MAXID	19		/* number of valid vm ids */
 
 #define VM_PROC_MAP	1		/* struct kinfo_vmentry */
 

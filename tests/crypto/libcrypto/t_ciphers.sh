@@ -1,4 +1,4 @@
-# $NetBSD: t_ciphers.sh,v 1.4 2012/07/14 16:04:06 spz Exp $
+# $NetBSD: t_ciphers.sh,v 1.8 2019/03/27 21:14:54 gson Exp $
 #
 # Copyright (c) 2008, 2009, 2010 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -60,10 +60,13 @@ atf_test_case evp
 evp_head()
 {
 	atf_set "descr" "Checks EVP cipher"
+	atf_set "timeout" "1200"
 }
 evp_body()
 {
-	atf_check -o ignore -e ignore $(atf_get_srcdir)/h_evp_test $(atf_get_srcdir)/evptests.txt
+	for i in $(atf_get_srcdir)/evp*.txt; do
+	    atf_check -o ignore -e ignore $(atf_get_srcdir)/h_evp_test $i
+	done
 }
 
 atf_test_case rc2
@@ -103,9 +106,6 @@ rc5_head()
 }
 rc5_body()
 {
-	[ -x "$(atf_get_srcdir)/h_rc5test" ] \
-	    || atf_skip "RC5 support not available; system built" \
-	                "with MKCRYPTO_RC5=no"
 	atf_check -o ignore -e ignore "$(atf_get_srcdir)/h_rc5test"
 }
 

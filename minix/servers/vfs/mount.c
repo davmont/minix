@@ -343,8 +343,8 @@ char mount_label[LABEL_MAX] )
 			what = root_node;		\
 		}
 
-		MAKEROOT(tfp->fp_rd);
-		MAKEROOT(tfp->fp_wd);
+		MAKEROOT(tfp->fp_fd->fd_rd);
+		MAKEROOT(tfp->fp_fd->fd_wd);
 	}
 
 	unlock_vnode(root_node);

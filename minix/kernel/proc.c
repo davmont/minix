@@ -63,6 +63,18 @@ static void enqueue_head(struct proc *rp);
 /* all idles share the same idle_priv structure */
 static struct priv idle_priv;
 
+#ifdef CONFIG_SMP
+/* Tier 1 colocation: per-proc-slot IPC-traffic histogram, indexed by
+ * sender's CPU.  Stored outside struct proc so the proc-struct binary
+ * ABI stays stable for the userspace consumers (MIB, IS, VM) that read
+ * GET_PROCTAB and depend on a specific sizeof(struct proc).
+ * Index 0..NR_TASKS-1 is for kernel tasks, NR_TASKS..NR_TASKS+NR_PROCS-1
+ * for user/system procs, matching the proc[] array layout.
+ * Writers all hold BKL, so no atomic needed.
+ */
+u32_t ipc_sender_cpu_count[NR_TASKS + NR_PROCS][CONFIG_MAX_CPUS];
+#endif
+
 static void set_idle_name(char * name, int n)
 {
         int i, c;
@@ -425,6 +437,15 @@ not_runnable_pick_new:
 	/* update the global variable */
 	get_cpulocal_var(proc_ptr) = p;
 
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
+	/* DBG: when AP runs a non-idle proc, emit '@' so we can confirm
+	 * the AP actually got past pick_proc and is switching to user. */
+	if (cpuid != bsp_cpu_id && p->p_endpoint != IDLE) {
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $'@', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+	}
+#endif
+
 #ifdef CONFIG_SMP
 	if (p->p_misc_flags & MF_FLUSH_TLB && get_cpulocal_var(ptproc) == p)
 		tlb_must_refresh = 1;
@@ -434,7 +455,17 @@ not_runnable_pick_new:
 check_misc_flags:
 
 	assert(p);
-	assert(proc_is_runnable(p));
+	/*
+	 * p may have become not-runnable between pick_proc() and here:
+	 * another CPU's smp_sched_handler can RTS_SET(p, RTS_PROC_STOP|
+	 * RTS_VMINHIBIT) while we are still in switch_address_space.  When
+	 * that happens, restart the picking — don't assert.  Without this
+	 * recheck, -smp 4 boots are flaky in 2026-05-31 builds where the
+	 * COM1 marker emissions used to slow the window enough to hide the
+	 * race (see CONFIG_SMP_VERBOSE in kernel.h).
+	 */
+	if (!proc_is_runnable(p))
+		goto not_runnable_pick_new;
 	while (p->p_misc_flags &
 		(MF_KCALL_RESUME | MF_DELIVERMSG |
 		 MF_SC_DEFER | MF_SC_TRACE | MF_SC_ACTIVE)) {
@@ -522,11 +553,44 @@ check_misc_flags:
 
 	context_stop(proc_addr(KERNEL));
 
+#if defined(__x86_64__)
+	/*
+	 * amd64: switch FPU state eagerly on every dispatch.
+	 *
+	 * Lazy switching (CR0.TS=1 → #NM → copr_not_available_handler) has
+	 * been broken: userspace SSE instructions re-trap #NM forever, no
+	 * forward progress through early boot.  Each new process tries to
+	 * use SSE on startup and never gets past it.  See the
+	 * amd64-boot-regression memory for the diagnostic trace.
+	 *
+	 * The eager-switch approach matches modern x86 kernels (Linux since
+	 * 2018, also closes LazyFP CVE-2018-3665): always save the previous
+	 * owner's state, restore the incoming proc's state, and leave CR0.TS
+	 * cleared so SSE just works.  Cost is negligible — SSE2 is part of
+	 * the amd64 baseline, so virtually every userspace process uses it,
+	 * which means the lazy save we used to skip would happen anyway.
+	 */
+	{
+		struct proc ** owner = get_cpulocal_var_ptr(fpu_owner);
+		if (*owner != p) {
+			if (*owner != NULL)
+				save_local_fpu(*owner, FALSE /*retain*/);
+			if (restore_fpu(p) == OK) {
+				*owner = p;
+			} else {
+				*owner = NULL;
+				cause_sig(proc_nr(p), SIGFPE);
+			}
+		}
+	}
+	disable_fpu_exception();
+#else
 	/* If the process isn't the owner of FPU, enable the FPU exception */
 	if (get_cpulocal_var(fpu_owner) != p)
 		enable_fpu_exception();
 	else
 		disable_fpu_exception();
+#endif
 
 	/* If MF_CONTEXT_SET is set, don't clobber process state within
 	 * the kernel. The next kernel entry is OK again though.
@@ -696,21 +760,246 @@ static int do_sync_ipc(struct proc * caller_ptr, /* who made the call */
   return(result);
 }
 
+/*===========================================================================*
+ *			IPC fastpath (Phase 1)				     *
+ *===========================================================================*
+ * Specialised inline path for the common-case SENDREC where the destination
+ * is already blocked in RECEIVE waiting for the caller (or ANY).  Skips
+ * do_sync_ipc's dispatch / permission re-validation, skips the SEND->RECEIVE
+ * state machine fall-through, and direct-switches to the destination via
+ * proc_ptr without round-tripping the run queue (L4-style lazy scheduling).
+ *
+ * Slow path (do_sync_ipc / mini_send / mini_receive) remains the reference
+ * implementation; any predicate mismatch falls through unchanged.
+ *
+ * Flags that force the slow path.  See proc.h for definitions.  Anything
+ * touching tracing, kernel-call resume, in-flight delivery, or pending TLB
+ * flush is excluded — the slow path handles those correctly today and the
+ * fastpath would have to replicate that logic.
+ */
+#define FAST_BLOCKERS_CALLER \
+	(MF_DELIVERMSG | MF_SC_TRACE | MF_SC_DEFER | MF_KCALL_RESUME)
+#define FAST_BLOCKERS_DST \
+	(MF_DELIVERMSG | MF_MSGFAILED | MF_FLUSH_TLB | \
+	 MF_KCALL_RESUME | MF_SC_DEFER | MF_REPLY_PEND)
+
+#ifdef CONFIG_IPC_FASTPATH_STATS
+/* Diagnostic counters.  Not SMP-safe (no atomics) — orders of magnitude
+ * are what matters.  Dumped periodically from do_ipc. */
+static unsigned long ipcf_hit;
+static unsigned long ipcf_miss_not_sendrec;
+static unsigned long ipcf_miss_endpoint;
+static unsigned long ipcf_miss_dst_state;
+static unsigned long ipcf_miss_getfrom;
+static unsigned long ipcf_miss_filter;
+static unsigned long ipcf_miss_caller_flags;
+static unsigned long ipcf_miss_dst_flags;
+static unsigned long ipcf_miss_perm;
+static unsigned long ipcf_miss_smp;
+
+static void ipcf_dump(void)
+{
+	printf("ipcf: hit=%lu nsr=%lu ep=%lu st=%lu gf=%lu filt=%lu "
+	    "cf=%lu df=%lu perm=%lu smp=%lu\n",
+	    ipcf_hit, ipcf_miss_not_sendrec, ipcf_miss_endpoint,
+	    ipcf_miss_dst_state, ipcf_miss_getfrom, ipcf_miss_filter,
+	    ipcf_miss_caller_flags, ipcf_miss_dst_flags, ipcf_miss_perm,
+	    ipcf_miss_smp);
+}
+# define IPCF_BUMP(c) ((c)++)
+#else
+# define IPCF_BUMP(c) ((void)0)
+#endif
+
+static inline struct proc *
+fastpath_sendrec_eligible(struct proc *caller, endpoint_t dst_e)
+{
+	struct proc *dst;
+	int dst_p;
+
+	/* Decode endpoint without isokendpt's slow checks (revalidated below). */
+	dst_p = _ENDPOINT_P(dst_e);
+	if ((unsigned)(dst_p + NR_TASKS) >= (unsigned)(NR_PROCS + NR_TASKS)) {
+		IPCF_BUMP(ipcf_miss_endpoint);
+		return NULL;
+	}
+	dst = proc_addr(dst_p);
+	if (dst->p_endpoint != dst_e) {		/* generation mismatch */
+		IPCF_BUMP(ipcf_miss_endpoint);
+		return NULL;
+	}
+
+	/* Receiver must be in RECEIVE, not also SENDING (can co-occur during
+	 * the dst's own SENDREC); receive target must match caller or ANY;
+	 * no IPC filter (rare; slow path handles). */
+	if ((dst->p_rts_flags & (RTS_RECEIVING | RTS_SENDING)) != RTS_RECEIVING) {
+		IPCF_BUMP(ipcf_miss_dst_state);
+		return NULL;
+	}
+	if (dst->p_getfrom_e != ANY && dst->p_getfrom_e != caller->p_endpoint) {
+		IPCF_BUMP(ipcf_miss_getfrom);
+		return NULL;
+	}
+	if (priv(dst)->s_ipcf != NULL) {
+		IPCF_BUMP(ipcf_miss_filter);
+		return NULL;
+	}
+
+	if (caller->p_misc_flags & FAST_BLOCKERS_CALLER) {
+		IPCF_BUMP(ipcf_miss_caller_flags);
+		return NULL;
+	}
+	if (dst->p_misc_flags & FAST_BLOCKERS_DST) {
+		IPCF_BUMP(ipcf_miss_dst_flags);
+		return NULL;
+	}
+
+	if (!may_send_to(caller, dst_p)) {
+		IPCF_BUMP(ipcf_miss_perm);
+		return NULL;
+	}
+
+	/* Phase 4a: cross-CPU fastpath enabled.  The fastpath body has two
+	 * variants below — same-CPU does Phase 1 direct switch, cross-CPU
+	 * uses the normal enqueue/IPI handoff (no direct switch possible).
+	 * Both still skip do_sync_ipc dispatch + mini_send/mini_receive bodies.
+	 *
+	 * Safety: dst is in RTS_RECEIVING (predicate guarantee) so its code
+	 * isn't running on its CPU.  Under BKL, no concurrent kernel writer
+	 * touches dst's proc struct.  All cross-CPU writes here mirror what
+	 * mini_send's slow path already does. */
+	return dst;
+}
+
+static inline int
+fastpath_sendrec(struct proc *caller, struct proc *dst, message *m_user)
+{
+	/* Copy caller's userspace message into dst's delivery buffer.
+	 * Same primitive as slow path; Phase 3 will replace this with
+	 * register-passing for short messages. */
+	if (copy_msg_from_user(m_user, &dst->p_delivermsg))
+		return EFAULT;
+	dst->p_delivermsg.m_source = caller->p_endpoint;
+	dst->p_misc_flags |= MF_DELIVERMSG;
+	IPC_STATUS_ADD_CALL(dst, SENDREC);
+
+#ifdef CONFIG_SMP
+	/* Tier 1 colocation traffic counter.  Stored OUTSIDE struct proc
+	 * (see ipc_sender_cpu_count[][] at file scope) so the proc-struct
+	 * ABI stays stable for userspace consumers (MIB, IS, VM, …) that
+	 * read GET_PROCTAB and expect a specific sizeof(struct proc). */
+	if (caller->p_cpu < CONFIG_MAX_CPUS)
+		ipc_sender_cpu_count[dst->p_nr + NR_TASKS][caller->p_cpu]++;
+#endif
+
+#ifdef CONFIG_SMP
+	if (dst->p_cpu != caller->p_cpu) {
+		/* Cross-CPU (Phase 4a): cannot direct-switch.  Use RTS_UNSET so
+		 * dst gets enqueued on its CPU's run queue + IPI is sent if that
+		 * CPU is idle (see enqueue() in this file, ~L1992).  Caller falls
+		 * through to switch_to_user which picks another proc on this CPU. */
+		RTS_UNSET(dst, RTS_RECEIVING);
+
+		caller->p_getfrom_e = dst->p_endpoint;
+		caller->p_delivermsg_vir = (vir_bytes) m_user;
+		caller->p_misc_flags |= MF_REPLY_PEND;
+		RTS_SET(caller, RTS_RECEIVING);
+		/* No proc_ptr / switch_address_space — caller's CPU stays where
+		 * it is; switch_to_user finds caller non-runnable and picks anew. */
+	} else
+#endif
+	{
+		/* Same-CPU (Phase 1): direct switch with lazy scheduling.
+		 * Wake dst by direct flag write — do NOT RTS_UNSET, which would
+		 * enqueue dst only for us to bypass the queue.  L4 IPC §3. */
+		dst->p_rts_flags &= ~RTS_RECEIVING;
+
+		caller->p_getfrom_e = dst->p_endpoint;
+		caller->p_delivermsg_vir = (vir_bytes) m_user;
+		caller->p_misc_flags |= MF_REPLY_PEND;
+		RTS_SET(caller, RTS_RECEIVING);
+
+		/* CRITICAL: switch_to_user skips switch_address_space() when
+		 * proc_ptr is already runnable (`goto check_misc_flags` at L367).
+		 * We're changing proc_ptr from caller to dst, so we must swap CR3
+		 * ourselves — otherwise delivermsg() copies to dst's user VA with
+		 * caller's CR3 active, faulting on an unmapped address. */
+		get_cpulocal_var(proc_ptr) = dst;
+		switch_address_space(dst);
+	}
+
+	caller->p_accounting.ipc_sync++;
+	kbill_ipc = caller;
+
+	return OK;
+}
+
 int do_ipc(reg_t r1, reg_t r2, reg_t r3)
 {
   struct proc *const caller_ptr = get_cpulocal_var(proc_ptr);	/* get pointer to caller */
   int call_nr = (int) r1;
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+  u64_t t_enter, t_exit;
+  read_tsc_64(&t_enter);
+#endif
 
+#ifdef CONFIG_IPC_FASTPATH
+  /* Phase 1 fastpath: try the rendezvous-SENDREC specialisation first.
+   * Any predicate mismatch falls through to the unchanged slow path. */
+  if (__builtin_expect(call_nr == SENDREC, 1)) {
+    struct proc *dst = fastpath_sendrec_eligible(caller_ptr, (endpoint_t) r2);
+    if (dst != NULL) {
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+      int _is_xcpu = (dst->p_cpu != caller_ptr->p_cpu);
+#endif
+      IPCF_BUMP(ipcf_hit);
+      {
+        int _rv = fastpath_sendrec(caller_ptr, dst, (message *) r3);
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+        read_tsc_64(&t_exit);
+        if (_is_xcpu) {
+          kuserinfo.kui_ipcf_xcpu_cycles += t_exit - t_enter;
+          kuserinfo.kui_ipcf_xcpu_count++;
+        } else {
+          kuserinfo.kui_ipcf_same_cpu_cycles += t_exit - t_enter;
+          kuserinfo.kui_ipcf_same_cpu_count++;
+        }
+#endif
+        return _rv;
+      }
+    }
+  } else {
+    IPCF_BUMP(ipcf_miss_not_sendrec);
+  }
+#endif
+
+#ifdef CONFIG_IPC_FASTPATH_STATS
+  /* Dump counters once after the bench is well underway, from the SLOW
+   * path so the SENDREC hot loop is not affected by printf latency. */
   {
-    static unsigned _n = 0;
-    if (_n < 10) {
-      _n++;
-      printf("do_ipc#%u call=%d src_dest=%lu caller='%s' kts=%d\n",
-        _n, call_nr, (unsigned long)r2,
-        caller_ptr ? caller_ptr->p_name : "?",
-        caller_ptr ? caller_ptr->p_seg.p_kern_trap_style : -1);
+    static int dumped;
+    if (!dumped && ipcf_hit + ipcf_miss_not_sendrec + ipcf_miss_endpoint
+        + ipcf_miss_dst_state + ipcf_miss_getfrom + ipcf_miss_filter
+        + ipcf_miss_caller_flags + ipcf_miss_dst_flags + ipcf_miss_perm
+        + ipcf_miss_smp >= 150000) {
+      dumped = 1;
+      ipcf_dump();
     }
   }
+#endif
+
+  BOOT_VERBOSE(
+    {
+      static unsigned _n = 0;
+      if (_n < 10) {
+        _n++;
+        printf("do_ipc#%u call=%d src_dest=%lu caller='%s' kts=%d\n",
+          _n, call_nr, (unsigned long)r2,
+          caller_ptr ? caller_ptr->p_name : "?",
+          caller_ptr ? caller_ptr->p_seg.p_kern_trap_style : -1);
+      }
+    }
+  );
 
   assert(!RTS_ISSET(caller_ptr, RTS_SLOT_FREE));
 
@@ -764,16 +1053,26 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
    */
   switch(call_nr) {
   	case SENDREC:
-  	case SEND:			
-  	case RECEIVE:			
+  	case SEND:
+  	case RECEIVE:
   	case NOTIFY:
   	case SENDNB:
   	{
   	    /* Process accounting for scheduling */
 	    caller_ptr->p_accounting.ipc_sync++;
 
-  	    return do_sync_ipc(caller_ptr, call_nr, (endpoint_t) r2,
-			    (message *) r3);
+  	    {
+  	      int _rv = do_sync_ipc(caller_ptr, call_nr, (endpoint_t) r2,
+				    (message *) r3);
+#ifdef CONFIG_IPC_FASTPATH_TIMING
+  	      if (call_nr == SENDREC) {
+  	        read_tsc_64(&t_exit);
+  	        kuserinfo.kui_ipcf_slow_cycles += t_exit - t_enter;
+  	        kuserinfo.kui_ipcf_slow_count++;
+  	      }
+#endif
+  	      return _rv;
+  	    }
   	}
   	case SENDA:
   	{
@@ -1000,7 +1299,14 @@ int mini_send(
 	return EDEADSRCDST;
   }
 
-  /* Check if 'dst' is blocked waiting for this message. The destination's 
+#ifdef CONFIG_SMP
+  /* Tier 1 colocation traffic counter (slow-path side).  Stored
+   * outside struct proc — see ipc_sender_cpu_count[][] at file scope. */
+  if (caller_ptr->p_cpu < CONFIG_MAX_CPUS)
+    ipc_sender_cpu_count[dst_ptr->p_nr + NR_TASKS][caller_ptr->p_cpu]++;
+#endif
+
+  /* Check if 'dst' is blocked waiting for this message. The destination's
    * RTS_SENDING flag may be set when its SENDREC call blocked while sending.  
    */
   if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, (vir_bytes)m_ptr, NULL)) {
@@ -1247,17 +1553,41 @@ int mini_notify(
 
   dst_ptr = proc_addr(dst_p);
 
-  /* Check to see if target is blocked waiting for this message. A process 
+  /* Check to see if target is blocked waiting for this message. A process
    * can be both sending and receiving during a SENDREC system call.
+   *
+   * Notify delivery is idempotent w.r.t. the bitmap: HARDWARE/SYSTEM source
+   * data lives in priv(dst)->s_int_pending / s_sig_pending, and the bitmap
+   * fallback below (set_sys_bit on s_notify_pending) tells the receiver to
+   * regenerate the message via BuildNotifyMessage on its next receive.  So
+   * if dst is somehow already holding a queued message (MF_DELIVERMSG set
+   * while also in RTS_RECEIVING — a state we *should* never reach but have
+   * panicked on under sustained fork+exec IRQ storm), skip the in-place
+   * delivery and route via the bitmap instead of clobbering the queued
+   * message.  Previously: assert(!(MF_DELIVERMSG)) → kernel panic.
    */
   if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, 0, &m_notify_buff) &&
+    !(dst_ptr->p_misc_flags & MF_REPLY_PEND) &&
+    (dst_ptr->p_misc_flags & MF_DELIVERMSG)) {
+      /* The invariant-violating state.  Rate-limited diagnostic so this
+       * doesn't escape unnoticed if it starts happening in steady-state
+       * workloads — fall through to the bitmap path below. */
+      static unsigned long mini_notify_collisions;
+      mini_notify_collisions++;
+      if (mini_notify_collisions <= 4 ||
+          (mini_notify_collisions & (mini_notify_collisions - 1)) == 0) {
+        printf("mini_notify: dst %s/%d already has MF_DELIVERMSG; "
+               "routing via bitmap (count=%lu)\n",
+               dst_ptr->p_name, dst_ptr->p_endpoint,
+               mini_notify_collisions);
+      }
+      /* fall through */
+  } else if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, 0, &m_notify_buff) &&
     !(dst_ptr->p_misc_flags & MF_REPLY_PEND)) {
-      /* Destination is indeed waiting for a message. Assemble a notification 
+      /* Destination is indeed waiting for a message. Assemble a notification
        * message and deliver it. Copy from pseudo-source HARDWARE, since the
        * message is in the kernel's address space.
-       */ 
-      assert(!(dst_ptr->p_misc_flags & MF_DELIVERMSG));
-
+       */
       BuildNotifyMessage(&dst_ptr->p_delivermsg, proc_nr(caller_ptr), dst_ptr);
       dst_ptr->p_delivermsg.m_source = caller_ptr->p_endpoint;
       dst_ptr->p_misc_flags |= MF_DELIVERMSG;
@@ -1266,7 +1596,7 @@ int mini_notify(
       RTS_UNSET(dst_ptr, RTS_RECEIVING);
 
       return(OK);
-  } 
+  }
 
   /* Destination is not ready to receive the notification. Add it to the 
    * bit map with pending notifications. Note the indirectness: the privilege id
@@ -1756,6 +2086,37 @@ void enqueue(
    * process
    */
   else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
+#if (defined(__x86_64__) || defined(__amd64__)) && defined(CONFIG_SMP_VERBOSE)
+	  /* DBG: emit 'E<sign><digit>...:<name>' so we see which proc is
+	   * being woken cross-cpu via IPI. */
+	  {
+		int _e = rp->p_endpoint;
+		int _v = _e < 0 ? -_e : _e;
+		char _buf[8];
+		int _n = 0, _i;
+		const char *_nm = rp->p_name;
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $'E', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+		if (_e < 0)
+		    __asm__ __volatile__("mov $0x3F8, %%dx; mov $'-', %%al; outb %%al, %%dx"
+		        : : : "rax", "rdx");
+		do { _buf[_n++] = '0' + (_v % 10); _v /= 10; } while (_v && _n < 8);
+		for (_i = _n - 1; _i >= 0; _i--) {
+			char _c = _buf[_i];
+			__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+			    : : "a"(_c) : "rdx");
+		}
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $':', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+		while (_nm && *_nm) {
+			char _c = *_nm++;
+			__asm__ __volatile__("mov $0x3F8, %%dx; outb %%al, %%dx"
+			    : : "a"(_c) : "rdx");
+		}
+		__asm__ __volatile__("mov $0x3F8, %%dx; mov $' ', %%al; outb %%al, %%dx"
+		    : : : "rax", "rdx");
+	  }
+#endif
 	  smp_schedule(rp->p_cpu);
   }
 #endif
@@ -1867,7 +2228,6 @@ void dequeue(struct proc *rp)
       prev_xp = *xpp;				/* save previous in chain */
   }
 
-	
   /* Process accounting for scheduling */
   rp->p_accounting.dequeues++;
 

@@ -122,7 +122,13 @@ void do_get_irq(message *m)
 	unsigned dev = ((struct acpi_get_irq_req *)m)->dev;
 	unsigned pin = ((struct acpi_get_irq_req *)m)->pin;
 
-	assert(dev < PCI_MAX_DEVICES && pin < PCI_MAX_PINS);
+	/* A device/pin outside the routing table (seen with some UEFI/q35
+	 * PCI layouts) is not fatal: report "no ACPI routing" so the PCI
+	 * server falls back to derive_irq() instead of panicking here. */
+	if (dev >= PCI_MAX_DEVICES || pin >= PCI_MAX_PINS) {
+		((struct acpi_get_irq_resp *)m)->irq = -1;
+		return;
+	}
 
 	bridge = find_bridge(&pci_root_bridge, -1, -1, bus);
 
@@ -139,7 +145,10 @@ static void add_irq(struct pci_bridge * bridge,
 			unsigned pin,
 			u8_t irq)
 {
-	assert(dev < PCI_MAX_DEVICES && pin < PCI_MAX_PINS);
+	/* Silently drop _PRT entries we cannot index rather than panicking;
+	 * such a device simply gets no cached ACPI routing. */
+	if (dev >= PCI_MAX_DEVICES || pin >= PCI_MAX_PINS)
+		return;
 
 	bridge->irqtable[dev * PCI_MAX_PINS + pin] = irq;
 }

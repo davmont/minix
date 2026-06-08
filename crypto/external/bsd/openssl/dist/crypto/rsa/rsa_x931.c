@@ -1,67 +1,22 @@
-/* rsa_x931.c */
 /*
- * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL project
- * 2005.
- */
-/* ====================================================================
- * Copyright (c) 2005 The OpenSSL Project.  All rights reserved.
+ * Copyright 2005-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
+/*
+ * RSA low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ */
+#include "internal/deprecated.h"
+
 #include <stdio.h>
-#include "cryptlib.h"
+#include "internal/cryptlib.h"
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
-#include <openssl/rand.h>
 #include <openssl/objects.h>
 
 int RSA_padding_add_X931(unsigned char *to, int tlen,
@@ -78,16 +33,16 @@ int RSA_padding_add_X931(unsigned char *to, int tlen,
     j = tlen - flen - 2;
 
     if (j < 0) {
-        RSAerr(RSA_F_RSA_PADDING_ADD_X931, RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE);
+        ERR_raise(ERR_LIB_RSA, RSA_R_DATA_TOO_LARGE_FOR_KEY_SIZE);
         return -1;
     }
 
     p = (unsigned char *)to;
 
     /* If no padding start and end nibbles are in one byte */
-    if (j == 0)
+    if (j == 0) {
         *p++ = 0x6A;
-    else {
+    } else {
         *p++ = 0x6B;
         if (j > 1) {
             memset(p, 0xBB, j - 1);
@@ -98,7 +53,7 @@ int RSA_padding_add_X931(unsigned char *to, int tlen,
     memcpy(p, from, (unsigned int)flen);
     p += flen;
     *p = 0xCC;
-    return (1);
+    return 1;
 }
 
 int RSA_padding_check_X931(unsigned char *to, int tlen,
@@ -109,7 +64,7 @@ int RSA_padding_check_X931(unsigned char *to, int tlen,
 
     p = from;
     if ((num != flen) || ((*p != 0x6A) && (*p != 0x6B))) {
-        RSAerr(RSA_F_RSA_PADDING_CHECK_X931, RSA_R_INVALID_HEADER);
+        ERR_raise(ERR_LIB_RSA, RSA_R_INVALID_HEADER);
         return -1;
     }
 
@@ -120,7 +75,7 @@ int RSA_padding_check_X931(unsigned char *to, int tlen,
             if (c == 0xBA)
                 break;
             if (c != 0xBB) {
-                RSAerr(RSA_F_RSA_PADDING_CHECK_X931, RSA_R_INVALID_PADDING);
+                ERR_raise(ERR_LIB_RSA, RSA_R_INVALID_PADDING);
                 return -1;
             }
         }
@@ -128,21 +83,22 @@ int RSA_padding_check_X931(unsigned char *to, int tlen,
         j -= i;
 
         if (i == 0) {
-            RSAerr(RSA_F_RSA_PADDING_CHECK_X931, RSA_R_INVALID_PADDING);
+            ERR_raise(ERR_LIB_RSA, RSA_R_INVALID_PADDING);
             return -1;
         }
 
-    } else
+    } else {
         j = flen - 2;
+    }
 
     if (p[j] != 0xCC) {
-        RSAerr(RSA_F_RSA_PADDING_CHECK_X931, RSA_R_INVALID_TRAILER);
+        ERR_raise(ERR_LIB_RSA, RSA_R_INVALID_TRAILER);
         return -1;
     }
 
     memcpy(to, p, (unsigned int)j);
 
-    return (j);
+    return j;
 }
 
 /* Translate between X931 hash ids and NIDs */
