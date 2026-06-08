@@ -13,9 +13,11 @@
 
 #include <minix/drivers.h>
 #include <minix/blockdriver.h>
+#include <minix/driver.h>
 #include <minix/drvlib.h>
 #include <minix/syslib.h>
 #include <minix/sysutil.h>
+#include <minix/endpoint.h>
 #include <minix/vm.h>
 #include <machine/pci.h>
 #include <sys/mman.h>
@@ -27,8 +29,8 @@
 #define NVME_QDEPTH	64			/* entries per queue (admin + I/O) */
 #define NVME_IO_QID	1			/* the single I/O queue's id */
 #define NVME_NSID	1			/* the namespace we expose */
-#define NVME_BOUNCE_PAGES 64			/* 256 KB max per NVMe command */
-#define NVME_BOUNCE_SIZE  (NVME_BOUNCE_PAGES * NVME_PAGE_SIZE)
+#define NVME_MAX_PAGES	64			/* max pages (== PRP entries) per cmd */
+#define NVME_MAX_XFER	(NVME_MAX_PAGES * NVME_PAGE_SIZE)  /* 256 KB per command */
 #define NVME_RDY_TIMEOUT  5000			/* ms to wait for CSTS.RDY */
 
 /* A submission/completion queue pair. */
@@ -46,20 +48,25 @@ struct nvme_queue {
 
 /* Global controller state. */
 static int nvme_devind;			/* PCI device index */
-static int nvme_irq;
-static int nvme_hook_id;
+static int nvme_hook_id;			/* kernel IRQ hook id */
 static volatile char *nvme_regs;	/* mapped BAR0 */
 static u32_t nvme_dstrd;			/* doorbell stride (in dwords) */
 static u16_t nvme_cid;			/* rolling command identifier */
 
+/* MSI-X interrupt state.  When nvme_use_irq is set, I/O completions are awaited
+ * on the MSI-X interrupt instead of by polling.  Admin commands during init are
+ * always polled (MSI-X is only enabled once init has finished). */
+static int nvme_use_irq;		/* I/O is interrupt-driven */
+static u8_t nvme_msix_cap;		/* MSI-X capability config offset */
+static volatile u8_t *nvme_msix_table;	/* mapped MSI-X table BAR */
+
 static struct nvme_queue admin_q;
 static struct nvme_queue io_q;
 
-/* Identify buffer (4 KB) + DMA bounce buffer + PRP-list page. */
+/* Identify buffer (4 KB) + PRP-list page (zero-copy DMA goes straight to the
+ * caller's pages, so there is no bounce buffer). */
 static u8_t *id_buf;
 static phys_bytes id_phys;
-static u8_t *bounce;
-static phys_bytes bounce_phys;
 static u64_t *prp_list;
 static phys_bytes prp_list_phys;
 
@@ -127,7 +134,140 @@ static unsigned int cq_head_dbl(u16_t qid)
 }
 
 /*===========================================================================*
- *			submit a command and poll for completion	     *
+ *			MSI-X interrupt setup				     *
+ *===========================================================================*/
+/* Walk the PCI capability list and return the config-space offset of the
+ * capability with the given id, or 0 if absent. */
+static u8_t find_capability(int devind, u8_t cap_id)
+{
+	u16_t sr;
+	u8_t ptr;
+	int guard;
+
+	sr = pci_attr_r16(devind, PCI_SR);
+	if (!(sr & PSR_CAPPTR))
+		return 0;
+
+	ptr = pci_attr_r8(devind, PCI_CAPPTR) & PCI_CP_MASK;
+	for (guard = 0; ptr != 0 && guard < 48; guard++) {
+		if (pci_attr_r8(devind, ptr + CAP_TYPE) == cap_id)
+			return ptr;
+		ptr = pci_attr_r8(devind, ptr + CAP_NEXT) & PCI_CP_MASK;
+	}
+	return 0;
+}
+
+/*
+ * Find the MSI-X capability, map its table BAR, allocate one MSI vector from
+ * the kernel, and program table entry 0 with the kernel-supplied (address,
+ * data) pair so the controller's vector 0 raises that interrupt.  The MSI-X
+ * Enable bit is *not* set here (see nvme_enable_msix), so no interrupt is
+ * delivered until init has finished polling the admin queue.  Returns OK, or
+ * an error if MSI-X is unavailable (the caller then falls back to polling).
+ */
+static int nvme_setup_msix(int devind)
+{
+	u8_t cap;
+	u32_t tbl, base, size, toff;
+	int bir, r, ioflag, hook_id;
+	u32_t msi_addr, msi_data;
+	volatile u8_t *entry;
+
+	cap = find_capability(devind, PCI_CAP_MSIX);
+	if (cap == 0)
+		return ENODEV;
+
+	/* Locate the MSI-X table: a (BAR index, offset) pair. */
+	tbl = pci_attr_r32(devind, cap + MSIX_TABLE_OFF);
+	bir = tbl & MSIX_TABLE_BIR_MASK;
+	toff = tbl & MSIX_TABLE_OFF_MASK;
+
+	if ((r = pci_get_bar(devind, PCI_BAR + bir * 4, &base, &size,
+			&ioflag)) != OK) {
+		printf("nvme: cannot get MSI-X table BAR %d: %d\n", bir, r);
+		return r;
+	}
+	if (ioflag)
+		return EINVAL;
+
+	nvme_msix_table = vm_map_phys(SELF, (void *)(uintptr_t)base, size);
+	if (nvme_msix_table == MAP_FAILED) {
+		printf("nvme: cannot map MSI-X table BAR\n");
+		return ENOMEM;
+	}
+
+	/* Ask the kernel for an MSI vector and the message it encodes. */
+	hook_id = 0;	/* notify id 0, like the INTx hook before it */
+	if ((r = sys_irqsetpolicy_msi(IRQ_REENABLE, &hook_id, &msi_addr,
+			&msi_data)) != OK) {
+		printf("nvme: sys_irqsetpolicy_msi failed: %d\n", r);
+		return r;
+	}
+	nvme_hook_id = hook_id;
+
+	/* Program table entry 0 and unmask it. */
+	entry = nvme_msix_table + toff;
+	*(volatile u32_t *)(entry + MSIX_VEC_ADDR_LO) = msi_addr;
+	*(volatile u32_t *)(entry + MSIX_VEC_ADDR_HI) = 0;
+	*(volatile u32_t *)(entry + MSIX_VEC_DATA) = msi_data;
+	*(volatile u32_t *)(entry + MSIX_VEC_CTRL) = 0;
+
+	nvme_msix_cap = cap;
+	return OK;
+}
+
+/* Set the MSI-X Enable bit (and clear the function mask) once init is done. */
+static void nvme_enable_msix(int devind)
+{
+	u16_t ctrl = pci_attr_r16(devind, nvme_msix_cap + MSIX_CTRL_OFF);
+
+	ctrl |= MSIX_CTRL_ENABLE;
+	ctrl &= ~MSIX_CTRL_FUNC_MASK;
+	pci_attr_w16(devind, nvme_msix_cap + MSIX_CTRL_OFF, ctrl);
+}
+
+/*
+ * Block until the I/O completion queue's MSI-X interrupt indicates the next
+ * entry is ours (phase tag flipped), or a watchdog alarm fires.  Other
+ * messages that arrive while we wait are deferred to the blockdriver loop, as
+ * in at_wini's w_intr_wait().  IRQ_REENABLE means the kernel re-arms the hook
+ * for us, so no explicit sys_irqenable() is needed here.
+ */
+static int nvme_wait_irq(struct nvme_queue *q)
+{
+	nvme_cqe_t *cqe = &q->cq[q->cq_head];
+	message m;
+	int ipc_status, r;
+
+	/* Arm a watchdog so a lost completion cannot hang the driver. */
+	sys_setalarm(sys_hz() * 5, 0);
+
+	while (NVME_CQE_PHASE(cqe) != q->cq_phase) {
+		if ((r = driver_receive(ANY, &m, &ipc_status)) != OK)
+			panic("nvme: driver_receive failed: %d", r);
+
+		if (is_ipc_notify(ipc_status)) {
+			switch (_ENDPOINT_P(m.m_source)) {
+			case HARDWARE:
+				/* Our completion interrupt; re-check the CQ. */
+				break;
+			case CLOCK:
+				printf("nvme: I/O command timed out\n");
+				return EIO;
+			default:
+				blockdriver_mq_queue(&m, ipc_status);
+			}
+		} else {
+			blockdriver_mq_queue(&m, ipc_status);
+		}
+	}
+
+	sys_setalarm(0, 0);	/* cancel the watchdog */
+	return OK;
+}
+
+/*===========================================================================*
+ *			submit a command and wait for completion	     *
  *===========================================================================*/
 static int nvme_submit_sync(struct nvme_queue *q, nvme_sqe_t *sqe, u32_t *cdw0)
 {
@@ -141,12 +281,18 @@ static int nvme_submit_sync(struct nvme_queue *q, nvme_sqe_t *sqe, u32_t *cdw0)
 	q->sq_tail = (q->sq_tail + 1) % q->size;
 	reg_write32(sq_tail_dbl(q->qid), q->sq_tail);
 
-	/* Poll the completion queue head for the matching phase tag. */
+	/* Wait for the completion: interrupt-driven once MSI-X is up (I/O), or
+	 * polled (all admin commands, and as a fallback if MSI-X is absent). */
 	cqe = &q->cq[q->cq_head];
-	for (i = 0; i < NVME_RDY_TIMEOUT; i++) {
-		if (NVME_CQE_PHASE(cqe) == q->cq_phase)
-			break;
-		micro_delay(1000);
+	if (nvme_use_irq) {
+		if (nvme_wait_irq(q) != OK)
+			return EIO;
+	} else {
+		for (i = 0; i < NVME_RDY_TIMEOUT; i++) {
+			if (NVME_CQE_PHASE(cqe) == q->cq_phase)
+				break;
+			micro_delay(1000);
+		}
 	}
 	if (NVME_CQE_PHASE(cqe) != q->cq_phase) {
 		printf("nvme: command timeout (opcode 0x%x)\n",
@@ -246,7 +392,12 @@ static int nvme_create_io_queues(void)
 	cmd.cdw0 = NVME_ADMIN_CREATE_CQ;
 	cmd.prp1 = io_q.cq_phys;
 	cmd.cdw10 = ((u32_t)(io_q.size - 1) << 16) | io_q.qid;
-	cmd.cdw11 = NVME_Q_PC;	/* physically contiguous, interrupts off */
+	/* Physically contiguous; if MSI-X is up, enable interrupts on this CQ
+	 * and route them to vector 0 (DW11[31:16]).  Without MSI-X the IEN bit
+	 * is harmless: no interrupt is delivered and completions are polled. */
+	cmd.cdw11 = NVME_Q_PC;
+	if (nvme_msix_cap != 0)
+		cmd.cdw11 |= NVME_CQ_IEN | (0 << NVME_CQ_IV_SHIFT);
 	if (nvme_submit_sync(&admin_q, &cmd, NULL) != OK)
 		return EIO;
 
@@ -322,15 +473,14 @@ static int nvme_init(int devind)
 	cr = pci_attr_r16(devind, PCI_CR);
 	pci_attr_w16(devind, PCI_CR, cr | PCI_CR_MAST_EN | PCI_CR_MEM_EN);
 
-	/* Register the legacy (INTx) interrupt.  We do not enable controller
-	 * interrupt generation in Phase 1 (we poll), but reserving the IRQ
-	 * keeps the line owned by us and ready for the interrupt-driven phase.
-	 */
-	nvme_irq = pci_attr_r8(devind, PCI_ILR);
-	nvme_hook_id = 0;
-	if ((r = sys_irqsetpolicy(nvme_irq, 0, &nvme_hook_id)) != OK)
-		printf("nvme: warning: unable to register IRQ %d: %d\n",
-			nvme_irq, r);
+	/* Allocate and program an MSI-X vector for interrupt-driven I/O
+	 * completion.  Do not enable MSI-X yet: init polls the admin queue, so
+	 * interrupts are only switched on once that is done.  If the controller
+	 * has no MSI-X (or setup fails), fall back to polled completion. */
+	if (nvme_setup_msix(devind) != OK) {
+		nvme_msix_cap = 0;
+		printf("nvme: MSI-X unavailable; using polled completion\n");
+	}
 
 	cap = reg_read64(NVME_REG_CAP);
 	nvme_dstrd = NVME_CAP_DSTRD(cap);
@@ -358,9 +508,8 @@ static int nvme_init(int devind)
 		return ENOMEM;
 
 	id_buf = alloc_contig(NVME_PAGE_SIZE, AC_ALIGN4K, &id_phys);
-	bounce = alloc_contig(NVME_BOUNCE_SIZE, AC_ALIGN4K, &bounce_phys);
 	prp_list = alloc_contig(NVME_PAGE_SIZE, AC_ALIGN4K, &prp_list_phys);
-	if (id_buf == NULL || bounce == NULL || prp_list == NULL) {
+	if (id_buf == NULL || prp_list == NULL) {
 		printf("nvme: unable to allocate DMA buffers\n");
 		return ENOMEM;
 	}
@@ -386,15 +535,27 @@ static int nvme_init(int devind)
 		return EIO;
 	}
 
-	/* Bring up the I/O queue pair and learn the namespace geometry. */
+	/* Bring up the I/O queue pair and learn the namespace geometry.  These
+	 * admin commands are still polled (nvme_use_irq is clear). */
 	if ((r = nvme_create_io_queues()) != OK)
 		return r;
 	if ((r = nvme_identify_namespace()) != OK)
 		return r;
 
-	printf("nvme%d: %llu blocks of %u bytes (%llu MB), IRQ %d\n",
+	/* All admin work is done: switch I/O completion to MSI-X interrupts. */
+	if (nvme_msix_cap != 0) {
+		nvme_enable_msix(devind);
+		if ((r = sys_irqenable(&nvme_hook_id)) != OK) {
+			printf("nvme: unable to enable MSI-X IRQ: %d\n", r);
+			return r;
+		}
+		nvme_use_irq = TRUE;
+	}
+
+	printf("nvme%d: %llu blocks of %u bytes (%llu MB), %s\n",
 		nvme_instance, (unsigned long long)ns_blocks, ns_lba_size,
-		(unsigned long long)(ns_blocks * ns_lba_size) >> 20, nvme_irq);
+		(unsigned long long)(ns_blocks * ns_lba_size) >> 20,
+		nvme_use_irq ? "MSI-X" : "polled");
 
 	return OK;
 }
@@ -402,86 +563,69 @@ static int nvme_init(int devind)
 /*===========================================================================*
  *			a single NVMe read/write command		     *
  *===========================================================================*/
-static int nvme_rw(int do_write, u64_t slba, u32_t nblocks)
+/*
+ * Build the NVMe PRP entries for `nbytes` bytes of a buffer described, in buffer
+ * order, by the physical segments phys[0..nphys).  Per the NVMe PRP rules, PRP1
+ * may carry a page offset and every later entry must be page-aligned (which
+ * holds: page boundaries of a contiguous virtual buffer fall on page-aligned
+ * physical addresses).  Pages 2..N are written into the single prp_list page.
+ */
+static int build_prp(struct vumap_phys *phys, unsigned int nphys, size_t nbytes,
+	u64_t *prp1, u64_t *prp2)
+{
+	u64_t off;
+	size_t target, seg_start;
+	unsigned int s, nlist;
+
+	*prp1 = phys[0].vp_addr;
+	off = phys[0].vp_addr & (NVME_PAGE_SIZE - 1);
+
+	/* Everything fits within the first page: no PRP2 needed. */
+	if (off + nbytes <= NVME_PAGE_SIZE) {
+		*prp2 = 0;
+		return OK;
+	}
+
+	/* Locate the page-aligned physical address of every page after the
+	 * first by walking the segments to each page-boundary byte offset.
+	 */
+	nlist = 0;
+	target = NVME_PAGE_SIZE - off;		/* offset of the 2nd page */
+	s = 0;
+	seg_start = 0;
+	while (target < nbytes) {
+		while (s < nphys && seg_start + phys[s].vp_size <= target) {
+			seg_start += phys[s].vp_size;
+			s++;
+		}
+		if (s >= nphys)
+			return EINVAL;		/* segments don't cover it */
+		if (nlist >= NVME_PAGE_SIZE / sizeof(u64_t))
+			return EINVAL;		/* too many pages for one list */
+		prp_list[nlist++] = phys[s].vp_addr + (target - seg_start);
+		target += NVME_PAGE_SIZE;
+	}
+
+	*prp2 = (nlist == 1) ? prp_list[0] : prp_list_phys;
+	return OK;
+}
+
+/* Issue one NVM read/write command with caller-supplied PRP pointers. */
+static int nvme_rw_direct(int do_write, u64_t slba, u32_t nblocks,
+	u64_t prp1, u64_t prp2)
 {
 	nvme_sqe_t cmd;
-	size_t nbytes = (size_t)nblocks * ns_lba_size;
-	unsigned int npages, i;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cdw0 = do_write ? NVME_NVM_WRITE : NVME_NVM_READ;
 	cmd.nsid = NVME_NSID;
-	cmd.prp1 = bounce_phys;
-
-	/* PRP2 depends on the transfer length.  The bounce buffer is page
-	 * aligned, so PRP1 always starts at a page boundary.
-	 */
-	npages = (nbytes + NVME_PAGE_SIZE - 1) / NVME_PAGE_SIZE;
-	if (npages <= 1) {
-		cmd.prp2 = 0;
-	} else if (npages == 2) {
-		cmd.prp2 = bounce_phys + NVME_PAGE_SIZE;
-	} else {
-		for (i = 1; i < npages; i++)
-			prp_list[i - 1] = bounce_phys + (u64_t)i * NVME_PAGE_SIZE;
-		cmd.prp2 = prp_list_phys;
-	}
-
+	cmd.prp1 = prp1;
+	cmd.prp2 = prp2;
 	cmd.cdw10 = (u32_t)slba;
 	cmd.cdw11 = (u32_t)(slba >> 32);
 	cmd.cdw12 = nblocks - 1;	/* NLB is zero-based */
 
 	return nvme_submit_sync(&io_q, &cmd, NULL);
-}
-
-/*===========================================================================*
- *			copy between the iovec and the bounce buffer	     *
- *===========================================================================*/
-/*
- * Move `len` bytes between the contiguous bounce buffer and the caller's I/O
- * vector, starting `skip` bytes into the vector.  The vector entries are "safe"
- * (grant-based) buffers; sys_vumap resolves them to physical addresses --
- * handling every grant form the block protocol uses, which plain sys_safecopy
- * does not -- and sys_abscopy then moves the data physically.
- */
-static int bounce_copy(endpoint_t endpt, iovec_s_t *iov, unsigned int count,
-	size_t skip, size_t len, int to_bounce)
-{
-	struct vumap_vir vir[NR_IOREQS];
-	struct vumap_phys phys[NR_IOREQS];
-	unsigned int i, nvir, nphys;
-	size_t boff = 0;
-	int r, access;
-
-	if (count > NR_IOREQS)
-		return EINVAL;
-	for (i = 0; i < count; i++) {
-		vir[i].vv_grant = iov[i].iov_grant;
-		vir[i].vv_size = iov[i].iov_size;
-	}
-	nvir = count;
-
-	/* For a disk write we read the user's buffer; for a read we write it. */
-	access = to_bounce ? VUA_READ : VUA_WRITE;
-	nphys = NR_IOREQS;
-	if ((r = sys_vumap(endpt, vir, nvir, skip, access, phys, &nphys)) != OK)
-		return r;
-
-	for (i = 0; i < nphys && len > 0; i++) {
-		size_t n = phys[i].vp_size;
-		if (n > len)
-			n = len;
-		if (to_bounce)
-			r = sys_abscopy(phys[i].vp_addr, bounce_phys + boff, n);
-		else
-			r = sys_abscopy(bounce_phys + boff, phys[i].vp_addr, n);
-		if (r != OK)
-			return r;
-		boff += n;
-		len -= n;
-	}
-
-	return (len == 0) ? OK : EINVAL;
 }
 
 /*===========================================================================*
@@ -573,36 +717,61 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 
 	disk_pos = dev->dv_base + pos;
 
+	if (count > NR_IOREQS)
+		return EINVAL;
+
 	done = 0;
 	while (done < total) {
+		struct vumap_vir vir[NR_IOREQS];
+		struct vumap_phys phys[NR_IOREQS];
+		unsigned int nphys;
 		size_t chunk = total - done;
-		u64_t slba;
+		size_t avail;
+		u64_t slba, prp1, prp2;
 		u32_t nblk;
-		int r;
+		int r, access;
 
-		if (chunk > NVME_BOUNCE_SIZE)
-			chunk = NVME_BOUNCE_SIZE;
+		/* Cap each command so the (worst-case page-fragmented) buffer
+		 * always fits in NR_IOREQS physical segments and one PRP list. */
+		if (chunk > NVME_MAX_XFER)
+			chunk = NVME_MAX_XFER;
+
+		/* Resolve this chunk of the caller's buffer to physical segments
+		 * and DMA straight to/from them -- no bounce buffer.  For a disk
+		 * write we read the user's pages (VUA_READ); for a read we write
+		 * them (VUA_WRITE). */
+		for (i = 0; i < count; i++) {
+			vir[i].vv_grant = iv[i].iov_grant;
+			vir[i].vv_size = iv[i].iov_size;
+		}
+		access = do_write ? VUA_READ : VUA_WRITE;
+		nphys = NR_IOREQS;
+		if ((r = sys_vumap(endpt, vir, count, done, access, phys,
+				&nphys)) != OK)
+			return (done > 0) ? (ssize_t)done : r;
+
+		/* vumap may resolve fewer bytes than requested if the buffer is
+		 * highly fragmented (it returns at most NR_IOREQS segments).
+		 * Clamp this command to what it covered, block-aligned, and let
+		 * the loop pick up the rest. */
+		avail = 0;
+		for (i = 0; i < nphys; i++)
+			avail += phys[i].vp_size;
+		if (chunk > avail)
+			chunk = avail;
+		chunk -= chunk % ns_lba_size;
+		if (chunk == 0)
+			return (done > 0) ? (ssize_t)done : EIO;
+
+		if ((r = build_prp(phys, nphys, chunk, &prp1, &prp2)) != OK)
+			return (done > 0) ? (ssize_t)done : r;
 
 		slba = (disk_pos + done) / ns_lba_size;
 		nblk = chunk / ns_lba_size;
 
-		if (do_write) {
-			r = bounce_copy(endpt, iv, count, done, chunk,
-				TRUE /* into bounce */);
-			if (r != OK)
-				return (done > 0) ? (ssize_t)done : r;
-		}
-
-		r = nvme_rw(do_write, slba, nblk);
+		r = nvme_rw_direct(do_write, slba, nblk, prp1, prp2);
 		if (r != OK)
 			return (done > 0) ? (ssize_t)done : EIO;
-
-		if (!do_write) {
-			r = bounce_copy(endpt, iv, count, done, chunk,
-				FALSE /* out of bounce */);
-			if (r != OK)
-				return (done > 0) ? (ssize_t)done : r;
-		}
 
 		done += chunk;
 	}

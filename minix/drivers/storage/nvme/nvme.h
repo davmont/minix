@@ -59,6 +59,29 @@
 /* CREATE_CQ / CREATE_SQ DW11 flags. */
 #define NVME_Q_PC		(1 << 0)	/* physically contiguous */
 #define NVME_CQ_IEN		(1 << 1)	/* interrupts enabled */
+#define NVME_CQ_IV_SHIFT	16		/* CREATE_CQ DW11: MSI-X vector */
+
+/*
+ * PCI MSI-X capability (capability ID 0x11) and table layout.  Offsets named
+ * "*_OFF" are relative to the start of the capability in PCI config space;
+ * the MSIX_VEC_* offsets are relative to a 16-byte table entry in the mapped
+ * table BAR.
+ */
+#define PCI_CAP_MSIX		0x11
+#define MSIX_CTRL_OFF		0x02		/* message control (16-bit) */
+#define   MSIX_CTRL_TSIZE_MASK	0x07ff		/* table size minus one */
+#define   MSIX_CTRL_FUNC_MASK	(1 << 14)	/* function mask */
+#define   MSIX_CTRL_ENABLE	(1 << 15)	/* MSI-X enable */
+#define MSIX_TABLE_OFF		0x04		/* table offset / BIR (32-bit) */
+#define   MSIX_TABLE_BIR_MASK	0x00000007	/* which BAR holds the table */
+#define   MSIX_TABLE_OFF_MASK	0xfffffff8	/* offset of the table in it */
+
+#define MSIX_VEC_SIZE		16		/* bytes per table entry */
+#define   MSIX_VEC_ADDR_LO	0x00
+#define   MSIX_VEC_ADDR_HI	0x04
+#define   MSIX_VEC_DATA		0x08
+#define   MSIX_VEC_CTRL		0x0c
+#define     MSIX_VEC_CTRL_MASK	(1 << 0)	/* per-vector mask bit */
 
 /* The fixed entry sizes (powers of two) used by NVMe. */
 #define NVME_SQE_SIZE		64		/* submission queue entry */
