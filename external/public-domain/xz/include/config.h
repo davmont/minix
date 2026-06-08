@@ -49,10 +49,8 @@
 /* Define to 1 if sha256 integrity check is enabled. */
 #define HAVE_CHECK_SHA256 1
 
-#if !defined(__minix)
 /* Define to 1 if you have the `clock_gettime' function. */
 #define HAVE_CLOCK_GETTIME 1
-#endif /* !defined(__minix) */
 
 /* Define to 1 if you have the <CommonCrypto/CommonDigest.h> header file. */
 /* #undef HAVE_COMMONCRYPTO_COMMONDIGEST_H */
@@ -61,11 +59,9 @@
    */
 /* #undef HAVE_DCGETTEXT */
 
-#if !defined(__minix)
 /* Define to 1 if you have the declaration of `CLOCK_MONOTONIC', and to 0 if
    you don't. */
 #define HAVE_DECL_CLOCK_MONOTONIC 1
-#endif /* !defined(__minix) */
 
 /* Define to 1 if you have the declaration of `program_invocation_name', and
    to 0 if you don't. */
@@ -196,10 +192,10 @@
 /* Define to 1 if getopt.h declares extern int optreset. */
 #define HAVE_OPTRESET 1
 
-#if !defined(__minix)
 /* Define to 1 if you have the `posix_fadvise' function. */
 #define HAVE_POSIX_FADVISE 1
 
+#if !defined(__minix)
 /* Define to 1 if you have the `pthread_condattr_setclock' function. */
 #define HAVE_PTHREAD_CONDATTR_SETCLOCK 1
 #endif /* !defined(__minix) */
