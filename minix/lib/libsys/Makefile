@@ -63,6 +63,7 @@ SRCS+=  \
 	sys_getsig.c \
 	sys_hz.c \
 	sys_irqctl.c \
+	sys_irqsetpolicy_msi.c \
 	sys_kill.c \
 	sys_mcontext.c \
 	sys_memset.c \

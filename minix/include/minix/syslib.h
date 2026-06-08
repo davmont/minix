@@ -124,6 +124,10 @@ int sys_vtimer(endpoint_t proc_nr, int which, clock_t *newval, clock_t
 #define sys_irqrmpolicy(hook_id) \
     sys_irqctl(IRQ_RMPOLICY, 0, 0, hook_id)
 int sys_irqctl(int request, int irq_vec, int policy, int *irq_hook_id);
+/* Allocate an MSI/MSI-X vector; returns the message address/data to program
+ * into the device.  Release with sys_irqrmpolicy() like any other hook. */
+int sys_irqsetpolicy_msi(int policy, int *irq_hook_id, u32_t *msi_addr,
+	u32_t *msi_data);
 
 /* Shorthands for sys_vircopy() and sys_physcopy() system calls. */
 #define sys_datacopy(p1, v1, p2, v2, len) sys_vircopy(p1, v1, p2, v2, len, 0)

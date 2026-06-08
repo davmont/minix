@@ -298,8 +298,10 @@ _ASSERT_MSG_SIZE(mess_krn_lsys_sys_getwhoami);
 
 typedef struct {
 	int hook_id;
+	uint32_t msi_addr;	/* IRQ_SETPOLICY_MSI: MSI message address */
+	uint32_t msi_data;	/* IRQ_SETPOLICY_MSI: MSI message data */
 
-	uint8_t padding[52];
+	uint8_t padding[44];
 } mess_krn_lsys_sys_irqctl;
 _ASSERT_MSG_SIZE(mess_krn_lsys_sys_irqctl);
 

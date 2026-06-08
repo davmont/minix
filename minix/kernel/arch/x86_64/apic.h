@@ -129,6 +129,10 @@ EXTERN vir_bytes lapic_addr_vaddr; /* we remember the virtual address here until
 int lapic_enable(unsigned cpu);
 void ioapic_unmask_irq(unsigned irq);
 void ioapic_mask_irq(unsigned irq);
+
+/* MSI / MSI-X vector allocation (see apic.c). */
+int ioapic_alloc_msi(int *out_irq, u32_t *out_addr, u32_t *out_data);
+void ioapic_free_msi(int irq);
 void ioapic_reset_pic(void);
 
 
