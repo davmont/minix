@@ -56,6 +56,9 @@
 #define NVME_CNS_NAMESPACE	0x00
 #define NVME_CNS_CONTROLLER	0x01
 
+/* SET_FEATURES feature identifiers. */
+#define NVME_FEAT_NUM_QUEUES	0x07
+
 /* CREATE_CQ / CREATE_SQ DW11 flags. */
 #define NVME_Q_PC		(1 << 0)	/* physically contiguous */
 #define NVME_CQ_IEN		(1 << 1)	/* interrupts enabled */

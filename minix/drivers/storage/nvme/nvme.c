@@ -1,10 +1,13 @@
 /*
  * nvme.c - NVM Express (PCIe) storage driver for MINIX 3.
  *
- * Phase 1: a single controller, a single namespace (NSID 1), one admin queue
- * pair and one I/O queue pair, polled completion, and a contiguous bounce
- * buffer for DMA (so PRP construction stays trivial).  This is deliberately
- * simple and correct; zero-copy PRPs and MSI-X / multi-queue come later.
+ * A single controller and namespace (NSID 1) with one admin queue pair and
+ * several I/O queue pairs.  Multithreaded (libblockdriver_mt): each worker
+ * thread owns one I/O queue carrying a single in-flight command, so multiple
+ * commands are in flight at once.  Completion is interrupt-driven over a single
+ * shared MSI-X vector (with a polling backstop timer for lost interrupts), and
+ * DMA is zero-copy -- the controller's PRP lists point straight at the caller's
+ * pages, resolved via sys_vumap.
  *
  * Modelled on the AHCI and virtio_blk drivers: it is a libblockdriver
  * block device that the boot ramdisk / RS starts for a PCI device of class
@@ -12,7 +15,7 @@
  */
 
 #include <minix/drivers.h>
-#include <minix/blockdriver.h>
+#include <minix/blockdriver_mt.h>
 #include <minix/driver.h>
 #include <minix/drvlib.h>
 #include <minix/syslib.h>
@@ -27,13 +30,16 @@
 
 /* Driver tuning. */
 #define NVME_QDEPTH	64			/* entries per queue (admin + I/O) */
-#define NVME_IO_QID	1			/* the single I/O queue's id */
+#define NVME_NUM_IO_QUEUES 4			/* I/O queue pairs == worker threads */
 #define NVME_NSID	1			/* the namespace we expose */
 #define NVME_MAX_PAGES	64			/* max pages (== PRP entries) per cmd */
 #define NVME_MAX_XFER	(NVME_MAX_PAGES * NVME_PAGE_SIZE)  /* 256 KB per command */
 #define NVME_RDY_TIMEOUT  5000			/* ms to wait for CSTS.RDY */
 
-/* A submission/completion queue pair. */
+/* A submission/completion queue pair.  In the multithreaded I/O model each
+ * queue carries at most one in-flight command, owned by the worker thread that
+ * claimed the queue; the master thread completes it from the interrupt (or the
+ * backstop timer) and wakes that worker. */
 struct nvme_queue {
 	nvme_sqe_t	*sq;		/* submission queue (virtual) */
 	phys_bytes	sq_phys;
@@ -43,32 +49,44 @@ struct nvme_queue {
 	u16_t		size;		/* number of entries */
 	u16_t		sq_tail;
 	u16_t		cq_head;
+	u16_t		cid;		/* rolling command identifier */
 	u8_t		cq_phase;	/* phase tag we currently expect */
+	/* I/O-queue runtime state (unused by the admin queue). */
+	int		busy;		/* claimed by a worker thread */
+	int		pending;	/* a command awaits completion */
+	int		done;		/* completion recorded */
+	int		result;		/* OK or EIO, set on completion */
+	int		spins;		/* backstop ticks with no progress */
+	thread_id_t	waiter;		/* worker thread to wake */
+	minix_timer_t	timer;		/* lost-interrupt backstop */
+	u64_t		*prp_list;	/* private PRP-list page (DMA) */
+	phys_bytes	prp_list_phys;
 };
 
 /* Global controller state. */
 static int nvme_devind;			/* PCI device index */
-static int nvme_hook_id;			/* kernel IRQ hook id */
 static volatile char *nvme_regs;	/* mapped BAR0 */
 static u32_t nvme_dstrd;			/* doorbell stride (in dwords) */
-static u16_t nvme_cid;			/* rolling command identifier */
 
-/* MSI-X interrupt state.  When nvme_use_irq is set, I/O completions are awaited
- * on the MSI-X interrupt instead of by polling.  Admin commands during init are
- * always polled (MSI-X is only enabled once init has finished). */
+/* MSI-X interrupt state.  All I/O queues share a single MSI-X vector (entry 0);
+ * controllers commonly expose fewer interrupt vectors than queues, so on each
+ * interrupt the handler scans every queue's completion queue.  Admin commands
+ * during init are always polled (MSI-X is only enabled once init has finished). */
 static int nvme_use_irq;		/* I/O is interrupt-driven */
 static u8_t nvme_msix_cap;		/* MSI-X capability config offset */
 static volatile u8_t *nvme_msix_table;	/* mapped MSI-X table BAR */
+static u32_t nvme_msix_toff;		/* table offset within its BAR */
+static int nvme_msix_hook;		/* kernel IRQ hook id (shared vector) */
 
 static struct nvme_queue admin_q;
-static struct nvme_queue io_q;
+static struct nvme_queue io_q[NVME_NUM_IO_QUEUES];
+static int nvme_nq;			/* I/O queues actually created */
+static clock_t nvme_backstop_ticks;	/* lost-interrupt re-poll interval */
 
-/* Identify buffer (4 KB) + PRP-list page (zero-copy DMA goes straight to the
- * caller's pages, so there is no bounce buffer). */
+/* Identify buffer (4 KB).  Zero-copy DMA goes straight to the caller's pages,
+ * so there is no bounce buffer; each I/O queue carries its own PRP-list page. */
 static u8_t *id_buf;
 static phys_bytes id_phys;
-static u64_t *prp_list;
-static phys_bytes prp_list_phys;
 
 /* Namespace geometry. */
 static u64_t ns_blocks;			/* size in logical blocks */
@@ -87,6 +105,9 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 	endpoint_t endpt, iovec_t *iov, unsigned int count, int flags);
 static struct device *nvme_part(devminor_t minor);
 static void nvme_geometry(devminor_t minor, struct part_geom *entry);
+static void nvme_intr(unsigned int mask);
+static void nvme_alarm(clock_t stamp);
+static int nvme_device(devminor_t minor, device_id_t *id);
 
 static struct blockdriver nvme_dtab = {
 	.bdr_type	= BLOCKDRIVER_TYPE_DISK,
@@ -95,6 +116,9 @@ static struct blockdriver nvme_dtab = {
 	.bdr_transfer	= nvme_transfer,
 	.bdr_part	= nvme_part,
 	.bdr_geometry	= nvme_geometry,
+	.bdr_intr	= nvme_intr,
+	.bdr_alarm	= nvme_alarm,
+	.bdr_device	= nvme_device,
 };
 
 /*===========================================================================*
@@ -158,20 +182,18 @@ static u8_t find_capability(int devind, u8_t cap_id)
 }
 
 /*
- * Find the MSI-X capability, map its table BAR, allocate one MSI vector from
- * the kernel, and program table entry 0 with the kernel-supplied (address,
- * data) pair so the controller's vector 0 raises that interrupt.  The MSI-X
- * Enable bit is *not* set here (see nvme_enable_msix), so no interrupt is
- * delivered until init has finished polling the admin queue.  Returns OK, or
- * an error if MSI-X is unavailable (the caller then falls back to polling).
+ * Find the MSI-X capability and map its table BAR.  This only locates and maps
+ * the table; the shared vector is allocated and programmed later by
+ * nvme_msix_program().  The MSI-X Enable bit is set separately
+ * (nvme_enable_msix), after init has finished polling the admin queue.  Returns
+ * OK, or an error if MSI-X is unavailable (the caller then falls back to
+ * timer-driven completion).
  */
 static int nvme_setup_msix(int devind)
 {
 	u8_t cap;
-	u32_t tbl, base, size, toff;
-	int bir, r, ioflag, hook_id;
-	u32_t msi_addr, msi_data;
-	volatile u8_t *entry;
+	u32_t tbl, base, size;
+	int bir, r, ioflag;
 
 	cap = find_capability(devind, PCI_CAP_MSIX);
 	if (cap == 0)
@@ -180,7 +202,7 @@ static int nvme_setup_msix(int devind)
 	/* Locate the MSI-X table: a (BAR index, offset) pair. */
 	tbl = pci_attr_r32(devind, cap + MSIX_TABLE_OFF);
 	bir = tbl & MSIX_TABLE_BIR_MASK;
-	toff = tbl & MSIX_TABLE_OFF_MASK;
+	nvme_msix_toff = tbl & MSIX_TABLE_OFF_MASK;
 
 	if ((r = pci_get_bar(devind, PCI_BAR + bir * 4, &base, &size,
 			&ioflag)) != OK) {
@@ -196,23 +218,35 @@ static int nvme_setup_msix(int devind)
 		return ENOMEM;
 	}
 
-	/* Ask the kernel for an MSI vector and the message it encodes. */
-	hook_id = 0;	/* notify id 0, like the INTx hook before it */
+	nvme_msix_cap = cap;
+	return OK;
+}
+
+/*
+ * Allocate the single shared MSI vector (notify-id 0) and program MSI-X table
+ * entry 0 with the kernel's (address, data) pair.  All I/O queues raise this one
+ * vector; the handler scans every queue.  Records the hook id for sys_irqenable.
+ */
+static int nvme_msix_program(void)
+{
+	volatile u8_t *entry;
+	u32_t msi_addr, msi_data;
+	int hook_id, r;
+
+	hook_id = 0;	/* notify-id 0 */
 	if ((r = sys_irqsetpolicy_msi(IRQ_REENABLE, &hook_id, &msi_addr,
 			&msi_data)) != OK) {
 		printf("nvme: sys_irqsetpolicy_msi failed: %d\n", r);
 		return r;
 	}
-	nvme_hook_id = hook_id;
+	nvme_msix_hook = hook_id;
 
-	/* Program table entry 0 and unmask it. */
-	entry = nvme_msix_table + toff;
+	entry = nvme_msix_table + nvme_msix_toff;	/* table entry 0 */
 	*(volatile u32_t *)(entry + MSIX_VEC_ADDR_LO) = msi_addr;
 	*(volatile u32_t *)(entry + MSIX_VEC_ADDR_HI) = 0;
 	*(volatile u32_t *)(entry + MSIX_VEC_DATA) = msi_data;
-	*(volatile u32_t *)(entry + MSIX_VEC_CTRL) = 0;
+	*(volatile u32_t *)(entry + MSIX_VEC_CTRL) = 0;	/* unmask */
 
-	nvme_msix_cap = cap;
 	return OK;
 }
 
@@ -226,91 +260,32 @@ static void nvme_enable_msix(int devind)
 	pci_attr_w16(devind, nvme_msix_cap + MSIX_CTRL_OFF, ctrl);
 }
 
-/*
- * Block until the I/O completion queue's MSI-X interrupt indicates the next
- * entry is ours (phase tag flipped), or a watchdog alarm fires.  Other
- * messages that arrive while we wait are deferred to the blockdriver loop, as
- * in at_wini's w_intr_wait().  IRQ_REENABLE means the kernel re-arms the hook
- * for us, so no explicit sys_irqenable() is needed here.
- */
-static int nvme_wait_irq(struct nvme_queue *q)
-{
-	nvme_cqe_t *cqe = &q->cq[q->cq_head];
-	message m;
-	int ipc_status, r;
-	long tick, spins;
-
-	/* Re-poll the completion queue periodically rather than blocking on the
-	 * MSI-X interrupt forever: under emulation (and on some controllers) a
-	 * completion interrupt is occasionally not delivered even though the CQE
-	 * has been posted.  A short timer wakes us to re-check the phase tag, so
-	 * a lost interrupt costs a few milliseconds instead of failing the
-	 * command -- and, crucially, never leaves the CQ head out of sync. */
-	tick = sys_hz() / 100;			/* ~10 ms */
-	if (tick < 1)
-		tick = 1;
-	spins = 0;
-
-	while (NVME_CQE_PHASE(cqe) != q->cq_phase) {
-		sys_setalarm(tick, 0);
-
-		if ((r = driver_receive(ANY, &m, &ipc_status)) != OK)
-			panic("nvme: driver_receive failed: %d", r);
-
-		if (is_ipc_notify(ipc_status)) {
-			switch (_ENDPOINT_P(m.m_source)) {
-			case HARDWARE:
-				/* Our completion interrupt; re-check the CQ. */
-				break;
-			case CLOCK:
-				/* Timer tick: re-poll the CQ.  Give up only
-				 * after a long stretch of no progress (~5 s),
-				 * which indicates a genuinely wedged device. */
-				if (++spins >= 500) {
-					sys_setalarm(0, 0);
-					printf("nvme: I/O command timed out\n");
-					return EIO;
-				}
-				break;
-			default:
-				blockdriver_mq_queue(&m, ipc_status);
-			}
-		} else {
-			blockdriver_mq_queue(&m, ipc_status);
-		}
-	}
-
-	sys_setalarm(0, 0);	/* cancel the watchdog */
-	return OK;
-}
-
 /*===========================================================================*
- *			submit a command and wait for completion	     *
+ *			admin command: submit and poll			     *
  *===========================================================================*/
+/*
+ * Submit one command on `q` and poll its completion queue for the result.  Used
+ * only for admin commands during initialisation, which is single-threaded and
+ * runs before MSI-X is enabled.  I/O commands use the interrupt-driven path
+ * (nvme_io_cmd) instead.
+ */
 static int nvme_submit_sync(struct nvme_queue *q, nvme_sqe_t *sqe, u32_t *cdw0)
 {
 	nvme_cqe_t *cqe;
 	int i, sc;
 
 	/* Assign a command identifier and place the entry. */
-	sqe->cdw0 |= ((u32_t)(++nvme_cid) << 16);
+	sqe->cdw0 |= ((u32_t)(++q->cid) << 16);
 	q->sq[q->sq_tail] = *sqe;
 
 	q->sq_tail = (q->sq_tail + 1) % q->size;
 	reg_write32(sq_tail_dbl(q->qid), q->sq_tail);
 
-	/* Wait for the completion: interrupt-driven once MSI-X is up (I/O), or
-	 * polled (all admin commands, and as a fallback if MSI-X is absent). */
 	cqe = &q->cq[q->cq_head];
-	if (nvme_use_irq) {
-		if (nvme_wait_irq(q) != OK)
-			return EIO;
-	} else {
-		for (i = 0; i < NVME_RDY_TIMEOUT; i++) {
-			if (NVME_CQE_PHASE(cqe) == q->cq_phase)
-				break;
-			micro_delay(1000);
-		}
+	for (i = 0; i < NVME_RDY_TIMEOUT; i++) {
+		if (NVME_CQE_PHASE(cqe) == q->cq_phase)
+			break;
+		micro_delay(1000);
 	}
 	if (NVME_CQE_PHASE(cqe) != q->cq_phase) {
 		printf("nvme: command timeout (opcode 0x%x)\n",
@@ -337,28 +312,173 @@ static int nvme_submit_sync(struct nvme_queue *q, nvme_sqe_t *sqe, u32_t *cdw0)
 }
 
 /*===========================================================================*
+ *		interrupt-driven I/O completion (multithreaded)		     *
+ *===========================================================================*/
+/*
+ * Consume the single in-flight completion on an I/O queue (if posted), advance
+ * the CQ head, and wake the worker thread that issued it.  Runs on the master
+ * thread, from the interrupt handler or the backstop timer.
+ */
+static void nvme_drain_cq(struct nvme_queue *q)
+{
+	nvme_cqe_t *cqe = &q->cq[q->cq_head];
+	int sc;
+
+	if (NVME_CQE_PHASE(cqe) != q->cq_phase)
+		return;				/* nothing new */
+
+	sc = NVME_CQE_SC(cqe);
+
+	q->cq_head = (q->cq_head + 1) % q->size;
+	if (q->cq_head == 0)
+		q->cq_phase ^= 1;
+	reg_write32(cq_head_dbl(q->qid), q->cq_head);
+
+	if (q->pending) {
+		cancel_timer(&q->timer);
+		q->result = (sc != 0) ? EIO : OK;
+		q->pending = 0;
+		q->done = 1;
+		blockdriver_mt_wakeup(q->waiter);
+	}
+}
+
+/* MSI-X interrupt.  All I/O queues share one vector, so scan every queue's
+ * completion queue and complete whatever is ready. */
+static void nvme_intr(unsigned int mask)
+{
+	int i;
+
+	(void)mask;
+	for (i = 0; i < nvme_nq; i++)
+		nvme_drain_cq(&io_q[i]);
+}
+
+/* libblockdriver alarm dispatch -> fire any due timers. */
+static void nvme_alarm(clock_t stamp)
+{
+	expire_timers(stamp);
+}
+
+/*
+ * Backstop timer for a queue whose completion interrupt never arrived (lost
+ * under emulation).  Re-poll the CQ; if still outstanding, re-arm, and fail the
+ * command only after a long stretch (~5 s) that indicates a wedged device.
+ */
+static void nvme_timeout(int arg)
+{
+	struct nvme_queue *q = &io_q[arg];
+
+	if (!q->pending)
+		return;
+
+	nvme_drain_cq(q);			/* maybe the interrupt was lost */
+	if (!q->pending)
+		return;				/* completed after all */
+
+	if (++q->spins >= 500) {		/* ~5 s of no progress */
+		printf("nvme: I/O command timed out on queue %d\n", q->qid);
+		q->result = EIO;
+		q->pending = 0;
+		q->done = 1;
+		blockdriver_mt_wakeup(q->waiter);
+		return;
+	}
+
+	set_timer(&q->timer, nvme_backstop_ticks, nvme_timeout, arg);
+}
+
+/*
+ * Claim a free I/O queue for the calling worker thread.  Each queue carries one
+ * in-flight command and its own PRP-list page.  This runs without yielding from
+ * the scan until the sleep in nvme_submit_io(), so the scan-and-mark is atomic
+ * against the other (cooperative) workers; with one queue per worker thread a
+ * free queue always exists.
+ */
+static struct nvme_queue *nvme_claim_queue(void)
+{
+	int i;
+
+	for (i = 0; i < nvme_nq; i++) {
+		if (!io_q[i].busy) {
+			io_q[i].busy = 1;
+			return &io_q[i];
+		}
+	}
+
+	io_q[0].busy = 1;	/* defensive: should never be reached */
+	return &io_q[0];
+}
+
+static void nvme_release_queue(struct nvme_queue *q)
+{
+	q->busy = 0;
+}
+
+/*
+ * Submit one command on a claimed queue and block the calling worker thread
+ * until the master thread (interrupt handler or backstop timer) completes it.
+ */
+static int nvme_submit_io(struct nvme_queue *q, nvme_sqe_t *sqe)
+{
+	sqe->cdw0 |= ((u32_t)(++q->cid) << 16);
+	q->sq[q->sq_tail] = *sqe;
+	q->sq_tail = (q->sq_tail + 1) % q->size;
+
+	q->done = 0;
+	q->result = OK;
+	q->spins = 0;
+	q->pending = 1;
+	q->waiter = blockdriver_mt_get_tid();
+	set_timer(&q->timer, nvme_backstop_ticks, nvme_timeout,
+		(int)(q - io_q));
+
+	reg_write32(sq_tail_dbl(q->qid), q->sq_tail);	/* ring after SQE write */
+
+	while (!q->done)
+		blockdriver_mt_sleep();
+
+	return q->result;
+}
+
+/*===========================================================================*
  *			queue allocation				     *
  *===========================================================================*/
 static int alloc_queue(struct nvme_queue *q, u16_t qid, u16_t size)
 {
 	size_t sq_bytes = (size_t)size * NVME_SQE_SIZE;
 	size_t cq_bytes = (size_t)size * NVME_CQE_SIZE;
+	const size_t PS = NVME_PAGE_SIZE;
+	size_t blk_bytes = 3 * PS;	/* sq page, cq page, prp-list page */
+	char *blk;
+	phys_bytes blk_phys;
+
+	/* The submission and completion queues must each fit in one page. */
+	assert(sq_bytes <= PS && cq_bytes <= PS);
 
 	memset(q, 0, sizeof(*q));
 	q->qid = qid;
 	q->size = size;
 	q->cq_phase = 1;	/* controller starts by writing phase 1 */
 
-	q->sq = alloc_contig(sq_bytes, AC_ALIGN4K, &q->sq_phys);
-	if (q->sq == NULL)
+	/* One contiguous, page-aligned DMA block per queue carved into three
+	 * page-aligned regions: SQ, CQ, and a private PRP-list page (the latter
+	 * so concurrent commands on different queues never clobber each other's
+	 * descriptor list).  A single allocation keeps the number of distinct
+	 * DMA mappings low. */
+	blk = alloc_contig(blk_bytes, AC_ALIGN4K, &blk_phys);
+	if (blk == NULL)
 		return ENOMEM;
-	q->cq = alloc_contig(cq_bytes, AC_ALIGN4K, &q->cq_phys);
-	if (q->cq == NULL) {
-		free_contig(q->sq, sq_bytes);
-		return ENOMEM;
-	}
-	memset(q->sq, 0, sq_bytes);
-	memset(q->cq, 0, cq_bytes);
+	memset(blk, 0, blk_bytes);
+
+	q->sq = (nvme_sqe_t *)(blk + 0 * PS);
+	q->sq_phys = blk_phys + 0 * PS;
+	q->cq = (nvme_cqe_t *)(blk + 1 * PS);
+	q->cq_phys = blk_phys + 1 * PS;
+	q->prp_list = (u64_t *)(blk + 2 * PS);
+	q->prp_list_phys = blk_phys + 2 * PS;
+
+	init_timer(&q->timer);
 	return OK;
 }
 
@@ -401,32 +521,67 @@ static int nvme_wait_ready(int want)
 	return EIO;
 }
 
+/*
+ * Ask the controller (Set Features, Number of Queues) to allocate `want` I/O
+ * queue pairs.  Returns, in *granted, the number it actually allocated (the
+ * smaller of the submission and completion allocations), which may be less.
+ */
+static int nvme_set_num_queues(int want, int *granted)
+{
+	nvme_sqe_t cmd;
+	u32_t cdw0;
+	int nsqa, ncqa;
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.cdw0 = NVME_ADMIN_SET_FEATURES;
+	cmd.cdw10 = NVME_FEAT_NUM_QUEUES;
+	/* NSQR/NCQR are zero-based counts of *requested* queues. */
+	cmd.cdw11 = ((u32_t)(want - 1) << 16) | (u32_t)(want - 1);
+	if (nvme_submit_sync(&admin_q, &cmd, &cdw0) != OK)
+		return EIO;
+
+	/* DW0: [15:0]=NSQA, [31:16]=NCQA (zero-based *allocated* counts). */
+	nsqa = (cdw0 & 0xffff) + 1;
+	ncqa = ((cdw0 >> 16) & 0xffff) + 1;
+	*granted = (nsqa < ncqa) ? nsqa : ncqa;
+	return OK;
+}
+
 static int nvme_create_io_queues(void)
 {
 	nvme_sqe_t cmd;
+	int k;
 
-	/* Create the I/O completion queue (admin opcode 0x05). */
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.cdw0 = NVME_ADMIN_CREATE_CQ;
-	cmd.prp1 = io_q.cq_phys;
-	cmd.cdw10 = ((u32_t)(io_q.size - 1) << 16) | io_q.qid;
-	/* Physically contiguous; if MSI-X is up, enable interrupts on this CQ
-	 * and route them to vector 0 (DW11[31:16]).  Without MSI-X the IEN bit
-	 * is harmless: no interrupt is delivered and completions are polled. */
-	cmd.cdw11 = NVME_Q_PC;
-	if (nvme_msix_cap != 0)
-		cmd.cdw11 |= NVME_CQ_IEN | (0 << NVME_CQ_IV_SHIFT);
-	if (nvme_submit_sync(&admin_q, &cmd, NULL) != OK)
-		return EIO;
+	for (k = 0; k < nvme_nq; k++) {
+		struct nvme_queue *q = &io_q[k];
 
-	/* Create the I/O submission queue (admin opcode 0x01). */
-	memset(&cmd, 0, sizeof(cmd));
-	cmd.cdw0 = NVME_ADMIN_CREATE_SQ;
-	cmd.prp1 = io_q.sq_phys;
-	cmd.cdw10 = ((u32_t)(io_q.size - 1) << 16) | io_q.qid;
-	cmd.cdw11 = ((u32_t)io_q.qid << 16) | NVME_Q_PC;
-	if (nvme_submit_sync(&admin_q, &cmd, NULL) != OK)
-		return EIO;
+		/* Create the I/O completion queue (admin opcode 0x05).  All I/O
+		 * CQs share a single MSI-X vector (0): controllers commonly
+		 * support far fewer interrupt vectors than queues, so on each
+		 * interrupt the handler scans every queue's CQ.  Concurrency still
+		 * comes from having one in-flight command per queue. */
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.cdw0 = NVME_ADMIN_CREATE_CQ;
+		cmd.prp1 = q->cq_phys;
+		cmd.cdw10 = ((u32_t)(q->size - 1) << 16) | q->qid;
+		cmd.cdw11 = NVME_Q_PC;
+		if (nvme_msix_cap != 0)
+			cmd.cdw11 |= NVME_CQ_IEN | (0 << NVME_CQ_IV_SHIFT);
+		if (nvme_submit_sync(&admin_q, &cmd, NULL) != OK) {
+			return EIO;
+		}
+
+		/* Create the matching I/O submission queue (opcode 0x01); its
+		 * completions post to the CQ with the same id (DW11[31:16]). */
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.cdw0 = NVME_ADMIN_CREATE_SQ;
+		cmd.prp1 = q->sq_phys;
+		cmd.cdw10 = ((u32_t)(q->size - 1) << 16) | q->qid;
+		cmd.cdw11 = ((u32_t)q->qid << 16) | NVME_Q_PC;
+		if (nvme_submit_sync(&admin_q, &cmd, NULL) != OK) {
+			return EIO;
+		}
+	}
 
 	return OK;
 }
@@ -467,7 +622,7 @@ static int nvme_init(int devind)
 {
 	u32_t base, size, cc;
 	u64_t cap;
-	int r, ioflag;
+	int r, ioflag, i;
 	u16_t cr;
 
 	/* Map BAR0 (the controller register area) into our address space. */
@@ -519,15 +674,13 @@ static int nvme_init(int devind)
 		}
 	}
 
-	/* Allocate the admin and I/O queues and the DMA helper buffers. */
+	/* Allocate the admin queue and DMA helper buffers; the I/O queues come
+	 * later, once the controller tells us how many pairs it will grant. */
 	if (alloc_queue(&admin_q, 0, NVME_QDEPTH) != OK)
-		return ENOMEM;
-	if (alloc_queue(&io_q, NVME_IO_QID, NVME_QDEPTH) != OK)
 		return ENOMEM;
 
 	id_buf = alloc_contig(NVME_PAGE_SIZE, AC_ALIGN4K, &id_phys);
-	prp_list = alloc_contig(NVME_PAGE_SIZE, AC_ALIGN4K, &prp_list_phys);
-	if (id_buf == NULL || prp_list == NULL) {
+	if (id_buf == NULL) {
 		printf("nvme: unable to allocate DMA buffers\n");
 		return ENOMEM;
 	}
@@ -553,27 +706,57 @@ static int nvme_init(int devind)
 		return EIO;
 	}
 
-	/* Bring up the I/O queue pair and learn the namespace geometry.  These
-	 * admin commands are still polled (nvme_use_irq is clear). */
+	/* Negotiate the number of I/O queue pairs: cap our fixed maximum to what
+	 * the controller grants. */
+	nvme_nq = NVME_NUM_IO_QUEUES;
+	{
+		int granted = 1;
+
+		if ((r = nvme_set_num_queues(nvme_nq, &granted)) != OK)
+			return r;
+		if (granted < nvme_nq)
+			nvme_nq = granted;
+	}
+	if (nvme_nq < 1)
+		nvme_nq = 1;
+
+	/* Allocate the I/O queue pairs (qids 1..nvme_nq). */
+	for (i = 0; i < nvme_nq; i++) {
+		if (alloc_queue(&io_q[i], i + 1, NVME_QDEPTH) != OK)
+			return ENOMEM;
+	}
+
+	/* Bring up the I/O queues and learn the namespace geometry.  These admin
+	 * commands are still polled (MSI-X is not enabled yet). */
 	if ((r = nvme_create_io_queues()) != OK)
 		return r;
 	if ((r = nvme_identify_namespace()) != OK)
 		return r;
 
-	/* All admin work is done: switch I/O completion to MSI-X interrupts. */
+	/* All admin work is done: program the single shared MSI-X vector and
+	 * switch I/O completion to interrupts. */
 	if (nvme_msix_cap != 0) {
+		if ((r = nvme_msix_program()) != OK)
+			return r;
+
 		nvme_enable_msix(devind);
-		if ((r = sys_irqenable(&nvme_hook_id)) != OK) {
-			printf("nvme: unable to enable MSI-X IRQ: %d\n", r);
+
+		if ((r = sys_irqenable(&nvme_msix_hook)) != OK) {
+			printf("nvme: cannot enable MSI-X IRQ: %d\n", r);
 			return r;
 		}
 		nvme_use_irq = TRUE;
 	}
 
-	printf("nvme%d: %llu blocks of %u bytes (%llu MB), %s\n",
+	/* Re-poll interval for the lost-interrupt backstop timer (~10 ms). */
+	nvme_backstop_ticks = sys_hz() / 100;
+	if (nvme_backstop_ticks < 1)
+		nvme_backstop_ticks = 1;
+
+	printf("nvme%d: %llu blocks of %u bytes (%llu MB), %d I/O queue(s), %s\n",
 		nvme_instance, (unsigned long long)ns_blocks, ns_lba_size,
 		(unsigned long long)(ns_blocks * ns_lba_size) >> 20,
-		nvme_use_irq ? "MSI-X" : "polled");
+		nvme_nq, nvme_use_irq ? "MSI-X" : "polled");
 
 	return OK;
 }
@@ -588,9 +771,12 @@ static int nvme_init(int devind)
  * holds: page boundaries of a contiguous virtual buffer fall on page-aligned
  * physical addresses).  Pages 2..N are written into the single prp_list page.
  */
-static int build_prp(struct vumap_phys *phys, unsigned int nphys, size_t nbytes,
-	u64_t *prp1, u64_t *prp2, size_t *covered)
+static int build_prp(struct nvme_queue *q, struct vumap_phys *phys,
+	unsigned int nphys, size_t nbytes, u64_t *prp1, u64_t *prp2,
+	size_t *covered)
 {
+	u64_t *prp_list = q->prp_list;
+	phys_bytes prp_list_phys = q->prp_list_phys;
 	const size_t PS = NVME_PAGE_SIZE;
 	size_t off, cov, bpos, seg_start, seg_rem, want;
 	unsigned int s, nlist;
@@ -658,9 +844,9 @@ static int build_prp(struct vumap_phys *phys, unsigned int nphys, size_t nbytes,
 	return OK;
 }
 
-/* Issue one NVM read/write command with caller-supplied PRP pointers. */
-static int nvme_rw_direct(int do_write, u64_t slba, u32_t nblocks,
-	u64_t prp1, u64_t prp2)
+/* Issue one NVM read/write command on queue `q` with caller-supplied PRPs. */
+static int nvme_rw_submit(struct nvme_queue *q, int do_write, u64_t slba,
+	u32_t nblocks, u64_t prp1, u64_t prp2)
 {
 	nvme_sqe_t cmd;
 
@@ -673,7 +859,7 @@ static int nvme_rw_direct(int do_write, u64_t slba, u32_t nblocks,
 	cmd.cdw11 = (u32_t)(slba >> 32);
 	cmd.cdw12 = nblocks - 1;	/* NLB is zero-based */
 
-	return nvme_submit_sync(&io_q, &cmd, NULL);
+	return nvme_submit_io(q, &cmd);
 }
 
 /*===========================================================================*
@@ -702,6 +888,11 @@ static int nvme_open(devminor_t minor, int access)
 		return ENXIO;
 
 	if (open_count == 0) {
+		/* Spread I/O across one worker thread per I/O queue.  Done here
+		 * (the first request) because the MT framework resets the worker
+		 * count to 1 in its own init, which runs before this callback. */
+		blockdriver_mt_set_workers(0, nvme_nq);
+
 		memset(part, 0, sizeof(part));
 		memset(subpart, 0, sizeof(subpart));
 		part[0].dv_size = ns_blocks * ns_lba_size;
@@ -709,6 +900,16 @@ static int nvme_open(devminor_t minor, int access)
 	}
 
 	open_count++;
+	return OK;
+}
+
+/* Map every minor to the single physical device (id 0) for the MT framework. */
+static int nvme_device(devminor_t minor, device_id_t *id)
+{
+	if (nvme_part(minor) == NULL)
+		return ENXIO;
+
+	*id = 0;
 	return OK;
 }
 
@@ -772,6 +973,7 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 	while (done < total) {
 		struct vumap_vir vir[NR_IOREQS];
 		struct vumap_phys phys[NR_IOREQS];
+		struct nvme_queue *q;
 		unsigned int nphys;
 		size_t chunk = total - done;
 		size_t avail, covered;
@@ -811,24 +1013,32 @@ static ssize_t nvme_transfer(devminor_t minor, int do_write, u64_t pos,
 		if (chunk == 0)
 			return (done > 0) ? (ssize_t)done : EIO;
 
-		if ((r = build_prp(phys, nphys, chunk, &prp1, &prp2,
-				&covered)) != OK)
-			return (done > 0) ? (ssize_t)done : r;
+		/* Claim a queue (and its private PRP-list page) for the rest of
+		 * this command, so building the list and the in-flight DMA cannot
+		 * race another worker's queue. */
+		q = nvme_claim_queue();
+
+		r = build_prp(q, phys, nphys, chunk, &prp1, &prp2, &covered);
 
 		/* build_prp may cover fewer bytes than requested if the buffer is
 		 * fragmented into sub-page physical segments (PRP cannot express
 		 * those in one command); the loop handles the remainder. */
-		covered -= covered % ns_lba_size;
-		if (covered == 0)
-			return (done > 0) ? (ssize_t)done : EIO;
-		chunk = covered;
+		if (r == OK) {
+			covered -= covered % ns_lba_size;
+			if (covered == 0)
+				r = EIO;
+		}
+		if (r == OK) {
+			chunk = covered;
+			slba = (disk_pos + done) / ns_lba_size;
+			nblk = chunk / ns_lba_size;
+			r = nvme_rw_submit(q, do_write, slba, nblk, prp1, prp2);
+		}
 
-		slba = (disk_pos + done) / ns_lba_size;
-		nblk = chunk / ns_lba_size;
+		nvme_release_queue(q);
 
-		r = nvme_rw_direct(do_write, slba, nblk, prp1, prp2);
 		if (r != OK)
-			return (done > 0) ? (ssize_t)done : EIO;
+			return (done > 0) ? (ssize_t)done : r;
 
 		done += chunk;
 	}
@@ -873,7 +1083,7 @@ int main(int argc, char **argv)
 	env_setargs(argc, argv);
 	sef_local_startup();
 
-	blockdriver_task(&nvme_dtab);
+	blockdriver_mt_task(&nvme_dtab);
 
 	return OK;
 }
