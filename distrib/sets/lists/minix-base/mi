@@ -466,6 +466,7 @@
 ./usr/bin/lzma                                          minix-base
 ./usr/bin/lzmainfo                                      minix-base
 ./usr/bin/m4                                            minix-base
+./usr/bin/mdig                                          minix-base
 ./usr/bin/machine                                       minix-base
 ./usr/bin/mail                                          minix-base
 ./usr/bin/make                                          minix-base
@@ -806,8 +807,8 @@
 ./usr/lib/libbfd.so.13.0                                minix-base      binutils
 ./usr/lib/libbfd.so.13                                  minix-base      binutils
 ./usr/lib/libbind9.so                                   minix-base
-./usr/lib/libbind9.so.8                                 minix-base
-./usr/lib/libbind9.so.8.2                               minix-base
+./usr/lib/libbind9.so.21                                minix-base
+./usr/lib/libbind9.so.21.0                              minix-base
 ./usr/lib/libblacklist.a                                minix-base
 ./usr/lib/libblacklist.so                               minix-base
 ./usr/lib/libblacklist.so.0                             minix-base
@@ -846,8 +847,8 @@
 ./usr/lib/libdes.so                                     minix-base      crypto
 ./usr/lib/libdes_pic.a                                  minix-base      crypto
 ./usr/lib/libdns.so                                     minix-base
-./usr/lib/libdns.so.8                                   minix-base
-./usr/lib/libdns.so.8.2                                 minix-base
+./usr/lib/libdns.so.21                                  minix-base
+./usr/lib/libdns.so.21.0                                minix-base
 ./usr/lib/libedit.so                                    minix-base
 ./usr/lib/libedit.so.3                                  minix-base
 ./usr/lib/libedit.so.3.1                                minix-base
@@ -885,17 +886,22 @@
 ./usr/lib/libintl.so.1                                  minix-base
 ./usr/lib/libintl.so.1.1                                minix-base
 ./usr/lib/libirs.so                                     minix-base
-./usr/lib/libirs.so.8                                   minix-base
-./usr/lib/libirs.so.8.2                                 minix-base
+./usr/lib/libirs.so.21                                  minix-base
+./usr/lib/libirs.so.21.0                                minix-base
 ./usr/lib/libisc.so                                     minix-base
-./usr/lib/libisc.so.8                                   minix-base
-./usr/lib/libisc.so.8.2                                 minix-base
+./usr/lib/libisc.so.21                                  minix-base
+./usr/lib/libisc.so.21.0                                minix-base
 ./usr/lib/libisccc.so                                   minix-base
-./usr/lib/libisccc.so.8                                 minix-base
-./usr/lib/libisccc.so.8.2                               minix-base
+./usr/lib/libisccc.so.21                                minix-base
+./usr/lib/libisccc.so.21.0                              minix-base
 ./usr/lib/libisccfg.so                                  minix-base
-./usr/lib/libisccfg.so.8                                minix-base
-./usr/lib/libisccfg.so.8.2                              minix-base
+./usr/lib/libisccfg.so.21                               minix-base
+./usr/lib/libisccfg.so.21.0                             minix-base
+./usr/lib/libns.so                                      minix-base
+./usr/lib/libns.so.21                                   minix-base
+./usr/lib/libns.so.21.0                                 minix-base
+./usr/lib/named                                         minix-base
+./usr/lib/named/filter-aaaa.so.0                        minix-base
 ./usr/lib/libkvm.so                                     minix-base
 ./usr/lib/libkvm.so.6                                   minix-base
 ./usr/lib/libkvm.so.6.0                                 minix-base
@@ -909,9 +915,6 @@
 ./usr/lib/liblutok.so.2                                 minix-base      kyua
 ./usr/lib/liblutok.so                                   minix-base      kyua
 ./usr/lib/liblutok_pic.a                                minix-base      kyua
-./usr/lib/liblwres.so                                   minix-base
-./usr/lib/liblwres.so.8                                 minix-base
-./usr/lib/liblwres.so.8.2                               minix-base
 ./usr/lib/liblzma.so                                    minix-base
 ./usr/lib/liblzma.so.1.1                                minix-base      obsolete
 ./usr/lib/liblzma.so.1                                  minix-base      obsolete
@@ -1068,6 +1071,8 @@
 ./usr/libexec/kyua-atf-tester                           minix-base      kyua
 ./usr/libexec/kyua-plain-tester                         minix-base      kyua
 ./usr/libexec/ld.elf_so                                 minix-base
+./usr/libexec/named                                     minix-base
+./usr/libexec/named/filter-aaaa.so                      minix-base
 ./usr/libexec/makewhatis                                minix-base
 ./usr/libexec/rshd                                      minix-base
 ./usr/libexec/telnetd                                   minix-base
@@ -1099,6 +1104,7 @@
 ./usr/sbin/dnssec-keyfromlabel                          minix-base
 ./usr/sbin/dnssec-keygen                                minix-base
 ./usr/sbin/dnssec-revoke                                minix-base
+./usr/sbin/dnssec-cds                                   minix-base
 ./usr/sbin/dnssec-settime                               minix-base
 ./usr/sbin/dnssec-signzone                              minix-base
 ./usr/sbin/dnssec-verify                                minix-base
@@ -1123,6 +1129,7 @@
 ./usr/sbin/named-checkzone                              minix-base
 ./usr/sbin/named-compilezone                            minix-base
 ./usr/sbin/named-journalprint                           minix-base
+./usr/sbin/named-rrchecker                              minix-base
 ./usr/sbin/named                                        minix-base
 ./usr/sbin/ndp                                          minix-base      inet6
 ./usr/sbin/newfs_mfs                                    minix-base
@@ -1142,6 +1149,7 @@
 ./usr/sbin/service                                      minix-base
 ./usr/sbin/services_mkdb                                minix-base
 ./usr/sbin/syslogd                                      minix-base
+./usr/sbin/tsig-keygen                                  minix-base
 ./usr/sbin/tcpdump                                      minix-base
 ./usr/sbin/traceroute                                   minix-base
 ./usr/sbin/traceroute6                                  minix-base      use_inet6

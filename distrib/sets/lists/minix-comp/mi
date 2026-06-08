@@ -1847,6 +1847,22 @@
 ./usr/include/utmp.h                                    minix-comp
 ./usr/include/utmpx.h                                   minix-comp
 ./usr/include/uuid.h                                    minix-comp
+./usr/include/uv                                        minix-comp
+./usr/include/uv.h                                      minix-comp
+./usr/include/uv/aix.h                                  minix-comp
+./usr/include/uv/bsd.h                                  minix-comp
+./usr/include/uv/darwin.h                               minix-comp
+./usr/include/uv/errno.h                                minix-comp
+./usr/include/uv/linux.h                                minix-comp
+./usr/include/uv/os390.h                                minix-comp
+./usr/include/uv/posix.h                                minix-comp
+./usr/include/uv/stdint-msvc2008.h                      minix-comp
+./usr/include/uv/sunos.h                                minix-comp
+./usr/include/uv/threadpool.h                           minix-comp
+./usr/include/uv/tree.h                                 minix-comp
+./usr/include/uv/unix.h                                 minix-comp
+./usr/include/uv/version.h                              minix-comp
+./usr/include/uv/win.h                                  minix-comp
 ./usr/include/uvm                                       minix-comp
 ./usr/include/uvm/uvm.h                                 minix-comp
 ./usr/include/uvm/uvm_amap.h                            minix-comp
@@ -1925,7 +1941,6 @@
 ./usr/lib/bc/libl.a                                     minix-comp      bitcode
 ./usr/lib/bc/liblua.a                                   minix-comp      bitcode
 ./usr/lib/bc/liblwip.a                                  minix-comp      bitcode
-./usr/lib/bc/liblwres.a                                 minix-comp      bitcode
 ./usr/lib/bc/liblzma.a                                  minix-comp      bitcode
 ./usr/lib/bc/libm.a                                     minix-comp      bitcode
 ./usr/lib/bc/libm387.a                                  minix-comp      bitcode
@@ -2079,6 +2094,8 @@
 ./usr/lib/libirs_pic.a                                  minix-comp
 ./usr/lib/libisc.a                                      minix-comp
 ./usr/lib/libisc_pic.a                                  minix-comp
+./usr/lib/libns.a                                       minix-comp
+./usr/lib/libns_pic.a                                   minix-comp
 ./usr/lib/libisccc.a                                    minix-comp
 ./usr/lib/libisccc_pic.a                                minix-comp
 ./usr/lib/libisccfg.a                                   minix-comp
@@ -2090,8 +2107,6 @@
 ./usr/lib/liblua_pic.a                                  minix-comp
 ./usr/lib/liblwip.a                                     minix-comp
 ./usr/lib/liblwip_pic.a                                 minix-comp
-./usr/lib/liblwres.a                                    minix-comp
-./usr/lib/liblwres_pic.a                                minix-comp
 ./usr/lib/liblzma.a                                     minix-comp
 ./usr/lib/liblzma_pic.a                                 minix-comp
 ./usr/lib/libm.a                                        minix-comp
@@ -2150,6 +2165,8 @@
 ./usr/lib/libusb_pic.a                                  minix-comp
 ./usr/lib/libutil.a                                     minix-comp
 ./usr/lib/libutil_pic.a                                 minix-comp
+./usr/lib/libuv.a                                       minix-comp
+./usr/lib/libuv_pic.a                                   minix-comp
 ./usr/lib/libvtreefs.a                                  minix-comp
 ./usr/lib/libvtreefs_pic.a                              minix-comp
 ./usr/lib/libwrap.a                                     minix-comp
