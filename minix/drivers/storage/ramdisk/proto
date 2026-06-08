@@ -39,6 +39,9 @@ d--755 0 0
 		ext2 ---755 0 0 ext2
 #endif
 #endif
+#if defined(__x86_64__)
+		nvme ---755 0 0 nvme
+#endif
 #ifdef __arm__
 		mmc ---755 0 0 mmc
 #endif
