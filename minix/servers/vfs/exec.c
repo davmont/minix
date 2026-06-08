@@ -422,8 +422,16 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 
 	size_t const execname_len = strlen(execi->execname);
 
-	if (!execi->is_dyn)
-		return OK;
+	/*
+	 * Static binaries need the aux vector too: libc's __libc_static_tls_setup()
+	 * uses dl_iterate_phdr() -> the auxv (AT_PHDR/AT_PHNUM/AT_PHENT) to find the
+	 * program's PT_TLS segment and size the main thread's TLS block.  Without it,
+	 * tls_size stays 0 and any thread_local access in the main thread (e.g. before
+	 * pthread starts, in a C library constructor) faults.  minix_stack_fill()
+	 * reserves the auxv space for every exec, so populate it here regardless of
+	 * is_dyn.  (The interpreter/rtld-specific entries below are harmless for
+	 * static executables.)
+	 */
 
 	if (execi->args.hdr_len < sizeof(*elf_header)) {
 		printf("VFS: malformed ELF headers for exec\n");
@@ -478,7 +486,15 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 		} \
 	} while(0)
 
-	AUXINFO(aux_vec, AT_BASE, execi->args.load_base);
+	/*
+	 * AT_BASE is the interpreter (rtld) base.  A static binary has no
+	 * interpreter, so it must be 0 -- not the program's own load address.
+	 * dl_iterate_phdr() uses AT_BASE as the main program's load bias when
+	 * locating PT_TLS; for a static ET_EXEC the bias is 0, and passing
+	 * load_base here made tls_initaddr = p_vaddr + load_base (double-counted
+	 * the base), crashing __libc_static_tls_setup()'s memcpy.
+	 */
+	AUXINFO(aux_vec, AT_BASE, execi->is_dyn ? execi->args.load_base : 0);
 	AUXINFO(aux_vec, AT_ENTRY, execi->args.pc);
 	AUXINFO(aux_vec, AT_EXECFD, execi->elf_main_fd);
 	AUXINFO(aux_vec, AT_PHDR, execi->args.phdr);

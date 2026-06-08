@@ -128,17 +128,14 @@ SUBDIR+= .WAIT config
 .if ${MKLLVM} != "no"
 SUBDIR+= \
 	llvm .WAIT \
-	llvm-lib/libLLVMSupport llvm-lib/libLLVMTableGen .WAIT \
+	llvm-lib/libLLVMDemangle llvm-lib/libLLVMSupport llvm-lib/libLLVMTableGen \
+		.WAIT \
 	llvm-tblgen llvm-clang-tblgen .WAIT \
 	llvm-include .WAIT \
 	llvm-lib .WAIT \
 	llvm-clang
-. if ${MKLLD} != "no"
-SUBDIR+=	llvm-lld
-. endif
-. if ${MKMCLINKER} != "no"
-SUBDIR+=	llvm-mcld
-. endif
+# llvm-lld / llvm-mcld dropped: MINIX links with GNU ld, and mcld is gone
+# upstream as of LLVM 13 (see external/apache2/llvm import).
 .endif
 
 .if ${MKMAN} != "no" || ${MKDOC} != "no" || ${MKHTML} != "no"

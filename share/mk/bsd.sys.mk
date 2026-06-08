@@ -34,10 +34,43 @@ CPPFLAGS+=	-Wp,-iremap,${DESTDIR}/:/
 CPPFLAGS+=	-Wp,-iremap,${X11SRCDIR}:/usr/xsrc
 .endif
 
-# NetBSD sources use C99 style, with some GCC extensions.
-CFLAGS+=	${${ACTIVE_CC} == "clang":? -std=gnu99 :}
-CFLAGS+=	${${ACTIVE_CC} == "gcc":? -std=gnu99 :}
-CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=gnu99 :}
+# NetBSD sources use C99 style, with some GCC extensions.  Honor a per-package
+# CSTD override (the NetBSD mechanism) so newer code (e.g. BIND 9.18, which needs
+# C11 max_align_t/_Atomic) can request gnu18 etc. instead of the gnu99 default.
+CSTD?=		gnu99
+CFLAGS+=	${${ACTIVE_CC} == "clang":? -std=${CSTD} :}
+CFLAGS+=	${${ACTIVE_CC} == "gcc":? -std=${CSTD} :}
+CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=${CSTD} :}
+
+# The MINIX tree relies on tentative definitions being merged (pre-C11 / GCC
+# "common" semantics): e.g. environ and __ps_strings appear in several libc
+# files without extern.  clang >= 11 (and gcc >= 10) default to -fno-common,
+# which turns those into multiple-definition link errors.  Restore -fcommon
+# until the sources are cleaned up.  Was implicit with the old clang 3.6.
+CFLAGS+=	-fcommon
+
+# MINIX's in-tree binutils ld is 2.23.2 (2013), which predates the relaxable
+# GOT relocations (R_X86_64_GOTPCRELX, binutils >= 2.26) that modern clang emits
+# by default -> "unresolvable R_X86_64_NONE relocation" at PIC/.so link time.
+# Emit the classic R_X86_64_GOTPCREL until binutils is updated.
+CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
+CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
+
+# MINIX's in-tree C++ code (atf, kyua, lutok, bind tools) is 2014-era NetBSD that
+# still uses std::auto_ptr, removed from the default C++ standard.  libc++ 22 only
+# provides it under this opt-in macro; enable it globally rather than per-package
+# (it only makes the template available -- unused, it costs nothing).
+CXXFLAGS+=	-D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR
+
+# MINIX's x86 csu (lib/csu) does NOT define HAVE_INITFINI_ARRAY, so crtbegin.c
+# runs C++/C constructors through the legacy .ctors list (__CTOR_LIST__), the
+# way clang 3.6 emitted them.  clang >= ~16 defaults to .init_array, which the
+# .ctors machinery never walks -> __attribute__((constructor)) functions (e.g.
+# libc's __minix_init, which sets up _minix_kerninfo and the IPC vectors) never
+# run, and every process panics in get_minix_kerninfo().  Force the classic
+# .ctors emission until the csu is switched to INIT_ARRAY for x86.
+CFLAGS+=	${${ACTIVE_CC} == "clang":? -fno-use-init-array :}
+CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -fno-use-init-array :}
 
 .if defined(WARNS)
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wno-sign-compare -Wno-pointer-sign :}

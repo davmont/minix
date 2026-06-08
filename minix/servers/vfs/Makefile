@@ -20,7 +20,13 @@ CPPFLAGS+= -DUSE_COVERAGE
 CWARNFLAGS.gcc+=	-Wno-maybe-uninitialized
 .endif # defined(__MINIX)
 
-CFLAGS+= -Wall -Wextra -Wno-sign-compare -Werror
+# MINIX: -Werror here is the only hardcoded one in the tree; gate it on
+# NOCLANGERROR like the global mechanism so the newer clang's stricter warnings
+# don't break the build (the warnings remain visible, just non-fatal).
+CFLAGS+= -Wall -Wextra -Wno-sign-compare
+.if !(${ACTIVE_CC} == "clang" && defined(NOCLANGERROR)) && !defined(NOGCCERROR)
+CFLAGS+= -Werror
+.endif
 DPADD+=	${LIBSYS} ${LIBTIMERS} ${LIBEXEC}
 LDADD+=	-lsys -ltimers -lexec -lmthread
 

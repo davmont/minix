@@ -2,8 +2,8 @@
 
 .include <bsd.own.mk>
 
-#MINIX:
-SUBDIR=	bind byacc dhcpcd \
+#MINIX: BIND 9.10 retired in favor of BIND 9.18 at external/mpl/bind.
+SUBDIR=	byacc dhcpcd \
 	fetch file flex less \
 	libarchive libevent libpcap mdocml \
 	openresolv tcpdump tmux top
@@ -30,11 +30,7 @@ SUBDIR+= openldap
 .if (${MKLIBCXX} != "no")
 SUBDIR+= libc++
 .endif
-.if (${MKLLVM} != "no")
-.if (${MKLLVMCMDS} != "no") && defined(__MINIX)
-SUBDIR+= llvm
-.endif # (${MKLLVMCMDS} != "no") && defined(__MINIX)
-.endif
+# LLVM moved to external/apache2/llvm (LLVM 13, Apache-2.0 relicense).
 .if (${MKPCC} != "no")
 SUBDIR+= pcc
 .endif
@@ -43,7 +39,10 @@ SUBDIR+= libproc
 SUBDIR+= librtld_db
 .endif
 
-#MINIX:
-SUBDIR+= blacklist dhcp nvi
+#MINIX: ISC DHCP retired -- it is EOL upstream (superseded by Kea) and uses the
+# pre-9.18 libisc socket/timer/hash APIs that BIND 9.18 removed in its libuv
+# netmgr rewrite, so it cannot link against the system BIND.  The modern dhcpcd
+# (external/bsd/dhcpcd, the rc default) provides DHCP client functionality.
+SUBDIR+= blacklist nvi
 
 .include <bsd.subdir.mk>

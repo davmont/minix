@@ -791,8 +791,8 @@
 ./usr/lib/keymaps/us-std.map                            minix-base
 ./usr/lib/keymaps/us-swap.map                           minix-base
 ./usr/lib/libarchive.so                                 minix-base
-./usr/lib/libarchive.so.3                               minix-base
-./usr/lib/libarchive.so.3.1                             minix-base
+./usr/lib/libarchive.so.5                               minix-base
+./usr/lib/libarchive.so.5.1                             minix-base
 ./usr/lib/libatf-c++.a                                  minix-base      atf
 ./usr/lib/libatf-c++.so.1.0                             minix-base      atf
 ./usr/lib/libatf-c++.so.1                               minix-base      atf
@@ -832,8 +832,8 @@
 ./usr/lib/libcrypt.so.1.0                               minix-base
 ./usr/lib/libcrypto.a                                   minix-base      crypto
 ./usr/lib/libcrypto.so.8.1                              minix-base      crypto,obsolete
-./usr/lib/libcrypto.so.8.4                              minix-base      crypto
-./usr/lib/libcrypto.so.8                                minix-base      crypto
+./usr/lib/libcrypto.so.15.0                              minix-base      crypto
+./usr/lib/libcrypto.so.15                                minix-base      crypto
 ./usr/lib/libcrypto.so                                  minix-base      crypto
 ./usr/lib/libcrypto_pic.a                               minix-base      crypto
 ./usr/lib/libcurses.so                                  minix-base
@@ -841,8 +841,8 @@
 ./usr/lib/libcurses.so.7.0                              minix-base
 ./usr/lib/libdes.a                                      minix-base      crypto
 ./usr/lib/libdes.so.8.1                                 minix-base      crypto,obsolete
-./usr/lib/libdes.so.8.2                                 minix-base      crypto
-./usr/lib/libdes.so.8                                   minix-base      crypto
+./usr/lib/libdes.so.15.0                                 minix-base      crypto
+./usr/lib/libdes.so.15                                   minix-base      crypto
 ./usr/lib/libdes.so                                     minix-base      crypto
 ./usr/lib/libdes_pic.a                                  minix-base      crypto
 ./usr/lib/libdns.so                                     minix-base
@@ -857,11 +857,11 @@
 ./usr/lib/libelf.so.1                                   minix-base
 ./usr/lib/libelf.so.1.0                                 minix-base
 ./usr/lib/libevent.so                                   minix-base
-./usr/lib/libevent.so.4                                 minix-base
-./usr/lib/libevent.so.4.0                               minix-base
+./usr/lib/libevent.so.5                                 minix-base
+./usr/lib/libevent.so.5.0                               minix-base
 ./usr/lib/libevent_openssl.a                            minix-base      crypto
-./usr/lib/libevent_openssl.so.4.0                       minix-base      crypto
-./usr/lib/libevent_openssl.so.4                         minix-base      crypto
+./usr/lib/libevent_openssl.so.5.0                       minix-base      crypto
+./usr/lib/libevent_openssl.so.5                         minix-base      crypto
 ./usr/lib/libevent_openssl.so                           minix-base      crypto
 ./usr/lib/libevent_openssl_pic.a                        minix-base      crypto
 ./usr/lib/libexecinfo.so                                minix-base
@@ -922,9 +922,9 @@
 ./usr/lib/libm.so.0.10                                  minix-base      obsolete
 ./usr/lib/libm.so.0.11                                  minix-base
 ./usr/lib/libmagic.so                                   minix-base
-./usr/lib/libmagic.so.5                                 minix-base
+./usr/lib/libmagic.so.8                                 minix-base
 ./usr/lib/libmagic.so.5.0                               minix-base      obsolete
-./usr/lib/libmagic.so.5.1                               minix-base
+./usr/lib/libmagic.so.8.0                               minix-base
 ./usr/lib/libmenu.so                                    minix-base
 ./usr/lib/libmenu.so.6                                  minix-base
 ./usr/lib/libmenu.so.6.0                                minix-base
@@ -940,13 +940,13 @@
 ./usr/lib/libmthread.so.0                               minix-base
 ./usr/lib/libmthread.so.0.0                             minix-base
 ./usr/lib/libnetpgp.a                                   minix-base      crypto
-./usr/lib/libnetpgp.so.3.0                              minix-base      crypto
-./usr/lib/libnetpgp.so.3                                minix-base      crypto
+./usr/lib/libnetpgp.so.4.0                              minix-base      crypto
+./usr/lib/libnetpgp.so.4                                minix-base      crypto
 ./usr/lib/libnetpgp.so                                  minix-base      crypto
 ./usr/lib/libnetpgp_pic.a                               minix-base      crypto
 ./usr/lib/libnetpgpverify.a                             minix-base      crypto
-./usr/lib/libnetpgpverify.so.4.0                        minix-base      crypto
-./usr/lib/libnetpgpverify.so.4                          minix-base      crypto
+./usr/lib/libnetpgpverify.so.5.0                        minix-base      crypto
+./usr/lib/libnetpgpverify.so.5                          minix-base      crypto
 ./usr/lib/libnetpgpverify.so                            minix-base      crypto
 ./usr/lib/libnetpgpverify_pic.a                         minix-base      crypto
 ./usr/lib/libobjc.a                                     minix-base      gcc=5
@@ -959,8 +959,8 @@
 ./usr/lib/libopcodes.so.6.0                             minix-base      binutils
 ./usr/lib/libopcodes.so.6                               minix-base      binutils
 ./usr/lib/libpcap.so                                    minix-base
-./usr/lib/libpcap.so.5                                  minix-base
-./usr/lib/libpcap.so.5.1                                minix-base
+./usr/lib/libpcap.so.8                                  minix-base
+./usr/lib/libpcap.so.8.1                                minix-base
 ./usr/lib/libpci.so                                     minix-base
 ./usr/lib/libpci.so.2                                   minix-base
 ./usr/lib/libpci.so.2.0                                 minix-base      obsolete
@@ -985,8 +985,8 @@
 ./usr/lib/libsqlite3.so.1.2                             minix-base
 ./usr/lib/libssl.a                                      minix-base      crypto
 ./usr/lib/libssl.so.10.1                                minix-base      crypto,obsolete
-./usr/lib/libssl.so.10.5                                minix-base      crypto
-./usr/lib/libssl.so.10                                  minix-base      crypto
+./usr/lib/libssl.so.15.0                                minix-base      crypto
+./usr/lib/libssl.so.15                                  minix-base      crypto
 ./usr/lib/libssl.so                                     minix-base      crypto
 ./usr/lib/libssl_pic.a                                  minix-base      crypto
 ./usr/lib/libstdc++.so.6.1                              minix-base      libstdcxx,obsolete

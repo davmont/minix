@@ -86,11 +86,16 @@ SRCS+=	pthread_spin.c
 SRCS+=	pthread_tsd.c
 SRCS+=	res_state.c
 .if !defined(__MINIX)
-# POSIX semaphores (sem.c) rely on the _ksem_* kernel syscalls, which MINIX
-# does not provide; libpthread's core (threads/mutex/cond) does not need them.
-# MINIX also has no lib/librt yet.  Drop sem.c here as a Phase-0 follow-up.
 .PATH: ${.CURDIR}/../librt
 SRCS+=	sem.c
+.else
+# NetBSD's librt/sem.c uses the _ksem_* kernel syscalls, which MINIX lacks (and
+# MINIX has no lib/librt).  Use our userland POSIX-semaphore implementation
+# (sem.c in this directory) layered on pthread mutex + condition variables.
+SRCS+=	sem.c
+# MINIX has no sigtimedwait(2) and the cancelstub sigwait is compiled out, so
+# provide a userland sigwait(3) over sigaction+sigsuspend (Hurd-style).
+SRCS+=	sigwait_minix.c
 .endif
 # Architecture-dependent files
 .if exists(${ARCHDIR}/pthread_md.S)

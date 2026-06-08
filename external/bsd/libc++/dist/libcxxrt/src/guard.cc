@@ -43,18 +43,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-
-#if !defined(__minix)
 #include <pthread.h>
-#else
-#define _MTHREADIFY_PTHREADS 1 
-#include <minix/mthread.h>
-#pragma weak sched_yield
-#define sched_yield() do {\
-	if (sched_yield) sched_yield();\
-	} while(0)
-#endif /* !defined(__minix) */
-
 #include <assert.h>
 #include "atomic.h"
 
