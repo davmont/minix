@@ -207,8 +207,6 @@ SUBDIR+=	libnpf		# depends on libprop
 SUBDIR+=	../crypto/external/bsd/openssl/lib # depends on libcrypt
 .endif
 
-SUBDIR+=	../external/bsd/file/lib	# depends on libz
-
 .if (${MKISCSI} != "no")
 SUBDIR+=	../external/bsd/iscsi/lib	# depends on libpthread
 .endif
@@ -243,6 +241,12 @@ SANITIZER_DIR=../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libasan
 #SUBDIR+=	${SANITIZER_DIR}
 .endif
 
+# file/lib (libmagic) links liblzma via DPLIBS (see file/Makefile.inc), so like
+# libarchive it must be built after xz/lib.  It used to sit in the same parallel
+# .WAIT group as xz/lib, which races on a clean build (cleandir wipes the objdir
+# liblzma.a before file/lib's dependall finds it -> "don't know how to make
+# liblzma.a").  Place it after the 2nd dependency barrier instead.
+SUBDIR+=	../external/bsd/file/lib		# depends on libz, libxz
 SUBDIR+=	../external/bsd/libarchive/lib	# depends on libxz
 
 .if (${MKNPF} != "no")

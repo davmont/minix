@@ -57,7 +57,7 @@ main(int argc, char *argv[])
 #define TOTAL1 (CHUNKS1*CHUNKSIZE)
 	/* Make single read cross region boundary. */
 	if((l=read(fd, v[0], TOTAL1)) != TOTAL1) {
-		fprintf(stderr, "read %d but expected %d\n", l, TOTAL1);
+		fprintf(stderr, "read %zd but expected %d\n", l,TOTAL1);
 		quit();
 	}
 
@@ -66,7 +66,7 @@ main(int argc, char *argv[])
 		char *t;
 		t = v[CHUNKS1]+CHUNKSIZE-2;
 		if((l=read(fd, t, CHUNKSIZE)) != CHUNKSIZE) {
-			fprintf(stderr, "read %d but expected %d\n", l, CHUNKSIZE);
+			fprintf(stderr, "read %zd but expected %d\n", l,CHUNKSIZE);
 			quit();
 		}
 	}

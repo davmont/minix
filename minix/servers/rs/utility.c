@@ -210,7 +210,7 @@ char* srv_upd_to_string(struct rprocupd *rpupd)
 		srv_upd_luflag_c(SEF_LU_INCLUDES_VM), srv_upd_iflag_c(SEF_INIT_FAIL),
 		srv_upd_iflag_c(SEF_INIT_CRASH), srv_upd_iflag_c(SEF_INIT_TIMEOUT),
 		srv_upd_iflag_c(SEF_INIT_DEFCB), rpupd->prepare_state,
-		rpupd->prepare_state_data.eval_addr ? rpupd->prepare_state_data.eval_addr : "",
+		rpupd->prepare_state_data.eval_addr ? (char *) rpupd->prepare_state_data.eval_addr : "",
 		rpupd->prepare_tm, rpupd->prepare_maxtime, srv_ep(rpub),
 		rpupd->prepare_state_data_gid, srv_ep(prev_rpub), srv_ep(next_rpub));
 

@@ -84,7 +84,7 @@ main(int argc, char *argv[])
 	if((pipefd=open(pipefn, O_RDONLY)) < 0) { e(3); exit(1); }
 
 	if((r=read(pipefd, &i, sizeof(i))) != sizeof(i)) {
-		printf("read returned %d\n", r);
+		printf("read returned %zd\n", r);
 		e(12);
 		exit(1);
 	}
