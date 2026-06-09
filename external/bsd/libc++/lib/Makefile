@@ -49,6 +49,11 @@ CLEANFILES+=	rt_${src}
 CPPFLAGS+=	-nostdinc++ -cxx-isystem ${LIBCXX_SRCDIR}/include
 CPPFLAGS+=	-cxx-isystem ${.CURDIR}/../include -I${LIBCXXRT_SRCDIR}/src
 CPPFLAGS+=	-DLIBCXXRT -D_LIBCPP_BUILDING_LIBRARY
+# libc++ 22's NetBSD locale backend (support/netbsd.h, selected for __minix) uses
+# the POSIX *_l wide-ctype functions (iswspace_l, ...) which <wctype.h> only
+# exposes under _NETBSD_SOURCE or _POSIX_C_SOURCE>=200809.  The library build
+# does not get the implicit _NETBSD_SOURCE that normal consumers do, so set it.
+CPPFLAGS+=	-D_NETBSD_SOURCE
 # libc++ 22 from_chars shares float-parsing headers with llvm-libc
 # (shared/fp_bits.h -> src/__support/...); add the imported libc include root.
 CPPFLAGS+=	-I${LIBCXX_SRCDIR}/../libc

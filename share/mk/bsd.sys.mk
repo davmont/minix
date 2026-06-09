@@ -61,7 +61,17 @@ CFLAGS+=	${${ACTIVE_CC} == "pcc":? -std=${CSTD} :}
 # clang 22.  Genuine bugs the new analyses found (e.g. an infinite-recursion in
 # libmthread, a size_t/%u format mismatch in libpuffs) are fixed in place, and the
 # checks that catch real problems (-Wformat, -Winfinite-recursion, ...) stay fatal.
+#
+# This list is written against the warning names of a modern clang, but the
+# toolchain clang actually built for a given checkout may be older (e.g. the
+# current x86_64-elf64-minix-clang is 13.0.0, which predates -Wdeprecated-non-
+# prototype [15], -Wcast-function-type-mismatch [19], -Wunterminated-string-
+# initialization, ...).  Under -Werror an unrecognised -Wno-error=<name> is itself
+# a hard error (-Wunknown-warning-option).  -Wno-unknown-warning-option makes clang
+# silently ignore warning names it does not know, so the same list builds cleanly
+# across clang versions -- it MUST come before the -Wno-error= entries below.
 .if ${ACTIVE_CC} == "clang"
+CFLAGS+=	-Wno-unknown-warning-option
 CFLAGS+=	-Wno-error=deprecated-non-prototype \
 		-Wno-error=strict-prototypes \
 		-Wno-error=missing-prototypes \
@@ -109,6 +119,7 @@ CFLAGS+=	-Wno-error=deprecated-non-prototype \
 # Same idea for C++ (CXXFLAGS): the tree enables some pedantic C++ warnings as
 # errors (e.g. -Wold-style-cast, set further below) that the vendored libc++ 22
 # sources themselves trip.  Keep them non-fatal under clang.
+CXXFLAGS+=	-Wno-unknown-warning-option
 CXXFLAGS+=	-Wno-error=old-style-cast \
 		-Wno-error=deprecated-non-prototype \
 		-Wno-error=cast-function-type-mismatch \

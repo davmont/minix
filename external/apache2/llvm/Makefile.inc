@@ -51,7 +51,14 @@ CLANG_INCLUDE_CONFIG=	${LLVM_TOPLEVEL}/config
 LLVM_INCLUDE_OBJDIR!=	cd ${LLVM_TOPLEVEL}/include && ${PRINTOBJDIR}
 LLVM_MODULE_CACHE=	${LLVM_INCLUDE_OBJDIR}/module.cache
 LLVM_TARGETS=	x86,powerpc,sparc,aarch64,arm,mips,amdgpu
+# C++ modules are only a compile-time cache (identical output).  clang 22 +
+# libc++ 22 miscompile them here: promote.h's fold-expression alias template
+# trips a spurious "type alias template redefinition with different types"
+# across module contexts ("could not build module 'LLVM_Utils'").  Leave the
+# target LLVM build module-free unless explicitly opted in.
+.if ${LLVM_USE_CXX_MODULES:Uno} == "yes"
 CXXFLAGS+=		${${ACTIVE_CC} == "clang":? ${MODULES_CXXFLAGS} :}
+.endif
 
 CXXFLAGS+=	-std=c++14
 CXXFLAGS+=	-include cstdint	# see HOST_CXXFLAGS note above
