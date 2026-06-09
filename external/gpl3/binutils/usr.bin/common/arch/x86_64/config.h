@@ -182,6 +182,11 @@
    */
 #define LT_OBJDIR ".libs/"
 
+/* binutils 2.34: default to "strings --all" (new config knob). */
+#ifndef DEFAULT_STRINGS_ALL
+#define DEFAULT_STRINGS_ALL 1
+#endif
+
 /* Name of package */
 #define PACKAGE "binutils"
 

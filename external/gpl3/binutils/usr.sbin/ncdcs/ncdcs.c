@@ -34,7 +34,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#ifdef __NetBSD__
+#if defined(__NetBSD__) || defined(__minix)
 
 unsigned short crc16(unsigned short crc, unsigned char *buf, unsigned len);
 unsigned short get_be_16(unsigned char *p);

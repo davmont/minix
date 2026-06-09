@@ -18,7 +18,15 @@ CPPFLAGS+=	-I${.CURDIR}/arch/${BINUTILS_MACHINE_ARCH} \
 		-DTARGET=\"${G_target_alias}\" \
 		-DBINDIR=\"/usr/bin\" \
 		-DTOOLBINDIR=\"/usr/bin\" \
-		-DENABLE_PLUGINS
+		-DENABLE_PLUGINS \
+		-DELF_LIST_OPTIONS=TRUE \
+		-DELF_SHLIB_LIST_OPTIONS=TRUE \
+		-DELF_PLT_UNWIND_LIST_OPTIONS=TRUE \
+		-DDEFAULT_LD_Z_RELRO=0 \
+		-DDEFAULT_LD_Z_SEPARATE_CODE=0 \
+		-DDEFAULT_NEW_DTAGS=0 \
+		-DDEFAULT_EMIT_SYSV_HASH=1 \
+		-DDEFAULT_EMIT_GNU_HASH=0
 
 .if defined(__MINIX)
 CPPFLAGS+=	\
@@ -28,6 +36,8 @@ CPPFLAGS+=	\
 
 COPTS.ldgram.c = -Wno-stack-protector
 
+# binutils 2.34 ld links libctf (CTF debug-info support).
+PROGDPLIBS+=	gnuctf	${TOP}/${BFDSUBDIR}/libgnuctf
 PROGDPLIBS+=	bfd	${TOP}/${BFDSUBDIR}/libbfd
 PROGDPLIBS+=	iberty 	${TOP}/${BFDSUBDIR}/libiberty
 
@@ -93,10 +103,11 @@ EMUL_LIB_PATH.${f}=/usr/lib
 e${f}.c: ${DIST}/ld/genscripts.sh ${.CURDIR}/Makefile stringify.sed
 	${_MKTARGET_CREATE}
 	unset MACHINE || true; \
-	LIB_PATH=${EMUL_LIB_PATH.${f}} NATIVE=yes \
+	NATIVE=yes \
 		${HOST_SH} ${DIST}/ld/genscripts.sh ${DIST}/ld ${LIBDIR} "/usr" "/usr/bin" \
 		${G_target_alias} ${G_target_alias} ${G_target_alias} \
-		${G_EMUL} ${LIBDIR} yes ${G_enable_initfini_array}  ${f} "${G_target_alias}"
+		"" ${EMUL_LIB_PATH.${f}} ${G_EMUL} ${LIBDIR} yes \
+		${G_enable_initfini_array}  ${f} "${G_target_alias}"
 
 .if ${BINUTILS_MACHINE_ARCH} == "x86_64" \
     || ${BINUTILS_MACHINE_ARCH} == "sparc64" \
