@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string.h>
 #include <dlfcn.h>
 #include <elf.h>
 #include <link.h>
