@@ -83,6 +83,66 @@ static struct {
 	int		 port_idx;	/* root-hub port of the active device    */
 } ohci_active;
 
+/*
+ * Completion-delivery guard + poll-backstop.  Under the extra scheduling load
+ * of an attached hub (a second driver polling continuously), the DDEKit
+ * cooperative scheduler can fail to deliver a WDH completion interrupt to the
+ * waiting device thread, hanging the transfer.  A periodic timer polls the
+ * in-flight TD's condition code and delivers the completion the ISR missed.
+ * 'ohci_xfer_pending' is set when a TD is submitted and check-and-cleared by
+ * whichever of the ISR / backstop delivers first, guaranteeing exactly-once
+ * delivery (DDEKit threads are cooperative, so the test-and-clear is atomic).
+ */
+static volatile int ohci_xfer_pending;
+
+/*
+ * Deliver the in-flight transfer's completion to the waiting device thread,
+ * exactly once.  Shared by the WDH ISR and the poll-backstop.
+ */
+static void
+ohci_deliver_completion(void)
+{
+	hcd_reg1 ep;
+
+	if (!ohci_xfer_pending)
+		return;			/* already delivered */
+
+	ohci_xfer_pending = 0;
+
+	ep = (ohci_active.td_idx >= 0) ? ohci_active.ep_num : HCD_DEFAULT_EP;
+
+	hcd_handle_event(ohci_driver.port_device[ohci_active.port_idx],
+			  HCD_EVENT_ENDPOINT, ep);
+}
+
+/*
+ * Poll-backstop thread.  Periodically checks whether the in-flight TD has been
+ * retired by the HC (condition code no longer "not accessed") while its
+ * completion is still pending delivery, and if so delivers it — recovering the
+ * transfer when the WDH interrupt was not delivered to the ISR under load.
+ * When a transfer is genuinely stuck waiting, the device thread is blocked, so
+ * the dispatcher runs on each clock tick and wakes this thread from msleep,
+ * letting it read the TD status directly and bypass the missed interrupt.
+ */
+static void
+ohci_backstop_thread(void * UNUSED(arg))
+{
+	for (;;) {
+		ddekit_thread_msleep(2);	/* ~2 ms poll */
+
+		if (ohci_xfer_pending && ohci_active.td_idx >= 0) {
+			struct ohci_td *td = ohci_td_virt(ohci_active.td_idx);
+			hcd_reg4 cc = (td->control & OHCI_TD_CC_MASK)
+				      >> OHCI_TD_CC_SHIFT;
+
+			/* Retired by the HC?  Deliver the completion the ISR
+			 * missed (no-op if the ISR already delivered it). */
+			if (cc != (OHCI_TD_CC_NOT_ACCESSED >> OHCI_TD_CC_SHIFT))
+				ohci_deliver_completion();
+		}
+	}
+}
+
 
 /*===========================================================================*
  *    Forward declarations                                                   *
@@ -300,6 +360,9 @@ ohci_submit_td(hcd_reg4 dp, hcd_reg4 toggle,
 	ohci_active.initial_len = len;
 	ohci_active.buf_phys    = (len > 0) ? (hcd_reg4)ohci_xfer_buf_phys() : 0;
 
+	/* A TD is now in flight; arm completion delivery (ISR or backstop) */
+	ohci_xfer_pending = 1;
+
 	/* Tell the HC the control list has work */
 	HCD_WR4(ohci_dev.op_regs, OHCI_HC_CMD_STATUS, OHCI_CMD_CLF);
 
@@ -385,6 +448,10 @@ ohci_init(void)
 
 	/* 8. Enable delivery of the controller IRQ */
 	hcd_os_interrupt_enable(ohci_dev.irq);
+
+	/* 9. Start the completion poll-backstop (recovers missed WDH IRQs
+	 * under the scheduling load of an attached hub) */
+	(void)ddekit_thread_create(ohci_backstop_thread, NULL, "ohci_backstop");
 
 	USB_MSG("OHCI: controller initialized (irq %d)", ohci_dev.irq);
 	return EXIT_SUCCESS;
@@ -516,14 +583,9 @@ ohci_isr(void *priv)
 		 * One or more TDs have been retired to the done queue.  We
 		 * track the single in-flight TD directly, so we only need to
 		 * wake the device thread; check_error() inspects the TD's
-		 * condition code.
+		 * condition code.  Delivered exactly once (see ohci_xfer_pending).
 		 */
-		hcd_reg1 ep = (ohci_active.td_idx >= 0)
-			      ? ohci_active.ep_num
-			      : HCD_DEFAULT_EP;
-
-		hcd_handle_event(drv->port_device[ohci_active.port_idx],
-				  HCD_EVENT_ENDPOINT, ep);
+		ohci_deliver_completion();
 	}
 
 	/* Acknowledge everything we handled (W1C).  Clearing WDH lets the HC
