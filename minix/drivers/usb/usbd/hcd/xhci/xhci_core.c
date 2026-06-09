@@ -38,14 +38,11 @@
  * completion event arrives.  The framework's per-stage hcd_device_wait() calls
  * are then released by up-ing the device's wait semaphore.
  *
- * Status: USB 3.0 device enumeration works end to end (Enable Slot, Address
- * Device, all control transfers and SET_CONFIGURATION complete with correct
- * descriptor data, verified in QEMU with qemu-xhci).  Bulk transfer code is in
- * place (Configure Endpoint + Normal TRBs), but mass storage does not yet come
- * up because the USB-2.0-era hcd.c framework does not understand SuperSpeed
- * Endpoint Companion descriptors / the SuperSpeed bMaxPacketSize0 exponent, so
- * usb_storage cannot drive a SuperSpeed device.  That is a framework gap, not
- * an xHCI one.
+ * Status: USB 3.0 SuperSpeed mass storage works end to end — Enable Slot,
+ * Address Device, control enumeration (SET_CONFIGURATION) and bulk SCSI (BBB)
+ * transfers all complete, and a USB 3.0 disk's blocks read back byte-for-byte
+ * correct in QEMU (-device qemu-xhci + usb-storage).  (usb_storage needed a
+ * one-line fix to skip SuperSpeed Endpoint Companion descriptors.)
  *
  * Limitations: one device at a time (single slot, single EP0 ring, one bulk
  * IN + one bulk OUT ring), matching the EHCI/OHCI Phase-1 scope.

@@ -1733,6 +1733,13 @@ mass_storage_parse_descriptors(char * desc_buf, unsigned int buf_len,
 				case UDESC_STRING:
 					break;
 
+				case UDESC_ENDPOINT_SS_COMP:
+					/* SuperSpeed Endpoint Companion
+					 * descriptor follows each endpoint on
+					 * USB 3.x devices; it carries burst
+					 * info we do not need here, so skip it. */
+					break;
+
 				case UDESC_INTERFACE: {
 					ifc_desc =
 					 (usb_interface_descriptor_t *)cur_desc;
@@ -1777,8 +1784,14 @@ mass_storage_parse_descriptors(char * desc_buf, unsigned int buf_len,
 				}
 
 				default: {
-					MASS_MSG("Wrong descriptor type");
-					return EXIT_FAILURE;
+					/* Unrecognised (e.g. class- or
+					 * vendor-specific) descriptor: the USB
+					 * spec requires skipping it rather than
+					 * failing. */
+					MASS_DEBUG_MSG("Skipping descriptor "
+						"type 0x%02X",
+						cur_desc->bDescriptorType);
+					break;
 				}
 			}
 
