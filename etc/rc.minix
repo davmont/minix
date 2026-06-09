@@ -206,9 +206,20 @@ start)
 	cp /usr/lib/em* /usr/lib/cpp* /lib
     esac
 
+    # Start the USB host-controller daemon (PCI controllers).  On earm this
+    # is done from /etc/usr/rc per board, so only do it elsewhere here.
+    if [ "$ARCH" != earm ] && [ -x /service/usbd ]
+    then
+	echo -n "Starting USBD... "
+	minix-service up /service/usbd && echo "done." || echo "failed."
+    fi
+
     echo -n "Starting hotplugging infrastructure... "
     rm -f /var/run/devmand.pid
-    devmand -d /etc/devmand -d /usr/pkg/etc/devmand &
+    # Redirect output away from the boot console: when usbd is already up,
+    # devmand (and its hotplug up-scripts) emit device messages, and a
+    # backgrounded writer contending for the console can be killed by it.
+    devmand -d /etc/devmand -d /usr/pkg/etc/devmand >/dev/null 2>&1 &
     echo "done."
 
     # Things should be alright now.
