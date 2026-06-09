@@ -108,6 +108,45 @@ hcd_device_root_port(hcd_device_state * device)
 	return 0;
 }
 
+/*
+ * Compute the xHCI-style route string for 'device': the path of downstream
+ * hub-port numbers from the root-hub port down to the device.  A device sitting
+ * directly on a root-hub port has route 0.  Each tier uses one nibble; tier 1
+ * (the hub attached to the root) is the low nibble.  Generic controllers
+ * (EHCI/OHCI) that route by USB address ignore this.
+ */
+static hcd_reg4
+hcd_device_route(hcd_device_state * device)
+{
+	int ports[5];	/* hub-port occupied at each tier, device upward */
+	int n = 0;
+	int i;
+	hcd_reg4 route = 0;
+	hcd_device_state * d = device;
+
+	/* Walk up to (not including) the root device, recording which port of
+	 * each parent hub this branch occupies.  child[] index == hub port. */
+	while (NULL != d->parent && n < 5) {
+		hcd_device_state * p = d->parent;
+		int port;
+
+		for (port = 0; port < HCD_CHILDREN; port++) {
+			if (p->child[port] == d) {
+				ports[n++] = port;
+				break;
+			}
+		}
+		d = p;
+	}
+
+	/* ports[n-1] is the tier-1 hub port (low nibble); ports[0] is the
+	 * device's own (deepest) hub port. */
+	for (i = 0; i < n; i++)
+		route |= ((hcd_reg4)(ports[n - 1 - i] & 0xF)) << (4 * i);
+
+	return route;
+}
+
 
 /*===========================================================================*
  *    Local definitions                                                      *
@@ -551,8 +590,10 @@ hcd_enumerate(hcd_device_state * this_device)
 	/* Having a parent device also means being reseted by it
 	 * so only reset devices that have no parents */
 	if (NULL == this_device->parent) {
-		/* Tell the driver which root-hub port to reset */
+		/* Tell the driver which root-hub port to reset, and which
+		 * per-device state key to use */
 		d->enum_port = hcd_device_root_port(this_device);
+		d->enum_dev = this_device->reserved_address;
 
 		/* First let driver reset device */
 		if (EXIT_SUCCESS != d->reset_device(d->private_data,
@@ -1142,8 +1183,13 @@ hcd_setup_packet(hcd_device_state * this_device, hcd_ctrlrequest * setup,
 	current_byte = this_device->control_data;/* Start reading into this */
 	this_device->control_len = 0;		/* Nothing read yet */
 
-	/* Route this transfer's completion interrupt to the right port */
+	/* Route this transfer's completion interrupt to the right port, and
+	 * publish the device's topology for controllers that route by it */
 	d->active_port = hcd_device_root_port(this_device);
+	d->active_dev = this_device->reserved_address;
+	d->active_route = hcd_device_route(this_device);
+	d->active_speed = this_device->speed;
+	d->active_device = this_device;
 
 	/* Set parameters for further communication */
 	d->setup_device(d->private_data, ep, this_device->current_address,
@@ -1307,8 +1353,13 @@ hcd_data_transfer(hcd_device_state * this_device, hcd_datarequest * request)
 	/* Initially... */
 	d = this_device->driver;
 
-	/* Route this transfer's completion interrupt to the right port */
+	/* Route this transfer's completion interrupt to the right port, and
+	 * publish the device's topology for controllers that route by it */
 	d->active_port = hcd_device_root_port(this_device);
+	d->active_dev = this_device->reserved_address;
+	d->active_route = hcd_device_route(this_device);
+	d->active_speed = this_device->speed;
+	d->active_device = this_device;
 
 	/* Set parameters for further communication */
 	d->setup_device(d->private_data, request->endpoint,
