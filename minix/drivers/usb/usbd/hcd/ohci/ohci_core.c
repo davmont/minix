@@ -567,7 +567,15 @@ ohci_setup_device(void *priv, hcd_reg1 ep, hcd_reg1 addr,
 	ohci_active.tx_tog = out_tog;
 	ohci_active.rx_tog = in_tog;
 
-	USB_MSG("OHCI: setup_device addr=%u ep=%u", addr, ep);
+	/*
+	 * Route this transfer's completion (WDH) interrupt to the device whose
+	 * transfer we are programming.  The generic layer set active_port just
+	 * before calling us; transfers are serialised, so this is unambiguous.
+	 */
+	ohci_active.port_idx = ohci_driver.active_port;
+
+	USB_MSG("OHCI: setup_device addr=%u ep=%u port=%d", addr, ep,
+		ohci_active.port_idx);
 }
 
 /*---------------------------------------------------------------------------*
@@ -580,44 +588,47 @@ static int
 ohci_reset_device(void *priv, hcd_speed *speed)
 {
 	hcd_reg4 ps;
-	int i;
+	int i, port;
 
 	DEBUG_DUMP;
 	(void)priv;
 
-	/* Assert reset on port 0 (single-port limitation, like EHCI Phase 1) */
-	HCD_WR4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(0), OHCI_PORT_PRS);
+	/* Which root-hub port to reset (set by the generic layer) */
+	port = ohci_driver.enum_port;
+
+	/* Assert reset on the device's port */
+	HCD_WR4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(port), OHCI_PORT_PRS);
 
 	hcd_os_nanosleep(HCD_NANOSLEEP_MSEC(OHCI_PORT_RESET_MSEC));
 
 	/* Wait for the reset to complete (PRSC set by HC) */
 	for (i = 0; i < OHCI_PORT_RESET_MSEC; i++) {
-		ps = HCD_RD4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(0));
+		ps = HCD_RD4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(port));
 		if (ps & OHCI_PORT_PRSC)
 			break;
 		hcd_os_nanosleep(HCD_NANOSLEEP_MSEC(1));
 	}
 
 	/* Clear reset-status-change (W1C) */
-	HCD_WR4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(0), OHCI_PORT_PRSC);
+	HCD_WR4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(port), OHCI_PORT_PRSC);
 
 	hcd_os_nanosleep(HCD_NANOSLEEP_MSEC(OHCI_PORT_RESET_SETTLE_MSEC));
 
-	ps = HCD_RD4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(0));
+	ps = HCD_RD4(ohci_dev.op_regs, OHCI_HC_RH_PORT_STATUS(port));
 
 	if (!(ps & OHCI_PORT_CCS)) {
-		USB_MSG("OHCI: no device present after reset on port 0");
+		USB_MSG("OHCI: no device present after reset on port %d", port);
 		return EXIT_FAILURE;
 	}
 
 	if (ps & OHCI_PORT_LSDA) {
 		*speed = HCD_SPEED_LOW;
 		ohci_active.speed = HCD_SPEED_LOW;
-		USB_MSG("OHCI: low-speed device on port 0");
+		USB_MSG("OHCI: low-speed device on port %d", port);
 	} else {
 		*speed = HCD_SPEED_FULL;
 		ohci_active.speed = HCD_SPEED_FULL;
-		USB_MSG("OHCI: full-speed device on port 0");
+		USB_MSG("OHCI: full-speed device on port %d", port);
 	}
 
 	return EXIT_SUCCESS;
