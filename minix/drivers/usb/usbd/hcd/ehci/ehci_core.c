@@ -533,7 +533,15 @@ ehci_setup_device(void *priv, hcd_reg1 ep, hcd_reg1 addr,
 	ehci_active.tx_tog  = out_tog;
 	ehci_active.rx_tog  = in_tog;
 
-	USB_MSG("EHCI: setup_device addr=%u ep=%u", addr, ep);
+	/*
+	 * Route this transfer's completion interrupt to the device whose
+	 * transfer we are programming.  The generic layer set active_port just
+	 * before calling us; transfers are serialised, so this is unambiguous.
+	 */
+	ehci_active.port_idx = ehci_driver.active_port;
+
+	USB_MSG("EHCI: setup_device addr=%u ep=%u port=%d", addr, ep,
+		ehci_active.port_idx);
 }
 
 /*---------------------------------------------------------------------------*
@@ -548,39 +556,43 @@ static int
 ehci_reset_device(void *priv, hcd_speed *speed)
 {
 	hcd_reg4 portsc;
+	int port;
 
 	DEBUG_DUMP;
 	(void)priv;
 
-	/* Assert reset on port 0 (Phase 1: single port) */
-	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(0));
+	/* Which root-hub port to reset (set by the generic layer) */
+	port = ehci_driver.enum_port;
+
+	/* Assert reset on the device's port */
+	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(port));
 	HCD_CLR(portsc, EHCI_PORT_PE);
 	HCD_SET(portsc, EHCI_PORT_PR);
-	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(0), portsc);
+	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(port), portsc);
 
 	hcd_os_nanosleep(HCD_NANOSLEEP_MSEC(EHCI_PORT_RESET_MSEC));
 
 	/* Release reset */
-	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(0));
+	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(port));
 	HCD_CLR(portsc, EHCI_PORT_PR);
-	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(0), portsc);
+	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(port), portsc);
 
 	hcd_os_nanosleep(HCD_NANOSLEEP_MSEC(EHCI_PORT_RESET_SETTLE_MSEC));
 
-	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(0));
+	portsc = HCD_RD4(ehci_dev.op_regs, EHCI_PORTSC(port));
 
 	if (portsc & EHCI_PORT_PE) {
 		*speed = HCD_SPEED_HIGH;
 		ehci_active.speed = HCD_SPEED_HIGH;
-		USB_MSG("EHCI: high-speed device on port 0");
+		USB_MSG("EHCI: high-speed device on port %d", port);
 		return EXIT_SUCCESS;
 	}
 
 	/* Full/low-speed device: release port to companion controller */
 	HCD_SET(portsc, EHCI_PORT_PO);
-	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(0), portsc);
-	USB_MSG("EHCI: FS/LS device on port 0; "
-		"companion hand-off not implemented (Phase 3)");
+	HCD_WR4(ehci_dev.op_regs, EHCI_PORTSC(port), portsc);
+	USB_MSG("EHCI: FS/LS device on port %d; "
+		"companion hand-off not implemented (Phase 3)", port);
 	return EXIT_FAILURE;
 }
 

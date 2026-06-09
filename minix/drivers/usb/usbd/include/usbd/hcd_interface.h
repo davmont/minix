@@ -61,6 +61,25 @@ struct hcd_driver_state {
 	 * port number.  NULL means no device is currently attached. */
 	hcd_device_state * port_device[HCD_MAX_PORTS];
 
+	/*
+	 * Root-hub port of the device whose transfer is currently being
+	 * programmed.  Set by the generic HCD layer immediately before each
+	 * setup_device() call; the per-controller driver uses it to route the
+	 * completion interrupt back to the right port_device[] slot.  Because
+	 * all transfers are serialised through the URB scheduler, exactly one
+	 * device is "active" at any instant.
+	 */
+	int		active_port;
+
+	/*
+	 * Root-hub port of the device currently being enumerated.  Set before
+	 * reset_device() under the enumeration lock so reset_device() resets
+	 * the correct port (enumeration of distinct root devices is
+	 * serialised, since two unaddressed devices would both answer to the
+	 * default address 0).
+	 */
+	int		enum_port;
+
 	/* Array to hold information of unused device addresses */
 	hcd_addr_state dev_addr[HCD_TOTAL_ADDR];
 };

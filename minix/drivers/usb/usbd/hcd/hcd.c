@@ -53,6 +53,63 @@ extern void _ddekit_thread_set_myprio(int);
 
 
 /*===========================================================================*
+ *    Multi-device helpers                                                   *
+ *===========================================================================*/
+/*
+ * Enumeration lock.  Serialises the reset_device..set_address window of
+ * distinct devices: while a freshly reset device still answers to the
+ * default address 0, no other device may be reset, or both would respond to
+ * address 0 at the same time and corrupt each other's enumeration.
+ */
+static hcd_lock * hcd_enum_lock = NULL;
+
+static void
+hcd_enum_lock_acquire(void)
+{
+	/* Lazy one-time init; safe because DDEKit threads are cooperative
+	 * (there is no preemption between the test and the assignment). */
+	if (NULL == hcd_enum_lock)
+		hcd_enum_lock = ddekit_sem_init(1);	/* count 1 = mutex */
+
+	ddekit_sem_down(hcd_enum_lock);
+}
+
+static void
+hcd_enum_lock_release(void)
+{
+	ddekit_sem_up(hcd_enum_lock);
+}
+
+/*
+ * Return the root-hub port index under which 'device' is attached.  Climbs to
+ * the root ancestor (a device sitting directly on a root-hub port) and matches
+ * it against driver->port_device[].  Devices behind a hub resolve to the port
+ * of their root ancestor, which is exactly where the completion interrupt must
+ * be routed (hcd_handle_event then walks the tree to the waiting child).
+ */
+static int
+hcd_device_root_port(hcd_device_state * device)
+{
+	hcd_device_state * root;
+	hcd_driver_state * d;
+	int port;
+
+	root = device;
+	while (NULL != root->parent)
+		root = root->parent;
+
+	d = device->driver;
+
+	for (port = 0; port < HCD_MAX_PORTS; port++)
+		if (d->port_device[port] == root)
+			return port;
+
+	USB_ASSERT(0, "Device not attached to any root-hub port");
+	return 0;
+}
+
+
+/*===========================================================================*
  *    Local definitions                                                      *
  *===========================================================================*/
 /* TODO: This was added for compatibility with DDELinux drivers that
@@ -476,19 +533,32 @@ static int
 hcd_enumerate(hcd_device_state * this_device)
 {
 	hcd_driver_state * d;
+	int retval;
 
 	DEBUG_DUMP;
 
 	d = this_device->driver;
+	retval = EXIT_FAILURE;
+
+	/*
+	 * Serialise enumeration: from here until the device has been assigned
+	 * its unique address it answers to the default address 0, so no other
+	 * device may be reset/enumerated concurrently.  Held across the whole
+	 * sequence for simplicity; enumeration is infrequent.
+	 */
+	hcd_enum_lock_acquire();
 
 	/* Having a parent device also means being reseted by it
 	 * so only reset devices that have no parents */
 	if (NULL == this_device->parent) {
+		/* Tell the driver which root-hub port to reset */
+		d->enum_port = hcd_device_root_port(this_device);
+
 		/* First let driver reset device */
 		if (EXIT_SUCCESS != d->reset_device(d->private_data,
 						&(this_device->speed))) {
 			USB_MSG("Failed to reset device");
-			return EXIT_FAILURE;
+			goto unlock;
 		}
 	}
 
@@ -501,7 +571,7 @@ hcd_enumerate(hcd_device_state * this_device)
 	/* Get device descriptor */
 	if (EXIT_SUCCESS != hcd_get_device_descriptor(this_device)) {
 		USB_MSG("Failed to get device descriptor");
-		return EXIT_FAILURE;
+		goto unlock;
 	}
 
 	/* Remember max packet size from device descriptor */
@@ -534,7 +604,7 @@ hcd_enumerate(hcd_device_state * this_device)
 	/* Set reserved address */
 	if (EXIT_SUCCESS != hcd_set_address(this_device)) {
 		USB_MSG("Failed to set device address");
-		return EXIT_FAILURE;
+		goto unlock;
 	}
 
 	/* Sleep 5msec to allow addressing */
@@ -546,7 +616,7 @@ hcd_enumerate(hcd_device_state * this_device)
 	/* Get other descriptors */
 	if (EXIT_SUCCESS != hcd_get_descriptor_tree(this_device)) {
 		USB_MSG("Failed to get configuration descriptor tree");
-		return EXIT_FAILURE;
+		goto unlock;
 	}
 
 	/* TODO: Always use first configuration, as there is no support for
@@ -556,12 +626,16 @@ hcd_enumerate(hcd_device_state * this_device)
 	if (EXIT_SUCCESS != hcd_set_configuration(this_device,
 				HCD_SET_CONFIG_NUM(HCD_DEFAULT_CONFIG))) {
 		USB_MSG("Failed to set configuration");
-		return EXIT_FAILURE;
+		goto unlock;
 	}
 
 	USB_DBG("Enumeration completed");
 
-	return EXIT_SUCCESS;
+	retval = EXIT_SUCCESS;
+
+unlock:
+	hcd_enum_lock_release();
+	return retval;
 }
 
 
@@ -1068,6 +1142,9 @@ hcd_setup_packet(hcd_device_state * this_device, hcd_ctrlrequest * setup,
 	current_byte = this_device->control_data;/* Start reading into this */
 	this_device->control_len = 0;		/* Nothing read yet */
 
+	/* Route this transfer's completion interrupt to the right port */
+	d->active_port = hcd_device_root_port(this_device);
+
 	/* Set parameters for further communication */
 	d->setup_device(d->private_data, ep, this_device->current_address,
 			NULL, NULL);
@@ -1229,6 +1306,9 @@ hcd_data_transfer(hcd_device_state * this_device, hcd_datarequest * request)
 
 	/* Initially... */
 	d = this_device->driver;
+
+	/* Route this transfer's completion interrupt to the right port */
+	d->active_port = hcd_device_root_port(this_device);
 
 	/* Set parameters for further communication */
 	d->setup_device(d->private_data, request->endpoint,
