@@ -689,7 +689,10 @@ static int get_major() {
 		int j;
 		for (j = 0; j < 8; j++ ) {
 			if ((major_bitmap[i] & (1 << j))) {
-				major_bitmap[i] &= !(1 << j);
+				/* Clear just this bit (bitwise ~, not logical
+				 * !, which would wipe the whole byte and skip
+				 * 7 majors per allocation). */
+				major_bitmap[i] &= ~(1 << j);
 				return ret;
 			}
 			ret++;
