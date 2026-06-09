@@ -103,23 +103,26 @@ do {						\
  * Since we don't need .init or .fini sections, just code them in C
  * to make life easier.
  */
-__weakref_visible const fptr_t preinit_array_start[1]
-    __weak_reference(__preinit_array_start);
-__weakref_visible const fptr_t preinit_array_end[1]
-    __weak_reference(__preinit_array_end);
-__weakref_visible const fptr_t init_array_start[1]
-    __weak_reference(__init_array_start);
-__weakref_visible const fptr_t init_array_end[1]
-    __weak_reference(__init_array_end);
-__weakref_visible const fptr_t fini_array_start[1]
-    __weak_reference(__fini_array_start);
-__weakref_visible const fptr_t fini_array_end[1]
-    __weak_reference(__fini_array_end);
+/*
+ * Reference the {pre,}init/fini-array bracket symbols *strongly*.  The linker
+ * script defines them with PROVIDE_HIDDEN, which only fires for a strong
+ * reference; a weak reference leaves them undefined (0) so the loops below
+ * become no-ops and static binaries never run their .init_array constructors
+ * (e.g. libc's __minix_init, which sets _minix_kerninfo).  This used to be
+ * masked by -fno-use-init-array (constructors went to .ctors, run by
+ * crtbegin), but clang >= 16 ignores that flag and always emits .init_array.
+ */
+extern const fptr_t __preinit_array_start[] __dso_hidden;
+extern const fptr_t __preinit_array_end[] __dso_hidden;
+extern const fptr_t __init_array_start[] __dso_hidden;
+extern const fptr_t __init_array_end[] __dso_hidden;
+extern const fptr_t __fini_array_start[] __dso_hidden;
+extern const fptr_t __fini_array_end[] __dso_hidden;
 
 static inline void
 _preinit(void)
 {
-	for (const fptr_t *f = preinit_array_start; f < preinit_array_end; f++) {
+	for (const fptr_t *f = __preinit_array_start; f < __preinit_array_end; f++) {
 		(*f)();
 	}
 }
@@ -127,7 +130,7 @@ _preinit(void)
 static inline void
 _init(void)
 {
-	for (const fptr_t *f = init_array_start; f < init_array_end; f++) {
+	for (const fptr_t *f = __init_array_start; f < __init_array_end; f++) {
 		(*f)();
 	}
 }
@@ -135,7 +138,7 @@ _init(void)
 static void
 _fini(void)
 {
-	for (const fptr_t *f = fini_array_start; f < fini_array_end; f++) {
+	for (const fptr_t *f = __fini_array_start; f < __fini_array_end; f++) {
 		(*f)();
 	}
 }
