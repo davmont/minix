@@ -11,6 +11,7 @@
 #endif
 
 #include "debug.h"
+#include "thread.h"	/* _ddekit_thread_set_myprio, DDEKIT_THREAD_IRQPRIO */
 
 struct ddekit_irq_s {
 	int irq;
@@ -149,7 +150,16 @@ static void ddekit_irq_thread(void *data)
 	/* For each IRQ line an own thread is started */
 	
 	struct ddekit_irq_s *irq_s = (struct ddekit_irq_s *) data;
-	
+
+	/*
+	 * Run interrupt handling at the top scheduling priority, above the
+	 * HCD worker/device threads.  The handler delivers the transfer
+	 * completions those workers block on, so it must preempt them; if it
+	 * ran at or below their priority, a second runnable worker would
+	 * starve it and its device's ISR would never fire (see thread.h).
+	 */
+	_ddekit_thread_set_myprio(DDEKIT_THREAD_IRQPRIO);
+
 	/* call IRQ thread init function */
 	irq_s->thread_init(irq_s->priv);
 

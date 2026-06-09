@@ -5,8 +5,26 @@
 #include <ucontext.h>
 
 #define DDEKIT_THREAD_NAMELEN 32
-#define DDEKIT_THREAD_PRIOS 3
+
+/*
+ * Priority hierarchy (higher value = scheduled first; see
+ * _ddekit_thread_schedule which scans ready_queue[] top-down):
+ *
+ *   0  DISPATCHER  - the idle thread that performs the blocking RECEIVE;
+ *                    runs only when nothing else is runnable (dde.c).
+ *   1  STDPRIO     - default for ddekit threads (timer, msg-queue waiters).
+ *   2  (workers)   - HCD device/worker threads raise themselves here so
+ *                    they preempt the default/timer work (hcd.c).
+ *   3  IRQPRIO     - interrupt-handler threads (irq.c).  Must sit ABOVE the
+ *                    worker threads: an interrupt handler delivers the
+ *                    completions those workers are blocked on, so it has to
+ *                    preempt them, exactly as ISR threads do on QNX/L4.
+ *                    With the handler below the workers, a second runnable
+ *                    worker starves it and its device's ISR never fires.
+ */
+#define DDEKIT_THREAD_PRIOS 4
 #define DDEKIT_THREAD_STDPRIO 1
+#define DDEKIT_THREAD_IRQPRIO (DDEKIT_THREAD_PRIOS - 1)
 
 #define DDEKIT_THREAD_STACKSIZE (4096*16)
 
