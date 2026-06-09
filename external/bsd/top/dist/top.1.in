@@ -4,7 +4,7 @@
 .nr D @DEFAULT_DELAY@
 .nr L @HAVE_GETOPT_LONG@
 .nr K @ENABLE_KILL@
-.TH TOP 1 Local
+.TH TOP 1 "November 5, 2018"
 .UC 4
 .SH NAME
 top \- display and update information about the top cpu processes
@@ -166,9 +166,7 @@ Only display the specified pid.
 .B "\-s \fItime\fP, \-\-delay=\fItime\fP"
 Set the delay between screen updates to
 .I time
-seconds.  The default delay between updates is
-.af D 1 
-seconds.
+seconds.  The default delay between updates is \nD seconds.
 .TP
 .B "\-U \fIusername\fP, \-\-user=\fIusername\fP"
 Show only those processes owned by
@@ -296,12 +294,17 @@ Change the number of processes to display (prompt for new number).
 .TP
 .B o
 Change the order in which the display is sorted.  This command is not
-available on all systems.  The sort key names vary fron system to system
+available on all systems.  The sort key names vary from system to system
 but usually include:  \*(lqcpu\*(rq, \*(lqres\*(rq, \*(lqsize\*(rq,
 \*(lqtime\*(rq.  The default is cpu.
 .TP
 .B P
 Sort by CPU usage.  Shorthand for \*(lqo cpu\*(rq.
+.TP
+.B p
+Display only process with the specified pid (prompt for process id).
+If the pid specified is simply \*(lq-1\*(rq, then all processes are
+displayed.
 .TP
 .B q
 Quit
@@ -396,6 +399,9 @@ Current state (typically one of \*(lqsleep\*(rq,
 .B TIME
 Number of system and user cpu seconds that the process has used.
 .TP
+.B WCPU
+Weighted percentage of available cpu time used by this process.
+.TP
 .B CPU
 Percentage of available cpu time used by this process.
 .TP
@@ -406,7 +412,7 @@ Top supports the use of ANSI color in its output. By default, color is
 available but not used.  The environment variable
 .B TOPCOLORS
 specifies colors to use and conditions for which they should be used.
-At the present time, only numbers in the summay display area can be 
+At the present time, only numbers in the summary display area can be 
 colored. In a future version it will be possible to highlight numbers
 in the process display area as well.  The environment variable is the
 only way to specify color: there is no equivalent command line option.
@@ -451,7 +457,7 @@ You can see a list of color codes recognized by this installation of top
 with the
 .B \-T
 option.  This will also show the current set of tests used for
-color highligting, as specified in the environment.
+color highlighting, as specified in the environment.
 .SH AUTHOR
 William LeFebvre
 .SH ENVIRONMENT
