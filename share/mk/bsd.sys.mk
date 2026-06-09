@@ -146,15 +146,12 @@ CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
 # (it only makes the template available -- unused, it costs nothing).
 CXXFLAGS+=	-D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR
 
-# MINIX's x86 csu (lib/csu) does NOT define HAVE_INITFINI_ARRAY, so crtbegin.c
-# runs C++/C constructors through the legacy .ctors list (__CTOR_LIST__), the
-# way clang 3.6 emitted them.  clang >= ~16 defaults to .init_array, which the
-# .ctors machinery never walks -> __attribute__((constructor)) functions (e.g.
-# libc's __minix_init, which sets up _minix_kerninfo and the IPC vectors) never
-# run, and every process panics in get_minix_kerninfo().  Force the classic
-# .ctors emission until the csu is switched to INIT_ARRAY for x86.
-CFLAGS+=	${${ACTIVE_CC} == "clang":? -fno-use-init-array :}
-CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -fno-use-init-array :}
+# clang >= ~16 emits C/C++ constructors into .init_array rather than the legacy
+# .ctors list, and ignores -fno-use-init-array.  The x86 csu (lib/csu/arch/{i386,
+# x86_64}/Makefile.inc) now defines HAVE_INITFINI_ARRAY so crt0 walks .init_array
+# directly -- which is where the constructors land -- so
+# __attribute__((constructor)) functions (e.g. libc's __minix_init, which sets up
+# _minix_kerninfo and the IPC vectors) run again.  Nothing to force here anymore.
 
 .if defined(WARNS)
 CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wno-sign-compare -Wno-pointer-sign :}
