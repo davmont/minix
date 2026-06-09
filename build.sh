@@ -1768,7 +1768,9 @@ validatemakeparams()
 	# before the build phases run, so the (dangling-safe) binutils symlinks it
 	# creates resolve once the `tools` phase has built them.
 	if [ -n "${BUILD_CLANG}" ]; then
-		EXTERNAL_TOOLCHAIN="$(cd "${TOOLDIR}/.." && pwd)/ext-tc"
+		# Sibling of TOOLDIR (the object root).  Use string stripping, not
+		# `cd "${TOOLDIR}/.."`, which fails before TOOLDIR exists (fresh tree).
+		EXTERNAL_TOOLCHAIN="${TOOLDIR%/*}/ext-tc"
 		statusmsg2 "clang external tc:" "${EXTERNAL_TOOLCHAIN} (${BUILD_CLANG})"
 		${runcmd} "${HOST_SH}" \
 		    "${TOP}/external/apache2/llvm/mkclang22toolchain.sh" \
