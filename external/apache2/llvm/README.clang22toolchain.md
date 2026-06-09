@@ -15,21 +15,30 @@ Rather than import a full LLVM 22, we drive the cross-build with a **host clang
 
 ## How to build
 
-```sh
-# 1. one-time: generate the external toolchain (host clang must be >= 20)
-sh external/apache2/llvm/mkclang22toolchain.sh \
-    -t ../build/tooldir.<host>-x86_64 \
-    -d ../build/destdir.amd64 \
-    -o ../build/ext-tc
+Pass `build.sh -c <clang>` (host clang must be >= 20):
 
-# 2. build the release through it
-EXTERNAL_TOOLCHAIN=$PWD/../build/ext-tc \
-    sh build.sh -j16 -mamd64 -O ../build -U -u release
+```sh
+sh build.sh -c clang -j16 -mamd64 -O ../build -U release
 ```
 
-`-u` (update) matters: a plain `-U` build makes the in-tree clang install
-`.PHONY`, so the `tools` phase would rebuild clang 13 into `TOOLDIR`; the
-external toolchain lives in its own directory and is never touched.
+`-c` makes `build.sh` (re)generate the external toolchain under
+`<objdir>/ext-tc` and set `EXTERNAL_TOOLCHAIN` to it automatically.  The argument
+is the host clang command or path, so `-c clang-22` or `-c /opt/llvm/bin/clang`
+work too.
+
+You can also drive it by hand if you prefer — generate the toolchain once and
+point `EXTERNAL_TOOLCHAIN` at it:
+
+```sh
+sh external/apache2/llvm/mkclang22toolchain.sh \
+    -t ../build/tooldir.<host>-x86_64 -d ../build/destdir.amd64 -o ../build/ext-tc
+EXTERNAL_TOOLCHAIN=$PWD/../build/ext-tc \
+    sh build.sh -j16 -mamd64 -O ../build -U release
+```
+
+The external toolchain lives in its own directory, so the `tools` phase
+rebuilding/installing the in-tree clang 13 into `TOOLDIR` never disturbs it (no
+`-u` required).
 
 ## What the wrapper does
 

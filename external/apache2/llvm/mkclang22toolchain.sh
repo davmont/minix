@@ -56,11 +56,14 @@ major=$("$hostclang_path" -dumpversion 2>/dev/null | cut -d. -f1)
 [ "${major:-0}" -ge 20 ] 2>/dev/null || echo "warning: host clang ($major) < 20; libc++ 22 wants >= 20" >&2
 
 mkdir -p "$OUTDIR/bin"
-# Symlink every in-tree cross tool except the clang frontends.
-for f in "$TOOLDIR"/bin/${TRIPLE}-*; do
-	b=$(basename "$f")
-	case "$b" in *-clang|*-clang++|*-clang-cpp) continue ;; esac
-	ln -sf "$f" "$OUTDIR/bin/$b"
+# Symlink the in-tree cross binutils (everything except the clang frontends).
+# Use a fixed list rather than a glob of $TOOLDIR/bin so this also works before
+# the `tools` phase has built them: ln -s happily creates dangling links that
+# resolve once the tools exist, and any tool the build never invokes (ld.bfd,
+# ld.gold, ...) is harmless if it stays dangling.
+for t in addr2line ar as c++filt elfedit install ld ld.bfd ld.gold nm \
+         objcopy objdump ranlib readelf size strings strip; do
+	ln -sf "$TOOLDIR/bin/${TRIPLE}-$t" "$OUTDIR/bin/${TRIPLE}-$t"
 done
 # Plain ld/as names so clang's NetBSD link driver finds the cross tools via -B.
 ln -sf "${TRIPLE}-ld" "$OUTDIR/bin/ld"

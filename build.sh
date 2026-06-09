@@ -1006,7 +1006,7 @@ usage()
 	cat <<_usage_
 
 Usage: ${progname} [-EhnorUuxy] [-a arch] [-B buildid] [-C cdextras]
-                [-D dest] [-j njob] [-M obj] [-m mach] [-N noisy]
+                [-c clang] [-D dest] [-j njob] [-M obj] [-m mach] [-N noisy]
                 [-O obj] [-R release] [-S seed] [-T tools]
                 [-V var=[value]] [-w wrapper] [-X x11src] [-Y extsrcsrc]
                 [-Z var]
@@ -1058,6 +1058,10 @@ Usage: ${progname} [-EhnorUuxy] [-a arch] [-B buildid] [-C cdextras]
     -a arch        Set MACHINE_ARCH to arch.  [Default: deduced from MACHINE]
     -B buildid     Set BUILDID to buildid.
     -C cdextras    Append cdextras to CDEXTRA variable for inclusion on CD-ROM.
+    -c clang       Cross-build with host clang (>= 20) as an external toolchain
+                   instead of the in-tree clang; needed because the tree's
+                   libc++ 22 cannot be compiled by the in-tree clang 13.  clang
+                   is the host clang command or path (e.g. clang, clang-22).
     -D dest        Set DESTDIR to dest.  [Default: destdir.MACHINE]
     -E             Set "expert" mode; disables various safety checks.
                    Should not be used without expert knowledge of the build system.
@@ -1105,9 +1109,10 @@ _usage_
 
 parseoptions()
 {
-	opts='a:B:C:D:Ehj:M:m:N:nO:oR:rS:T:UuV:w:X:xY:yZ:'
+	opts='a:B:C:c:D:Ehj:M:m:N:nO:oR:rS:T:UuV:w:X:xY:yZ:'
 	opt_a=false
 	opt_m=false
+	BUILD_CLANG=
 
 	if type getopts >/dev/null 2>&1; then
 		# Use POSIX getopts.
@@ -1149,6 +1154,15 @@ parseoptions()
 		-C)
 			eval ${optargcmd}; resolvepaths OPTARG
 			CDEXTRA="${CDEXTRA}${CDEXTRA:+ }${OPTARG}"
+			;;
+
+		-c)
+			# Cross-compile with a host clang as an external
+			# toolchain (the in-tree clang 13 cannot build the
+			# tree's libc++ 22).  OPTARG is the host clang command
+			# or path, e.g. "clang", "clang-22", "/usr/bin/clang".
+			eval ${optargcmd}
+			BUILD_CLANG="${OPTARG}"
 			;;
 
 		-D)
@@ -1746,6 +1760,23 @@ validatemakeparams()
 		eval export ${var}
 		statusmsg2 "${var} path:" "${newval}"
 	done
+
+	# If -c was given, (re)generate a host-clang external toolchain next to
+	# TOOLDIR and point EXTERNAL_TOOLCHAIN at it.  The in-tree clang 13 cannot
+	# compile the tree's libc++ 22; this drives the cross-build with the host
+	# clang (>= 20) instead.  Done here, after TOOLDIR/DESTDIR are known but
+	# before the build phases run, so the (dangling-safe) binutils symlinks it
+	# creates resolve once the `tools` phase has built them.
+	if [ -n "${BUILD_CLANG}" ]; then
+		EXTERNAL_TOOLCHAIN="$(cd "${TOOLDIR}/.." && pwd)/ext-tc"
+		statusmsg2 "clang external tc:" "${EXTERNAL_TOOLCHAIN} (${BUILD_CLANG})"
+		${runcmd} "${HOST_SH}" \
+		    "${TOP}/external/apache2/llvm/mkclang22toolchain.sh" \
+		    -t "${TOOLDIR}" -d "${DESTDIR}" -o "${EXTERNAL_TOOLCHAIN}" \
+		    -c "${BUILD_CLANG}" ||
+			bomb "failed to generate clang external toolchain"
+		export EXTERNAL_TOOLCHAIN
+	fi
 
 	# RELEASEMACHINEDIR is just a subdir name, e.g. "i386".
 	RELEASEMACHINEDIR=$(getmakevar RELEASEMACHINEDIR)
