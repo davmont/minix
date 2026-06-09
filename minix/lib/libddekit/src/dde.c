@@ -50,17 +50,20 @@ static void dispatcher_thread(void *unused) {
 		_ddekit_timer_update();
 
 		/* Wait for messages */
-		if ((r = sef_receive_status(ANY, &m, &ipc_status)) != 0) { 
+		if ((r = sef_receive_status(ANY, &m, &ipc_status)) != 0) {
 				ddekit_panic("ddekit", "sef_receive failed", r);
 		}
 
-
-		_ddekit_timer_interrupt(); 
-
-		_ddekit_thread_wakeup_sleeping();
-
+		/*
+		 * Route the message before touching the timer/sleep queues.
+		 * For a hardware interrupt this wakes the IRQ thread, which now
+		 * runs at the top priority (DDEKIT_THREAD_IRQPRIO): triggering it
+		 * here, ahead of _ddekit_thread_wakeup_sleeping(), means the ISR
+		 * is serviced immediately instead of after a round of lower-
+		 * priority worker polling.
+		 */
 		if (is_notify(m.m_type)) {
-			switch (_ENDPOINT_P(m.m_source)) { 
+			switch (_ENDPOINT_P(m.m_source)) {
 				case HARDWARE:
 					for	(i =0 ; i < 32 ; i++)
 					{
@@ -87,6 +90,10 @@ static void dispatcher_thread(void *unused) {
 
 			ddekit_minix_queue_msg(&m, ipc_status);
 		}
+
+		_ddekit_timer_interrupt();
+
+		_ddekit_thread_wakeup_sleeping();
 	}
 }
 
