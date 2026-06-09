@@ -54,6 +54,9 @@ ehci_pci_find(ehci_pci_device *dev)
 					 & EHCI_PCI_BAR0_MMIO_MASK;
 			dev->mmio_size = EHCI_MMIO_SIZE;
 			dev->irq       = pci_attr_r8(devind, EHCI_PCI_IRQ);
+			/* Claim the device so the PCI server grants us its
+			 * IRQ/resources (required before sys_irqsetpolicy). */
+			pci_reserve(devind);
 			return EXIT_SUCCESS;
 		}
 	} while (pci_next_dev(&devind, &vid, &did));

@@ -48,12 +48,16 @@ static void message_hook(message *m, int __unused ipc_status)
 	switch (m->m_type) {
 		case DEVMAN_ADD_DEV:
 			do_add_device(m);
+			break;
 		case DEVMAN_DEL_DEV:
 			do_del_device(m);
+			break;
 		case DEVMAN_BIND:
 			do_bind_device(m);
+			break;
 		case DEVMAN_UNBIND:
 			do_unbind_device(m);
+			break;
 	}
 }
 

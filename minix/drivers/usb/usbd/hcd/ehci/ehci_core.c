@@ -235,6 +235,15 @@ ehci_submit_qtd(int qh_idx, hcd_reg4 token,
 	struct ehci_qh  *qh;
 	int qtd_idx;
 
+	/* Reclaim the previous stage's qTD (uniform lifecycle: a qTD lives from
+	 * its submission until the next submission; read_data/check_error no
+	 * longer free it, which is what allowed control IN-data read_data to run
+	 * after check_error). */
+	if (ehci_active.qtd_idx >= 0) {
+		ehci_qtd_free(ehci_active.qtd_idx);
+		ehci_active.qtd_idx = -1;
+	}
+
 	qtd_idx = ehci_qtd_alloc();
 	if (qtd_idx < 0)
 		return -1;
@@ -324,7 +333,7 @@ ehci_init(void)
 						 ehci_isr_init,
 						 ehci_isr,
 						 &ehci_driver);
-	if (ehci_irq_hook < 0) {
+	if (ehci_irq_hook != EXIT_SUCCESS) {
 		USB_MSG("EHCI: failed to attach IRQ %d", ehci_dev.irq);
 		ehci_mem_deinit();
 		ehci_pci_unmap(&ehci_dev);
@@ -361,9 +370,11 @@ ehci_init(void)
 	/* 9. Build async ring and start HC */
 	ehci_hc_start();
 
-	hcd_os_interrupt_enable(ehci_irq_hook);
+	/* Enable delivery of the controller IRQ (by IRQ number, not the
+	 * attach return code). */
+	hcd_os_interrupt_enable(ehci_dev.irq);
 
-	USB_MSG("EHCI: controller initialized");
+	USB_MSG("EHCI: controller initialized (irq %d)", ehci_dev.irq);
 	return EXIT_SUCCESS;
 }
 
@@ -385,9 +396,9 @@ ehci_deinit(void)
 		HCD_WR4(ehci_dev.op_regs, EHCI_USBCMD, cmd);
 	}
 
-	if (ehci_irq_hook >= 0) {
-		hcd_os_interrupt_disable(ehci_irq_hook);
-		hcd_os_interrupt_detach(ehci_irq_hook);
+	if (ehci_irq_hook == EXIT_SUCCESS) {
+		hcd_os_interrupt_disable(ehci_dev.irq);
+		hcd_os_interrupt_detach(ehci_dev.irq);
 		ehci_irq_hook = -1;
 	}
 
@@ -485,7 +496,7 @@ ehci_isr(void *priv)
  *    data-toggle pointers for later use by check_error.                    *
  *---------------------------------------------------------------------------*/
 static void
-ehci_setup_device(void *priv, hcd_reg1 addr, hcd_reg1 ep,
+ehci_setup_device(void *priv, hcd_reg1 ep, hcd_reg1 addr,
 		  hcd_datatog *out_tog, hcd_datatog *in_tog)
 {
 	struct ehci_qh *qh = ehci_qh_virt(EHCI_QH_DEVICE);
@@ -598,8 +609,10 @@ ehci_setup_stage(void *priv, hcd_ctrlrequest *req)
 		| EHCI_QTD_ACTIVE;
 	/* DT bit = 0 (DATA0) — left clear */
 
-	if (ehci_submit_qtd(ehci_active.qh_idx, token, req, sizeof(*req)) < 0)
+	if (ehci_submit_qtd(ehci_active.qh_idx, token, req, sizeof(*req)) < 0) {
 		USB_MSG("EHCI: setup_stage: qTD alloc failed");
+		return;
+	}
 }
 
 /*---------------------------------------------------------------------------*
@@ -827,9 +840,7 @@ ehci_read_data(void *priv, hcd_reg1 *buf, hcd_reg1 ep)
 	if (bytes_xferred > 0)
 		memcpy(buf, ehci_xfer_buf_virt(), bytes_xferred);
 
-	ehci_qtd_free(ehci_active.qtd_idx);
-	ehci_active.qtd_idx = -1;
-
+	/* Leave the qTD allocated; the next ehci_submit_qtd() reclaims it. */
 	return (int)bytes_xferred;
 }
 
@@ -889,16 +900,9 @@ ehci_check_error(void *priv, hcd_transfer type, hcd_reg1 ep,
 	}
 
 	/*
-	 * For TX (OUT) transfers, free the qTD here since read_data is not
-	 * called for OUT directions.  For RX (IN) transfers, read_data
-	 * will free the qTD after copying the data.
+	 * Do not free the qTD here on success: read_data (for IN stages) still
+	 * needs it, and the next ehci_submit_qtd() reclaims it regardless of
+	 * stage/direction.
 	 */
-	if (dir == HCD_DIRECTION_OUT || type == HCD_TRANSFER_CONTROL) {
-		if (dir != HCD_DIRECTION_IN) {
-			ehci_qtd_free(ehci_active.qtd_idx);
-			ehci_active.qtd_idx = -1;
-		}
-	}
-
 	return EXIT_SUCCESS;
 }

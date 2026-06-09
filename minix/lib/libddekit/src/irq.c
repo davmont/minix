@@ -154,13 +154,27 @@ static void ddekit_irq_thread(void *data)
 	irq_s->thread_init(irq_s->priv);
 
 	while(1) {
-		
+
 		/* Wait for IRQs */
-		DDEBUG_MSG_VERBOSE("wating for IRQ %d to occur", irq_s->irq);	
+		DDEBUG_MSG_VERBOSE("wating for IRQ %d to occur", irq_s->irq);
 		ddekit_sem_down(irq_s->sem);
-		DDEBUG_MSG_VERBOSE("executing handler for IRQ %d", irq_s->irq);	
+		DDEBUG_MSG_VERBOSE("executing handler for IRQ %d", irq_s->irq);
 		irq_s->handler(irq_s->priv);
-		
+
+		/*
+		 * Re-enable the line only AFTER the handler has acknowledged the
+		 * device.  For level-triggered PCI INTx, re-enabling while the
+		 * device still asserts the line (as would happen if this were
+		 * done in the dispatcher before the handler runs) leaves the
+		 * IOAPIC unable to re-arm, so later interrupts are lost.
+		 */
+		if (irq_s->enabled) {
+			int err_code;
+			if (0 != (err_code = sys_irqenable(&irq_s->irq_hook)))
+				ddekit_panic("Failed to re-enable interrupt "
+						"(ERROR %d)", err_code);
+		}
+
 	}
 }
 
@@ -260,8 +274,13 @@ void ddekit_interrupt_enable(int irq)
 {
 	struct ddekit_irq_s *irq_s;
 	irq_s = find_by_irq(irq);
+	if (irq_s == NULL)
+		return;
 	irq_s->enabled=1;
-	//sys_irqenable(&irq_s->irq_hook);
+	/* Perform the initial kernel-side enable; sys_irqsetpolicy() registers
+	 * the hook but leaves the line masked until sys_irqenable().  Subsequent
+	 * re-enables happen in _ddekit_interrupt_trigger() after each IRQ. */
+	(void)sys_irqenable(&irq_s->irq_hook);
 	DDEBUG_MSG_VERBOSE(" IRQ %d", irq);
 }
 
@@ -289,10 +308,10 @@ void _ddekit_interrupt_trigger(int irq_id)
 
 	if (irq_s)	{
 		DDEBUG_MSG_VERBOSE("Triggering IRQ %d", irq_s->irq);
+		/* Wake the IRQ thread; it re-enables the line after the handler
+		 * has acked the device (see ddekit_irq_thread). */
 		ddekit_sem_up(irq_s->sem);
-		if (0 != (err_code = sys_irqenable(&irq_s->irq_hook)))
-			ddekit_panic("Failed to enable interrupt "
-					"(ERROR %d)", err_code);
+		(void)err_code;
 	} else {
 		DDEBUG_MSG_WARN("no handler for IRQ %d", irq_s->irq);
 	}

@@ -7,6 +7,12 @@ SRCS=		usbd.c usbd_amd64.c hcd.c hcd_common.c hcd_ddekit.c hcd_schedule.c \
 MAN=
 BINDIR=		/service
 
+# Install the privilege/IPC config to /etc/system.conf.d so minix-service
+# picks it up when usbd is brought up.
+FILES=		${.CURDIR}/../../usbd.conf
+FILESNAME=	usbd
+FILESDIR=	/etc/system.conf.d
+
 .PATH:		${.CURDIR}/../ \
 		${.CURDIR}/../../hcd \
 		${.CURDIR}/../../hcd/ehci \
