@@ -118,16 +118,51 @@ static hcd_reg1          xfer_ep;	/* endpoint of the in-flight bulk xfer */
  * (reset_device).
  */
 struct xhci_devstate {
-	int		slot_id;
-	int		port_idx;
-	hcd_reg4	speed;		/* PORTSC speed id */
-	uint32_t	last_len;	/* requested length of last data stage */
-	int		set_address;	/* current control xfer is SET_ADDRESS */
-	int		bin_ep, bout_ep;/* configured bulk endpoint numbers, -1 */
+	int		slot_id;	/* xHCI slot id, 0 = not yet enabled    */
+	int		port_idx;	/* ROOT-hub port the device is under     */
+	hcd_reg4	route;		/* xHCI route string (0 = on a root port)*/
+	hcd_reg4	speed;		/* PORTSC speed id                       */
+	uint32_t	last_len;	/* requested length of last data stage   */
+	int		set_address;	/* current control xfer is SET_ADDRESS   */
+	int		bin_ep, bout_ep;/* configured bulk endpoint numbers, -1  */
 	struct xhci_ring_state ep0_ring, bin_ring, bout_ring;
 };
+/*
+ * Per-device state, indexed by the generic layer's stable device key
+ * (reserved USB address - 1).  Indexing by device rather than by root-hub port
+ * is required for hub support: a hub and the device(s) behind it share one
+ * root-hub port but each needs its own slot, Device Context and rings.
+ */
 static struct xhci_devstate xhci_devs[XHCI_MAX_DEVICES];
 static struct xhci_devstate *xhci_cur = &xhci_devs[0];
+static int xhci_cur_idx;		/* index of xhci_cur (DMA-resource index) */
+
+/* Select the per-device state for the given device key (reserved address) */
+static void
+xhci_select(int dev_key)
+{
+	int idx = dev_key - 1;
+
+	if (idx < 0)
+		idx = 0;
+	if (idx >= XHCI_MAX_DEVICES)
+		idx = XHCI_MAX_DEVICES - 1;	/* clamp (too many devices) */
+
+	xhci_cur_idx = idx;
+	xhci_cur = &xhci_devs[idx];
+}
+
+/* Translate the framework speed to an xHCI PORTSC/slot speed id */
+static hcd_reg4
+xhci_speed_id(hcd_speed s)
+{
+	switch (s) {
+	case HCD_SPEED_LOW:	return XHCI_SPEED_LOW;
+	case HCD_SPEED_FULL:	return XHCI_SPEED_FULL;
+	case HCD_SPEED_HIGH:	return XHCI_SPEED_HIGH;
+	default:		return XHCI_SPEED_HIGH;
+	}
+}
 
 
 /*===========================================================================*
@@ -150,6 +185,7 @@ static void  xhci_isr_init(void *);
 static void  xhci_isr     (void *);
 static void  xhci_process_events(void);
 static void  xhci_scan_ports(void);
+static int   xhci_ensure_slot(void);
 
 /* One-shot: deliver the connect for the first attached port */
 static int xhci_scan_done;
@@ -301,15 +337,16 @@ xhci_build_address_input(void)
 	struct xhci_ctx *slot = xhci_ctx_at(in, 1);	/* slot context  */
 	struct xhci_ctx *ep0  = xhci_ctx_at(in, 2);	/* EP0 context   */
 	unsigned mps = xhci_ep0_mps(xhci_cur->speed);
-	phys_bytes ep0_phys = xhci_ep0_ring_phys(xhci_cur->port_idx);
+	phys_bytes ep0_phys = xhci_ep0_ring_phys(xhci_cur_idx);
 
 	memset(in, 0, 3 * xhci_ctx_size);
 
 	/* Add slot (A0) and EP0 (A1) */
 	icc->dw[XHCI_ICC_ADD] = XHCI_ICC_ADD_BIT(0) | XHCI_ICC_ADD_BIT(1);
 
-	/* Slot: route 0, speed, 1 context entry, root-hub port (1-based) */
-	slot->dw[0] = XHCI_SLOT_DW0_ROUTE(0) |
+	/* Slot: route string (hub topology), speed, 1 context entry, and the
+	 * root-hub port (1-based) this device's branch is under. */
+	slot->dw[0] = XHCI_SLOT_DW0_ROUTE(xhci_cur->route) |
 		      XHCI_SLOT_DW0_SPEED(xhci_cur->speed) |
 		      XHCI_SLOT_DW0_CTX_ENTRIES(1);
 	slot->dw[1] = XHCI_SLOT_DW1_RHPORT(xhci_cur->port_idx + 1);
@@ -608,13 +645,8 @@ xhci_scan_ports(void)
 			USB_MSG("xHCI: device connected on port %u "
 				"(speed id %u)", i, XHCI_PORTSC_SPEED(ps));
 
-			/* Initialise this port's per-device state */
-			xhci_devs[i].port_idx = (int)i;
-			xhci_devs[i].speed    = XHCI_PORTSC_SPEED(ps);
-			xhci_devs[i].slot_id  = 0;
-			xhci_devs[i].bin_ep   = -1;
-			xhci_devs[i].bout_ep  = -1;
-
+			/* Per-device state (slot, rings, route) is established
+			 * later, keyed by the device id, in reset_device. */
 			hcd_update_port(&xhci_driver, HCD_EVENT_CONNECTED,
 					(int)i);
 			hcd_handle_event(xhci_driver.port_device[i],
@@ -641,13 +673,13 @@ xhci_init(void)
 	{
 		int d;
 		for (d = 0; d < XHCI_MAX_DEVICES; d++) {
-			xhci_devs[d].port_idx = d;
-			xhci_devs[d].slot_id  = 0;
-			xhci_devs[d].bin_ep   = -1;
-			xhci_devs[d].bout_ep  = -1;
+			xhci_devs[d].slot_id = 0;	/* no slot yet */
+			xhci_devs[d].bin_ep  = -1;
+			xhci_devs[d].bout_ep = -1;
 		}
 	}
 	xhci_cur = &xhci_devs[0];
+	xhci_cur_idx = 0;
 	xhci_scan_done = 0;
 
 	if (xhci_pci_find(&xhci_dev) != EXIT_SUCCESS)
@@ -769,7 +801,9 @@ static int xhci_data_consumed;
 static void
 xhci_wake_device(void)
 {
-	hcd_device_state *dev = xhci_driver.port_device[xhci_cur->port_idx];
+	/* Release the framework's wait on the *active* device.  For a device
+	 * behind a hub this is not port_device[root_port] (that is the hub). */
+	hcd_device_state *dev = xhci_driver.active_device;
 
 	if (dev != NULL && dev->lock != NULL)
 		ddekit_sem_up(dev->lock);
@@ -788,8 +822,8 @@ xhci_control_td(hcd_ctrlrequest *req)
 	hcd_reg4 trt;
 	int budget;
 
-	struct xhci_trb *ep0r = xhci_ep0_ring_virt(xhci_cur->port_idx);
-	phys_bytes ep0r_phys = xhci_ep0_ring_phys(xhci_cur->port_idx);
+	struct xhci_trb *ep0r = xhci_ep0_ring_virt(xhci_cur_idx);
+	phys_bytes ep0r_phys = xhci_ep0_ring_phys(xhci_cur_idx);
 
 	xfer_is_bulk = 0;
 	xfer_done = 0;
@@ -854,27 +888,90 @@ xhci_setup_device(void *priv, hcd_reg1 ep, hcd_reg1 addr,
 	(void)priv; (void)ep; (void)addr; (void)out_tog; (void)in_tog;
 	DEBUG_DUMP;
 
-	xhci_cur = &xhci_devs[xhci_driver.active_port];
+	/* Select this device's per-device state (stable device key) */
+	xhci_select(xhci_driver.active_dev);
+
+	/* A device behind a hub skips reset_device, so its slot has not been
+	 * established yet.  Record its topology (root-hub port, route string,
+	 * speed) from the generic layer and bring up the slot lazily. */
+	if (xhci_cur->slot_id == 0) {
+		xhci_cur->port_idx = xhci_driver.active_port;
+		xhci_cur->route    = xhci_driver.active_route;
+		xhci_cur->speed    = xhci_speed_id(xhci_driver.active_speed);
+		(void)xhci_ensure_slot();
+	}
 }
 
 /*
- * reset_device: reset the port, read the speed, then bring up the slot:
- * Enable Slot, build the input context, Address Device with BSR=1 so EP0
- * control transfers work while the USB address is still 0.
+ * Ensure the current device has an xHCI slot established (Enable Slot + Address
+ * Device).  Idempotent.  Uses the device's recorded root port, route string and
+ * speed, so it serves both root devices (set up by reset_device) and hub
+ * children (set up lazily from setup_device, since the generic layer skips
+ * reset_device for devices behind a hub).
+ */
+static int
+xhci_ensure_slot(void)
+{
+	hcd_reg4 cc;
+
+	if (xhci_cur->slot_id != 0)
+		return EXIT_SUCCESS;		/* already established */
+
+	/* Enable Slot */
+	cc = xhci_command(0, 0, XHCI_TRB_TYPE(XHCI_TRB_TYPE_ENABLE_SLOT));
+	if (cc != XHCI_TRB_CC_SUCCESS || cmd_slot == 0) {
+		USB_MSG("xHCI: Enable Slot failed (cc=%u)", (unsigned)cc);
+		return EXIT_FAILURE;
+	}
+	xhci_cur->slot_id = cmd_slot;
+
+	/* Point DCBAA[slot] at this device's own context, prepare its EP0 ring */
+	xhci_dcbaa_virt()[xhci_cur->slot_id] =
+		(uint64_t)xhci_device_ctx_phys(xhci_cur_idx);
+	memset(xhci_ep0_ring_virt(xhci_cur_idx), 0,
+	       XHCI_RING_TRBS * sizeof(struct xhci_trb));
+	xhci_cur->ep0_ring.enq = 0;
+	xhci_cur->ep0_ring.cycle = 1;
+
+	/* Address Device (BSR=0): assign the address and enable EP0.  xHCI
+	 * routes by slot id (+ route string), so the framework's later
+	 * GET_DESCRIPTOR "at address 0" still reaches this device, and its
+	 * SET_ADDRESS is then a no-op (intercepted in setup_stage). */
+	xhci_build_address_input();
+	cc = xhci_command((hcd_reg4)xhci_input_ctx_phys(),
+			  (hcd_reg4)((uint64_t)xhci_input_ctx_phys() >> 32),
+			  XHCI_TRB_TYPE(XHCI_TRB_TYPE_ADDRESS_DEVICE) |
+			  XHCI_TRB_SLOT(xhci_cur->slot_id));
+	if (cc != XHCI_TRB_CC_SUCCESS) {
+		USB_MSG("xHCI: Address Device failed (cc=%u)", (unsigned)cc);
+		return EXIT_FAILURE;
+	}
+
+	USB_MSG("xHCI: slot %d ready (root port %d, route 0x%x, speed id %u)",
+		xhci_cur->slot_id, xhci_cur->port_idx,
+		(unsigned)xhci_cur->route, (unsigned)xhci_cur->speed);
+	return EXIT_SUCCESS;
+}
+
+/*
+ * reset_device: reset the root-hub port, read the speed, then bring up the
+ * slot.  Called only for root devices (the generic layer skips it for devices
+ * behind a hub — those get their slot lazily in setup_device).
  */
 static int
 xhci_reset_device(void *priv, hcd_speed *speed)
 {
-	hcd_reg4 ps, cc;
+	hcd_reg4 ps;
 	int i, port;
 
 	DEBUG_DUMP;
 	(void)priv;
 
-	/* The generic layer set enum_port; select that device's state */
+	/* The generic layer set enum_port/enum_dev; select that device's state */
 	port = xhci_driver.enum_port;
-	xhci_cur = &xhci_devs[port];
+	xhci_select(xhci_driver.enum_dev);
 	xhci_cur->port_idx = port;
+	xhci_cur->route = 0;		/* root device sits on a root-hub port */
 
 	/* Reset the port (USB3 ports may already be enabled after connect) */
 	ps = HCD_RD4(xhci_op, XHCI_OP_PORTSC(port));
@@ -905,38 +1002,10 @@ xhci_reset_device(void *priv, hcd_speed *speed)
 	default:		*speed = HCD_SPEED_HIGH; break; /* SS≈HS to fw */
 	}
 
-	/* Enable Slot */
-	cc = xhci_command(0, 0, XHCI_TRB_TYPE(XHCI_TRB_TYPE_ENABLE_SLOT));
-	if (cc != XHCI_TRB_CC_SUCCESS || cmd_slot == 0) {
-		USB_MSG("xHCI: Enable Slot failed (cc=%u)", (unsigned)cc);
+	/* Establish the slot (Enable Slot + Address Device) */
+	if (xhci_ensure_slot() != EXIT_SUCCESS)
 		return EXIT_FAILURE;
-	}
-	xhci_cur->slot_id = cmd_slot;
 
-	/* Point DCBAA[slot] at this device's own context, prepare its EP0 ring */
-	xhci_dcbaa_virt()[xhci_cur->slot_id] =
-		(uint64_t)xhci_device_ctx_phys(port);
-	memset(xhci_ep0_ring_virt(port), 0,
-	       XHCI_RING_TRBS * sizeof(struct xhci_trb));
-	xhci_cur->ep0_ring.enq = 0;
-	xhci_cur->ep0_ring.cycle = 1;
-
-	/* Address Device (BSR=0): assign the address and enable EP0.  xHCI
-	 * routes by slot id, so the framework's later GET_DESCRIPTOR "at
-	 * address 0" still reaches this device, and its SET_ADDRESS is then
-	 * a no-op (intercepted in setup_stage). */
-	xhci_build_address_input();
-	cc = xhci_command((hcd_reg4)xhci_input_ctx_phys(),
-			  (hcd_reg4)((uint64_t)xhci_input_ctx_phys() >> 32),
-			  XHCI_TRB_TYPE(XHCI_TRB_TYPE_ADDRESS_DEVICE) |
-			  XHCI_TRB_SLOT(xhci_cur->slot_id));
-	if (cc != XHCI_TRB_CC_SUCCESS) {
-		USB_MSG("xHCI: Address Device failed (cc=%u)", (unsigned)cc);
-		return EXIT_FAILURE;
-	}
-
-	USB_MSG("xHCI: slot %d ready on port %d (speed id %u)",
-		xhci_cur->slot_id, port, (unsigned)xhci_cur->speed);
 	return EXIT_SUCCESS;
 }
 
@@ -1017,12 +1086,12 @@ xhci_configure_bulk(int ep, int is_in, unsigned max_packet)
 	struct xhci_ctx *icc  = xhci_ctx_at(in, 0);
 	struct xhci_ctx *slot = xhci_ctx_at(in, 1);
 	int dci = xhci_dci(ep, is_in);
-	int port = xhci_cur->port_idx;
+	int idx = xhci_cur_idx;
 	struct xhci_ctx *epc = xhci_ctx_at(in, 1 + dci);
-	phys_bytes ring_phys = is_in ? xhci_bulk_in_ring_phys(port)
-				     : xhci_bulk_out_ring_phys(port);
-	struct xhci_trb *ring = is_in ? xhci_bulk_in_ring_virt(port)
-				      : xhci_bulk_out_ring_virt(port);
+	phys_bytes ring_phys = is_in ? xhci_bulk_in_ring_phys(idx)
+				     : xhci_bulk_out_ring_phys(idx);
+	struct xhci_trb *ring = is_in ? xhci_bulk_in_ring_virt(idx)
+				      : xhci_bulk_out_ring_virt(idx);
 	hcd_reg4 cc;
 
 	memset(in, 0, (2 + dci) * xhci_ctx_size);
@@ -1030,7 +1099,7 @@ xhci_configure_bulk(int ep, int is_in, unsigned max_packet)
 	/* Update slot (A0) so Context Entries covers this DCI, add this EP */
 	icc->dw[XHCI_ICC_ADD] = XHCI_ICC_ADD_BIT(0) | XHCI_ICC_ADD_BIT(dci);
 
-	slot->dw[0] = XHCI_SLOT_DW0_ROUTE(0) |
+	slot->dw[0] = XHCI_SLOT_DW0_ROUTE(xhci_cur->route) |
 		      XHCI_SLOT_DW0_SPEED(xhci_cur->speed) |
 		      XHCI_SLOT_DW0_CTX_ENTRIES(dci);
 	slot->dw[1] = XHCI_SLOT_DW1_RHPORT(xhci_cur->port_idx + 1);
@@ -1105,8 +1174,8 @@ xhci_rx_stage(void *priv, hcd_datarequest *req)
 	xfer_residual = 0;
 	xhci_data_consumed = 0;
 
-	(void)xhci_ring_enqueue(xhci_bulk_in_ring_virt(xhci_cur->port_idx),
-		xhci_bulk_in_ring_phys(xhci_cur->port_idx), &xhci_cur->bin_ring,
+	(void)xhci_ring_enqueue(xhci_bulk_in_ring_virt(xhci_cur_idx),
+		xhci_bulk_in_ring_phys(xhci_cur_idx), &xhci_cur->bin_ring,
 		(hcd_reg4)xhci_data_buf_phys(),
 		(hcd_reg4)((uint64_t)xhci_data_buf_phys() >> 32),
 		XHCI_TRB_TXLEN((hcd_reg4)data_len),
@@ -1151,8 +1220,8 @@ xhci_tx_stage(void *priv, hcd_datarequest *req)
 	if (req->data != NULL && data_len > 0)
 		memcpy(xhci_data_buf_virt(), req->data, (size_t)data_len);
 
-	(void)xhci_ring_enqueue(xhci_bulk_out_ring_virt(xhci_cur->port_idx),
-		xhci_bulk_out_ring_phys(xhci_cur->port_idx), &xhci_cur->bout_ring,
+	(void)xhci_ring_enqueue(xhci_bulk_out_ring_virt(xhci_cur_idx),
+		xhci_bulk_out_ring_phys(xhci_cur_idx), &xhci_cur->bout_ring,
 		(hcd_reg4)xhci_data_buf_phys(),
 		(hcd_reg4)((uint64_t)xhci_data_buf_phys() >> 32),
 		XHCI_TRB_TXLEN((hcd_reg4)data_len),

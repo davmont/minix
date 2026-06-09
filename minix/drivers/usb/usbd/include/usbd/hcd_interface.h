@@ -80,6 +80,35 @@ struct hcd_driver_state {
 	 */
 	int		enum_port;
 
+	/*
+	 * Topology of the active / enumerating device, set by the generic
+	 * layer alongside active_port / enum_port.  Needed by host
+	 * controllers that route by topology rather than USB address (xHCI):
+	 *   active_dev / enum_dev   - stable per-device key (the reserved USB
+	 *                             address; unique and assigned at device
+	 *                             creation) used to index per-device
+	 *                             controller state, for root and hub-child
+	 *                             devices alike.
+	 *   active_route            - xHCI route string (0 for a device on a
+	 *                             root-hub port; the hub-port path otherwise).
+	 *   active_speed            - speed of the active device (a hub child
+	 *                             skips reset_device, so the driver cannot
+	 *                             read it from a root-hub port).
+	 */
+	int		active_dev;
+	int		enum_dev;
+	hcd_reg4	active_route;
+	hcd_speed	active_speed;
+
+	/*
+	 * The device whose transfer is currently being driven.  Set by the
+	 * generic layer before setup_device.  A controller that completes
+	 * transfers synchronously (xHCI) uses it to release the framework's
+	 * per-stage wait on the correct device — for a device behind a hub,
+	 * port_device[active_port] is the hub, not the waiting device.
+	 */
+	hcd_device_state * active_device;
+
 	/* Array to hold information of unused device addresses */
 	hcd_addr_state dev_addr[HCD_TOTAL_ADDR];
 };
