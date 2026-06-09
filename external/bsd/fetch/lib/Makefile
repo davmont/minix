@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.8 2011/08/17 09:20:14 christos Exp $
+# $NetBSD: Makefile,v 1.17 2020/06/01 00:55:24 kamil Exp $
 
 LIB=		fetch
 SRCS=		fetch.c common.c ftp.c http.c file.c
@@ -15,14 +15,10 @@ CPPFLAGS+=	-DNETBSD
 CPPFLAGS+=	-DFTP_COMBINE_CWDS
 CPPFLAGS+=	-DINET6
 
-.if (${MKCRYPTO} != "no")
 CPPFLAGS+=	-DWITH_SSL
 
-LDADD=		-lssl -lcrypto
-
-LIBDPLIBS+=	ssl	${NETBSDSRCDIR}/crypto/external/bsd/openssl/lib/libssl \
-		crypto	${NETBSDSRCDIR}/crypto/external/bsd/openssl/lib/libcrypto
-.endif
+LIBDPLIBS+=	ssl	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libssl \
+		crypto	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
 
 CLEANFILES+=	ftperr.h httperr.h
 
@@ -35,5 +31,7 @@ ftperr.h: ${LIBFETCHDIR}/ftp.errors ${LIBFETCHDIR}/errlist.sh
 httperr.h: ${LIBFETCHDIR}/http.errors ${LIBFETCHDIR}/errlist.sh
 	${HOST_SH} ${LIBFETCHDIR}/errlist.sh http_errlist HTTP \
 	    ${LIBFETCHDIR}/http.errors > ${.TARGET}
+
+COPTS.http.c+=	${GCC_NO_STRINGOP_TRUNCATION}
 
 .include <bsd.lib.mk>
