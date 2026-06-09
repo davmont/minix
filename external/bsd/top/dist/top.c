@@ -136,6 +136,7 @@ set_signal(int sig, RETSIGTYPE (*handler)(int))
     struct sigaction action;
 
     action.sa_handler = handler;
+    sigemptyset(&action.sa_mask);
     action.sa_flags = 0;
     (void) sigaction(sig, &action, NULL);
 #else
