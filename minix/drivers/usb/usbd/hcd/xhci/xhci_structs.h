@@ -48,13 +48,79 @@ typedef char _xhci_trb_size_check[(sizeof(struct xhci_trb) == 16) ? 1 : -1];
 #define XHCI_TRB_GET_CC(s)	(((s) >> XHCI_TRB_CC_SHIFT) & 0xFFu)
 #define XHCI_TRB_CC_SUCCESS	1
 
-/* TRB types we care about for bring-up */
+/* TRB types (spec §6.4.6) */
+#define XHCI_TRB_TYPE_NORMAL		1
+#define XHCI_TRB_TYPE_SETUP_STAGE	2
+#define XHCI_TRB_TYPE_DATA_STAGE	3
+#define XHCI_TRB_TYPE_STATUS_STAGE	4
 #define XHCI_TRB_TYPE_LINK		6
-#define XHCI_TRB_TYPE_NOOP_CMD		23
 #define XHCI_TRB_TYPE_ENABLE_SLOT	9
+#define XHCI_TRB_TYPE_DISABLE_SLOT	10
+#define XHCI_TRB_TYPE_ADDRESS_DEVICE	11
+#define XHCI_TRB_TYPE_CONFIGURE_EP	12
+#define XHCI_TRB_TYPE_EVALUATE_CONTEXT	13
+#define XHCI_TRB_TYPE_NOOP_CMD		23
 #define XHCI_TRB_TYPE_TRANSFER_EVENT	32
 #define XHCI_TRB_TYPE_CMD_COMPLETION	33
 #define XHCI_TRB_TYPE_PORT_STATUS_EVENT	34
+
+/* TRB.control flags (transfer TRBs) */
+#define XHCI_TRB_ENT		(1u << 1)	/* Evaluate Next TRB */
+#define XHCI_TRB_ISP		(1u << 2)	/* Interrupt-on-Short-Packet */
+#define XHCI_TRB_CH		(1u << 4)	/* Chain bit */
+#define XHCI_TRB_IOC		(1u << 5)	/* Interrupt On Completion */
+#define XHCI_TRB_IDT		(1u << 6)	/* Immediate Data */
+#define XHCI_TRB_BSR		(1u << 9)	/* Block Set Address Request */
+/* Setup-stage TRT (transfer type) in bits 16-17 */
+#define XHCI_TRB_TRT_NODATA	(0u << 16)
+#define XHCI_TRB_TRT_OUT	(2u << 16)
+#define XHCI_TRB_TRT_IN		(3u << 16)
+/* Data/Status-stage DIR bit (bit 16): 1 = IN */
+#define XHCI_TRB_DIR_IN		(1u << 16)
+/* Address Device / Configure Endpoint slot id in bits 24-31 */
+#define XHCI_TRB_SLOT(s)	(((s) & 0xFFu) << 24)
+#define XHCI_TRB_GET_SLOT(c)	(((c) >> 24) & 0xFFu)
+/* Setup TRB transfer length is always 8 (in status dword bits 0-16) */
+#define XHCI_TRB_TXLEN(n)	((n) & 0x1FFFFu)
+#define XHCI_TRB_GET_TXLEN(s)	((s) & 0x1FFFFu)
+
+
+/*===========================================================================*
+ *    Slot / Endpoint / Input contexts — spec §6.2                          *
+ *                                                                           *
+ *    Each context is 32 bytes (8 dwords); when HCCPARAMS1.CSZ=1 the HC uses *
+ *    a 64-byte stride (the upper 32 bytes reserved).  We define the 32-byte *
+ *    field layout and stride the arrays by the runtime context size.        *
+ *===========================================================================*/
+struct xhci_ctx { hcd_reg4 dw[8]; };	/* generic 32-byte context */
+
+/* Slot context dwords */
+#define XHCI_SLOT_DW0_ROUTE(r)		((r) & 0xFFFFFu)
+#define XHCI_SLOT_DW0_SPEED(s)		(((s) & 0xFu) << 20)
+#define XHCI_SLOT_DW0_CTX_ENTRIES(n)	(((n) & 0x1Fu) << 27)
+#define XHCI_SLOT_DW1_RHPORT(p)		(((p) & 0xFFu) << 16)
+#define XHCI_SLOT_DW3_GET_STATE(v)	(((v) >> 27) & 0x1Fu)
+#define XHCI_SLOT_DW3_GET_ADDR(v)	((v) & 0xFFu)
+
+/* Endpoint context dwords */
+#define XHCI_EP_DW0_GET_STATE(v)	((v) & 0x7u)
+#define XHCI_EP_DW1_CERR(n)		(((n) & 0x3u) << 1)
+#define XHCI_EP_DW1_TYPE(t)		(((t) & 0x7u) << 3)
+#define XHCI_EP_DW1_MAXBURST(n)		(((n) & 0xFFu) << 8)
+#define XHCI_EP_DW1_MAXPKT(n)		(((n) & 0xFFFFu) << 16)
+#define XHCI_EP_DW4_AVGTRB(n)		((n) & 0xFFFFu)
+/* Endpoint types */
+#define XHCI_EP_TYPE_BULK_OUT		2
+#define XHCI_EP_TYPE_CONTROL		4
+#define XHCI_EP_TYPE_BULK_IN		6
+/* Dequeue Cycle State bit lives in EP context dw2 bit0 */
+#define XHCI_EP_DCS			(1u << 0)
+
+/* Input Control Context (the first context of an Input Context) */
+#define XHCI_ICC_DROP			0	/* dw0 = drop flags */
+#define XHCI_ICC_ADD			1	/* dw1 = add flags */
+/* Add-flag bit for context i (A0 = slot, A1 = EP0, A(n) = endpoint) */
+#define XHCI_ICC_ADD_BIT(i)		(1u << (i))
 
 
 /*===========================================================================*

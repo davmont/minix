@@ -41,6 +41,20 @@ static phys_bytes       scratchpad_arr_phys;
 static void            *scratchpad_bufs;	/* the backing pages */
 static int              scratchpad_count;
 
+/* Single-device slot resources */
+static uint8_t         *input_ctx_base;
+static phys_bytes       input_ctx_phys_base;
+static uint8_t         *device_ctx_base;
+static phys_bytes       device_ctx_phys_base;
+static struct xhci_trb *ep0_ring_base;
+static phys_bytes       ep0_ring_phys_base;
+static struct xhci_trb *bulk_in_ring_base;
+static phys_bytes       bulk_in_ring_phys_base;
+static struct xhci_trb *bulk_out_ring_base;
+static phys_bytes       bulk_out_ring_phys_base;
+static uint8_t         *data_buf_base;
+static phys_bytes       data_buf_phys_base;
+
 
 /*===========================================================================*
  *    xhci_mem_init                                                          *
@@ -68,6 +82,30 @@ xhci_mem_init(void)
 	if (erst_base == NULL)
 		goto fail;
 	memset(erst_base, 0, XHCI_PAGE);
+
+	/* Single-device slot resources */
+	input_ctx_base = alloc_contig(XHCI_PAGE, AC_ALIGN4K,
+				      &input_ctx_phys_base);
+	device_ctx_base = alloc_contig(XHCI_PAGE, AC_ALIGN4K,
+				       &device_ctx_phys_base);
+	ep0_ring_base = alloc_contig(XHCI_PAGE, AC_ALIGN4K,
+				     &ep0_ring_phys_base);
+	bulk_in_ring_base = alloc_contig(XHCI_PAGE, AC_ALIGN4K,
+					 &bulk_in_ring_phys_base);
+	bulk_out_ring_base = alloc_contig(XHCI_PAGE, AC_ALIGN4K,
+					  &bulk_out_ring_phys_base);
+	data_buf_base = alloc_contig(MAX_WTOTALLENGTH, AC_ALIGN4K,
+				     &data_buf_phys_base);
+	if (input_ctx_base == NULL || device_ctx_base == NULL ||
+	    ep0_ring_base == NULL || bulk_in_ring_base == NULL ||
+	    bulk_out_ring_base == NULL || data_buf_base == NULL)
+		goto fail;
+	memset(input_ctx_base,     0, XHCI_PAGE);
+	memset(device_ctx_base,    0, XHCI_PAGE);
+	memset(ep0_ring_base,      0, XHCI_PAGE);
+	memset(bulk_in_ring_base,  0, XHCI_PAGE);
+	memset(bulk_out_ring_base, 0, XHCI_PAGE);
+	memset(data_buf_base,      0, MAX_WTOTALLENGTH);
 
 	USB_MSG("xHCI mem: DCBAA virt=%p phys=0x%lx",
 		(void *)dcbaa_base, (unsigned long)dcbaa_phys_base);
@@ -163,6 +201,30 @@ xhci_mem_deinit(void)
 		free_contig(dcbaa_base, XHCI_PAGE);
 		dcbaa_base = NULL;
 	}
+	if (data_buf_base != NULL) {
+		free_contig(data_buf_base, MAX_WTOTALLENGTH);
+		data_buf_base = NULL;
+	}
+	if (bulk_out_ring_base != NULL) {
+		free_contig(bulk_out_ring_base, XHCI_PAGE);
+		bulk_out_ring_base = NULL;
+	}
+	if (bulk_in_ring_base != NULL) {
+		free_contig(bulk_in_ring_base, XHCI_PAGE);
+		bulk_in_ring_base = NULL;
+	}
+	if (ep0_ring_base != NULL) {
+		free_contig(ep0_ring_base, XHCI_PAGE);
+		ep0_ring_base = NULL;
+	}
+	if (device_ctx_base != NULL) {
+		free_contig(device_ctx_base, XHCI_PAGE);
+		device_ctx_base = NULL;
+	}
+	if (input_ctx_base != NULL) {
+		free_contig(input_ctx_base, XHCI_PAGE);
+		input_ctx_base = NULL;
+	}
 	scratchpad_count = 0;
 }
 
@@ -181,3 +243,18 @@ phys_bytes xhci_event_ring_phys(void)          { return event_ring_phys_base; }
 
 struct xhci_erst_entry *xhci_erst_virt(void)   { return erst_base; }
 phys_bytes xhci_erst_phys(void)                { return erst_phys_base; }
+
+uint8_t   *xhci_input_ctx_virt(void)   { return input_ctx_base; }
+phys_bytes xhci_input_ctx_phys(void)   { return input_ctx_phys_base; }
+uint8_t   *xhci_device_ctx_virt(void)  { return device_ctx_base; }
+phys_bytes xhci_device_ctx_phys(void)  { return device_ctx_phys_base; }
+
+struct xhci_trb *xhci_ep0_ring_virt(void)      { return ep0_ring_base; }
+phys_bytes xhci_ep0_ring_phys(void)            { return ep0_ring_phys_base; }
+struct xhci_trb *xhci_bulk_in_ring_virt(void)  { return bulk_in_ring_base; }
+phys_bytes xhci_bulk_in_ring_phys(void)        { return bulk_in_ring_phys_base; }
+struct xhci_trb *xhci_bulk_out_ring_virt(void) { return bulk_out_ring_base; }
+phys_bytes xhci_bulk_out_ring_phys(void)       { return bulk_out_ring_phys_base; }
+
+uint8_t   *xhci_data_buf_virt(void)    { return data_buf_base; }
+phys_bytes xhci_data_buf_phys(void)    { return data_buf_phys_base; }
