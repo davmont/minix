@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <string.h>
 
 #include "dwarf2.h"
 #include "AddressSpace.hpp"
