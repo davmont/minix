@@ -82,6 +82,15 @@ minix/drivers/storage/memory/imgrd.mfs
 minix/drivers/storage/ramdisk/image
 
 # Additional build artifacts
+a.out
+boot/
+*.map
+*.sym
+vers.c
+# Generated architecture symlink directories
+i386
+machine
+x86
 machines.lo.o
 
 # Bootxx build artifacts
@@ -103,7 +112,6 @@ sys/arch/i386/stand/cdboot/bootxx_cd9660
 sys/arch/i386/stand/**/machine
 sys/arch/i386/stand/**/x86
 sys/arch/i386/stand/**/i386
-a.out
 boot/minix/.temp/kernel
 boot/minix/.temp/mod01_ds
 boot/minix/.temp/mod02_rs

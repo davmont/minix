@@ -48,7 +48,12 @@ usbd_init_hcd(void)
 		USB_MSG("amd64: OHCI init failed (no USB 1.1 FS/LS support)");
 	}
 
-	/* Phase 4: xhci_init() goes here */
+	if (xhci_init() == EXIT_SUCCESS) {
+		USB_MSG("amd64: xHCI controller ready");
+		ok++;
+	} else {
+		USB_MSG("amd64: xHCI init failed (no USB 3.x support)");
+	}
 
 	return (ok > 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
@@ -63,7 +68,7 @@ usbd_deinit_hcd(void)
 	DEBUG_DUMP;
 
 	/* Deinit in reverse init order */
-	/* Phase 4: xhci_deinit() goes here */
+	xhci_deinit();
 	ohci_deinit();
 	ehci_deinit();
 }
