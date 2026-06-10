@@ -7,6 +7,9 @@ LIB=	clangCodeGen
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen/TargetBuiltins
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen/Targets
+# LLVM 22 split CodeGen into Targets/ and TargetBuiltins/ subdirs whose
+# sources include parent-dir headers (ABIInfo.h, CGBuiltin.h, ...).
+CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/CodeGen
 
 SRCS+=	AArch64.cpp \
 	ABIInfo.cpp \

@@ -24,6 +24,11 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	    --enable-optimized CC=${HOST_CC:Q} CXX=${HOST_CXX:Q} \
 	    --with-python=${.OBJDIR}/config/python && \
 	cp ${LLVM_TOPLEVEL}/include/module.modulemap include/llvm/module.modulemap
+	# clang/Config/config.h is a static (non-autoconf) header; install it
+	# into the host config tree where the reachover -I expects it.
+	mkdir -p config/tools/clang/include/clang/Config
+	cp ${LLVM_TOPLEVEL}/config/clang/Config/config.h \
+	    config/tools/clang/include/clang/Config/config.h
 
 support-modules: module-test.cpp Makefile
 	if ${HOST_CXX} -stdlib=libc++ -c -fmodules -fcxx-modules -fmodules-cache-path=./module.cache \
