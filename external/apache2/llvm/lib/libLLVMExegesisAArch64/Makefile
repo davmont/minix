@@ -5,6 +5,10 @@ LIB=	LLVMExegesisAArch64
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/AArch64
+# Exegesis target backend sources include the target headers.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AArch64 \
+		-I${LLVM_SRCDIR}/lib/Target \
+		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 
 SRCS+=	Target.cpp
 

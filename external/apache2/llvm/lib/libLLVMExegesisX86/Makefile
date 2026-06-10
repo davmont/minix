@@ -5,6 +5,10 @@ LIB=	LLVMExegesisX86
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/X86
+# Exegesis target backend sources include the target headers.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/X86 \
+		-I${LLVM_SRCDIR}/lib/Target \
+		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 
 SRCS+=	Target.cpp \
 	X86Counter.cpp

@@ -29,6 +29,11 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	mkdir -p config/tools/clang/include/clang/Config
 	cp ${LLVM_TOPLEVEL}/config/clang/Config/config.h \
 	    config/tools/clang/include/clang/Config/config.h
+	# LLVM 22 added TargetMCAs.def / TargetExegesis.def, which the autoconf
+	# config step does not emit; install the static copies.
+	cp ${LLVM_TOPLEVEL}/config/llvm/Config/TargetMCAs.def \
+	   ${LLVM_TOPLEVEL}/config/llvm/Config/TargetExegesis.def \
+	    config/include/llvm/Config/
 
 support-modules: module-test.cpp Makefile
 	if ${HOST_CXX} -stdlib=libc++ -c -fmodules -fcxx-modules -fmodules-cache-path=./module.cache \

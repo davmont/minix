@@ -6,6 +6,8 @@ LIB=	clangDirectoryWatcher
 
 .PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher
 .PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher/linux
+# The platform variant includes the parent-dir DirectoryScanner.h.
+CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/DirectoryWatcher
 
 SRCS+=	DirectoryScanner.cpp \
 	DirectoryWatcher-linux.cpp
