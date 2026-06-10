@@ -82,12 +82,6 @@ LLVM_LIBS= \
 	MipsMCTargetDesc \
 	MipsDisassembler \
 	MipsTargetInfo \
-	AMDGPUCodeGen \
-	AMDGPUAsmParser \
-	AMDGPUMCTargetDesc \
-	AMDGPUDisassembler \
-	AMDGPUTargetInfo \
-	AMDGPUUtils \
 	Analysis \
 	CodeGen \
 	IR \
@@ -105,7 +99,6 @@ LLVM_LIBS= \
 	TransformsUtils \
 	Vectorize \
 	AsmPrinter \
-	MIRParser \
 	MCDisassembler \
 	ProfileDataCoverage \
 	FrontendDriver \
@@ -149,6 +142,20 @@ LLVM_LIBS= \
 	BitstreamReader \
 	FrontendDirective \
 	Demangle
+
+# AMDGPU backend + MIRParser are target-only: the host cross-clang's config
+# Targets.def lists only the 6 non-AMDGPU backends, and the host lib build
+# gates these with !HOSTLIB. (The full target clang links them.)
+.if !defined(HOSTPROG)
+LLVM_LIBS+= \
+	AMDGPUCodeGen \
+	AMDGPUAsmParser \
+	AMDGPUMCTargetDesc \
+	AMDGPUDisassembler \
+	AMDGPUTargetInfo \
+	AMDGPUUtils \
+	MIRParser
+.endif
 
 .include "${.PARSEDIR}/../../link.mk"
 
