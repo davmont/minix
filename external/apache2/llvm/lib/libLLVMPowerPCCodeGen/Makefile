@@ -51,10 +51,6 @@ SRCS+=	PPCAsmPrinter.cpp \
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/PowerPC/GISel
 
-SRCS+=	PPCCallLowering.cpp \
-	PPCInstructionSelector.cpp \
-	PPCLegalizerInfo.cpp \
-	PPCRegisterBankInfo.cpp
 
 TABLEGEN_SRC=		PPC.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/PowerPC

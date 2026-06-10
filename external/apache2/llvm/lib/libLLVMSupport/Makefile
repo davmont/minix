@@ -185,34 +185,9 @@ SRCS+=	AArch64AttributeParser.cpp \
 	xxhash.cpp \
 	zOSLibFunctions.cpp
 
-SRCS+=	Atomic.cpp \
-	DynamicLibrary.cpp \
-	Errno.cpp \
-	FormatVariadic.cpp \
-	Host.cpp \
-	Memory.cpp \
-	Path.cpp \
-	Process.cpp \
-	Program.cpp \
-	RWMutex.cpp \
-	RandomNumberGenerator.cpp \
-	ScaledNumber.cpp \
-	Signals.cpp \
-	ThreadLocal.cpp \
-	ThreadPool.cpp \
-	Threading.cpp \
-	Valgrind.cpp
 
 .PATH: ${LLVM_SRCDIR}/lib/Support/Unix
 
-SRCS+=	Host.inc \
-	Memory.inc \
-	Path.inc \
-	Process.inc \
-	Program.inc \
-	Signals.inc \
-	Watchdog.inc \
-	ThreadLocal.inc
 
 .for src in ${SRCS:M*.c}
 CPPFLAGS.${src}+=	-std=gnu99

@@ -178,4 +178,54 @@ SUBDIR+= \
 	libclangToolingSyntax
 .endif
 
+
+# LLVM 22 new libraries
+SUBDIR+=	libclang \
+	libclangDependencyScanning \
+	libclangDirectoryWatcher \
+	libclangExtractAPI \
+	libclangHandleCXX \
+	libclangHandleLLVM \
+	libclangInstallAPI \
+	libclangOptions \
+	libclangSupport \
+	libLLVMABI \
+	libLLVMCAS \
+	libLLVMCFIVerify \
+	libLLVMCGData \
+	libLLVMCodeGenTypes \
+	libLLVMDebugInfoBTF \
+	libLLVMDebuginfod \
+	libLLVMDebugInfoLogicalView \
+	libLLVMDiff \
+	libLLVMDTLTO \
+	libLLVMDWARFCFIChecker \
+	libLLVMDWP \
+	libLLVMExegesis \
+	libLLVMExegesisAArch64 \
+	libLLVMExegesisMips \
+	libLLVMExegesisPowerPC \
+	libLLVMExegesisX86 \
+	libLLVMExtensions \
+	libLLVMFrontendAtomic \
+	libLLVMFrontendDirective \
+	libLLVMFrontendDriver \
+	libLLVMFrontendHLSL \
+	libLLVMFrontendOffloading \
+	libLLVMFuzzerCLI \
+	libLLVMFuzzMutate \
+	libLLVMHipStdPar \
+	libLLVMIRPrinter \
+	libLLVMObjCopy \
+	libLLVMOptDriver \
+	libLLVMPlugins \
+	libLLVMPrintFunctionNames \
+	libLLVMSandboxIR \
+	libLLVMTableGenBasic \
+	libLLVMTableGenCommon \
+	libLLVMTargetParser \
+	libLLVMTelemetry \
+	libLLVMWindowsDriver \
+	libLLVMWindowsManifest
+
 .include <bsd.subdir.mk>

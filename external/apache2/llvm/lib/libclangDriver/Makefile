@@ -88,61 +88,9 @@ SRCS+=	AArch64.cpp \
 
 .PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
 
-SRCS+=	AMDGPU.cpp \
-	Ananas.cpp \
-	AIX.cpp \
-	AMDGPUOpenMP.cpp \
-	AVR.cpp \
-	BareMetal.cpp \
-	Clang.cpp \
-	CloudABI.cpp \
-	CommonArgs.cpp \
-	Contiki.cpp \
-	CrossWindows.cpp \
-	Cuda.cpp \
-	Darwin.cpp \
-	DragonFly.cpp \
-	Flang.cpp \
-	FreeBSD.cpp \
-	Fuchsia.cpp \
-	Gnu.cpp \
-	Haiku.cpp \
-	Hexagon.cpp \
-	HIP.cpp \
-	Hurd.cpp \
-	InterfaceStubs.cpp \
-	Linux.cpp \
-	M68k.cpp \
-	MinGW.cpp \
-	Minix.cpp \
-	MipsLinux.cpp \
-	MSP430.cpp \
-	MSVC.cpp \
-	Myriad.cpp \
-	NaCl.cpp \
-	NetBSD.cpp \
-	OpenBSD.cpp \
-	PPCLinux.cpp \
-	PS4CPU.cpp \
-	RISCVToolchain.cpp \
-	Solaris.cpp \
-	TCE.cpp \
-	VEToolchain.cpp \
-	WebAssembly.cpp \
-	XCore.cpp \
-	ZOS.cpp
 
 .PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains/Arch
 
-SRCS+=	AArch64.cpp \
-	ARM.cpp \
-	Mips.cpp \
-	PPC.cpp \
-	RISCV.cpp \
-	Sparc.cpp \
-	SystemZ.cpp \
-	VE.cpp \
-	X86.cpp
 
 
 

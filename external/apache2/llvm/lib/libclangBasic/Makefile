@@ -82,30 +82,6 @@ SRCS+=	AArch64.cpp \
 
 .PATH: ${CLANG_SRCDIR}/lib/Basic/Targets
 
-SRCS+=	AArch64.cpp \
-	AMDGPU.cpp \
-	ARC.cpp \
-	ARM.cpp \
-	AVR.cpp \
-	BPF.cpp \
-	Hexagon.cpp \
-	Lanai.cpp \
-	Le64.cpp \
-	M68k.cpp \
-	MSP430.cpp \
-	Mips.cpp \
-	NVPTX.cpp \
-	OSTargets.cpp \
-	PNaCl.cpp \
-	PPC.cpp \
-	RISCV.cpp \
-	SPIR.cpp \
-	Sparc.cpp \
-	SystemZ.cpp \
-	TCE.cpp \
-	WebAssembly.cpp \
-	X86.cpp \
-	XCore.cpp
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Basic -I.
 

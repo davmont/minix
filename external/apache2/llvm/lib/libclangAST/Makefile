@@ -123,27 +123,6 @@ SRCS+=	APValue.cpp \
 
 .PATH: ${CLANG_SRCDIR}/lib/AST/Interp
 
-SRCS+=	ByteCodeEmitter.cpp \
-	ByteCodeExprGen.cpp \
-	ByteCodeGenError.cpp \
-	ByteCodeStmtGen.cpp \
-	Context.cpp \
-	Descriptor.cpp \
-	Disasm.cpp \
-	EvalEmitter.cpp \
-	Frame.cpp \
-	Function.cpp \
-	Interp.cpp \
-	InterpBlock.cpp \
-	InterpFrame.cpp \
-	InterpStack.cpp \
-	InterpState.cpp \
-	Pointer.cpp \
-	PrimType.cpp \
-	Program.cpp \
-	Record.cpp \
-	Source.cpp \
-	State.cpp
 
 CLANG_TABLEGEN_SRC=	Opcodes.td
 CLANG_TABLEGEN_OUTPUT= \

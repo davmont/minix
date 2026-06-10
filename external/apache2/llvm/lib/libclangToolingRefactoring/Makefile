@@ -21,16 +21,9 @@ SRCS+=	ASTSelection.cpp \
 
 .PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Extract
 
-SRCS+=	Extract.cpp \
-	SourceExtraction.cpp
 
 .PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Rename
 
-SRCS+=	RenamingAction.cpp \
-	SymbolOccurrences.cpp \
-	USRFinder.cpp \
-	USRFindingAction.cpp \
-	USRLocFinder.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

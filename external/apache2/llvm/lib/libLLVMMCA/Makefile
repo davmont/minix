@@ -33,22 +33,9 @@ SRCS+=	CodeEmitter.cpp \
 
 .PATH: ${LLVM_SRCDIR}/lib/MCA/HardwareUnits
 
-SRCS+=	HardwareUnit.cpp \
-	LSUnit.cpp \
-	RegisterFile.cpp \
-	ResourceManager.cpp \
-	RetireControlUnit.cpp \
-	Scheduler.cpp
 
 .PATH: ${LLVM_SRCDIR}/lib/MCA/Stages
 
-SRCS+=	DispatchStage.cpp \
-	EntryStage.cpp \
-	ExecuteStage.cpp \
-	InstructionTables.cpp \
-	MicroOpQueueStage.cpp \
-	RetireStage.cpp \
-	Stage.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

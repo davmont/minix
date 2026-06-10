@@ -74,16 +74,6 @@ SRCS+=	AArch64A53Fix835769.cpp \
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/AArch64/GISel
 
-SRCS+=	AArch64CallLowering.cpp \
-	AArch64GlobalISelUtils.cpp \
-	AArch64InstructionSelector.cpp \
-	AArch64LegalizerInfo.cpp \
-	AArch64O0PreLegalizerCombiner.cpp \
-	AArch64PostLegalizerCombiner.cpp \
-	AArch64PostLegalizerLowering.cpp \
-	AArch64PostSelectOptimize.cpp \
-	AArch64PreLegalizerCombiner.cpp \
-	AArch64RegisterBankInfo.cpp
 
 TABLEGEN_SRC=		AArch64.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AArch64
