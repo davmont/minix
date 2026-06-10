@@ -38,8 +38,10 @@
 /* Relative directory for resource files */
 #define CLANG_RESOURCE_DIR ""
 
-/* Directories clang will search for headers */
-#define C_INCLUDE_DIRS ""
+/* Directories clang will search for headers (sysroot-relative).
+   MINIX installs the clang resource headers under /usr/include/clang-<ver>;
+   matches --with-c-include-dirs in LLVM_CONFIGURE_ARGS (CLANG_VERSION 22.1.x). */
+#define C_INCLUDE_DIRS "/usr/include/clang-22.1:/usr/include"
 
 /* Directories clang will search for configuration files */
 /* #undef CLANG_CONFIG_FILE_SYSTEM_DIR */

@@ -16,11 +16,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "Minix.h"
+#include "clang/Config/config.h"
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Options/Options.h"
 #include "llvm/Option/ArgList.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
 using namespace clang::driver;
@@ -173,6 +175,43 @@ toolchains::Minix::GetCXXStdlibType(const ArgList &Args) const {
   }
   // MINIX ships libc++ as its C++ standard library.
   return ToolChain::CST_Libcxx;
+}
+
+void toolchains::Minix::AddClangSystemIncludeArgs(
+    const ArgList &DriverArgs, ArgStringList &CC1Args) const {
+  const Driver &D = getDriver();
+
+  if (DriverArgs.hasArg(options::OPT_nostdinc))
+    return;
+
+  // clang's own builtin headers (only present if installed into the resource
+  // dir; MINIX normally ships them under /usr/include/clang-<ver> via
+  // C_INCLUDE_DIRS, but add this for completeness).
+  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
+    SmallString<128> Dir(D.ResourceDir);
+    llvm::sys::path::append(Dir, "include");
+    addSystemInclude(DriverArgs, CC1Args, Dir.str());
+  }
+
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc))
+    return;
+
+  // Configure-time C include directories (C_INCLUDE_DIRS): MINIX installs the
+  // clang resource headers under /usr/include/clang-<ver>; absolute entries are
+  // taken relative to the sysroot.
+  StringRef CIncludeDirs(C_INCLUDE_DIRS);
+  if (CIncludeDirs != "") {
+    SmallVector<StringRef, 5> dirs;
+    CIncludeDirs.split(dirs, ":");
+    for (StringRef dir : dirs) {
+      StringRef Prefix =
+          llvm::sys::path::is_absolute(dir) ? StringRef(D.SysRoot) : "";
+      addExternCSystemInclude(DriverArgs, CC1Args, Prefix + dir);
+    }
+    return;
+  }
+
+  addExternCSystemInclude(DriverArgs, CC1Args, D.SysRoot + "/usr/include");
 }
 
 void toolchains::Minix::AddClangCXXStdlibIncludeArgs(

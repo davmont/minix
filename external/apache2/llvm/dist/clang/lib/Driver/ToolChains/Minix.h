@@ -54,6 +54,9 @@ public:
 
   // MINIX uses libc++ with its headers flat in <sysroot>/usr/include/c++/.
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
+  void AddClangSystemIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
   void AddClangCXXStdlibIncludeArgs(
       const llvm::opt::ArgList &DriverArgs,
       llvm::opt::ArgStringList &CC1Args) const override;
