@@ -130,6 +130,7 @@ LLVM_LIBS= \
 	Plugins \
 	FrontendOpenMP \
 	FrontendOffloading \
+	ObjectYAML \
 	FrontendAtomic \
 	ProfileData \
 	DebugInfoDWARF \
@@ -161,8 +162,7 @@ LLVM_LIBS+= \
 	MIRParser \
 	DebugInfoSymbolize \
 	DebugInfoGSYM \
-	DebugInfoPDB \
-	ObjectYAML
+	DebugInfoPDB
 .endif
 
 .include "${.PARSEDIR}/../../link.mk"

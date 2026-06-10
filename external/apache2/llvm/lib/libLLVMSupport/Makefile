@@ -5,6 +5,10 @@ LIB=	LLVMSupport
 .include <bsd.init.mk>
 
 CPPFLAGS+=	-I${LLVM_SRCDIR}/../third-party/siphash/include
+# Use the portable-C BLAKE3 path; the reachover build compiles the C sources
+# but not the per-ISA .S kernels, so disable the SIMD dispatch branches.
+CPPFLAGS+=	-DBLAKE3_NO_AVX512 -DBLAKE3_NO_AVX2 \
+		-DBLAKE3_NO_SSE41 -DBLAKE3_NO_SSE2
 
 .PATH: ${LLVM_SRCDIR}/lib/Support
 .PATH: ${LLVM_SRCDIR}/lib/Support/BLAKE3

@@ -123,9 +123,13 @@ SUBDIR+= \
 .if !defined(HOSTLIB) && !defined(_BSD_HOSTINIT_MK_)
 SUBDIR+= \
 	libLLVMDebugInfoPDB \
-	libLLVMDebugInfoSymbolize \
-	libLLVMObjectYAML
+	libLLVMDebugInfoSymbolize
 .endif
+
+# clang 22's FrontendOffloading uses ELFYAML (yaml2elf), so the host clang
+# needs ObjectYAML built as well.
+SUBDIR+= \
+	libLLVMObjectYAML
 
 .if ${NO_LLVM_DEVELOPER:Uno} == "no" && ${LLVM_DEVELOPER:U} == "yes"
 SUBDIR+= \
