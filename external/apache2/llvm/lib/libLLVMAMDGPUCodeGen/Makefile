@@ -163,7 +163,7 @@ TABLEGEN_OUTPUT.AMDGPU.td= \
 	AMDGPUGenAsmWriter.inc|-gen-asm-writer \
 	AMDGPUGenCallingConv.inc|-gen-callingconv \
 	AMDGPUGenDAGISel.inc|-gen-dag-isel \
-	AMDGPUGenDisassemblerTables.inc|-gen-disassembler \
+	AMDGPUGenDisassemblerTables.inc|-gen-disassembler^--specialize-decoders-per-bitwidth^-ignore-non-decodable-operands^-ignore-fully-defined-operands \
 	AMDGPUGenInstrInfo.inc|-gen-instr-info \
 	AMDGPUGenMCCodeEmitter.inc|-gen-emitter \
 	AMDGPUGenMCPseudoLowering.inc|-gen-pseudo-lowering \
