@@ -125,10 +125,7 @@ LLVM_LIBS= \
 	ObjectYAML \
 	FrontendAtomic \
 	ProfileData \
-	DebugInfoSymbolize \
-	DebugInfoGSYM \
 	DebugInfoDWARF \
-	DebugInfoPDB \
 	DebugInfoCodeView \
 	DebugInfoMSF \
 	DebugInfoBTF \
@@ -154,7 +151,11 @@ LLVM_LIBS+= \
 	AMDGPUDisassembler \
 	AMDGPUTargetInfo \
 	AMDGPUUtils \
-	MIRParser
+	MIRParser \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	ObjectYAML
 .endif
 
 .include "${.PARSEDIR}/../../link.mk"
