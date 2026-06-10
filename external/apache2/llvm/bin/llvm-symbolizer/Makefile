@@ -38,6 +38,8 @@ TABLEGEN_OUTPUT.Opts.td= \
 	Opts.inc|-gen-opt-parser-defs
 
 .include "${.PARSEDIR}/../../tablegen.mk"
+.include "${.PARSEDIR}/../../driver.mk"
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

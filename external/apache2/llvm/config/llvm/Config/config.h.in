@@ -157,7 +157,9 @@
 #define HAVE_SETENV 1
 
 /* Define to 1 if you have the `sigaltstack' function. */
+#ifndef __minix /* MINIX declares sigaltstack but libc does not implement it */
 #define HAVE_SIGALTSTACK 1
+#endif
 
 /* Define to 1 if you have the `strerror_r' function. */
 #define HAVE_STRERROR_R 1

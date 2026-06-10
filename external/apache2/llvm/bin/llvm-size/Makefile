@@ -22,6 +22,8 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+.include "${.PARSEDIR}/../../driver.mk"
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

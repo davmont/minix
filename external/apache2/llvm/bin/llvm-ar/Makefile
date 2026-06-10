@@ -54,6 +54,9 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+LLVM_DRIVER_TOOL=	ar
+.include "${.PARSEDIR}/../../driver.mk"
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>
