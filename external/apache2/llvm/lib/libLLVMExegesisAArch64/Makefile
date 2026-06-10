@@ -5,8 +5,10 @@ LIB=	LLVMExegesisAArch64
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/AArch64
-# Exegesis target backend sources include the target headers.
-CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AArch64 \
+# Exegesis target backend sources include the target headers and the
+# TableGen-generated MC headers produced in the CodeGen lib obj dir.
+AARCH64_OBJDIR!=	cd ${.CURDIR}/../libLLVMAArch64CodeGen && ${PRINTOBJDIR}
+CPPFLAGS+=	-I${AARCH64_OBJDIR} -I${LLVM_SRCDIR}/lib/Target/AArch64 \
 		-I${LLVM_SRCDIR}/lib/Target \
 		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 

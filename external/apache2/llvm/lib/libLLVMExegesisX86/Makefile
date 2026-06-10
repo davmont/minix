@@ -5,8 +5,10 @@ LIB=	LLVMExegesisX86
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/X86
-# Exegesis target backend sources include the target headers.
-CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/X86 \
+# Exegesis target backend sources include the target headers and the
+# TableGen-generated MC headers produced in the CodeGen lib obj dir.
+X86_OBJDIR!=	cd ${.CURDIR}/../libLLVMX86CodeGen && ${PRINTOBJDIR}
+CPPFLAGS+=	-I${X86_OBJDIR} -I${LLVM_SRCDIR}/lib/Target/X86 \
 		-I${LLVM_SRCDIR}/lib/Target \
 		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 

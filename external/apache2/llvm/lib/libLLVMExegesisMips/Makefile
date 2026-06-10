@@ -5,8 +5,10 @@ LIB=	LLVMExegesisMips
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/Mips
-# Exegesis target backend sources include the target headers.
-CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/Mips \
+# Exegesis target backend sources include the target headers and the
+# TableGen-generated MC headers produced in the CodeGen lib obj dir.
+MIPS_OBJDIR!=	cd ${.CURDIR}/../libLLVMMipsCodeGen && ${PRINTOBJDIR}
+CPPFLAGS+=	-I${MIPS_OBJDIR} -I${LLVM_SRCDIR}/lib/Target/Mips \
 		-I${LLVM_SRCDIR}/lib/Target \
 		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 

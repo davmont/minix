@@ -5,8 +5,10 @@ LIB=	LLVMExegesisPowerPC
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/tools/llvm-exegesis/lib/PowerPC
-# Exegesis target backend sources include the target headers.
-CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/PowerPC \
+# Exegesis target backend sources include the target headers and the
+# TableGen-generated MC headers produced in the CodeGen lib obj dir.
+PPC_OBJDIR!=	cd ${.CURDIR}/../libLLVMPowerPCCodeGen && ${PRINTOBJDIR}
+CPPFLAGS+=	-I${PPC_OBJDIR} -I${LLVM_SRCDIR}/lib/Target/PowerPC \
 		-I${LLVM_SRCDIR}/lib/Target \
 		-I${LLVM_SRCDIR}/tools/llvm-exegesis/lib
 
