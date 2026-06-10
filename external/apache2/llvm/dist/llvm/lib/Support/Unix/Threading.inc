@@ -197,7 +197,7 @@ void llvm::set_thread_name(const Twine &Name) {
 #if defined(HAVE_PTHREAD_SET_NAME_NP) && HAVE_PTHREAD_SET_NAME_NP
   ::pthread_set_name_np(::pthread_self(), NameStr.data());
 #elif defined(HAVE_PTHREAD_SETNAME_NP) && HAVE_PTHREAD_SETNAME_NP
-#if defined(__NetBSD__)
+#if defined(__NetBSD__) || defined(__minix)
   ::pthread_setname_np(::pthread_self(), "%s",
                        const_cast<char *>(NameStr.data()));
 #elif defined(__APPLE__)
