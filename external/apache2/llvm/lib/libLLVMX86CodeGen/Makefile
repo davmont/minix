@@ -77,18 +77,24 @@ SRCS+=	X86ArgumentStackSlotRebase.cpp \
 	X86WinEHUnwindV2.cpp
 
 TABLEGEN_SRC=		X86.td
-TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/X86
+# LLVM 22: X86 GlobalISel now emits a pre-legalizer combiner header.
+TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/X86 \
+			-I${LLVM_SRCDIR}/lib/Target
 TABLEGEN_OUTPUT= \
+	X86GenExegesis.inc|-gen-exegesis \
+	X86GenFoldTables.inc|-gen-x86-fold-tables^-asmwriternum=1 \
+	X86GenInstrMapping.inc|-gen-x86-instr-mapping \
+	X86GenMnemonicTables.inc|-gen-x86-mnemonic-tables^-asmwriternum=1 \
+	X86GenPreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=X86PreLegalizerCombiner \
 	X86GenAsmMatcher.inc|-gen-asm-matcher \
 	X86GenAsmWriter.inc|-gen-asm-writer \
 	X86GenAsmWriter1.inc|-gen-asm-writer^-asmwriternum=1 \
 	X86GenCallingConv.inc|-gen-callingconv \
 	X86GenDAGISel.inc|-gen-dag-isel \
 	X86GenDisassemblerTables.inc|-gen-disassembler \
-	X86GenEVEX2VEXTables.inc|-gen-x86-EVEX2VEX-tables \
 	X86GenFastISel.inc|-gen-fast-isel \
 	X86GenGlobalISel.inc|-gen-global-isel \
-	X86GenInstrInfo.inc|-gen-instr-info \
+	X86GenInstrInfo.inc|-gen-instr-info^-instr-info-expand-mi-operand-info=0 \
 	X86GenRegisterBank.inc|-gen-register-bank \
 	X86GenRegisterInfo.inc|-gen-register-info \
 	X86GenSubtargetInfo.inc|-gen-subtarget

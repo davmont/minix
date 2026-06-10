@@ -32,6 +32,8 @@ TABLEGEN_OUTPUT= \
 	SparcGenInstrInfo.inc|-gen-instr-info \
 	SparcGenMCCodeEmitter.inc|-gen-emitter \
 	SparcGenRegisterInfo.inc|-gen-register-info \
+	SparcGenSDNodeInfo.inc|-gen-sd-node-info^-sdnode-namespace=SPISD \
+	SparcGenSearchableTables.inc|-gen-searchable-tables \
 	SparcGenSubtargetInfo.inc|-gen-subtarget
 
 .include "${.PARSEDIR}/../../tablegen.mk"

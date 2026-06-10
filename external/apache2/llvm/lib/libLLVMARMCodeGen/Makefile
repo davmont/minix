@@ -61,6 +61,7 @@ SRCS+=	A15SDOptimizer.cpp \
 TABLEGEN_SRC=		ARM.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/ARM
 TABLEGEN_OUTPUT= \
+	ARMGenSDNodeInfo.inc|-gen-sd-node-info \
 	ARMGenAsmMatcher.inc|-gen-asm-matcher \
 	ARMGenAsmWriter.inc|-gen-asm-writer \
 	ARMGenCallingConv.inc|-gen-callingconv \

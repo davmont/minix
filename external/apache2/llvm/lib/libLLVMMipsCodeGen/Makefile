@@ -51,14 +51,19 @@ SRCS+=	MicroMipsSizeReduction.cpp \
 	MipsTargetTransformInfo.cpp
 
 TABLEGEN_SRC=		Mips.td
-TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/Mips
+# LLVM 22: Mips GlobalISel now emits a post-legalizer combiner header.
+TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/Mips \
+			-I${LLVM_SRCDIR}/lib/Target
 TABLEGEN_OUTPUT= \
+	MipsGenSDNodeInfo.inc|-gen-sd-node-info \
+	MipsGenExegesis.inc|-gen-exegesis \
+	MipsGenPostLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=MipsPostLegalizerCombiner \
 	MipsGenAsmMatcher.inc|-gen-asm-matcher \
 	MipsGenAsmWriter.inc|-gen-asm-writer \
 	MipsGenCallingConv.inc|-gen-callingconv \
 	MipsGenCodeEmitter.inc|-gen-emitter \
 	MipsGenDAGISel.inc|-gen-dag-isel \
-	MipsGenDisassemblerTables.inc|-gen-disassembler \
+	MipsGenDisassemblerTables.inc|-gen-disassembler^-ignore-non-decodable-operands \
 	MipsGenFastISel.inc|-gen-fast-isel \
 	MipsGenGlobalISel.inc|-gen-global-isel \
 	MipsGenInstrInfo.inc|-gen-instr-info \

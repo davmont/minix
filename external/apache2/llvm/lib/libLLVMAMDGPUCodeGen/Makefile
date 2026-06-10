@@ -156,7 +156,8 @@ SRCS+=	AMDGPUAliasAnalysis.cpp \
 	SIWholeQuadMode.cpp
 
 TABLEGEN_SRC=		AMDGPU.td AMDGPUGISel.td InstCombineTables.td R600.td
-TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU
+TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU \
+			-I${LLVM_SRCDIR}/lib/Target
 TABLEGEN_OUTPUT.AMDGPU.td= \
 	AMDGPUGenAsmMatcher.inc|-gen-asm-matcher \
 	AMDGPUGenAsmWriter.inc|-gen-asm-writer \
@@ -168,6 +169,7 @@ TABLEGEN_OUTPUT.AMDGPU.td= \
 	AMDGPUGenMCPseudoLowering.inc|-gen-pseudo-lowering \
 	AMDGPUGenRegisterBank.inc|-gen-register-bank \
 	AMDGPUGenRegisterInfo.inc|-gen-register-info \
+	AMDGPUGenSDNodeInfo.inc|-gen-sd-node-info \
 	AMDGPUGenSearchableTables.inc|-gen-searchable-tables \
 	AMDGPUGenSubtargetInfo.inc|-gen-subtarget
 
@@ -175,11 +177,10 @@ TABLEGEN_OUTPUT.InstCombineTables.td= \
 	InstCombineTables.inc|-gen-searchable-tables
 
 TABLEGEN_OUTPUT.AMDGPUGISel.td= \
-	AMDGPUGenGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPUPreLegalizerCombinerHelper \
 	AMDGPUGenGlobalISel.inc|-gen-global-isel \
-	AMDGPUGenPostLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPUPostLegalizerCombinerHelper \
-	AMDGPUGenPreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPUPreLegalizerCombinerHelper \
-        AMDGPUGenRegBankGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPURegBankCombinerHelper
+	AMDGPUGenPostLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPUPostLegalizerCombiner \
+	AMDGPUGenPreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPUPreLegalizerCombiner \
+        AMDGPUGenRegBankGICombiner.inc|-gen-global-isel-combiner^-combiners=AMDGPURegBankCombiner
 
 TABLEGEN_OUTPUT.R600.td= \
 	R600GenAsmWriter.inc|-gen-asm-writer \

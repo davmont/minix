@@ -76,8 +76,13 @@ SRCS+=	AArch64A53Fix835769.cpp \
 
 
 TABLEGEN_SRC=		AArch64.td
-TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AArch64
+# LLVM 22: GlobalISel combiners are referenced by name without the "Helper"
+# suffix and need lib/Target on the include path; the standalone
+# AArch64GenGICombiner.inc output was dropped upstream.
+TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AArch64 \
+			-I${LLVM_SRCDIR}/lib/Target
 TABLEGEN_OUTPUT= \
+	AArch64GenSDNodeInfo.inc|-gen-sd-node-info \
 	AArch64GenAsmMatcher.inc|-gen-asm-matcher \
 	AArch64GenAsmWriter1.inc|-gen-asm-writer^-asmwriternum=1 \
 	AArch64GenAsmWriter.inc|-gen-asm-writer \
@@ -86,15 +91,14 @@ TABLEGEN_OUTPUT= \
 	AArch64GenDisassemblerTables.inc|-gen-disassembler \
 	AArch64GenExegesis.inc|-gen-exegesis \
 	AArch64GenFastISel.inc|-gen-fast-isel \
-	AArch64GenGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64PreLegalizerCombinerHelper \
 	AArch64GenGlobalISel.inc|-gen-global-isel \
 	AArch64GenInstrInfo.inc|-gen-instr-info \
 	AArch64GenMCCodeEmitter.inc|-gen-emitter \
 	AArch64GenMCPseudoLowering.inc|-gen-pseudo-lowering \
-	AArch64GenO0PreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64O0PreLegalizerCombinerHelper \
-	AArch64GenPreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64PreLegalizerCombinerHelper \
-	AArch64GenPostLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64PostLegalizerCombinerHelper \
-	AArch64GenPostLegalizeGILowering.inc|-gen-global-isel-combiner^-combiners=AArch64PostLegalizerLoweringHelper \
+	AArch64GenO0PreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64O0PreLegalizerCombiner \
+	AArch64GenPreLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64PreLegalizerCombiner \
+	AArch64GenPostLegalizeGICombiner.inc|-gen-global-isel-combiner^-combiners=AArch64PostLegalizerCombiner \
+	AArch64GenPostLegalizeGILowering.inc|-gen-global-isel-combiner^-combiners=AArch64PostLegalizerLowering \
 	AArch64GenRegisterBank.inc|-gen-register-bank \
 	AArch64GenRegisterInfo.inc|-gen-register-info \
 	AArch64GenSubtargetInfo.inc|-gen-subtarget \
