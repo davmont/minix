@@ -151,7 +151,8 @@ INCS+=	arm64intr.h
 .elif ${MACHINE_CPU} == "mips"
 INCS=	msa.h
 .endif
-INCS+=	stdatomic.h tgmath.h
+# Freestanding C headers clang provides that MINIX libc does not ship.
+INCS+=	stdatomic.h tgmath.h stdalign.h stdnoreturn.h stdckdint.h stdcountof.h
 INCSDIR=	/usr/include/clang-${CLANG_VERSION:R}
 .endif # MKLLVM
 
