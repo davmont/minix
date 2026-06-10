@@ -15,7 +15,6 @@ CLANG_LIBS+= \
 	clangInterpreter \
 	clangFrontendTool \
 	clangFrontend \
-	clangARCMigrate \
 	clangStaticAnalyzerFrontend \
 	clangStaticAnalyzerCheckers \
 	clangStaticAnalyzerCore \

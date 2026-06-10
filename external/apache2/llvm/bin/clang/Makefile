@@ -20,7 +20,6 @@ SRCS=	driver.cpp \
 CLANG_LIBS+= \
 	clangFrontendTool \
 	clangFrontend \
-	clangARCMigrate \
 	clangStaticAnalyzerFrontend \
 	clangStaticAnalyzerCheckers \
 	clangStaticAnalyzerCore \

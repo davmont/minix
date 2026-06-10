@@ -140,7 +140,6 @@ SUBDIR+= \
 
 SUBDIR+= \
 	libclangAnalysis \
-	libclangARCMigrate \
 	libclangAST \
 	libclangASTMatchers \
 	libclangBasic \
