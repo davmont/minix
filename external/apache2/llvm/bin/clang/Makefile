@@ -17,109 +17,137 @@ SRCS=	driver.cpp \
 	cc1as_main.cpp \
 	cc1gen_reproducer_main.cpp
 
-CLANG_LIBS+= \
-	clangFrontendTool \
+# LLVM 22 reconciled link library set (from CMake clang link order,
+# reachover names). Wrapped in --start-group by link.mk for ordering.
+CLANG_LIBS= \
+	clangBasic \
+	clangCodeGen \
+	clangDriver \
 	clangFrontend \
+	clangFrontendTool \
+	clangOptions \
+	clangSerialization \
+	clangExtractAPI \
+	clangInstallAPI \
+	clangFrontendRewrite \
 	clangStaticAnalyzerFrontend \
 	clangStaticAnalyzerCheckers \
 	clangStaticAnalyzerCore \
-	clangToolingCore \
 	clangCrossTU \
 	clangIndex \
-	clangASTMatchers \
-	clangCodeGen \
-	clangFrontendRewrite \
-	clangFrontend \
-	clangSerialization \
 	clangParse \
 	clangSema \
-	clangAnalysis \
+	clangAPINotes \
 	clangEdit \
-	clangDriver \
-	clangRewrite \
+	clangAnalysis \
+	clangASTMatchers \
 	clangAST \
-	clangLex \
-	clangBasic
+	clangSupport \
+	clangFormat \
+	clangToolingInclusions \
+	clangToolingCore \
+	clangRewrite \
+	clangLex
 
-LLVM_LIBS+= \
-	FrontendOpenMP \
-	TransformsAggressiveInstCombine \
-	TransformsCoroutines \
-	ProfileDataCoverage \
-	LTO \
-	ObjCARC \
-	Passes \
-	ipo \
-	IRReader \
-	AsmParser \
-	BitstreamReader \
-	BitReader \
-	BitWriter
-
-.if !defined(HOSTPROG)
-LLVM_LIBS+= \
-	AMDGPUCodeGen \
-	AMDGPUTargetInfo \
-	AMDGPUAsmParser \
-	AMDGPUMCTargetDesc \
-	AMDGPUUtils \
-	MIRParser
-.endif
-
-LLVM_LIBS+= \
+LLVM_LIBS= \
+	X86CodeGen \
+	X86AsmParser \
+	X86MCTargetDesc \
+	X86Disassembler \
+	X86TargetInfo \
+	PowerPCCodeGen \
+	PowerPCAsmParser \
+	PowerPCMCTargetDesc \
+	PowerPCDisassembler \
+	PowerPCTargetInfo \
+	SparcCodeGen \
+	SparcAsmParser \
+	SparcMCTargetDesc \
+	SparcDisassembler \
+	SparcTargetInfo \
 	AArch64CodeGen \
-	AArch64TargetInfo \
 	AArch64AsmParser \
 	AArch64MCTargetDesc \
+	AArch64Disassembler \
+	AArch64TargetInfo \
 	AArch64Utils \
 	ARMCodeGen \
-	ARMTargetInfo \
-	ARMMCTargetDesc \
 	ARMAsmParser \
+	ARMMCTargetDesc \
+	ARMDisassembler \
+	ARMTargetInfo \
 	ARMUtils \
 	MipsCodeGen \
-	MipsTargetInfo \
 	MipsAsmParser \
 	MipsMCTargetDesc \
-	PowerPCCodeGen \
-	PowerPCTargetInfo \
-	PowerPCMCTargetDesc \
-	PowerPCAsmParser \
-	SparcCodeGen \
-	SparcTargetInfo \
-	SparcMCTargetDesc \
-	SparcAsmParser \
-	X86CodeGen \
-	X86MCTargetDesc \
-	X86TargetInfo \
-	X86AsmParser \
-	GlobalISel \
-	SelectionDAG \
-	AsmPrinter \
-	DebugInfoDWARF \
-	DebugInfoCodeView \
-	DebugInfoMSF \
+	MipsDisassembler \
+	MipsTargetInfo \
+	AMDGPUCodeGen \
+	AMDGPUAsmParser \
+	AMDGPUMCTargetDesc \
+	AMDGPUDisassembler \
+	AMDGPUTargetInfo \
+	AMDGPUUtils \
+	Analysis \
 	CodeGen \
-	Vectorize \
-	Target \
+	IR \
+	ipo \
+	TransformsAggressiveInstCombine \
 	InstCombine \
 	Instrumentation \
-	ScalarOpts \
-	ProfileData \
-	MCDisassembler \
-	MCParser \
 	MC \
-	TransformsUtils \
-	Analysis \
-	Object \
-	TextAPI \
-	Linker \
-	TransformsCFGuard \
-	IR \
-	Remarks \
+	MCParser \
+	ObjCARC \
 	Option \
-	BinaryFormat \
+	ScalarOpts \
 	Support \
+	TargetParser \
+	TransformsUtils \
+	Vectorize \
+	AsmPrinter \
+	MIRParser \
+	MCDisassembler \
+	ProfileDataCoverage \
+	FrontendDriver \
+	LTO \
+	Passes \
+	TransformsCFGuard \
+	GlobalISel \
+	SelectionDAG \
+	CodeGenTypes \
+	IRPrinter \
+	Target \
+	HipStdPar \
+	TransformsCoroutines \
+	SandboxIR \
+	CGData \
+	BitWriter \
+	Linker \
+	Extensions \
+	TextAPI \
+	WindowsDriver \
+	Plugins \
+	FrontendOpenMP \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoDWARF \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	Object \
+	IRReader \
+	BitReader \
+	AsmParser \
+	FrontendHLSL \
+	BinaryFormat \
+	Remarks \
+	BitstreamReader \
+	FrontendDirective \
 	Demangle
 
 .include "${.PARSEDIR}/../../link.mk"
