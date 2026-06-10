@@ -7,9 +7,31 @@
 
 
 .if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "x86_64"
-INCS=	adxintrin.h \
+INCS=	__wmmintrin_aes.h \
+	__wmmintrin_pclmul.h \
+	adcintrin.h \
+	adxintrin.h \
 	ammintrin.h \
+	amxavx512intrin.h \
+	amxcomplexintrin.h \
+	amxfp16intrin.h \
+	amxfp8intrin.h \
 	amxintrin.h \
+	amxmovrsintrin.h \
+	amxtf32intrin.h \
+	avx10_2_512bf16intrin.h \
+	avx10_2_512convertintrin.h \
+	avx10_2_512minmaxintrin.h \
+	avx10_2_512niintrin.h \
+	avx10_2_512satcvtdsintrin.h \
+	avx10_2_512satcvtintrin.h \
+	avx10_2bf16intrin.h \
+	avx10_2convertintrin.h \
+	avx10_2copyintrin.h \
+	avx10_2minmaxintrin.h \
+	avx10_2niintrin.h \
+	avx10_2satcvtdsintrin.h \
+	avx10_2satcvtintrin.h \
 	avx2intrin.h \
 	avx512bf16intrin.h \
 	avx512bitalgintrin.h \
@@ -17,6 +39,7 @@ INCS=	adxintrin.h \
 	avx512cdintrin.h \
 	avx512dqintrin.h \
 	avx512fintrin.h \
+	avx512fp16intrin.h \
 	avx512ifmaintrin.h \
 	avx512ifmavlintrin.h \
 	avx512vbmi2intrin.h \
@@ -27,6 +50,7 @@ INCS=	adxintrin.h \
 	avx512vlbwintrin.h \
 	avx512vlcdintrin.h \
 	avx512vldqintrin.h \
+	avx512vlfp16intrin.h \
 	avx512vlintrin.h \
 	avx512vlvbmi2intrin.h \
 	avx512vlvnniintrin.h \
@@ -35,7 +59,11 @@ INCS=	adxintrin.h \
 	avx512vp2intersectintrin.h \
 	avx512vpopcntdqintrin.h \
 	avx512vpopcntdqvlintrin.h \
+	avxifmaintrin.h \
 	avxintrin.h \
+	avxneconvertintrin.h \
+	avxvnniint16intrin.h \
+	avxvnniint8intrin.h \
 	avxvnniintrin.h \
 	bmi2intrin.h \
 	bmiintrin.h \
@@ -44,7 +72,9 @@ INCS=	adxintrin.h \
 	clflushoptintrin.h \
 	clwbintrin.h \
 	clzerointrin.h \
+	cmpccxaddintrin.h \
 	cpuid.h \
+	crc32intrin.h \
 	emmintrin.h \
 	enqcmdintrin.h \
 	f16cintrin.h \
@@ -60,34 +90,43 @@ INCS=	adxintrin.h \
 	lwpintrin.h \
 	lzcntintrin.h \
 	mm3dnow.h \
-	mmintrin.h \
 	mm_malloc.h \
+	mmintrin.h \
 	movdirintrin.h \
+	movrs_avx10_2_512intrin.h \
+	movrs_avx10_2intrin.h \
+	movrsintrin.h \
 	mwaitxintrin.h \
 	nmmintrin.h \
 	pconfigintrin.h \
 	pkuintrin.h \
 	pmmintrin.h \
 	popcntintrin.h \
+	prfchiintrin.h \
 	prfchwintrin.h \
 	ptwriteintrin.h \
+	raointintrin.h \
+	rdpruintrin.h \
 	rdseedintrin.h \
 	rtmintrin.h \
 	serializeintrin.h \
 	sgxintrin.h \
+	sha512intrin.h \
 	shaintrin.h \
+	sm3intrin.h \
+	sm4evexintrin.h \
+	sm4intrin.h \
 	smmintrin.h \
 	tbmintrin.h \
 	tmmintrin.h \
 	tsxldtrkintrin.h \
 	uintrintrin.h \
+	usermsrintrin.h \
 	vaesintrin.h \
 	vpclmulqdqintrin.h \
 	waitpkgintrin.h \
 	wbnoinvdintrin.h \
-	__wmmintrin_aes.h \
 	wmmintrin.h \
-	__wmmintrin_pclmul.h \
 	x86gprintrin.h \
 	x86intrin.h \
 	xmmintrin.h \
