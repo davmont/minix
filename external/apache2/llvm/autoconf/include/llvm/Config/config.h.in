@@ -531,4 +531,18 @@
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
+
+/* LLVM 22 config macros (added for the 13->22 in-tree upgrade) */
+#define HAVE_BUILTIN_THREAD_POINTER 1
+#define HAVE_DEREGISTER_FRAME 1
+#define HAVE_GETAUXVAL 1
+#define HAVE_ICONV 0
+#define HAVE_ICU 0
+#define HAVE_MALLINFO2 1
+#define HAVE_PTHREAD_GETNAME_NP 1
+#define HAVE_PTHREAD_SETNAME_NP 1
+#define HAVE_REGISTER_FRAME 1
+#define LLVM_GISEL_COV_ENABLED 0
+#define LLVM_PLUGIN_EXT ".so"
+#define LLVM_WINDOWS_PREFER_FORWARD_SLASH 0
 #endif

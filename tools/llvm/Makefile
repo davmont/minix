@@ -31,6 +31,7 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	    config/tools/clang/include/clang/Config/config.h
 	# LLVM 22 added TargetMCAs.def / TargetExegesis.def, which the autoconf
 	# config step does not emit; install the static copies.
+	mkdir -p config/include/llvm/Config
 	cp ${LLVM_TOPLEVEL}/config/llvm/Config/TargetMCAs.def \
 	   ${LLVM_TOPLEVEL}/config/llvm/Config/TargetExegesis.def \
 	    config/include/llvm/Config/
