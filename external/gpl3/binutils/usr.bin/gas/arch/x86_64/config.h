@@ -226,6 +226,31 @@
 /* SOM support? */
 /* #undef OBJ_MAYBE_SOM */
 
+/* binutils 2.34 gas default-behaviour config knobs (x86_64 upstream defaults). */
+#ifndef DEFAULT_GENERATE_ELF_STT_COMMON
+#define DEFAULT_GENERATE_ELF_STT_COMMON 0
+#endif
+#ifndef DEFAULT_GENERATE_BUILD_NOTES
+#define DEFAULT_GENERATE_BUILD_NOTES 0
+#endif
+#ifndef DEFAULT_GENERATE_X86_RELAX_RELOCATIONS
+#define DEFAULT_GENERATE_X86_RELAX_RELOCATIONS 1
+#endif
+#ifndef DEFAULT_X86_USED_NOTE
+#define DEFAULT_X86_USED_NOTE 0
+#endif
+#ifndef DEFAULT_MIPS_FIX_LOONGSON3_LLSC
+#define DEFAULT_MIPS_FIX_LOONGSON3_LLSC 0
+#endif
+#ifndef DEFAULT_RISCV_ATTR
+#define DEFAULT_RISCV_ATTR 0
+#endif
+
+/* MINIX declares strsignal() in <string.h>; tell gas not to redeclare it. */
+#ifndef HAVE_STRSIGNAL
+#define HAVE_STRSIGNAL 1
+#endif
+
 /* Name of package */
 #define PACKAGE "gas"
 

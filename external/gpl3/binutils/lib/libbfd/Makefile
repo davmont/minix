@@ -39,9 +39,15 @@ SHLIB_MINOR=	0
 LIBDPLIBS+=	z	${.CURDIR}/../../../../../lib/libz
 
 GCPPFLAGS=	${G_archdefs} ${G_DEFS} ${G_INCLUDES} ${G_TDEFAULTS}
+GCPPFLAGS+=	${G_HAVEVECS}
+
+# binutils 2.34's plugin.c (now part of core bfd) needs LIBDIR/BINDIR.
+BINDIR?=	/usr/bin
+
 CPPFLAGS+=	-I${.CURDIR}/arch/${BFD_MACHINE_ARCH} -I${DIST}/include -I. \
 		-I${DIST}/bfd ${GCPPFLAGS:M-D*} ${GCPPFLAGS:M-I*:N-I.*} \
-		-DDEBUGDIR=\"${DEBUGDIR}\"
+		-DDEBUGDIR=\"${DEBUGDIR}\" -DLIBDIR=\"${LIBDIR}\" \
+		-DBINDIR=\"${BINDIR}\"
 
 .if (${BFD_MACHINE_ARCH} == "vax")
 CPPFLAGS.elf.c +=	-O0
