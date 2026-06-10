@@ -124,9 +124,15 @@ SRCS+=	APValue.cpp \
 
 
 
-CLANG_TABLEGEN_SRC=	Opcodes.td
-CLANG_TABLEGEN_OUTPUT= \
+.PATH: ${CLANG_SRCDIR}/include/clang/Basic
+
+CLANG_TABLEGEN_SRC=	Opcodes.td Attr.td
+CLANG_TABLEGEN_OUTPUT.Opcodes.td= \
 	Opcodes.inc|-gen-clang-opcodes
+# LLVM 22: the attribute documentation table is generated locally in lib/AST.
+CLANG_TABLEGEN_INCLUDES.Attr.td=	-I${CLANG_SRCDIR}/include
+CLANG_TABLEGEN_OUTPUT.Attr.td= \
+	AttrDocTable.inc|-gen-clang-attr-doc-table
 
 .include "${.PARSEDIR}/../../tablegen.mk"
 

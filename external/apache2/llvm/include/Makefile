@@ -511,8 +511,10 @@ clang/Basic/Version.inc: ${LLVM_TOPLEVEL}/Makefile.inc
 	printf '#define CLANG_VERSION ${CLANG_VERSION}\n' > ${.TARGET}.tmp
 	printf '#define CLANG_VERSION_STRING "${CLANG_VERSION}"\n' >> ${.TARGET}.tmp
 	printf '#define CLANG_VERSION_MAJOR ${CLANG_VERSION:R:R}\n' >> ${.TARGET}.tmp
+	printf '#define CLANG_VERSION_MAJOR_STRING "${CLANG_VERSION:R:R}"\n' >> ${.TARGET}.tmp
 	printf '#define CLANG_VERSION_MINOR ${CLANG_VERSION:R:E}\n' >> ${.TARGET}.tmp
-	printf '#define CLANG_VERSION_PATCHLEVEL ${CLANG_VERSION:R:R}\n' >> ${.TARGET}.tmp
+	printf '#define CLANG_VERSION_PATCHLEVEL ${CLANG_VERSION:E}\n' >> ${.TARGET}.tmp
+	printf '#define MAX_CLANG_ABI_COMPAT_VERSION ${CLANG_VERSION:R:R}\n' >> ${.TARGET}.tmp
 	mv ${.TARGET}.tmp ${.TARGET}
 .endif # MKLLVM
 
