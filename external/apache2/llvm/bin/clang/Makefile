@@ -122,7 +122,6 @@ LLVM_LIBS= \
 	Plugins \
 	FrontendOpenMP \
 	FrontendOffloading \
-	ObjectYAML \
 	FrontendAtomic \
 	ProfileData \
 	DebugInfoDWARF \
