@@ -16,11 +16,9 @@ INCS=	adxintrin.h \
 	avx512bwintrin.h \
 	avx512cdintrin.h \
 	avx512dqintrin.h \
-	avx512erintrin.h \
 	avx512fintrin.h \
 	avx512ifmaintrin.h \
 	avx512ifmavlintrin.h \
-	avx512pfintrin.h \
 	avx512vbmi2intrin.h \
 	avx512vbmiintrin.h \
 	avx512vbmivlintrin.h \
