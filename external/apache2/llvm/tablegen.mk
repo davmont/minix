@@ -7,7 +7,7 @@
 ${f:C,\|.*$,,}: ${t} ${TOOL_LLVM_TBLGEN}
 	[ -z "${f:C,\|.*$,,}" ] || mkdir -p ${f:C,\|.*$,,:H}
 	${TOOL_LLVM_TBLGEN} -I${LLVM_SRCDIR}/include ${TABLEGEN_INCLUDES} \
-	    ${TABLEGEN_INCLUDES.${t}} ${f:C,^.*\|,,:C,\^, ,} \
+	    ${TABLEGEN_INCLUDES.${t}} ${f:C,^.*\|,,:C,\^, ,g} \
 	    ${.ALLSRC:M*/${t}} -d ${.TARGET}.d -o ${.TARGET}
 DPSRCS+=	${f:C,\|.*$,,}
 CLEANFILES+=	${f:C,\|.*$,,} ${f:C,\|.*$,,:C,$,.d,}
@@ -22,7 +22,7 @@ ${f:C,\|.*$,,}: ${t} ${TOOL_CLANG_TBLGEN}
 	[ -z "${f:C,\|.*$,,}" ] || mkdir -p ${f:C,\|.*$,,:H}
 	${TOOL_CLANG_TBLGEN} -I${LLVM_SRCDIR}/include \
 	    ${CLANG_TABLEGEN_INCLUDES} ${CLANG_TABLEGEN_INCLUDES.${t}} \
-	    ${f:C,^.*\|,,:C,\^, ,} \
+	    ${f:C,^.*\|,,:C,\^, ,g} \
 	    ${.ALLSRC:M*/${t}} -d ${.TARGET}.d -o ${.TARGET}
 DPSRCS+=	${f:C,\|.*$,,}
 CLEANFILES+=	${f:C,\|.*$,,} ${f:C,\|.*$,,:C,$,.d,}
