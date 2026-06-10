@@ -218,7 +218,6 @@ SUBDIR+=	libclang \
 	libLLVMObjCopy \
 	libLLVMOptDriver \
 	libLLVMPlugins \
-	libLLVMPrintFunctionNames \
 	libLLVMSandboxIR \
 	libLLVMTableGenBasic \
 	libLLVMTableGenCommon \
