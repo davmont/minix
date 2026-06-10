@@ -170,7 +170,7 @@
 ./usr/include/c++/__utility
 ./usr/include/c++/__variant
 ./usr/include/c++/__vector
-./usr/include/clang-13.0
+./usr/include/clang-22.1
 ./usr/include/crypto
 ./usr/include/ddekit
 ./usr/include/ddekit/minix
