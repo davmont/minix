@@ -16,39 +16,51 @@ SRCS+=	AbstractCallSite.cpp \
 	BasicBlock.cpp \
 	BuiltinGCs.cpp \
 	Comdat.cpp \
+	ConstantFPRange.cpp \
 	ConstantFold.cpp \
 	ConstantRange.cpp \
+	ConstantRangeList.cpp \
 	Constants.cpp \
+	ConvergenceVerifier.cpp \
 	Core.cpp \
+	CycleInfo.cpp \
+	DIBuilder.cpp \
+	DIExpressionOptimizer.cpp \
 	DataLayout.cpp \
 	DebugInfo.cpp \
 	DebugInfoMetadata.cpp \
 	DebugLoc.cpp \
+	DebugProgramInstruction.cpp \
 	DiagnosticHandler.cpp \
 	DiagnosticInfo.cpp \
 	DiagnosticPrinter.cpp \
-	DIBuilder.cpp \
 	Dominators.cpp \
+	DroppedVariableStats.cpp \
+	DroppedVariableStatsIR.cpp \
+	EHPersonalities.cpp \
 	FPEnv.cpp \
 	Function.cpp \
 	GCStrategy.cpp \
-	Globals.cpp \
 	GVMaterializer.cpp \
+	Globals.cpp \
+	IRBuilder.cpp \
+	IRPrintingPasses.cpp \
 	InlineAsm.cpp \
 	Instruction.cpp \
 	Instructions.cpp \
 	IntrinsicInst.cpp \
-	IRBuilder.cpp \
-	IRPrintingPasses.cpp \
-	LegacyPassManager.cpp \
+	Intrinsics.cpp \
 	LLVMContext.cpp \
 	LLVMContextImpl.cpp \
 	LLVMRemarkStreamer.cpp \
-	Mangler.cpp \
+	LegacyPassManager.cpp \
 	MDBuilder.cpp \
+	Mangler.cpp \
+	MemoryModelRelaxationAnnotations.cpp \
 	Metadata.cpp \
 	Module.cpp \
 	ModuleSummaryIndex.cpp \
+	NVVMIntrinsicUtils.cpp \
 	Operator.cpp \
 	OptBisect.cpp \
 	Pass.cpp \
@@ -57,18 +69,24 @@ SRCS+=	AbstractCallSite.cpp \
 	PassRegistry.cpp \
 	PassTimingInfo.cpp \
 	PrintPasses.cpp \
+	ProfDataUtils.cpp \
 	ProfileSummary.cpp \
 	PseudoProbe.cpp \
 	ReplaceConstant.cpp \
+	RuntimeLibcalls.cpp \
+	SSAContext.cpp \
 	SafepointIRVerifier.cpp \
 	Statepoint.cpp \
 	StructuralHash.cpp \
 	Type.cpp \
 	TypeFinder.cpp \
+	TypedPointerType.cpp \
 	Use.cpp \
 	User.cpp \
+	VFABIDemangler.cpp \
 	Value.cpp \
 	ValueSymbolTable.cpp \
+	VectorTypeUtils.cpp \
 	Verifier.cpp
 
 .if defined(HOSTLIB)

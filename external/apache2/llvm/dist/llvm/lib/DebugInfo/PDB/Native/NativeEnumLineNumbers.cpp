@@ -8,13 +8,9 @@
 
 #include "llvm/DebugInfo/PDB/Native/NativeEnumLineNumbers.h"
 
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/DebugInfo/CodeView/DebugLinesSubsection.h"
-#include "llvm/DebugInfo/CodeView/DebugSubsectionRecord.h"
-#include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/Native/NativeLineNumber.h"
-#include "llvm/DebugInfo/PDB/Native/NativeSession.h"
-#include "llvm/DebugInfo/PDB/Native/NativeSourceFile.h"
+
+#include <vector>
 
 using namespace llvm;
 using namespace llvm::codeview;

@@ -15,9 +15,11 @@
 #ifndef LLVM_ANALYSIS_LOOPUNROLLANALYZER_H
 #define LLVM_ANALYSIS_LOOPUNROLLANALYZER_H
 
-#include "llvm/Analysis/InstructionSimplify.h"
-#include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/InstVisitor.h"
+#include "llvm/Support/Compiler.h"
 
 // This class is used to get an estimate of the optimization effects that we
 // could get from complete loop unrolling. It comes from the fact that some
@@ -36,17 +38,19 @@
 // And finally:
 //   v = b[1]
 namespace llvm {
+class Instruction;
+
 class UnrolledInstAnalyzer : private InstVisitor<UnrolledInstAnalyzer, bool> {
   typedef InstVisitor<UnrolledInstAnalyzer, bool> Base;
   friend class InstVisitor<UnrolledInstAnalyzer, bool>;
   struct SimplifiedAddress {
     Value *Base = nullptr;
-    ConstantInt *Offset = nullptr;
+    APInt Offset;
   };
 
 public:
   UnrolledInstAnalyzer(unsigned Iteration,
-                       DenseMap<Value *, Constant *> &SimplifiedValues,
+                       DenseMap<Value *, Value *> &SimplifiedValues,
                        ScalarEvolution &SE, const Loop *L)
       : SimplifiedValues(SimplifiedValues), SE(SE), L(L) {
       IterationNumber = SE.getConstant(APInt(64, Iteration));
@@ -68,27 +72,24 @@ private:
   /// iteration.
   const SCEV *IterationNumber;
 
-  /// A Value->Constant map for keeping values that we managed to
-  /// constant-fold on the given iteration.
-  ///
   /// While we walk the loop instructions, we build up and maintain a mapping
   /// of simplified values specific to this iteration.  The idea is to propagate
   /// any special information we have about loads that can be replaced with
   /// constants after complete unrolling, and account for likely simplifications
   /// post-unrolling.
-  DenseMap<Value *, Constant *> &SimplifiedValues;
+  DenseMap<Value *, Value *> &SimplifiedValues;
 
   ScalarEvolution &SE;
   const Loop *L;
 
   bool simplifyInstWithSCEV(Instruction *I);
 
-  bool visitInstruction(Instruction &I);
-  bool visitBinaryOperator(BinaryOperator &I);
-  bool visitLoad(LoadInst &I);
-  bool visitCastInst(CastInst &I);
-  bool visitCmpInst(CmpInst &I);
-  bool visitPHINode(PHINode &PN);
+  LLVM_ABI bool visitInstruction(Instruction &I);
+  LLVM_ABI bool visitBinaryOperator(BinaryOperator &I);
+  LLVM_ABI bool visitLoad(LoadInst &I);
+  LLVM_ABI bool visitCastInst(CastInst &I);
+  LLVM_ABI bool visitCmpInst(CmpInst &I);
+  LLVM_ABI bool visitPHINode(PHINode &PN);
 };
 }
 #endif

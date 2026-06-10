@@ -16,17 +16,16 @@
 #include "llvm/ADT/FunctionExtras.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
 #include "llvm/ExecutionEngine/Orc/Layer.h"
+#include "llvm/Support/Compiler.h"
 #include <memory>
-#include <string>
 
 namespace llvm {
-class Module;
 namespace orc {
 
 /// A layer that applies a transform to emitted modules.
 /// The transform function is responsible for locking the ThreadSafeContext
 /// before operating on the module.
-class IRTransformLayer : public IRLayer {
+class LLVM_ABI IRTransformLayer : public IRLayer {
 public:
   using TransformFunction = unique_function<Expected<ThreadSafeModule>(
       ThreadSafeModule, MaterializationResponsibility &R)>;

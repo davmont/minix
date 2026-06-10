@@ -13,8 +13,6 @@
 #ifndef LLVM_LIB_TARGET_LANAI_DISASSEMBLER_LANAIDISASSEMBLER_H
 #define LLVM_LIB_TARGET_LANAI_DISASSEMBLER_LANAIDISASSEMBLER_H
 
-#define DEBUG_TYPE "lanai-disassembler"
-
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 
 namespace llvm {

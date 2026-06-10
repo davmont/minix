@@ -14,6 +14,9 @@
 #ifndef LLVM_SUPPORT_CODEGEN_H
 #define LLVM_SUPPORT_CODEGEN_H
 
+#include <cstdint>
+#include <optional>
+
 namespace llvm {
 
   // Relocation model types.
@@ -47,28 +50,129 @@ namespace llvm {
     };
   }
 
-  // Code generation optimization level.
-  namespace CodeGenOpt {
-    enum Level {
-      None = 0,      // -O0
-      Less = 1,      // -O1
-      Default = 2,   // -O2, -Os
-      Aggressive = 3 // -O3
-    };
+  enum class ExceptionHandling {
+    None,     ///< No exception support
+    DwarfCFI, ///< DWARF-like instruction based exceptions
+    SjLj,     ///< setjmp/longjmp based exceptions
+    ARM,      ///< ARM EHABI
+    WinEH,    ///< Windows Exception Handling
+    Wasm,     ///< WebAssembly Exception Handling
+    AIX,      ///< AIX Exception Handling
+    ZOS, ///< z/OS MVS Exception Handling. Very similar to DwarfCFI, but the
+         ///< PPA1 is used instead of an .eh_frame section.
+  };
+
+  namespace FloatABI {
+  enum ABIType {
+    Default, // Target-specific (either soft or hard depending on triple, etc).
+    Soft,    // Soft float.
+    Hard     // Hard float.
+  };
   }
+
+  enum class EABI {
+    Unknown,
+    Default, // Default means not specified
+    EABI4,   // Target-specific (either 4, 5 or gnu depending on triple).
+    EABI5,
+    GNU
+  };
+
+  /// Code generation optimization level.
+  enum class CodeGenOptLevel {
+    None = 0,      ///< -O0
+    Less = 1,      ///< -O1
+    Default = 2,   ///< -O2, -Os, -Oz
+    Aggressive = 3 ///< -O3
+  };
+
+  namespace CodeGenOpt {
+  /// Get the \c Level identified by the integer \p OL.
+  ///
+  /// Returns std::nullopt if \p OL is invalid.
+  inline std::optional<CodeGenOptLevel> getLevel(int OL) {
+    if (OL < 0 || OL > 3)
+      return std::nullopt;
+    return static_cast<CodeGenOptLevel>(OL);
+  }
+  /// Parse \p C as a single digit integer and get matching \c CodeGenLevel.
+  ///
+  /// Returns std::nullopt if the input is not a valid optimization level.
+  inline std::optional<CodeGenOptLevel> parseLevel(char C) {
+    if (C < '0')
+      return std::nullopt;
+    return getLevel(static_cast<int>(C - '0'));
+  }
+  } // namespace CodeGenOpt
 
   /// These enums are meant to be passed into addPassesToEmitFile to indicate
   /// what type of file to emit, and returned by it to indicate what type of
   /// file could actually be made.
-  enum CodeGenFileType {
-    CGFT_AssemblyFile,
-    CGFT_ObjectFile,
-    CGFT_Null         // Do not emit any output.
+  enum class CodeGenFileType {
+    AssemblyFile,
+    ObjectFile,
+    Null // Do not emit any output.
   };
 
   // Specify what functions should keep the frame pointer.
-  enum class FramePointerKind { None, NonLeaf, All };
+  enum class FramePointerKind {
+    None,
+    NonLeaf,
+    All,
+    Reserved,
+    NonLeafNoReserve
+  };
 
-}  // end llvm namespace
+  // Specify what type of zeroing callee-used registers.
+  namespace ZeroCallUsedRegs {
+  const unsigned ONLY_USED = 1U << 1;
+  const unsigned ONLY_GPR = 1U << 2;
+  const unsigned ONLY_ARG = 1U << 3;
+
+  enum class ZeroCallUsedRegsKind : unsigned int {
+    // Don't zero any call-used regs.
+    Skip = 1U << 0,
+    // Only zeros call-used GPRs used in the fn and pass args.
+    UsedGPRArg = ONLY_USED | ONLY_GPR | ONLY_ARG,
+    // Only zeros call-used GPRs used in the fn.
+    UsedGPR = ONLY_USED | ONLY_GPR,
+    // Only zeros call-used regs used in the fn and pass args.
+    UsedArg = ONLY_USED | ONLY_ARG,
+    // Only zeros call-used regs used in the fn.
+    Used = ONLY_USED,
+    // Zeros all call-used GPRs that pass args.
+    AllGPRArg = ONLY_GPR | ONLY_ARG,
+    // Zeros all call-used GPRs.
+    AllGPR = ONLY_GPR,
+    // Zeros all call-used regs that pass args.
+    AllArg = ONLY_ARG,
+    // Zeros all call-used regs.
+    All = 0,
+  };
+  } // namespace ZeroCallUsedRegs
+
+  enum class UWTableKind {
+    None = 0,  ///< No unwind table requested
+    Sync = 1,  ///< "Synchronous" unwind tables
+    Async = 2, ///< "Asynchronous" unwind tables (instr precise)
+    Default = 2,
+  };
+
+  enum class FunctionReturnThunksKind : unsigned int {
+    Keep = 0,    ///< No function return thunk.
+    Extern = 1,  ///< Replace returns with jump to thunk, don't emit thunk.
+    Invalid = 2, ///< Not used.
+  };
+
+  enum class WinX64EHUnwindV2Mode {
+    // Don't use unwind v2 (i.e., use v1).
+    Disabled = 0,
+    // Use unwind v2 here possible, otherwise fallback to v1.
+    BestEffort = 1,
+    // Use unwind v2 everywhere, otherwise raise an error.
+    Required = 2,
+  };
+
+  } // namespace llvm
 
 #endif

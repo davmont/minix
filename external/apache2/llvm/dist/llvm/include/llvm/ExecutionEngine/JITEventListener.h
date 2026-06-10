@@ -19,12 +19,12 @@
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/Support/CBindingWrapping.h"
+#include "llvm/Support/Compiler.h"
 #include <cstdint>
 
 namespace llvm {
 
 class IntelJITEventsWrapper;
-class MachineFunction;
 class OProfileWrapper;
 
 namespace object {
@@ -38,7 +38,7 @@ class ObjectFile;
 /// profilers and debuggers that need to know where functions have been emitted.
 ///
 /// The default implementation of each method does nothing.
-class JITEventListener {
+class LLVM_ABI JITEventListener {
 public:
   using ObjectKey = uint64_t;
 
@@ -61,7 +61,7 @@ public:
   /// a previously emitted object is released.
   virtual void notifyFreeingObject(ObjectKey K) {}
 
-  // Get a pointe to the GDB debugger registration listener.
+  // Get a pointer to the GDB debugger registration listener.
   static JITEventListener *createGDBRegistrationListener();
 
 #if LLVM_USE_INTEL_JITEVENTS

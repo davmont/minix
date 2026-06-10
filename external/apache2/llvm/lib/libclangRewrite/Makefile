@@ -6,9 +6,7 @@ LIB=	clangRewrite
 
 .PATH: ${CLANG_SRCDIR}/lib/Rewrite
 
-SRCS+=	DeltaTree.cpp \
-	HTMLRewrite.cpp \
-	RewriteRope.cpp \
+SRCS+=	HTMLRewrite.cpp \
 	Rewriter.cpp \
 	TokenRewriter.cpp
 

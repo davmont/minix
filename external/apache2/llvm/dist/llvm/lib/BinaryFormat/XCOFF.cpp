@@ -9,6 +9,10 @@
 #include "llvm/BinaryFormat/XCOFF.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/Error.h"
+#include "llvm/TargetParser/PPCTargetParser.h"
 
 using namespace llvm;
 
@@ -76,6 +80,7 @@ StringRef XCOFF::getRelocationTypeString(XCOFF::RelocationType Type) {
   }
   return "Unknown";
 }
+#undef RELOC_CASE
 
 #define LANG_CASE(A)                                                           \
   case XCOFF::TracebackTable::A:                                               \
@@ -104,15 +109,90 @@ StringRef XCOFF::getNameForTracebackTableLanguageId(
 }
 #undef LANG_CASE
 
-SmallString<32> XCOFF::parseParmsType(uint32_t Value, unsigned ParmsNum) {
+XCOFF::CFileCpuId XCOFF::getCpuID(StringRef CPUName) {
+  StringRef CPU = PPC::normalizeCPUName(CPUName);
+  return StringSwitch<XCOFF::CFileCpuId>(CPU)
+      .Cases({"generic", "COM"}, XCOFF::TCPU_COM)
+      .Case("601", XCOFF::TCPU_601)
+      .Cases({"602", "603", "603e", "603ev"}, XCOFF::TCPU_603)
+      .Cases({"604", "604e"}, XCOFF::TCPU_604)
+      .Case("620", XCOFF::TCPU_620)
+      .Case("970", XCOFF::TCPU_970)
+      .Cases({"a2", "g3", "g4", "g5", "e500"}, XCOFF::TCPU_COM)
+      .Cases({"pwr3", "pwr4"}, XCOFF::TCPU_COM)
+      .Cases({"pwr5", "PWR5"}, XCOFF::TCPU_PWR5)
+      .Cases({"pwr5x", "PWR5X"}, XCOFF::TCPU_PWR5X)
+      .Cases({"pwr6", "PWR6"}, XCOFF::TCPU_PWR6)
+      .Cases({"pwr6x", "PWR6E"}, XCOFF::TCPU_PWR6E)
+      .Cases({"pwr7", "PWR7"}, XCOFF::TCPU_PWR7)
+      .Cases({"pwr8", "PWR8"}, XCOFF::TCPU_PWR8)
+      .Cases({"pwr9", "PWR9"}, XCOFF::TCPU_PWR9)
+      .Cases({"pwr10", "PWR10"}, XCOFF::TCPU_PWR10)
+      .Cases({"ppc", "PPC", "ppc32", "ppc64"}, XCOFF::TCPU_COM)
+      .Case("ppc64le", XCOFF::TCPU_PWR8)
+      .Case("future", XCOFF::TCPU_PWR10)
+      .Cases({"any", "ANY"}, XCOFF::TCPU_ANY)
+      .Default(XCOFF::TCPU_INVALID);
+}
+
+#define TCPU_CASE(A)                                                           \
+  case XCOFF::TCPU_##A:                                                        \
+    return #A;
+StringRef XCOFF::getTCPUString(XCOFF::CFileCpuId TCPU) {
+  switch (TCPU) {
+    TCPU_CASE(INVALID)
+    TCPU_CASE(PPC)
+    TCPU_CASE(PPC64)
+    TCPU_CASE(COM)
+    TCPU_CASE(PWR)
+    TCPU_CASE(ANY)
+    TCPU_CASE(601)
+    TCPU_CASE(603)
+    TCPU_CASE(604)
+    TCPU_CASE(620)
+    TCPU_CASE(A35)
+    TCPU_CASE(PWR5)
+    TCPU_CASE(970)
+    TCPU_CASE(PWR6)
+    TCPU_CASE(PWR5X)
+    TCPU_CASE(PWR6E)
+    TCPU_CASE(PWR7)
+    TCPU_CASE(PWR8)
+    TCPU_CASE(PWR9)
+    TCPU_CASE(PWR10)
+    TCPU_CASE(PWRX)
+  }
+  return "INVALID";
+}
+#undef TCPU_CASE
+
+Expected<SmallString<32>> XCOFF::parseParmsType(uint32_t Value,
+                                                unsigned FixedParmsNum,
+                                                unsigned FloatingParmsNum) {
   SmallString<32> ParmsType;
-  for (unsigned I = 0; I < ParmsNum; ++I) {
-    if (I != 0)
+  int Bits = 0;
+  unsigned ParsedFixedNum = 0;
+  unsigned ParsedFloatingNum = 0;
+  unsigned ParsedNum = 0;
+  unsigned ParmsNum = FixedParmsNum + FloatingParmsNum;
+
+  // In the function PPCFunctionInfo::getParmsType(), when there are no vector
+  // parameters, the 31st bit of ParmsType is always zero even if it indicates a
+  // floating point parameter. The parameter type information is lost. There
+  // are only 8 GPRs used for parameters passing, the floating parameters
+  // also occupy GPRs if there are available, so the 31st bit can never be a
+  // fixed parameter. At the same time, we also do not know whether the zero of
+  // the 31st bit indicates a float or double parameter type here. Therefore, we
+  // ignore the 31st bit.
+  while (Bits < 31 && ParsedNum < ParmsNum) {
+    if (++ParsedNum > 1)
       ParmsType += ", ";
     if ((Value & TracebackTable::ParmTypeIsFloatingBit) == 0) {
       // Fixed parameter type.
       ParmsType += "i";
+      ++ParsedFixedNum;
       Value <<= 1;
+      ++Bits;
     } else {
       if ((Value & TracebackTable::ParmTypeFloatingIsDoubleBit) == 0)
         // Float parameter type.
@@ -120,11 +200,21 @@ SmallString<32> XCOFF::parseParmsType(uint32_t Value, unsigned ParmsNum) {
       else
         // Double parameter type.
         ParmsType += "d";
-
+      ++ParsedFloatingNum;
       Value <<= 2;
+      Bits += 2;
     }
   }
-  assert(Value == 0u && "ParmsType encodes more than ParmsNum parameters.");
+
+  // We have more parameters than the 32 Bits could encode.
+  if (ParsedNum < ParmsNum)
+    ParmsType += ", ...";
+
+  if (Value != 0u || ParsedFixedNum > FixedParmsNum ||
+      ParsedFloatingNum > FloatingParmsNum)
+    return createStringError(errc::invalid_argument,
+                             "ParmsType encodes can not map to ParmsNum "
+                             "parameters in parseParmsType.");
   return ParmsType;
 }
 
@@ -153,4 +243,94 @@ SmallString<32> XCOFF::getExtendedTBTableFlagString(uint8_t Flag) {
   return Res;
 }
 
-#undef RELOC_CASE
+Expected<SmallString<32>>
+XCOFF::parseParmsTypeWithVecInfo(uint32_t Value, unsigned FixedParmsNum,
+                                 unsigned FloatingParmsNum,
+                                 unsigned VectorParmsNum) {
+  SmallString<32> ParmsType;
+
+  unsigned ParsedFixedNum = 0;
+  unsigned ParsedFloatingNum = 0;
+  unsigned ParsedVectorNum = 0;
+  unsigned ParsedNum = 0;
+  unsigned ParmsNum = FixedParmsNum + FloatingParmsNum + VectorParmsNum;
+
+  for (int Bits = 0; Bits < 32 && ParsedNum < ParmsNum; Bits += 2) {
+    if (++ParsedNum > 1)
+      ParmsType += ", ";
+
+    switch (Value & TracebackTable::ParmTypeMask) {
+    case TracebackTable::ParmTypeIsFixedBits:
+      ParmsType += "i";
+      ++ParsedFixedNum;
+      break;
+    case TracebackTable::ParmTypeIsVectorBits:
+      ParmsType += "v";
+      ++ParsedVectorNum;
+      break;
+    case TracebackTable::ParmTypeIsFloatingBits:
+      ParmsType += "f";
+      ++ParsedFloatingNum;
+      break;
+    case TracebackTable::ParmTypeIsDoubleBits:
+      ParmsType += "d";
+      ++ParsedFloatingNum;
+      break;
+    default:
+      assert(false && "Unrecognized bits in ParmsType.");
+    }
+    Value <<= 2;
+  }
+
+  // We have more parameters than the 32 Bits could encode.
+  if (ParsedNum < ParmsNum)
+    ParmsType += ", ...";
+
+  if (Value != 0u || ParsedFixedNum > FixedParmsNum ||
+      ParsedFloatingNum > FloatingParmsNum || ParsedVectorNum > VectorParmsNum)
+    return createStringError(
+        errc::invalid_argument,
+        "ParmsType encodes can not map to ParmsNum parameters "
+        "in parseParmsTypeWithVecInfo.");
+
+  return ParmsType;
+}
+
+Expected<SmallString<32>> XCOFF::parseVectorParmsType(uint32_t Value,
+                                                      unsigned ParmsNum) {
+  SmallString<32> ParmsType;
+  unsigned ParsedNum = 0;
+  for (int Bits = 0; ParsedNum < ParmsNum && Bits < 32; Bits += 2) {
+    if (++ParsedNum > 1)
+      ParmsType += ", ";
+    switch (Value & TracebackTable::ParmTypeMask) {
+    case TracebackTable::ParmTypeIsVectorCharBit:
+      ParmsType += "vc";
+      break;
+
+    case TracebackTable::ParmTypeIsVectorShortBit:
+      ParmsType += "vs";
+      break;
+
+    case TracebackTable::ParmTypeIsVectorIntBit:
+      ParmsType += "vi";
+      break;
+
+    case TracebackTable::ParmTypeIsVectorFloatBit:
+      ParmsType += "vf";
+      break;
+    }
+
+    Value <<= 2;
+  }
+
+  // We have more parameters than the 32 Bits could encode.
+  if (ParsedNum < ParmsNum)
+    ParmsType += ", ...";
+
+  if (Value != 0u)
+    return createStringError(errc::invalid_argument,
+                             "ParmsType encodes more than ParmsNum parameters "
+                             "in parseVectorParmsType.");
+  return ParmsType;
+}

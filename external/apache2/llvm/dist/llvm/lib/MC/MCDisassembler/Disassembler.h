@@ -16,7 +16,7 @@
 #ifndef LLVM_LIB_MC_MCDISASSEMBLER_DISASSEMBLER_H
 #define LLVM_LIB_MC_MCDISASSEMBLER_DISASSEMBLER_H
 
-#include "llvm-c/Disassembler.h"
+#include "llvm-c/DisassemblerTypes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -98,7 +98,7 @@ public:
         MAI(std::move(MAI)), MRI(std::move(MRI)), MSI(std::move(MSI)),
         MII(std::move(MII)), Ctx(std::move(Ctx)), DisAsm(std::move(DisAsm)),
         IP(std::move(IP)), Options(0), CommentStream(CommentsToEmit) {}
-  const std::string &getTripleName() const { return TripleName; }
+  StringRef getTripleName() const { return TripleName; }
   void *getDisInfo() const { return DisInfo; }
   int getTagType() const { return TagType; }
   LLVMOpInfoCallback getGetOpInfo() const { return GetOpInfo; }

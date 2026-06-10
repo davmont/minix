@@ -17,11 +17,11 @@ SRCS+=	MipsABIFlagsSection.cpp \
 	MipsInstPrinter.cpp \
 	MipsMCAsmInfo.cpp \
 	MipsMCCodeEmitter.cpp \
-	MipsMCExpr.cpp \
 	MipsMCTargetDesc.cpp \
-	MipsNaClELFStreamer.cpp \
 	MipsOptionRecord.cpp \
-	MipsTargetStreamer.cpp
+	MipsTargetStreamer.cpp \
+	MipsWinCOFFObjectWriter.cpp \
+	MipsWinCOFFStreamer.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

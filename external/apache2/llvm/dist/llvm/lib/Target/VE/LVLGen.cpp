@@ -10,9 +10,7 @@
 #include "VESubtarget.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
@@ -125,8 +123,8 @@ bool LVLGen::runOnMachineFunction(MachineFunction &F) {
   TII = Subtarget.getInstrInfo();
   TRI = Subtarget.getRegisterInfo();
 
-  for (MachineFunction::iterator FI = F.begin(), FE = F.end(); FI != FE; ++FI)
-    Changed |= runOnMachineBasicBlock(*FI);
+  for (MachineBasicBlock &MBB : F)
+    Changed |= runOnMachineBasicBlock(MBB);
 
   if (Changed) {
     LLVM_DEBUG(dbgs() << "\n");

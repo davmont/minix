@@ -23,18 +23,17 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/SystemUtils.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include <memory>
+#include <optional>
 using namespace llvm;
 
-cl::OptionCategory AsCat("llvm-as Options");
+static cl::OptionCategory AsCat("llvm-as Options");
 
-static cl::opt<std::string> InputFilename(cl::Positional,
-                                          cl::desc("<input .llvm file>"),
-                                          cl::init("-"));
+static cl::opt<std::string>
+    InputFilename(cl::Positional, cl::desc("<input .ll file>"), cl::init("-"));
 
 static cl::opt<std::string> OutputFilename("o",
                                            cl::desc("Override output filename"),
@@ -58,11 +57,6 @@ static cl::opt<bool>
                   cl::desc("Do not run verifier on input LLVM (dangerous!)"),
                   cl::cat(AsCat));
 
-static cl::opt<bool> PreserveBitcodeUseListOrder(
-    "preserve-bc-uselistorder",
-    cl::desc("Preserve use-list order when writing LLVM bitcode."),
-    cl::init(true), cl::Hidden, cl::cat(AsCat));
-
 static cl::opt<std::string> ClDataLayout("data-layout",
                                          cl::desc("data layout string to use"),
                                          cl::value_desc("layout-string"),
@@ -75,7 +69,7 @@ static void WriteOutputFile(const Module *M, const ModuleSummaryIndex *Index) {
       OutputFilename = "-";
     } else {
       StringRef IFN = InputFilename;
-      OutputFilename = (IFN.endswith(".ll") ? IFN.drop_back(3) : IFN).str();
+      OutputFilename = (IFN.ends_with(".ll") ? IFN.drop_back(3) : IFN).str();
       OutputFilename += ".bc";
     }
   }
@@ -101,12 +95,12 @@ static void WriteOutputFile(const Module *M, const ModuleSummaryIndex *Index) {
       // any non-null Index along with it as a per-module Index.
       // If both are empty, this will give an empty module block, which is
       // the expected behavior.
-      WriteBitcodeToFile(*M, Out->os(), PreserveBitcodeUseListOrder,
+      WriteBitcodeToFile(*M, Out->os(), /* ShouldPreserveUseListOrder */ true,
                          IndexToWrite, EmitModuleHash);
     else
       // Otherwise, with an empty Module but non-empty Index, we write a
       // combined index.
-      WriteIndexToFile(*IndexToWrite, Out->os());
+      writeIndexToFile(*IndexToWrite, Out->os());
   }
 
   // Declare success.
@@ -115,15 +109,15 @@ static void WriteOutputFile(const Module *M, const ModuleSummaryIndex *Index) {
 
 int main(int argc, char **argv) {
   InitLLVM X(argc, argv);
-  LLVMContext Context;
   cl::HideUnrelatedOptions(AsCat);
   cl::ParseCommandLineOptions(argc, argv, "llvm .ll -> .bc assembler\n");
+  LLVMContext Context;
 
   // Parse the file now...
   SMDiagnostic Err;
-  auto SetDataLayout = [](StringRef) -> Optional<std::string> {
+  auto SetDataLayout = [](StringRef, StringRef) -> std::optional<std::string> {
     if (ClDataLayout.empty())
-      return None;
+      return std::nullopt;
     return ClDataLayout;
   };
   ParsedModuleAndIndex ModuleAndIndex;
@@ -135,16 +129,19 @@ int main(int argc, char **argv) {
                                                 nullptr, SetDataLayout);
   }
   std::unique_ptr<Module> M = std::move(ModuleAndIndex.Mod);
-  if (!M.get()) {
+  if (!M) {
     Err.print(argv[0], errs());
     return 1;
   }
+
+  M->removeDebugIntrinsicDeclarations();
+
   std::unique_ptr<ModuleSummaryIndex> Index = std::move(ModuleAndIndex.Index);
 
   if (!DisableVerify) {
     std::string ErrorStr;
     raw_string_ostream OS(ErrorStr);
-    if (verifyModule(*M.get(), &OS)) {
+    if (verifyModule(*M, &OS)) {
       errs() << argv[0]
              << ": assembly parsed, but does not verify as correct!\n";
       errs() << OS.str();
@@ -154,7 +151,7 @@ int main(int argc, char **argv) {
   }
 
   if (DumpAsm) {
-    errs() << "Here's the assembly:\n" << *M.get();
+    errs() << "Here's the assembly:\n" << *M;
     if (Index.get() && Index->begin() != Index->end())
       Index->print(errs());
   }

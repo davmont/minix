@@ -45,14 +45,11 @@
 #ifndef LLVM_ANALYSIS_CALLGRAPH_H
 #define LLVM_ANALYSIS_CALLGRAPH_H
 
-#include "llvm/ADT/GraphTraits.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Compiler.h"
 #include <cassert>
 #include <map>
 #include <memory>
@@ -61,7 +58,9 @@
 
 namespace llvm {
 
+template <class GraphType> struct GraphTraits;
 class CallGraphNode;
+class Function;
 class Module;
 class raw_ostream;
 
@@ -88,12 +87,12 @@ class CallGraph {
   std::unique_ptr<CallGraphNode> CallsExternalNode;
 
 public:
-  explicit CallGraph(Module &M);
-  CallGraph(CallGraph &&Arg);
-  ~CallGraph();
+  LLVM_ABI explicit CallGraph(Module &M);
+  LLVM_ABI CallGraph(CallGraph &&Arg);
+  LLVM_ABI ~CallGraph();
 
-  void print(raw_ostream &OS) const;
-  void dump() const;
+  LLVM_ABI void print(raw_ostream &OS) const;
+  LLVM_ABI void dump() const;
 
   using iterator = FunctionMapTy::iterator;
   using const_iterator = FunctionMapTy::const_iterator;
@@ -101,8 +100,8 @@ public:
   /// Returns the module the call graph corresponds to.
   Module &getModule() const { return M; }
 
-  bool invalidate(Module &, const PreservedAnalyses &PA,
-                  ModuleAnalysisManager::Invalidator &);
+  LLVM_ABI bool invalidate(Module &, const PreservedAnalyses &PA,
+                           ModuleAnalysisManager::Invalidator &);
 
   inline iterator begin() { return FunctionMap.begin(); }
   inline iterator end() { return FunctionMap.end(); }
@@ -131,10 +130,6 @@ public:
     return CallsExternalNode.get();
   }
 
-  /// Old node has been deleted, and New is to be used in its place, update the
-  /// ExternalCallingNode.
-  void ReplaceExternalCallEdge(CallGraphNode *Old, CallGraphNode *New);
-
   //===---------------------------------------------------------------------
   // Functions to keep a call graph up to date with a function that has been
   // modified.
@@ -146,18 +141,18 @@ public:
   /// destroyed.  This is only valid if the function does not call any other
   /// functions (ie, there are no edges in it's CGN).  The easiest way to do
   /// this is to dropAllReferences before calling this.
-  Function *removeFunctionFromModule(CallGraphNode *CGN);
+  LLVM_ABI Function *removeFunctionFromModule(CallGraphNode *CGN);
 
   /// Similar to operator[], but this will insert a new CallGraphNode for
   /// \c F if one does not already exist.
-  CallGraphNode *getOrInsertFunction(const Function *F);
+  LLVM_ABI CallGraphNode *getOrInsertFunction(const Function *F);
 
   /// Populate \p CGN based on the calls inside the associated function.
-  void populateCallGraphNode(CallGraphNode *CGN);
+  LLVM_ABI void populateCallGraphNode(CallGraphNode *CGN);
 
   /// Add a function to the call graph, and link the node to all of the
   /// functions that it calls.
-  void addToCallGraph(Function *F);
+  LLVM_ABI void addToCallGraph(Function *F);
 };
 
 /// A node in the call graph for a module.
@@ -176,7 +171,7 @@ public:
   /// first field and it is not supposed to be `nullptr`.
   /// Reference edges, for example, are used for connecting broker function
   /// caller to the callback function for callback call sites.
-  using CallRecord = std::pair<Optional<WeakTrackingVH>, CallGraphNode *>;
+  using CallRecord = std::pair<std::optional<WeakTrackingVH>, CallGraphNode *>;
 
 public:
   using CalledFunctionsVector = std::vector<CallRecord>;
@@ -215,8 +210,8 @@ public:
   }
 
   /// Print out this call graph node.
-  void dump() const;
-  void print(raw_ostream &OS) const;
+  LLVM_ABI void dump() const;
+  LLVM_ABI void print(raw_ostream &OS) const;
 
   //===---------------------------------------------------------------------
   // Methods to keep a call graph up to date with a function that has been
@@ -241,11 +236,9 @@ public:
 
   /// Adds a function to the list of functions called by this one.
   void addCalledFunction(CallBase *Call, CallGraphNode *M) {
-    assert(!Call || !Call->getCalledFunction() ||
-           !Call->getCalledFunction()->isIntrinsic() ||
-           !Intrinsic::isLeaf(Call->getCalledFunction()->getIntrinsicID()));
-    CalledFunctions.emplace_back(
-        Call ? Optional<WeakTrackingVH>(Call) : Optional<WeakTrackingVH>(), M);
+    CalledFunctions.emplace_back(Call ? std::optional<WeakTrackingVH>(Call)
+                                      : std::optional<WeakTrackingVH>(),
+                                 M);
     M->AddRef();
   }
 
@@ -255,28 +248,16 @@ public:
     CalledFunctions.pop_back();
   }
 
-  /// Removes the edge in the node for the specified call site.
-  ///
-  /// Note that this method takes linear time, so it should be used sparingly.
-  void removeCallEdgeFor(CallBase &Call);
-
-  /// Removes all call edges from this node to the specified callee
-  /// function.
-  ///
-  /// This takes more time to execute than removeCallEdgeTo, so it should not
-  /// be used unless necessary.
-  void removeAnyCallEdgeTo(CallGraphNode *Callee);
-
   /// Removes one edge associated with a null callsite from this node to
   /// the specified callee function.
-  void removeOneAbstractEdgeTo(CallGraphNode *Callee);
+  LLVM_ABI void removeOneAbstractEdgeTo(CallGraphNode *Callee);
 
   /// Replaces the edge in the node for the specified call site with a
   /// new one.
   ///
   /// Note that this method takes linear time, so it should be used sparingly.
-  void replaceCallEdge(CallBase &Call, CallBase &NewCall,
-                       CallGraphNode *NewNode);
+  LLVM_ABI void replaceCallEdge(CallBase &Call, CallBase &NewCall,
+                                CallGraphNode *NewNode);
 
 private:
   friend class CallGraph;
@@ -305,7 +286,7 @@ private:
 class CallGraphAnalysis : public AnalysisInfoMixin<CallGraphAnalysis> {
   friend AnalysisInfoMixin<CallGraphAnalysis>;
 
-  static AnalysisKey Key;
+  LLVM_ABI static AnalysisKey Key;
 
 public:
   /// A formulaic type to inform clients of the result type.
@@ -324,7 +305,22 @@ class CallGraphPrinterPass : public PassInfoMixin<CallGraphPrinterPass> {
 public:
   explicit CallGraphPrinterPass(raw_ostream &OS) : OS(OS) {}
 
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+
+  static bool isRequired() { return true; }
+};
+
+/// Printer pass for the summarized \c CallGraphAnalysis results.
+class CallGraphSCCsPrinterPass
+    : public PassInfoMixin<CallGraphSCCsPrinterPass> {
+  raw_ostream &OS;
+
+public:
+  explicit CallGraphSCCsPrinterPass(raw_ostream &OS) : OS(OS) {}
+
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+
+  static bool isRequired() { return true; }
 };
 
 /// The \c ModulePass which wraps up a \c CallGraph and the logic to
@@ -334,7 +330,7 @@ public:
 /// module pass which runs over a module of IR and produces the call graph. The
 /// call graph interface is entirelly a wrapper around a \c CallGraph object
 /// which is stored internally for each module.
-class CallGraphWrapperPass : public ModulePass {
+class LLVM_ABI CallGraphWrapperPass : public ModulePass {
   std::unique_ptr<CallGraph> G;
 
 public:

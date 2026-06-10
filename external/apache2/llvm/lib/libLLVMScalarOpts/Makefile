@@ -15,23 +15,28 @@ SRCS+=	ADCE.cpp \
 	ConstraintElimination.cpp \
 	CorrelatedValuePropagation.cpp \
 	DCE.cpp \
+	DFAJumpThreading.cpp \
 	DeadStoreElimination.cpp \
 	DivRemPairs.cpp \
+	DropUnnecessaryAssumes.cpp \
 	EarlyCSE.cpp \
 	FlattenCFGPass.cpp \
 	Float2Int.cpp \
-	GuardWidening.cpp \
 	GVN.cpp \
 	GVNHoist.cpp \
 	GVNSink.cpp \
-	InductiveRangeCheckElimination.cpp \
-	IndVarSimplify.cpp \
-	InferAddressSpaces.cpp \
-	InstSimplifyPass.cpp \
+	GuardWidening.cpp \
 	IVUsersPrinter.cpp \
+	IndVarSimplify.cpp \
+	InductiveRangeCheckElimination.cpp \
+	InferAddressSpaces.cpp \
+	InferAlignment.cpp \
+	InstSimplifyPass.cpp \
+	JumpTableToSwitch.cpp \
 	JumpThreading.cpp \
 	LICM.cpp \
 	LoopAccessAnalysisPrinter.cpp \
+	LoopBoundSplit.cpp \
 	LoopDataPrefetch.cpp \
 	LoopDeletion.cpp \
 	LoopDistribute.cpp \
@@ -43,16 +48,15 @@ SRCS+=	ADCE.cpp \
 	LoopLoadElimination.cpp \
 	LoopPassManager.cpp \
 	LoopPredication.cpp \
-	LoopRerollPass.cpp \
 	LoopRotation.cpp \
 	LoopSimplifyCFG.cpp \
 	LoopSink.cpp \
 	LoopStrengthReduce.cpp \
+	LoopTermFold.cpp \
 	LoopUnrollAndJamPass.cpp \
 	LoopUnrollPass.cpp \
-	LoopUnswitch.cpp \
 	LoopVersioningLICM.cpp \
-	LowerAtomic.cpp \
+	LowerAtomicPass.cpp \
 	LowerConstantIntrinsics.cpp \
 	LowerExpectIntrinsic.cpp \
 	LowerGuardIntrinsic.cpp \
@@ -60,8 +64,8 @@ SRCS+=	ADCE.cpp \
 	LowerWidenableCondition.cpp \
 	MakeGuardsExplicit.cpp \
 	MemCpyOptimizer.cpp \
-	MergedLoadStoreMotion.cpp \
 	MergeICmps.cpp \
+	MergedLoadStoreMotion.cpp \
 	NaryReassociate.cpp \
 	NewGVN.cpp \
 	PartiallyInlineLibCalls.cpp \
@@ -69,17 +73,16 @@ SRCS+=	ADCE.cpp \
 	Reassociate.cpp \
 	Reg2Mem.cpp \
 	RewriteStatepointsForGC.cpp \
+	SCCP.cpp \
+	SROA.cpp \
 	Scalar.cpp \
 	ScalarizeMaskedMemIntrin.cpp \
 	Scalarizer.cpp \
-	SCCP.cpp \
 	SeparateConstOffsetFromGEP.cpp \
 	SimpleLoopUnswitch.cpp \
 	SimplifyCFGPass.cpp \
 	Sink.cpp \
-	SpeculateAroundPHIs.cpp \
 	SpeculativeExecution.cpp \
-	SROA.cpp \
 	StraightLineStrengthReduce.cpp \
 	StructurizeCFG.cpp \
 	TailRecursionElimination.cpp \

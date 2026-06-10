@@ -9,34 +9,32 @@
 /// GlobalISel pipeline.
 //===----------------------------------------------------------------------===//
 #include "AArch64GlobalISelUtils.h"
-#include "AArch64InstrInfo.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
-Optional<RegOrConstant>
+std::optional<RegOrConstant>
 AArch64GISelUtils::getAArch64VectorSplat(const MachineInstr &MI,
                                          const MachineRegisterInfo &MRI) {
   if (auto Splat = getVectorSplat(MI, MRI))
     return Splat;
   if (MI.getOpcode() != AArch64::G_DUP)
-    return None;
+    return std::nullopt;
   Register Src = MI.getOperand(1).getReg();
   if (auto ValAndVReg =
-          getConstantVRegValWithLookThrough(MI.getOperand(1).getReg(), MRI))
+          getAnyConstantVRegValWithLookThrough(MI.getOperand(1).getReg(), MRI))
     return RegOrConstant(ValAndVReg->Value.getSExtValue());
   return RegOrConstant(Src);
 }
 
-Optional<int64_t>
+std::optional<int64_t>
 AArch64GISelUtils::getAArch64VectorSplatScalar(const MachineInstr &MI,
                                                const MachineRegisterInfo &MRI) {
   auto Splat = getAArch64VectorSplat(MI, MRI);
   if (!Splat || Splat->isReg())
-    return None;
+    return std::nullopt;
   return Splat->getCst();
 }
 
@@ -52,11 +50,13 @@ bool AArch64GISelUtils::isCMN(const MachineInstr *MaybeSub,
   //
   // %sub = G_SUB 0, %y
   // %cmp = G_ICMP eq/ne, %z, %sub
+  // or with signed comparisons with the no-signed-wrap flag set
   if (!MaybeSub || MaybeSub->getOpcode() != TargetOpcode::G_SUB ||
-      !CmpInst::isEquality(Pred))
+      (!CmpInst::isEquality(Pred) &&
+       !(CmpInst::isSigned(Pred) && MaybeSub->getFlag(MachineInstr::NoSWrap))))
     return false;
   auto MaybeZero =
-      getConstantVRegValWithLookThrough(MaybeSub->getOperand(1).getReg(), MRI);
+      getIConstantVRegValWithLookThrough(MaybeSub->getOperand(1).getReg(), MRI);
   return MaybeZero && MaybeZero->Value.getZExtValue() == 0;
 }
 
@@ -68,7 +68,8 @@ bool AArch64GISelUtils::tryEmitBZero(MachineInstr &MI,
   auto &TLI = *MIRBuilder.getMF().getSubtarget().getTargetLowering();
   if (!TLI.getLibcallName(RTLIB::BZERO))
     return false;
-  auto Zero = getConstantVRegValWithLookThrough(MI.getOperand(1).getReg(), MRI);
+  auto Zero =
+      getIConstantVRegValWithLookThrough(MI.getOperand(1).getReg(), MRI);
   if (!Zero || Zero->Value.getSExtValue() != 0)
     return false;
 
@@ -78,8 +79,8 @@ bool AArch64GISelUtils::tryEmitBZero(MachineInstr &MI,
   if (!MinSize) {
     // If the size is known, check it. If it is not known, assume using bzero is
     // better.
-    if (auto Size =
-            getConstantVRegValWithLookThrough(MI.getOperand(2).getReg(), MRI)) {
+    if (auto Size = getIConstantVRegValWithLookThrough(
+            MI.getOperand(2).getReg(), MRI)) {
       if (Size->Value.getSExtValue() <= 256)
         return false;
     }
@@ -93,6 +94,35 @@ bool AArch64GISelUtils::tryEmitBZero(MachineInstr &MI,
       .addMemOperand(*MI.memoperands_begin());
   MI.eraseFromParent();
   return true;
+}
+
+std::tuple<uint16_t, Register>
+AArch64GISelUtils::extractPtrauthBlendDiscriminators(Register Disc,
+                                                     MachineRegisterInfo &MRI) {
+  Register AddrDisc = Disc;
+  uint16_t ConstDisc = 0;
+
+  if (auto ConstDiscVal = getIConstantVRegVal(Disc, MRI)) {
+    if (isUInt<16>(ConstDiscVal->getZExtValue())) {
+      ConstDisc = ConstDiscVal->getZExtValue();
+      AddrDisc = AArch64::NoRegister;
+    }
+    return std::make_tuple(ConstDisc, AddrDisc);
+  }
+
+  const MachineInstr *DiscMI = MRI.getVRegDef(Disc);
+  if (!DiscMI || DiscMI->getOpcode() != TargetOpcode::G_INTRINSIC ||
+      DiscMI->getOperand(1).getIntrinsicID() != Intrinsic::ptrauth_blend)
+    return std::make_tuple(ConstDisc, AddrDisc);
+
+  if (auto ConstDiscVal =
+          getIConstantVRegVal(DiscMI->getOperand(3).getReg(), MRI)) {
+    if (isUInt<16>(ConstDiscVal->getZExtValue())) {
+      ConstDisc = ConstDiscVal->getZExtValue();
+      AddrDisc = DiscMI->getOperand(2).getReg();
+    }
+  }
+  return std::make_tuple(ConstDisc, AddrDisc);
 }
 
 void AArch64GISelUtils::changeFCMPPredToAArch64CC(
@@ -146,6 +176,12 @@ void AArch64GISelUtils::changeFCMPPredToAArch64CC(
   case CmpInst::FCMP_UNE:
     CondCode = AArch64CC::NE;
     break;
+  case CmpInst::FCMP_TRUE:
+    CondCode = AArch64CC::AL;
+    break;
+  case CmpInst::FCMP_FALSE:
+    CondCode = AArch64CC::NV;
+    break;
   }
 }
 
@@ -160,7 +196,7 @@ void AArch64GISelUtils::changeVectorFCMPPredToAArch64CC(
     break;
   case CmpInst::FCMP_UNO:
     Invert = true;
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case CmpInst::FCMP_ORD:
     CondCode = AArch64CC::MI;
     CondCode2 = AArch64CC::GE;

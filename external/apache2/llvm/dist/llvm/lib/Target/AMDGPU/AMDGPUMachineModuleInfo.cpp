@@ -13,8 +13,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPUMachineModuleInfo.h"
+#include "llvm/IR/Module.h"
 
-namespace llvm {
+using namespace llvm;
 
 AMDGPUMachineModuleInfo::AMDGPUMachineModuleInfo(const MachineModuleInfo &MMI)
     : MachineModuleInfoELF(MMI) {
@@ -22,6 +23,7 @@ AMDGPUMachineModuleInfo::AMDGPUMachineModuleInfo(const MachineModuleInfo &MMI)
   AgentSSID = CTX.getOrInsertSyncScopeID("agent");
   WorkgroupSSID = CTX.getOrInsertSyncScopeID("workgroup");
   WavefrontSSID = CTX.getOrInsertSyncScopeID("wavefront");
+  ClusterSSID = CTX.getOrInsertSyncScopeID("cluster");
   SystemOneAddressSpaceSSID =
       CTX.getOrInsertSyncScopeID("one-as");
   AgentOneAddressSpaceSSID =
@@ -32,6 +34,5 @@ AMDGPUMachineModuleInfo::AMDGPUMachineModuleInfo(const MachineModuleInfo &MMI)
       CTX.getOrInsertSyncScopeID("wavefront-one-as");
   SingleThreadOneAddressSpaceSSID =
       CTX.getOrInsertSyncScopeID("singlethread-one-as");
+  ClusterOneAddressSpaceSSID = CTX.getOrInsertSyncScopeID("cluster-one-as");
 }
-
-} // end namespace llvm

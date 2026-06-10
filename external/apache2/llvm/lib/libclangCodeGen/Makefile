@@ -6,29 +6,33 @@ LIB=	clangCodeGen
 
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen
 
-SRCS+=	BackendUtil.cpp \
+SRCS+=	ABIInfo.cpp \
+	ABIInfoImpl.cpp \
+	BackendUtil.cpp \
 	CGAtomic.cpp \
 	CGBlocks.cpp \
 	CGBuiltin.cpp \
+	CGCUDANV.cpp \
+	CGCUDARuntime.cpp \
+	CGCXX.cpp \
+	CGCXXABI.cpp \
 	CGCall.cpp \
 	CGClass.cpp \
 	CGCleanup.cpp \
 	CGCoroutine.cpp \
-	CGCUDANV.cpp \
-	CGCUDARuntime.cpp \
-	CGCXXABI.cpp \
-	CGCXX.cpp \
 	CGDebugInfo.cpp \
 	CGDecl.cpp \
 	CGDeclCXX.cpp \
 	CGException.cpp \
+	CGExpr.cpp \
 	CGExprAgg.cpp \
+	CGExprCXX.cpp \
 	CGExprComplex.cpp \
 	CGExprConstant.cpp \
-	CGExpr.cpp \
-	CGExprCXX.cpp \
 	CGExprScalar.cpp \
 	CGGPUBuiltin.cpp \
+	CGHLSLBuiltins.cpp \
+	CGHLSLRuntime.cpp \
 	CGLoopInfo.cpp \
 	CGNonTrivialStruct.cpp \
 	CGObjC.cpp \
@@ -36,33 +40,72 @@ SRCS+=	BackendUtil.cpp \
 	CGObjCMac.cpp \
 	CGObjCRuntime.cpp \
 	CGOpenCLRuntime.cpp \
-	CGOpenMPRuntimeAMDGCN.cpp \
 	CGOpenMPRuntime.cpp \
 	CGOpenMPRuntimeGPU.cpp \
-	CGOpenMPRuntimeNVPTX.cpp \
+	CGPointerAuth.cpp \
 	CGRecordLayoutBuilder.cpp \
 	CGStmt.cpp \
 	CGStmtOpenMP.cpp \
-	CGVTables.cpp \
 	CGVTT.cpp \
+	CGVTables.cpp \
 	CodeGenABITypes.cpp \
 	CodeGenAction.cpp \
 	CodeGenFunction.cpp \
 	CodeGenModule.cpp \
 	CodeGenPGO.cpp \
+	CodeGenSYCL.cpp \
 	CodeGenTBAA.cpp \
 	CodeGenTypes.cpp \
 	ConstantInitBuilder.cpp \
 	CoverageMappingGen.cpp \
+	HLSLBufferLayoutBuilder.cpp \
 	ItaniumCXXABI.cpp \
+	LinkInModulesPass.cpp \
 	MacroPPCallbacks.cpp \
 	MicrosoftCXXABI.cpp \
 	ModuleBuilder.cpp \
-	ObjectFilePCHContainerOperations.cpp \
+	ObjectFilePCHContainerWriter.cpp \
 	PatternInit.cpp \
 	SanitizerMetadata.cpp \
 	SwiftCallingConv.cpp \
+	TargetBuiltins/AMDGPU.cpp \
+	TargetBuiltins/ARM.cpp \
+	TargetBuiltins/DirectX.cpp \
+	TargetBuiltins/Hexagon.cpp \
+	TargetBuiltins/NVPTX.cpp \
+	TargetBuiltins/PPC.cpp \
+	TargetBuiltins/RISCV.cpp \
+	TargetBuiltins/SPIR.cpp \
+	TargetBuiltins/SystemZ.cpp \
+	TargetBuiltins/WebAssembly.cpp \
+	TargetBuiltins/X86.cpp \
 	TargetInfo.cpp \
+	Targets/AArch64.cpp \
+	Targets/AMDGPU.cpp \
+	Targets/ARC.cpp \
+	Targets/ARM.cpp \
+	Targets/AVR.cpp \
+	Targets/BPF.cpp \
+	Targets/CSKY.cpp \
+	Targets/DirectX.cpp \
+	Targets/Hexagon.cpp \
+	Targets/Lanai.cpp \
+	Targets/LoongArch.cpp \
+	Targets/M68k.cpp \
+	Targets/MSP430.cpp \
+	Targets/Mips.cpp \
+	Targets/NVPTX.cpp \
+	Targets/PPC.cpp \
+	Targets/RISCV.cpp \
+	Targets/SPIR.cpp \
+	Targets/Sparc.cpp \
+	Targets/SystemZ.cpp \
+	Targets/TCE.cpp \
+	Targets/VE.cpp \
+	Targets/WebAssembly.cpp \
+	Targets/X86.cpp \
+	Targets/XCore.cpp \
+	TrapReasonBuilder.cpp \
 	VarBypassDetector.cpp
 
 .if defined(HOSTLIB)

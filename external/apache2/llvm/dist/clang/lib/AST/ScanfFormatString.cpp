@@ -161,6 +161,7 @@ static ScanfSpecifierResult ParseScanfSpecifier(FormatStringHandler &H,
     default:
       break;
     case '%': k = ConversionSpecifier::PercentArg;   break;
+    case 'b': k = ConversionSpecifier::bArg; break;
     case 'A': k = ConversionSpecifier::AArg; break;
     case 'E': k = ConversionSpecifier::EArg; break;
     case 'F': k = ConversionSpecifier::FArg; break;
@@ -250,9 +251,11 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
         case LengthModifier::AsIntMax:
           return ArgType::PtrTo(ArgType(Ctx.getIntMaxType(), "intmax_t"));
         case LengthModifier::AsSizeT:
-          return ArgType::PtrTo(ArgType(Ctx.getSignedSizeType(), "ssize_t"));
+          return ArgType::PtrTo(ArgType::makeSizeT(
+              ArgType(Ctx.getSignedSizeType(), "signed size_t")));
         case LengthModifier::AsPtrDiff:
-          return ArgType::PtrTo(ArgType(Ctx.getPointerDiffType(), "ptrdiff_t"));
+          return ArgType::PtrTo(ArgType::makePtrdiffT(
+              ArgType(Ctx.getPointerDiffType(), "ptrdiff_t")));
         case LengthModifier::AsLongDouble:
           // GNU extension.
           return ArgType::PtrTo(Ctx.LongLongTy);
@@ -267,6 +270,7 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
       llvm_unreachable("Unsupported LengthModifier Type");
 
     // Unsigned int.
+    case ConversionSpecifier::bArg:
     case ConversionSpecifier::oArg:
     case ConversionSpecifier::OArg:
     case ConversionSpecifier::uArg:
@@ -290,10 +294,11 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
         case LengthModifier::AsIntMax:
           return ArgType::PtrTo(ArgType(Ctx.getUIntMaxType(), "uintmax_t"));
         case LengthModifier::AsSizeT:
-          return ArgType::PtrTo(ArgType(Ctx.getSizeType(), "size_t"));
-        case LengthModifier::AsPtrDiff:
           return ArgType::PtrTo(
-              ArgType(Ctx.getUnsignedPointerDiffType(), "unsigned ptrdiff_t"));
+              ArgType::makeSizeT(ArgType(Ctx.getSizeType(), "size_t")));
+        case LengthModifier::AsPtrDiff:
+          return ArgType::PtrTo(ArgType::makePtrdiffT(
+              ArgType(Ctx.getUnsignedPointerDiffType(), "unsigned ptrdiff_t")));
         case LengthModifier::AsLongDouble:
           // GNU extension.
           return ArgType::PtrTo(Ctx.UnsignedLongLongTy);
@@ -343,7 +348,7 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
         case LengthModifier::AsShort:
           if (Ctx.getTargetInfo().getTriple().isOSMSVCRT())
             return ArgType::PtrTo(ArgType::AnyCharTy);
-          LLVM_FALLTHROUGH;
+          [[fallthrough]];
         default:
           return ArgType::Invalid();
       }
@@ -360,7 +365,7 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
         case LengthModifier::AsShort:
           if (Ctx.getTargetInfo().getTriple().isOSMSVCRT())
             return ArgType::PtrTo(ArgType::AnyCharTy);
-          LLVM_FALLTHROUGH;
+          [[fallthrough]];
         default:
           return ArgType::Invalid();
       }
@@ -388,9 +393,11 @@ ArgType ScanfSpecifier::getArgType(ASTContext &Ctx) const {
         case LengthModifier::AsIntMax:
           return ArgType::PtrTo(ArgType(Ctx.getIntMaxType(), "intmax_t"));
         case LengthModifier::AsSizeT:
-          return ArgType::PtrTo(ArgType(Ctx.getSignedSizeType(), "ssize_t"));
+          return ArgType::PtrTo(ArgType::makeSizeT(
+              ArgType(Ctx.getSignedSizeType(), "signed size_t")));
         case LengthModifier::AsPtrDiff:
-          return ArgType::PtrTo(ArgType(Ctx.getPointerDiffType(), "ptrdiff_t"));
+          return ArgType::PtrTo(ArgType::makePtrdiffT(
+              ArgType(Ctx.getPointerDiffType(), "ptrdiff_t")));
         case LengthModifier::AsLongDouble:
           return ArgType(); // FIXME: Is this a known extension?
         case LengthModifier::AsAllocate:
@@ -423,11 +430,11 @@ bool ScanfSpecifier::fixType(QualType QT, QualType RawQT,
   QualType PT = QT->getPointeeType();
 
   // If it's an enum, get its underlying type.
-  if (const EnumType *ETy = PT->getAs<EnumType>()) {
+  if (const auto *ED = PT->getAsEnumDecl()) {
     // Don't try to fix incomplete enums.
-    if (!ETy->getDecl()->isComplete())
+    if (!ED->isComplete())
       return false;
-    PT = ETy->getDecl()->getIntegerType();
+    PT = ED->getIntegerType();
   }
 
   const BuiltinType *BT = PT->getAs<BuiltinType>();
@@ -444,11 +451,9 @@ bool ScanfSpecifier::fixType(QualType QT, QualType RawQT,
 
     // If we know the target array length, we can use it as a field width.
     if (const ConstantArrayType *CAT = Ctx.getAsConstantArrayType(RawQT)) {
-      if (CAT->getSizeModifier() == ArrayType::Normal)
+      if (CAT->getSizeModifier() == ArraySizeModifier::Normal)
         FieldWidth = OptionalAmount(OptionalAmount::Constant,
-                                    CAT->getSize().getZExtValue() - 1,
-                                    "", 0, false);
-
+                                    CAT->getZExtSize() - 1, "", 0, false);
     }
     return true;
   }
@@ -500,8 +505,8 @@ bool ScanfSpecifier::fixType(QualType QT, QualType RawQT,
   }
 
   // Handle size_t, ptrdiff_t, etc. that have dedicated length modifiers in C99.
-  if (isa<TypedefType>(PT) && (LangOpt.C99 || LangOpt.CPlusPlus11))
-    namedTypeToLengthModifier(PT, LM);
+  if (LangOpt.C99 || LangOpt.CPlusPlus11)
+    namedTypeToLengthModifier(Ctx, PT, LM);
 
   // If fixing the length modifier was enough, we are done.
   if (hasValidLengthModifier(Ctx.getTargetInfo(), LangOpt)) {

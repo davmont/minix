@@ -38,3 +38,8 @@ def : ProcessorModel<"z14", Z14Model, Arch12SupportedFeatures.List>;
 def : ProcessorModel<"arch13", Z15Model, Arch13SupportedFeatures.List>;
 def : ProcessorModel<"z15", Z15Model, Arch13SupportedFeatures.List>;
 
+def : ProcessorModel<"arch14", Z16Model, Arch14SupportedFeatures.List>;
+def : ProcessorModel<"z16", Z16Model, Arch14SupportedFeatures.List>;
+
+def : ProcessorModel<"arch15", Z17Model, Arch15SupportedFeatures.List>;
+def : ProcessorModel<"z17", Z17Model, Arch15SupportedFeatures.List>;

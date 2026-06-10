@@ -6,9 +6,21 @@ LIB=	LLVMExecutionEngineOrcTargetProcess
 
 .PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc/TargetProcess
 
-SRCS+=	JITLoaderGDB.cpp \
+SRCS+=	DefaultHostBootstrapValues.cpp \
+	ExecutorResolver.cpp \
+	ExecutorSharedMemoryMapperService.cpp \
+	JITLoaderGDB.cpp \
+	JITLoaderPerf.cpp \
+	JITLoaderVTune.cpp \
+	LibraryResolver.cpp \
+	LibraryScanner.cpp \
+	OrcRTBootstrap.cpp \
 	RegisterEHFrames.cpp \
-	TargetExecutionUtils.cpp
+	SimpleExecutorDylibManager.cpp \
+	SimpleExecutorMemoryManager.cpp \
+	SimpleRemoteEPCServer.cpp \
+	TargetExecutionUtils.cpp \
+	UnwindInfoManager.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

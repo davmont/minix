@@ -10,47 +10,55 @@
 // functions.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_CLANG_BASIC_INSTRPROFLIST_H
-#define LLVM_CLANG_BASIC_INSTRPROFLIST_H
+#ifndef LLVM_CLANG_BASIC_PROFILELIST_H
+#define LLVM_CLANG_BASIC_PROFILELIST_H
 
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
-
-namespace llvm {
-class SpecialCaseList;
-}
+#include <optional>
 
 namespace clang {
 
 class ProfileSpecialCaseList;
 
 class ProfileList {
+public:
+  /// Represents if an how something should be excluded from profiling.
+  enum ExclusionType {
+    /// Profiling is allowed.
+    Allow,
+    /// Profiling is skipped using the \p skipprofile attribute.
+    Skip,
+    /// Profiling is forbidden using the \p noprofile attribute.
+    Forbid,
+  };
+
+private:
   std::unique_ptr<ProfileSpecialCaseList> SCL;
   const bool Empty;
-  const bool Default;
   SourceManager &SM;
+  std::optional<ExclusionType> inSection(StringRef Section, StringRef Prefix,
+                                         StringRef Query) const;
 
 public:
   ProfileList(ArrayRef<std::string> Paths, SourceManager &SM);
   ~ProfileList();
 
   bool isEmpty() const { return Empty; }
-  bool getDefault() const { return Default; }
+  ExclusionType getDefault(llvm::driver::ProfileInstrKind Kind) const;
 
-  llvm::Optional<bool>
+  std::optional<ExclusionType>
   isFunctionExcluded(StringRef FunctionName,
-                     CodeGenOptions::ProfileInstrKind Kind) const;
-  llvm::Optional<bool>
+                     llvm::driver::ProfileInstrKind Kind) const;
+  std::optional<ExclusionType>
   isLocationExcluded(SourceLocation Loc,
-                     CodeGenOptions::ProfileInstrKind Kind) const;
-  llvm::Optional<bool>
-  isFileExcluded(StringRef FileName,
-                 CodeGenOptions::ProfileInstrKind Kind) const;
+                     llvm::driver::ProfileInstrKind Kind) const;
+  std::optional<ExclusionType>
+  isFileExcluded(StringRef FileName, llvm::driver::ProfileInstrKind Kind) const;
 };
 
 } // namespace clang

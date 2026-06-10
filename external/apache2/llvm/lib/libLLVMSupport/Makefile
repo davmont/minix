@@ -6,19 +6,27 @@ LIB=	LLVMSupport
 
 .PATH: ${LLVM_SRCDIR}/lib/Support
 
-SRCS+=	AArch64TargetParser.cpp \
+SRCS+=	AArch64AttributeParser.cpp \
+	AArch64BuildAttributes.cpp \
 	ABIBreak.cpp \
-	Allocator.cpp \
 	AMDGPUMetadata.cpp \
 	APFixedPoint.cpp \
 	APFloat.cpp \
 	APInt.cpp \
 	APSInt.cpp \
 	ARMAttributeParser.cpp \
-	ARMBuildAttrs.cpp \
-	ARMTargetParser.cpp \
+	ARMBuildAttributes.cpp \
 	ARMWinEH.cpp \
+	AllocToken.cpp \
+	Allocator.cpp \
+	Atomic.cpp \
 	AutoConvert.cpp \
+	BLAKE3/blake3.c \
+	BLAKE3/blake3_dispatch.c \
+	BLAKE3/blake3_neon.c \
+	BLAKE3/blake3_portable.c \
+	BalancedPartitioning.cpp \
+	Base64.cpp \
 	BinaryStreamError.cpp \
 	BinaryStreamReader.cpp \
 	BinaryStreamRef.cpp \
@@ -26,74 +34,106 @@ SRCS+=	AArch64TargetParser.cpp \
 	BlockFrequency.cpp \
 	BranchProbability.cpp \
 	BuryPointer.cpp \
-	CachePruning.cpp \
-	Chrono.cpp \
-	circular_raw_ostream.cpp \
-	CodeGenCoverage.cpp \
 	COM.cpp \
+	CRC.cpp \
+	CSKYAttributeParser.cpp \
+	CSKYAttributes.cpp \
+	CachePruning.cpp \
+	Caching.cpp \
+	Chrono.cpp \
+	CodeGenCoverage.cpp \
 	CommandLine.cpp \
 	Compression.cpp \
+	ConvertEBCDIC.cpp \
 	ConvertUTF.cpp \
 	ConvertUTFWrapper.cpp \
 	CrashRecoveryContext.cpp \
-	CRC.cpp \
 	DAGDeltaAlgorithm.cpp \
-	DataExtractor.cpp \
-	DebugCounter.cpp \
-	Debug.cpp \
-	DeltaAlgorithm.cpp \
 	DJB.cpp \
-	ELFAttributeParser.cpp \
+	DXILABI.cpp \
+	DataExtractor.cpp \
+	Debug.cpp \
+	DebugCounter.cpp \
+	DeltaAlgorithm.cpp \
+	DeltaTree.cpp \
+	DivisionByConstantInfo.cpp \
+	DynamicAPInt.cpp \
+	DynamicLibrary.cpp \
+	ELFAttrParserCompact.cpp \
+	ELFAttrParserExtended.cpp \
 	ELFAttributes.cpp \
+	Errno.cpp \
 	Error.cpp \
 	ErrorHandling.cpp \
+	ExponentialBackoff.cpp \
 	ExtensibleRTTI.cpp \
 	FileCollector.cpp \
 	FileOutputBuffer.cpp \
 	FileUtilities.cpp \
+	FloatingPointMode.cpp \
 	FoldingSet.cpp \
+	FormatVariadic.cpp \
 	FormattedStream.cpp \
 	GlobPattern.cpp \
 	GraphWriter.cpp \
-	Hashing.cpp \
+	Hash.cpp \
+	HexagonAttributeParser.cpp \
+	HexagonAttributes.cpp \
 	InitLLVM.cpp \
 	InstructionCost.cpp \
 	IntEqClasses.cpp \
+	IntegerInclusiveInterval.cpp \
 	IntervalMap.cpp \
-	ItaniumManglingCanonicalizer.cpp \
 	JSON.cpp \
+	Jobserver.cpp \
 	KnownBits.cpp \
+	KnownFPClass.cpp \
 	LEB128.cpp \
+	LSP/Logging.cpp \
+	LSP/Protocol.cpp \
+	LSP/Transport.cpp \
 	LineIterator.cpp \
 	Locale.cpp \
 	LockFileManager.cpp \
-	LowLevelType.cpp \
+	MD5.cpp \
+	MSP430AttributeParser.cpp \
+	MSP430Attributes.cpp \
 	ManagedStatic.cpp \
 	MathExtras.cpp \
-	MD5.cpp \
 	MemAlloc.cpp \
+	Memory.cpp \
 	MemoryBuffer.cpp \
 	MemoryBufferRef.cpp \
+	ModRef.cpp \
+	Mustache.cpp \
 	NativeFormatting.cpp \
 	OptimizedStructLayout.cpp \
+	OptionStrCmp.cpp \
 	Optional.cpp \
+	PGOOptions.cpp \
 	Parallel.cpp \
+	Path.cpp \
 	PluginLoader.cpp \
 	PrettyStackTrace.cpp \
-	raw_os_ostream.cpp \
-	raw_ostream.cpp \
-	regcomp.c \
-	regerror.c \
-	Regex.cpp \
-	regexec.c \
-	regfree.c \
-	regstrlcpy.c \
+	Process.cpp \
+	Program.cpp \
+	ProgramStack.cpp \
 	RISCVAttributeParser.cpp \
 	RISCVAttributes.cpp \
-	ScopedPrinter.cpp \
+	RISCVISAUtils.cpp \
+	RWMutex.cpp \
+	RandomNumberGenerator.cpp \
+	Regex.cpp \
+	RewriteBuffer.cpp \
+	RewriteRope.cpp \
 	SHA1.cpp \
 	SHA256.cpp \
+	ScaledNumber.cpp \
+	ScopedPrinter.cpp \
+	Signals.cpp \
 	Signposts.cpp \
+	SipHash.cpp \
+	SlowDynamicAPInt.cpp \
 	SmallPtrSet.cpp \
 	SmallVector.cpp \
 	SourceMgr.cpp \
@@ -104,29 +144,46 @@ SRCS+=	AArch64TargetParser.cpp \
 	StringRef.cpp \
 	StringSaver.cpp \
 	SuffixTree.cpp \
-	SymbolRemappingReader.cpp \
+	SuffixTreeNode.cpp \
 	SystemUtils.cpp \
-	TargetParser.cpp \
-	TargetRegistry.cpp \
 	TarWriter.cpp \
+	TextEncoding.cpp \
+	ThreadPool.cpp \
+	Threading.cpp \
 	TimeProfiler.cpp \
 	Timer.cpp \
 	ToolOutputFile.cpp \
-	TrigramIndex.cpp \
-	Triple.cpp \
+	TrieRawHashMap.cpp \
 	Twine.cpp \
-	TypeSize.cpp \
-	UnicodeCaseFold.cpp \
 	Unicode.cpp \
+	UnicodeCaseFold.cpp \
+	UnicodeNameToCodepoint.cpp \
+	UnicodeNameToCodepointGenerated.cpp \
+	Valgrind.cpp \
 	VersionTuple.cpp \
 	VirtualFileSystem.cpp \
+	VirtualOutputBackend.cpp \
+	VirtualOutputBackends.cpp \
+	VirtualOutputConfig.cpp \
+	VirtualOutputError.cpp \
+	VirtualOutputFile.cpp \
 	Watchdog.cpp \
 	WithColor.cpp \
-	X86TargetParser.cpp \
-	xxhash.cpp \
 	YAMLParser.cpp \
 	YAMLTraits.cpp \
-	Z3Solver.cpp
+	Z3Solver.cpp \
+	circular_raw_ostream.cpp \
+	raw_os_ostream.cpp \
+	raw_ostream.cpp \
+	raw_ostream_proxy.cpp \
+	raw_socket_stream.cpp \
+	regcomp.c \
+	regerror.c \
+	regexec.c \
+	regfree.c \
+	regstrlcpy.c \
+	xxhash.cpp \
+	zOSLibFunctions.cpp
 
 SRCS+=	Atomic.cpp \
 	DynamicLibrary.cpp \

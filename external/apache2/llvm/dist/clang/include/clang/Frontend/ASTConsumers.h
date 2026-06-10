@@ -20,12 +20,6 @@
 namespace clang {
 
 class ASTConsumer;
-class CodeGenOptions;
-class DiagnosticsEngine;
-class FileManager;
-class LangOptions;
-class Preprocessor;
-class TargetOptions;
 
 // AST pretty-printer: prints out the AST in a format that is close to the
 // original C code.  The output is intended to be in a format such that
@@ -40,6 +34,11 @@ std::unique_ptr<ASTConsumer>
 CreateASTDumper(std::unique_ptr<raw_ostream> OS, StringRef FilterString,
                 bool DumpDecls, bool Deserialize, bool DumpLookups,
                 bool DumpDeclTypes, ASTDumpOutputFormat Format);
+
+std::unique_ptr<ASTConsumer>
+CreateASTDumper(raw_ostream &OS, StringRef FilterString, bool DumpDecls,
+                bool Deserialize, bool DumpLookups, bool DumpDeclTypes,
+                ASTDumpOutputFormat Format);
 
 // AST Decl node lister: prints qualified names of all filterable AST Decl
 // nodes.

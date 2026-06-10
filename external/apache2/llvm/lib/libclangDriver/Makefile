@@ -8,21 +8,83 @@ LIB=	clangDriver
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Driver
 
-SRCS+=	Action.cpp \
+SRCS+=	AArch64.cpp \
+	AIX.cpp \
+	AMDGPU.cpp \
+	AMDGPUOpenMP.cpp \
+	ARM.cpp \
+	AVR.cpp \
+	Action.cpp \
+	BareMetal.cpp \
+	CSKY.cpp \
+	CSKYToolChain.cpp \
+	Clang.cpp \
+	CommonArgs.cpp \
 	Compilation.cpp \
-	DarwinSDKInfo.cpp \
+	CreateASTUnitFromArgs.cpp \
+	CreateInvocationFromArgs.cpp \
+	CrossWindows.cpp \
+	Cuda.cpp \
+	Cygwin.cpp \
+	Darwin.cpp \
 	Distro.cpp \
+	DragonFly.cpp \
 	Driver.cpp \
-	DriverOptions.cpp \
+	Flang.cpp \
+	FreeBSD.cpp \
+	Fuchsia.cpp \
+	Gnu.cpp \
+	HIPAMD.cpp \
+	HIPSPV.cpp \
+	HIPUtility.cpp \
+	HLSL.cpp \
+	Haiku.cpp \
+	Hexagon.cpp \
+	Hurd.cpp \
+	InterfaceStubs.cpp \
 	Job.cpp \
+	LFILinux.cpp \
+	Linux.cpp \
+	LoongArch.cpp \
+	M68k.cpp \
+	MSP430.cpp \
+	MSVC.cpp \
+	Managarm.cpp \
+	MinGW.cpp \
+	Minix.cpp \
+	Mips.cpp \
+	MipsLinux.cpp \
 	Multilib.cpp \
-	OptionUtils.cpp \
+	MultilibBuilder.cpp \
+	NetBSD.cpp \
+	OHOS.cpp \
+	OffloadBundler.cpp \
+	OpenBSD.cpp \
+	PPC.cpp \
+	PPCFreeBSD.cpp \
+	PPCLinux.cpp \
+	PS4CPU.cpp \
 	Phases.cpp \
+	RISCV.cpp \
+	SPIRV.cpp \
+	SPIRVOpenMP.cpp \
+	SYCL.cpp \
 	SanitizerArgs.cpp \
+	Solaris.cpp \
+	Sparc.cpp \
+	SystemZ.cpp \
+	TCE.cpp \
 	Tool.cpp \
 	ToolChain.cpp \
 	Types.cpp \
-	XRayArgs.cpp
+	UEFI.cpp \
+	VE.cpp \
+	VEToolchain.cpp \
+	WebAssembly.cpp \
+	X86.cpp \
+	XCore.cpp \
+	XRayArgs.cpp \
+	ZOS.cpp
 
 .PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
 

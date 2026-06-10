@@ -20,6 +20,7 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/Analysis/BodyFarm.h"
 #include "clang/Analysis/CFG.h"
+#include "clang/Analysis/CFGStmtMap.h"
 #include "clang/Analysis/CodeInjector.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
@@ -37,7 +38,6 @@ class ASTContext;
 class BlockDecl;
 class BlockInvocationContext;
 class CFGReverseBlockReachabilityAnalysis;
-class CFGStmtMap;
 class ImplicitParamDecl;
 class LocationContext;
 class LocationContextManager;
@@ -77,7 +77,7 @@ class AnalysisDeclContext {
   const Decl *const D;
 
   std::unique_ptr<CFG> cfg, completeCFG;
-  std::unique_ptr<CFGStmtMap> cfgStmtMap;
+  std::optional<CFGStmtMap> cfgStmtMap;
 
   CFG::BuildOptions cfgBuildOptions;
   CFG::BuildOptions::ForcedBlkExprs *forcedBlkExprs = nullptr;
@@ -151,7 +151,7 @@ public:
 
   CFG *getCFG();
 
-  CFGStmtMap *getCFGStmtMap();
+  const CFGStmtMap *getCFGStmtMap();
 
   CFGReverseBlockReachabilityAnalysis *getCFGReachablityAnalysis();
 
@@ -200,6 +200,8 @@ public:
   /// \returns Whether the root namespace of \p D is the \c std C++ namespace.
   static bool isInStdNamespace(const Decl *D);
 
+  static std::string getFunctionName(const Decl *D);
+
 private:
   std::unique_ptr<ManagedAnalysis> &getAnalysisImpl(const void *tag);
 
@@ -227,7 +229,9 @@ private:
 protected:
   LocationContext(ContextKind k, AnalysisDeclContext *ctx,
                   const LocationContext *parent, int64_t ID)
-      : Kind(k), Ctx(ctx), Parent(parent), ID(ID) {}
+      : Kind(k), Ctx(ctx), Parent(parent), ID(ID) {
+    assert(ctx);
+  }
 
 public:
   virtual ~LocationContext();
@@ -236,8 +240,10 @@ public:
 
   int64_t getID() const { return ID; }
 
+  LLVM_ATTRIBUTE_RETURNS_NONNULL
   AnalysisDeclContext *getAnalysisDeclContext() const { return Ctx; }
 
+  /// It might return null.
   const LocationContext *getParent() const { return Parent; }
 
   bool isParentOf(const LocationContext *LC) const;
@@ -325,7 +331,7 @@ public:
   unsigned getIndex() const { return Index; }
 
   CFGElement getCallSiteCFGElement() const { return (*Block)[Index]; }
-  
+
   void Profile(llvm::FoldingSetNodeID &ID) override;
 
   static void Profile(llvm::FoldingSetNodeID &ID, AnalysisDeclContext *ADC,
@@ -445,7 +451,7 @@ public:
       bool synthesizeBodies = false, bool addStaticInitBranches = false,
       bool addCXXNewAllocator = true, bool addRichCXXConstructors = true,
       bool markElidedCXXConstructors = true, bool addVirtualBaseBranches = true,
-      CodeInjector *injector = nullptr);
+      std::unique_ptr<CodeInjector> injector = nullptr);
 
   AnalysisDeclContext *getContext(const Decl *D);
 

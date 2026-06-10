@@ -6,16 +6,20 @@ LIB=	LLVMDebugInfoGSYM
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/GSYM
 
-SRCS+=	DwarfTransformer.cpp \
+SRCS+=	CallSiteInfo.cpp \
+	DwarfTransformer.cpp \
+	ExtractRanges.cpp \
 	FileWriter.cpp \
 	FunctionInfo.cpp \
+	GsymContext.cpp \
 	GsymCreator.cpp \
 	GsymReader.cpp \
 	Header.cpp \
 	InlineInfo.cpp \
 	LineTable.cpp \
 	LookupResult.cpp \
-	Range.cpp
+	MergedFunctionsInfo.cpp \
+	ObjectFileTransformer.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

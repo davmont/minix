@@ -16,6 +16,7 @@
 #define LLVM_MCA_STAGES_STAGE_H
 
 #include "llvm/MCA/HWEventListener.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 #include <set>
 
@@ -24,8 +25,8 @@ namespace mca {
 
 class InstRef;
 
-class Stage {
-  Stage *NextInSequence;
+class LLVM_ABI Stage {
+  Stage *NextInSequence = nullptr;
   std::set<HWEventListener *> Listeners;
 
   Stage(const Stage &Other) = delete;
@@ -35,7 +36,7 @@ protected:
   const std::set<HWEventListener *> &getListeners() const { return Listeners; }
 
 public:
-  Stage() : NextInSequence(nullptr) {}
+  Stage() = default;
   virtual ~Stage();
 
   /// Returns true if it can execute IR during this cycle.
@@ -47,6 +48,9 @@ public:
   /// Called once at the start of each cycle.  This can be used as a setup
   /// phase to prepare for the executions during the cycle.
   virtual Error cycleStart() { return ErrorSuccess(); }
+
+  /// Called after the pipeline is resumed from pausing state.
+  virtual Error cycleResume() { return ErrorSuccess(); }
 
   /// Called once at the end of each cycle.
   virtual Error cycleEnd() { return ErrorSuccess(); }
@@ -82,6 +86,16 @@ public:
   }
 };
 
+/// This is actually not an error but a marker to indicate that
+/// the instruction stream is paused.
+struct InstStreamPause : public ErrorInfo<InstStreamPause> {
+  LLVM_ABI static char ID;
+
+  std::error_code convertToErrorCode() const override {
+    return llvm::inconvertibleErrorCode();
+  }
+  void log(raw_ostream &OS) const override { OS << "Stream is paused"; }
+};
 } // namespace mca
 } // namespace llvm
 #endif // LLVM_MCA_STAGES_STAGE_H

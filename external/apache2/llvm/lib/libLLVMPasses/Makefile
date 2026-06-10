@@ -6,9 +6,11 @@ LIB=	LLVMPasses
 
 .PATH: ${LLVM_SRCDIR}/lib/Passes
 
-SRCS+=	PassBuilder.cpp \
+SRCS+=	CodeGenPassBuilder.cpp \
+	OptimizationLevel.cpp \
+	PassBuilder.cpp \
 	PassBuilderBindings.cpp \
-	PassPlugin.cpp \
+	PassBuilderPipelines.cpp \
 	StandardInstrumentations.cpp
 
 .if defined(HOSTLIB)

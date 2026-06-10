@@ -14,13 +14,22 @@
 #define LLVM_CLANG_CODEGEN_MODULEBUILDER_H
 
 #include "clang/AST/ASTConsumer.h"
+#include "clang/Basic/LLVM.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace llvm {
   class Constant;
   class LLVMContext;
   class Module;
   class StringRef;
+
+  namespace vfs {
+  class FileSystem;
+  }
 }
+
+// Prefix of the name of the artificial inline frame.
+inline constexpr llvm::StringRef ClangTrapPrefix = "__clang_trap_msg";
 
 namespace clang {
   class CodeGenOptions;
@@ -31,6 +40,7 @@ namespace clang {
   class HeaderSearchOptions;
   class LangOptions;
   class PreprocessorOptions;
+  class CompilerInstance;
 
 namespace CodeGen {
   class CodeGenModule;
@@ -38,10 +48,17 @@ namespace CodeGen {
 }
 
 /// The primary public interface to the Clang code generator.
-///
-/// This is not really an abstract interface.
 class CodeGenerator : public ASTConsumer {
   virtual void anchor();
+
+protected:
+  /// Use CreateLLVMCodeGen() below to create an instance of this class.
+  CodeGenerator() = default;
+
+  /// True if we've finished generating IR. This prevents us from generating
+  /// additional LLVM IR after emitting output in HandleTranslationUnit. This
+  /// can happen when Clang plugins trigger additional AST deserialization.
+  bool IRGenFinished = false;
 
 public:
   /// Return an opaque reference to the CodeGenModule object, which can
@@ -63,7 +80,7 @@ public:
   ///
   /// It is illegal to call methods other than GetModule on the
   /// CodeGenerator after releasing its module.
-  llvm::Module *ReleaseModule();
+  std::unique_ptr<llvm::Module> ReleaseModule();
 
   /// Return debug info code generator.
   CodeGen::CGDebugInfo *getCGDebugInfo();
@@ -73,6 +90,10 @@ public:
   ///
   /// This may return null if there was no matching declaration.
   const Decl *GetDeclForMangledName(llvm::StringRef MangledName);
+
+  /// Given a global declaration, return a mangled name for this declaration
+  /// which has been added to this code generator via a Handle method.
+  llvm::StringRef GetMangledName(GlobalDecl GD);
 
   /// Return the LLVM address of the given global entity.
   ///
@@ -90,15 +111,37 @@ public:
 };
 
 /// CreateLLVMCodeGen - Create a CodeGenerator instance.
-/// It is the responsibility of the caller to call delete on
-/// the allocated CodeGenerator instance.
-CodeGenerator *CreateLLVMCodeGen(DiagnosticsEngine &Diags,
-                                 llvm::StringRef ModuleName,
-                                 const HeaderSearchOptions &HeaderSearchOpts,
-                                 const PreprocessorOptions &PreprocessorOpts,
-                                 const CodeGenOptions &CGO,
-                                 llvm::LLVMContext& C,
-                                 CoverageSourceInfo *CoverageInfo = nullptr);
+///
+/// Remember to call Initialize() if you plan to use this directly.
+std::unique_ptr<CodeGenerator>
+CreateLLVMCodeGen(const CompilerInstance &CI, llvm::StringRef ModuleName,
+                  llvm::LLVMContext &C,
+                  CoverageSourceInfo *CoverageInfo = nullptr);
+
+std::unique_ptr<CodeGenerator>
+CreateLLVMCodeGen(DiagnosticsEngine &Diags, llvm::StringRef ModuleName,
+                  IntrusiveRefCntPtr<llvm::vfs::FileSystem> FS,
+                  const HeaderSearchOptions &HeaderSearchOpts,
+                  const PreprocessorOptions &PreprocessorOpts,
+                  const CodeGenOptions &CGO, llvm::LLVMContext &C,
+                  CoverageSourceInfo *CoverageInfo = nullptr);
+
+namespace CodeGen {
+/// Demangle the artificial function name (\param FuncName) used to encode trap
+/// reasons used in debug info for traps (e.g. __builtin_verbose_trap). See
+/// `CGDebugInfo::CreateTrapFailureMessageFor`.
+///
+/// \param FuncName - The function name to demangle.
+///
+/// \return A std::optional. If demangling succeeds the optional will contain
+/// a pair of StringRefs where the first field is the trap category and the
+/// second is the trap message. These can both be empty. If demangling fails the
+/// optional will not contain a value. Note the returned StringRefs if non-empty
+/// point into the underlying storage for \param FuncName and thus have the same
+/// lifetime.
+std::optional<std::pair<StringRef, StringRef>>
+DemangleTrapReasonInDebugInfo(StringRef FuncName);
+} // namespace CodeGen
 
 } // end namespace clang
 

@@ -13,7 +13,7 @@ CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU
 
 SRCS+=	AMDGPUAsmUtils.cpp \
 	AMDGPUBaseInfo.cpp \
-	AMDGPULDSUtils.cpp \
+	AMDGPUDelayedMCExpr.cpp \
 	AMDGPUPALMetadata.cpp \
 	AMDKernelCodeTUtils.cpp
 

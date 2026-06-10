@@ -157,9 +157,9 @@ namespace ARM_ISB {
 
 /// isARMLowRegister - Returns true if the register is a low register (r0-r7).
 ///
-static inline bool isARMLowRegister(unsigned Reg) {
+static inline bool isARMLowRegister(MCRegister Reg) {
   using namespace ARM;
-  switch (Reg) {
+  switch (Reg.id()) {
   case R0:  case R1:  case R2:  case R3:
   case R4:  case R5:  case R6:  case R7:
     return true;
@@ -195,42 +195,46 @@ namespace ARMII {
     AddrModeT1_4    = 9,
     AddrModeT1_s    = 10, // i8 * 4 for pc and sp relative data
     AddrModeT2_i12  = 11,
-    AddrModeT2_i8   = 12,
-    AddrModeT2_so   = 13,
-    AddrModeT2_pc   = 14, // +/- i12 for pc relative data
-    AddrModeT2_i8s4 = 15, // i8 * 4
-    AddrMode_i12    = 16,
-    AddrMode5FP16   = 17,  // i8 * 2
-    AddrModeT2_ldrex = 18, // i8 * 4, with unscaled offset in MCInst
-    AddrModeT2_i7s4 = 19, // i7 * 4
-    AddrModeT2_i7s2 = 20, // i7 * 2
-    AddrModeT2_i7   = 21, // i7 * 1
+    AddrModeT2_i8   = 12, // +/- i8
+    AddrModeT2_i8pos = 13, // + i8
+    AddrModeT2_i8neg = 14, // - i8
+    AddrModeT2_so   = 15,
+    AddrModeT2_pc   = 16, // +/- i12 for pc relative data
+    AddrModeT2_i8s4 = 17, // i8 * 4
+    AddrMode_i12    = 18,
+    AddrMode5FP16   = 19,  // i8 * 2
+    AddrModeT2_ldrex = 20, // i8 * 4, with unscaled offset in MCInst
+    AddrModeT2_i7s4 = 21, // i7 * 4
+    AddrModeT2_i7s2 = 22, // i7 * 2
+    AddrModeT2_i7   = 23, // i7 * 1
   };
 
   inline static const char *AddrModeToString(AddrMode addrmode) {
     switch (addrmode) {
-    case AddrModeNone:    return "AddrModeNone";
-    case AddrMode1:       return "AddrMode1";
-    case AddrMode2:       return "AddrMode2";
-    case AddrMode3:       return "AddrMode3";
-    case AddrMode4:       return "AddrMode4";
-    case AddrMode5:       return "AddrMode5";
-    case AddrMode5FP16:   return "AddrMode5FP16";
-    case AddrMode6:       return "AddrMode6";
-    case AddrModeT1_1:    return "AddrModeT1_1";
-    case AddrModeT1_2:    return "AddrModeT1_2";
-    case AddrModeT1_4:    return "AddrModeT1_4";
-    case AddrModeT1_s:    return "AddrModeT1_s";
-    case AddrModeT2_i12:  return "AddrModeT2_i12";
-    case AddrModeT2_i8:   return "AddrModeT2_i8";
-    case AddrModeT2_so:   return "AddrModeT2_so";
-    case AddrModeT2_pc:   return "AddrModeT2_pc";
-    case AddrModeT2_i8s4: return "AddrModeT2_i8s4";
-    case AddrMode_i12:    return "AddrMode_i12";
-    case AddrModeT2_ldrex:return "AddrModeT2_ldrex";
-    case AddrModeT2_i7s4: return "AddrModeT2_i7s4";
-    case AddrModeT2_i7s2: return "AddrModeT2_i7s2";
-    case AddrModeT2_i7:   return "AddrModeT2_i7";
+    case AddrModeNone:     return "AddrModeNone";
+    case AddrMode1:        return "AddrMode1";
+    case AddrMode2:        return "AddrMode2";
+    case AddrMode3:        return "AddrMode3";
+    case AddrMode4:        return "AddrMode4";
+    case AddrMode5:        return "AddrMode5";
+    case AddrMode5FP16:    return "AddrMode5FP16";
+    case AddrMode6:        return "AddrMode6";
+    case AddrModeT1_1:     return "AddrModeT1_1";
+    case AddrModeT1_2:     return "AddrModeT1_2";
+    case AddrModeT1_4:     return "AddrModeT1_4";
+    case AddrModeT1_s:     return "AddrModeT1_s";
+    case AddrModeT2_i12:   return "AddrModeT2_i12";
+    case AddrModeT2_i8:    return "AddrModeT2_i8";
+    case AddrModeT2_i8pos: return "AddrModeT2_i8pos";
+    case AddrModeT2_i8neg: return "AddrModeT2_i8neg";
+    case AddrModeT2_so:    return "AddrModeT2_so";
+    case AddrModeT2_pc:    return "AddrModeT2_pc";
+    case AddrModeT2_i8s4:  return "AddrModeT2_i8s4";
+    case AddrMode_i12:     return "AddrMode_i12";
+    case AddrModeT2_ldrex: return "AddrModeT2_ldrex";
+    case AddrModeT2_i7s4:  return "AddrModeT2_i7s4";
+    case AddrModeT2_i7s2:  return "AddrModeT2_i7s2";
+    case AddrModeT2_i7:    return "AddrModeT2_i7";
     }
   }
 
@@ -251,7 +255,7 @@ namespace ARMII {
 
     /// MO_OPTION_MASK - Most flags are mutually exclusive; this mask selects
     /// just that part of the flag set.
-    MO_OPTION_MASK = 0x3,
+    MO_OPTION_MASK = 0xf03,
 
     /// MO_COFFSTUB - On a symbol operand "FOO", this indicates that the
     /// reference is actually to the ".refptr.FOO" symbol.  This is used for
@@ -283,11 +287,27 @@ namespace ARMII {
     /// example).
     MO_NONLAZY = 0x80,
 
-    // It's undefined behaviour if an enum overflows the range between its
-    // smallest and largest values, but since these are |ed together, it can
-    // happen. Put a sentinel in (values of this enum are stored as "unsigned
-    // char").
-    MO_UNUSED_MAXIMUM = 0xff
+    /// MO_LO_0_7 - On a symbol operand, this represents a relocation containing
+    /// bits 0 through 7 of the address. Used only with Thumb1 MOV and ADD
+    // instructions.
+    MO_LO_0_7 = 0x100,
+
+    /// MO_LO_8_15 - On a symbol operand, this represents a relocation
+    /// containing
+    /// bits 8 through 15 of the address. Used only with Thumb1 MOV and ADD
+    // instructions.
+    MO_LO_8_15 = 0x200,
+
+    /// MO_HI_0_7 - On a symbol operand, this represents a relocation containing
+    /// bits 16 through 23 of the address. Used only with Thumb1 MOV and ADD
+    // instructions.
+    MO_HI_0_7 = 0x400,
+
+    /// MO_HI_8_15 - On a symbol operand, this represents a relocation
+    /// containing
+    /// bits 24 through 31 of the address. Used only with Thumb1 MOV and ADD
+    // instructions.
+    MO_HI_8_15 = 0x800
   };
 
   enum {
@@ -407,6 +427,14 @@ namespace ARMII {
     // Whether this instruction produces a vector result that is larger than
     // its input, typically reading from the top/bottom halves of the input(s).
     DoubleWidthResult = 1 << 23,
+
+    // The vector element size for MVE instructions. 00 = i8, 01 = i16, 10 = i32
+    // and 11 = i64. This is the largest type if multiple are present, so a
+    // MVE_VMOVLs8bh is ize 01=i16, as it extends from a i8 to a i16. There are
+    // some caveats so cannot be used blindly, such as exchanging VMLADAVA's and
+    // complex instructions, which may use different input lanes.
+    VecSizeShift = 24,
+    VecSize = 3 << VecSizeShift,
 
     //===------------------------------------------------------------------===//
     // Code domain.

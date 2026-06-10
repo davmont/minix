@@ -60,13 +60,8 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cassert>
-#include <cstdint>
-#include <iterator>
 
 using namespace llvm;
 
@@ -84,7 +79,7 @@ namespace {
 
   raw_ostream &operator<< (raw_ostream &OS, const printv &PV) {
     if (PV.R)
-      OS << 'v' << Register::virtReg2Index(PV.R);
+      OS << 'v' << Register(PV.R).virtRegIndex();
     else
       OS << 's';
     return OS;
@@ -214,9 +209,9 @@ bool BT::RegisterCell::meet(const RegisterCell &RC, Register SelfR) {
 BT::RegisterCell &BT::RegisterCell::insert(const BT::RegisterCell &RC,
       const BitMask &M) {
   uint16_t B = M.first(), E = M.last(), W = width();
-  // Sanity: M must be a valid mask for *this.
+  // M must be a valid mask for *this.
   assert(B < W && E < W);
-  // Sanity: the masked part of *this must have the same number of bits
+  // The masked part of *this must have the same number of bits
   // as the source.
   assert(B > E || E-B+1 == RC.width());      // B <= E  =>  E-B+1 = |RC|.
   assert(B <= E || E+(W-B)+1 == RC.width()); // E < B   =>  E+(W-B)+1 = |RC|.
@@ -850,8 +845,7 @@ void BT::visitNonBranch(const MachineInstr &MI) {
   bool Eval = ME.evaluate(MI, Map, ResMap);
 
   if (Trace && Eval) {
-    for (unsigned i = 0, n = MI.getNumOperands(); i < n; ++i) {
-      const MachineOperand &MO = MI.getOperand(i);
+    for (const MachineOperand &MO : MI.operands()) {
       if (!MO.isReg() || !MO.isUse())
         continue;
       RegisterRef RU(MO);
@@ -941,14 +935,14 @@ void BT::visitBranchesFrom(const MachineInstr &BI) {
       // If evaluated successfully add the targets to the cumulative list.
       if (Trace) {
         dbgs() << "  adding targets:";
-        for (unsigned i = 0, n = BTs.size(); i < n; ++i)
-          dbgs() << " " << printMBBReference(*BTs[i]);
+        for (const MachineBasicBlock *BT : BTs)
+          dbgs() << " " << printMBBReference(*BT);
         if (FallsThrough)
           dbgs() << "\n  falls through\n";
         else
           dbgs() << "\n  does not fall through\n";
       }
-      Targets.insert(BTs.begin(), BTs.end());
+      Targets.insert_range(BTs);
     }
     ++It;
   } while (FallsThrough && It != End);
@@ -971,8 +965,7 @@ void BT::visitBranchesFrom(const MachineInstr &BI) {
         Targets.insert(&*Next);
     }
   } else {
-    for (const MachineBasicBlock *SB : B.successors())
-      Targets.insert(SB);
+    Targets.insert_range(B.successors());
   }
 
   for (const MachineBasicBlock *TB : Targets)
@@ -1057,9 +1050,8 @@ void BT::runEdgeQueue(BitVector &BlockScanned) {
     CFGEdge Edge = FlowQ.front();
     FlowQ.pop();
 
-    if (EdgeExec.count(Edge))
+    if (!EdgeExec.insert(Edge).second)
       return;
-    EdgeExec.insert(Edge);
     ReachedBB.insert(Edge.second);
 
     const MachineBasicBlock &B = *MF.getBlockNumbered(Edge.second);

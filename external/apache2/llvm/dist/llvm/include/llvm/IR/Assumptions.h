@@ -15,26 +15,33 @@
 #ifndef LLVM_IR_ASSUMPTIONS_H
 #define LLVM_IR_ASSUMPTIONS_H
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
 class Function;
+class CallBase;
 
 /// The key we use for assumption attributes.
 constexpr StringRef AssumptionAttrKey = "llvm.assume";
 
 /// A set of known assumption strings that are accepted without warning and
 /// which can be recommended as typo correction.
-extern StringSet<> KnownAssumptionStrings;
+LLVM_ABI extern StringSet<> &getKnownAssumptionStrings();
 
 /// Helper that allows to insert a new assumption string in the known assumption
 /// set by creating a (static) object.
 struct KnownAssumptionString {
+  KnownAssumptionString(const char *AssumptionStr)
+      : AssumptionStr(AssumptionStr) {
+    getKnownAssumptionStrings().insert(AssumptionStr);
+  }
   KnownAssumptionString(StringRef AssumptionStr)
       : AssumptionStr(AssumptionStr) {
-    KnownAssumptionStrings.insert(AssumptionStr);
+    getKnownAssumptionStrings().insert(AssumptionStr);
   }
   operator StringRef() const { return AssumptionStr; }
 
@@ -43,7 +50,27 @@ private:
 };
 
 /// Return true if \p F has the assumption \p AssumptionStr attached.
-bool hasAssumption(Function &F, const KnownAssumptionString &AssumptionStr);
+LLVM_ABI bool hasAssumption(const Function &F,
+                            const KnownAssumptionString &AssumptionStr);
+
+/// Return true if \p CB or the callee has the assumption \p AssumptionStr
+/// attached.
+LLVM_ABI bool hasAssumption(const CallBase &CB,
+                            const KnownAssumptionString &AssumptionStr);
+
+/// Return the set of all assumptions for the function \p F.
+LLVM_ABI DenseSet<StringRef> getAssumptions(const Function &F);
+
+/// Return the set of all assumptions for the call \p CB.
+LLVM_ABI DenseSet<StringRef> getAssumptions(const CallBase &CB);
+
+/// Appends the set of assumptions \p Assumptions to \F.
+LLVM_ABI bool addAssumptions(Function &F,
+                             const DenseSet<StringRef> &Assumptions);
+
+/// Appends the set of assumptions \p Assumptions to \CB.
+LLVM_ABI bool addAssumptions(CallBase &CB,
+                             const DenseSet<StringRef> &Assumptions);
 
 } // namespace llvm
 

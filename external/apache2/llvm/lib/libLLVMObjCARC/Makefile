@@ -8,7 +8,6 @@ LIB=	LLVMObjCARC
 
 SRCS+=	DependencyAnalysis.cpp \
 	ObjCARC.cpp \
-	ObjCARCAPElim.cpp \
 	ObjCARCContract.cpp \
 	ObjCARCExpand.cpp \
 	ObjCARCOpts.cpp \

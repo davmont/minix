@@ -13,19 +13,19 @@
 #ifndef LLVM_XRAY_RECORDPRINTER_H
 #define LLVM_XRAY_RECORDPRINTER_H
 
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/XRay/FDRRecords.h"
 
-namespace llvm {
-namespace xray {
+namespace llvm::xray {
 
-class RecordPrinter : public RecordVisitor {
+class LLVM_ABI RecordPrinter : public RecordVisitor {
   raw_ostream &OS;
   std::string Delim;
 
 public:
   explicit RecordPrinter(raw_ostream &O, std::string D)
-      : RecordVisitor(), OS(O), Delim(std::move(D)) {}
+      : OS(O), Delim(std::move(D)) {}
 
   explicit RecordPrinter(raw_ostream &O) : RecordPrinter(O, ""){};
 
@@ -43,7 +43,6 @@ public:
   Error visit(TypedEventRecord &) override;
 };
 
-} // namespace xray
-} // namespace llvm
+} // namespace llvm::xray
 
 #endif // LLVM_XRAY_RECORDPRINTER_H

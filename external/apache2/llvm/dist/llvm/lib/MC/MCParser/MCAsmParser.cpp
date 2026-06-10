@@ -10,7 +10,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/llvm-config.h"
-#include "llvm/MC/MCParser/MCAsmLexer.h"
+#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCParser/AsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
 #include "llvm/Support/CommandLine.h"
@@ -21,11 +22,15 @@
 
 using namespace llvm;
 
+namespace llvm {
 cl::opt<unsigned> AsmMacroMaxNestingDepth(
     "asm-macro-max-nesting-depth", cl::init(20), cl::Hidden,
     cl::desc("The maximum nesting depth allowed for assembly macros."));
+}
 
-MCAsmParser::MCAsmParser() {}
+MCAsmParser::MCAsmParser(MCContext &Ctx, MCStreamer &Out, SourceMgr &SM,
+                         const MCAsmInfo &MAI)
+    : Ctx(Ctx), Out(Out), SrcMgr(SM), MAI(MAI), Lexer(MAI) {}
 
 MCAsmParser::~MCAsmParser() = default;
 
@@ -97,7 +102,6 @@ bool MCAsmParser::TokError(const Twine &Msg, SMRange Range) {
 }
 
 bool MCAsmParser::Error(SMLoc L, const Twine &Msg, SMRange Range) {
-
   MCPendingError PErr;
   PErr.Loc = L;
   Msg.toVector(PErr.Msg);
@@ -140,9 +144,38 @@ bool MCAsmParser::parseExpression(const MCExpr *&Res) {
   return parseExpression(Res, L);
 }
 
+bool MCAsmParser::parseGNUAttribute(SMLoc L, int64_t &Tag,
+                                    int64_t &IntegerValue) {
+  // Parse a .gnu_attribute with numerical tag and value.
+  StringRef S(L.getPointer());
+  SMLoc TagLoc;
+  TagLoc = getTok().getLoc();
+  const AsmToken &Tok = getTok();
+  if (Tok.isNot(AsmToken::Integer))
+    return false;
+  Tag = Tok.getIntVal();
+  Lex(); // Eat the Tag
+  Lex(); // Eat the comma
+  if (Tok.isNot(AsmToken::Integer))
+    return false;
+  IntegerValue = Tok.getIntVal();
+  Lex(); // Eat the IntegerValue
+  return true;
+}
+
+bool MCAsmParser::parseSymbol(MCSymbol *&Res) {
+  StringRef Name;
+  if (parseIdentifier(Name))
+    return true;
+
+  Res = getContext().parseSymbol(Name);
+  return false;
+}
+
 void MCParsedAsmOperand::dump() const {
   // Cannot completely remove virtual function even in release mode.
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-  dbgs() << "  " << *this;
+  dbgs() << "  ";
+  print(dbgs(), MCAsmInfo());
 #endif
 }

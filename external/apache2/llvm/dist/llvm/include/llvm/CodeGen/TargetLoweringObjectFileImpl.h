@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/BinaryFormat/XCOFF.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 
 namespace llvm {
@@ -36,11 +37,9 @@ class TargetLoweringObjectFileELF : public TargetLoweringObjectFile {
   SmallPtrSet<GlobalObject *, 2> Used;
 
 protected:
-  MCSymbolRefExpr::VariantKind PLTRelativeVariantKind =
-      MCSymbolRefExpr::VK_None;
+  uint16_t PLTRelativeSpecifier = 0;
 
 public:
-  TargetLoweringObjectFileELF();
   ~TargetLoweringObjectFileELF() override = default;
 
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
@@ -51,13 +50,27 @@ public:
   void emitModuleMetadata(MCStreamer &Streamer, Module &M) const override;
 
   void emitPersonalityValue(MCStreamer &Streamer, const DataLayout &DL,
-                            const MCSymbol *Sym) const override;
+                            const MCSymbol *Sym,
+                            const MachineModuleInfo *MMI) const override;
+
+  virtual void emitPersonalityValueImpl(MCStreamer &Streamer,
+                                        const DataLayout &DL,
+                                        const MCSymbol *Sym,
+                                        const MachineModuleInfo *MMI) const;
+
+  void emitLinkerDirectives(MCStreamer &Streamer, Module &M) const override;
 
   /// Given a constant with the SectionKind, return a section that it should be
   /// placed in.
   MCSection *getSectionForConstant(const DataLayout &DL, SectionKind Kind,
                                    const Constant *C,
                                    Align &Alignment) const override;
+
+  /// Similar to the function above, but append \p SectionSuffix to the section
+  /// name.
+  MCSection *getSectionForConstant(const DataLayout &DL, SectionKind Kind,
+                                   const Constant *C, Align &Alignment,
+                                   StringRef SectionSuffix) const override;
 
   MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
                                       const TargetMachine &TM) const override;
@@ -67,6 +80,9 @@ public:
 
   MCSection *getSectionForJumpTable(const Function &F,
                                     const TargetMachine &TM) const override;
+  MCSection *
+  getSectionForJumpTable(const Function &F, const TargetMachine &TM,
+                         const MachineJumpTableEntry *JTE) const override;
   MCSection *getSectionForLSDA(const Function &F, const MCSymbol &FnSym,
                                const TargetMachine &TM) const override;
 
@@ -101,11 +117,14 @@ public:
   MCSection *getStaticDtorSection(unsigned Priority,
                                   const MCSymbol *KeySym) const override;
 
-  const MCExpr *lowerRelativeReference(const GlobalValue *LHS,
-                                       const GlobalValue *RHS,
-                                       const TargetMachine &TM) const override;
+  const MCExpr *
+  lowerSymbolDifference(const MCSymbol *LHS, const MCSymbol *RHS,
+                        int64_t Addend,
+                        std::optional<int64_t> PCRelativeOffset) const;
 
-  const MCExpr *lowerDSOLocalEquivalent(const DSOLocalEquivalent *Equiv,
+  const MCExpr *lowerDSOLocalEquivalent(const MCSymbol *LHS,
+                                        const MCSymbol *RHS, int64_t Addend,
+                                        std::optional<int64_t> PCRelativeOffset,
                                         const TargetMachine &TM) const override;
 
   MCSection *getSectionForCommandLines() const override;
@@ -118,8 +137,13 @@ public:
 
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 
+  MCSection *getStaticDtorSection(unsigned Priority,
+                                  const MCSymbol *KeySym) const override;
+
   /// Emit the module flags that specify the garbage collection information.
   void emitModuleMetadata(MCStreamer &Streamer, Module &M) const override;
+
+  void emitLinkerDirectives(MCStreamer &Streamer, Module &M) const override;
 
   MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
                                     const TargetMachine &TM) const override;
@@ -152,6 +176,8 @@ public:
 
   void getNameWithPrefix(SmallVectorImpl<char> &OutName, const GlobalValue *GV,
                          const TargetMachine &TM) const override;
+
+  MCSection *getSectionForCommandLines() const override;
 };
 
 class TargetLoweringObjectFileCOFF : public TargetLoweringObjectFile {
@@ -174,8 +200,13 @@ public:
   MCSection *getSectionForJumpTable(const Function &F,
                                     const TargetMachine &TM) const override;
 
+  bool shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
+                                           const Function &F) const override;
+
   /// Emit Obj-C garbage collection and linker options.
   void emitModuleMetadata(MCStreamer &Streamer, Module &M) const override;
+
+  void emitLinkerDirectives(MCStreamer &Streamer, Module &M) const override;
 
   MCSection *getStaticCtorSection(unsigned Priority,
                                   const MCSymbol *KeySym) const override;
@@ -183,7 +214,8 @@ public:
                                   const MCSymbol *KeySym) const override;
 
   const MCExpr *lowerRelativeReference(const GlobalValue *LHS,
-                                       const GlobalValue *RHS,
+                                       const GlobalValue *RHS, int64_t Addend,
+                                       std::optional<int64_t> PCRelativeOffset,
                                        const TargetMachine &TM) const override;
 
   /// Given a mergeable constant with the specified size and relocation
@@ -191,17 +223,17 @@ public:
   MCSection *getSectionForConstant(const DataLayout &DL, SectionKind Kind,
                                    const Constant *C,
                                    Align &Alignment) const override;
-
-private:
-  void emitLinkerDirectives(MCStreamer &Streamer, Module &M) const;
 };
 
 class TargetLoweringObjectFileWasm : public TargetLoweringObjectFile {
   mutable unsigned NextUniqueID = 0;
+  SmallPtrSet<GlobalObject *, 2> Used;
 
 public:
   TargetLoweringObjectFileWasm() = default;
   ~TargetLoweringObjectFileWasm() override = default;
+
+  void getModuleMetadata(Module &M) override;
 
   MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
                                       const TargetMachine &TM) const override;
@@ -217,10 +249,6 @@ public:
                                   const MCSymbol *KeySym) const override;
   MCSection *getStaticDtorSection(unsigned Priority,
                                   const MCSymbol *KeySym) const override;
-
-  const MCExpr *lowerRelativeReference(const GlobalValue *LHS,
-                                       const GlobalValue *RHS,
-                                       const TargetMachine &TM) const override;
 };
 
 class TargetLoweringObjectFileXCOFF : public TargetLoweringObjectFile {
@@ -229,6 +257,7 @@ public:
   ~TargetLoweringObjectFileXCOFF() override = default;
 
   static bool ShouldEmitEHBlock(const MachineFunction *MF);
+  static bool ShouldSetSSPCanaryBitInTB(const MachineFunction *MF);
 
   static MCSymbol *getEHInfoTableSymbol(const MachineFunction *MF);
 
@@ -244,10 +273,6 @@ public:
                                   const MCSymbol *KeySym) const override;
   MCSection *getStaticDtorSection(unsigned Priority,
                                   const MCSymbol *KeySym) const override;
-
-  const MCExpr *lowerRelativeReference(const GlobalValue *LHS,
-                                       const GlobalValue *RHS,
-                                       const TargetMachine &TM) const override;
 
   MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
                                     const TargetMachine &TM) const override;
@@ -281,6 +306,32 @@ public:
 
   MCSymbol *getFunctionEntryPointSymbol(const GlobalValue *Func,
                                         const TargetMachine &TM) const override;
+
+  /// For functions, this will return the LSDA section. If option
+  /// -ffunction-sections is on, this will return a unique csect with the
+  /// function name appended to .gcc_except_table as a suffix of the LSDA
+  /// section name.
+  MCSection *getSectionForLSDA(const Function &F, const MCSymbol &FnSym,
+                               const TargetMachine &TM) const override;
+};
+
+class TargetLoweringObjectFileGOFF : public TargetLoweringObjectFile {
+  std::string DefaultRootSDName;
+  std::string DefaultADAPRName;
+
+public:
+  TargetLoweringObjectFileGOFF();
+  ~TargetLoweringObjectFileGOFF() override = default;
+
+  void getModuleMetadata(Module &M) override;
+
+  MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
+                                    const TargetMachine &TM) const override;
+  MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
+                                      const TargetMachine &TM) const override;
+  MCSection *getSectionForLSDA(const Function &F, const MCSymbol &FnSym,
+                               const TargetMachine &TM) const override;
+  MCSection *getStaticXtorSection(unsigned Priority) const;
 };
 
 } // end namespace llvm

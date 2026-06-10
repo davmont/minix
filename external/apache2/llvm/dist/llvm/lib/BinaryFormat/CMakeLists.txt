@@ -1,13 +1,16 @@
 add_llvm_component_library(LLVMBinaryFormat
   AMDGPUMetadataVerifier.cpp
+  COFF.cpp
   Dwarf.cpp
+  DXContainer.cpp
+  ELF.cpp
   MachO.cpp
   Magic.cpp
-  Minidump.cpp
   MsgPackDocument.cpp
   MsgPackDocumentYAML.cpp
   MsgPackReader.cpp
   MsgPackWriter.cpp
+  SFrame.cpp
   Wasm.cpp
   XCOFF.cpp
 
@@ -16,4 +19,5 @@ add_llvm_component_library(LLVMBinaryFormat
 
   LINK_COMPONENTS
   Support
+  TargetParser
   )

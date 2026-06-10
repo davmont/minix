@@ -13,15 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
-#include "Utils/WebAssemblyUtilities.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMachineFunctionInfo.h"
-#include "WebAssemblySubtarget.h"
-#include "llvm/ADT/SCCIterator.h"
+#include "WebAssemblyUtilities.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/Debug.h"
@@ -76,7 +72,7 @@ bool WebAssemblyRegNumbering::runOnMachineFunction(MachineFunction &MF) {
       break;
 
     int64_t Imm = MI.getOperand(1).getImm();
-    LLVM_DEBUG(dbgs() << "Arg VReg " << MI.getOperand(0).getReg()
+    LLVM_DEBUG(dbgs() << "Arg VReg " << printReg(MI.getOperand(0).getReg())
                       << " -> WAReg " << Imm << "\n");
     MFI.setWAReg(MI.getOperand(0).getReg(), Imm);
   }
@@ -89,19 +85,20 @@ bool WebAssemblyRegNumbering::runOnMachineFunction(MachineFunction &MF) {
   // Start the numbering for locals after the arg regs
   unsigned CurReg = MFI.getParams().size();
   for (unsigned VRegIdx = 0; VRegIdx < NumVRegs; ++VRegIdx) {
-    unsigned VReg = Register::index2VirtReg(VRegIdx);
+    Register VReg = Register::index2VirtReg(VRegIdx);
     // Skip unused registers.
     if (MRI.use_empty(VReg))
       continue;
     // Handle stackified registers.
     if (MFI.isVRegStackified(VReg)) {
-      LLVM_DEBUG(dbgs() << "VReg " << VReg << " -> WAReg "
+      LLVM_DEBUG(dbgs() << "VReg " << printReg(VReg) << " -> WAReg "
                         << (INT32_MIN | NumStackRegs) << "\n");
       MFI.setWAReg(VReg, INT32_MIN | NumStackRegs++);
       continue;
     }
-    if (MFI.getWAReg(VReg) == WebAssemblyFunctionInfo::UnusedReg) {
-      LLVM_DEBUG(dbgs() << "VReg " << VReg << " -> WAReg " << CurReg << "\n");
+    if (MFI.getWAReg(VReg) == WebAssembly::UnusedReg) {
+      LLVM_DEBUG(dbgs() << "VReg " << printReg(VReg) << " -> WAReg " << CurReg
+                        << "\n");
       MFI.setWAReg(VReg, CurReg++);
     }
   }

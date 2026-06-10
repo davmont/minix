@@ -16,11 +16,18 @@
 
 #include "AMDGPUTargetTransformInfo.h"
 #include "AMDGPUTargetMachine.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "SIModeRegisterDefaults.h"
+#include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/CodeGen/Analysis.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/KnownBits.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -46,11 +53,6 @@ static cl::opt<bool> UnrollRuntimeLocal(
   cl::desc("Allow runtime unroll for AMDGPU if local memory used in a loop"),
   cl::init(true), cl::Hidden);
 
-static cl::opt<bool> UseLegacyDA(
-  "amdgpu-use-legacy-divergence-analysis",
-  cl::desc("Enable legacy divergence analysis for AMDGPU"),
-  cl::init(false), cl::Hidden);
-
 static cl::opt<unsigned> UnrollMaxBlockToAnalyze(
     "amdgpu-unroll-max-block-to-analyze",
     cl::desc("Inner loop block size threshold to analyze in unroll for AMDGPU"),
@@ -74,6 +76,13 @@ static cl::opt<size_t> InlineMaxBB(
     cl::desc("Maximum number of BBs allowed in a function after inlining"
              " (compile time constraint)"));
 
+// This default unroll factor is based on microbenchmarks on gfx1030.
+static cl::opt<unsigned> MemcpyLoopUnroll(
+    "amdgpu-memcpy-loop-unroll",
+    cl::desc("Unroll factor (affecting 4x32-bit operations) to use for memory "
+             "operations when lowering memcpy as a loop"),
+    cl::init(16), cl::Hidden);
+
 static bool dependsOnLocalPhi(const Loop *L, const Value *Cond,
                               unsigned Depth = 0) {
   const Instruction *I = dyn_cast<Instruction>(Cond);
@@ -94,21 +103,26 @@ static bool dependsOnLocalPhi(const Loop *L, const Value *Cond,
 }
 
 AMDGPUTTIImpl::AMDGPUTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
-    : BaseT(TM, F.getParent()->getDataLayout()),
+    : BaseT(TM, F.getDataLayout()),
       TargetTriple(TM->getTargetTriple()),
       ST(static_cast<const GCNSubtarget *>(TM->getSubtargetImpl(F))),
       TLI(ST->getTargetLowering()) {}
 
-void AMDGPUTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
-                                            TTI::UnrollingPreferences &UP) {
+void AMDGPUTTIImpl::getUnrollingPreferences(
+    Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
+    OptimizationRemarkEmitter *ORE) const {
   const Function &F = *L->getHeader()->getParent();
-  UP.Threshold = AMDGPU::getIntegerAttribute(F, "amdgpu-unroll-threshold", 300);
+  UP.Threshold =
+      F.getFnAttributeAsParsedInteger("amdgpu-unroll-threshold", 300);
   UP.MaxCount = std::numeric_limits<unsigned>::max();
   UP.Partial = true;
 
   // Conditional branch in a loop back edge needs 3 additional exec
   // manipulations in average.
   UP.BEInsns += 3;
+
+  // We want to run unroll even for the loops which have been vectorized.
+  UP.UnrollVectorizedLoop = true;
 
   // TODO: Do we want runtime unrolling?
 
@@ -138,7 +152,7 @@ void AMDGPUTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
 
   unsigned MaxBoost = std::max(ThresholdPrivate, ThresholdLocal);
   for (const BasicBlock *BB : L->getBlocks()) {
-    const DataLayout &DL = BB->getModule()->getDataLayout();
+    const DataLayout &DL = BB->getDataLayout();
     unsigned LocalGEPsSeen = 0;
 
     if (llvm::any_of(L->getSubLoops(), [BB](const Loop* SubLoop) {
@@ -203,10 +217,13 @@ void AMDGPUTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
         // a variable, most likely we will be unable to combine it.
         // Do not unroll too deep inner loops for local memory to give a chance
         // to unroll an outer loop for a more important reason.
-        if (LocalGEPsSeen > 1 || L->getLoopDepth() > 2 ||
-            (!isa<GlobalVariable>(GEP->getPointerOperand()) &&
-             !isa<Argument>(GEP->getPointerOperand())))
+        if (LocalGEPsSeen > 1 || L->getLoopDepth() > 2)
           continue;
+
+        const Value *V = getUnderlyingObject(GEP->getPointerOperand());
+        if (!isa<GlobalVariable>(V) && !isa<Argument>(V))
+          continue;
+
         LLVM_DEBUG(dbgs() << "Allow unroll runtime for loop:\n"
                           << *L << " due to LDS use.\n");
         UP.Runtime = UnrollRuntimeLocal;
@@ -257,8 +274,12 @@ void AMDGPUTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
 }
 
 void AMDGPUTTIImpl::getPeelingPreferences(Loop *L, ScalarEvolution &SE,
-                                          TTI::PeelingPreferences &PP) {
+                                          TTI::PeelingPreferences &PP) const {
   BaseT::getPeelingPreferences(L, SE, PP);
+}
+
+uint64_t AMDGPUTTIImpl::getMaxMemIntrinsicInlineSizeThreshold() const {
+  return 1024;
 }
 
 const FeatureBitset GCNTTIImpl::InlineFeatureIgnoreList = {
@@ -282,36 +303,29 @@ const FeatureBitset GCNTTIImpl::InlineFeatureIgnoreList = {
     AMDGPU::FeatureFastFMAF32, AMDGPU::HalfRate64Ops};
 
 GCNTTIImpl::GCNTTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
-    : BaseT(TM, F.getParent()->getDataLayout()),
+    : BaseT(TM, F.getDataLayout()),
       ST(static_cast<const GCNSubtarget *>(TM->getSubtargetImpl(F))),
       TLI(ST->getTargetLowering()), CommonTTI(TM, F),
-      IsGraphics(AMDGPU::isGraphics(F.getCallingConv())),
-      MaxVGPRs(ST->getMaxNumVGPRs(
-          std::max(ST->getWavesPerEU(F).first,
-                   ST->getWavesPerEUForWorkGroup(
-                       ST->getFlatWorkGroupSizes(F).second)))) {
-  AMDGPU::SIModeRegisterDefaults Mode(F);
-  HasFP32Denormals = Mode.allFP32Denormals();
-  HasFP64FP16Denormals = Mode.allFP64FP16Denormals();
+      IsGraphics(AMDGPU::isGraphics(F.getCallingConv())) {
+  SIModeRegisterDefaults Mode(F, *ST);
+  HasFP32Denormals = Mode.FP32Denormals != DenormalMode::getPreserveSign();
+  HasFP64FP16Denormals =
+      Mode.FP64FP16Denormals != DenormalMode::getPreserveSign();
 }
 
-unsigned GCNTTIImpl::getHardwareNumberOfRegisters(bool Vec) const {
-  // The concept of vector registers doesn't really exist. Some packed vector
-  // operations operate on the normal 32-bit registers.
-  return MaxVGPRs;
-}
-
-unsigned GCNTTIImpl::getNumberOfRegisters(bool Vec) const {
-  // This is really the number of registers to fill when vectorizing /
-  // interleaving loops, so we lie to avoid trying to use all registers.
-  return getHardwareNumberOfRegisters(Vec) >> 3;
+bool GCNTTIImpl::hasBranchDivergence(const Function *F) const {
+  return !F || !ST->isSingleLaneExecution(*F);
 }
 
 unsigned GCNTTIImpl::getNumberOfRegisters(unsigned RCID) const {
-  const SIRegisterInfo *TRI = ST->getRegisterInfo();
-  const TargetRegisterClass *RC = TRI->getRegClass(RCID);
-  unsigned NumVGPRs = (TRI->getRegSizeInBits(*RC) + 31) / 32;
-  return getHardwareNumberOfRegisters(false) / NumVGPRs;
+  // NB: RCID is not an RCID. In fact it is 0 or 1 for scalar or vector
+  // registers. See getRegisterClassForType for the implementation.
+  // In this case vector registers are not vector in terms of
+  // VGPRs, but those which can hold multiple values.
+
+  // This is really the number of registers to fill when vectorizing /
+  // interleaving loops, so we lie to avoid trying to use all registers.
+  return 4;
 }
 
 TypeSize
@@ -334,9 +348,12 @@ unsigned GCNTTIImpl::getMinVectorRegisterBitWidth() const {
 unsigned GCNTTIImpl::getMaximumVF(unsigned ElemWidth, unsigned Opcode) const {
   if (Opcode == Instruction::Load || Opcode == Instruction::Store)
     return 32 * 4 / ElemWidth;
-  return (ElemWidth == 16 && ST->has16BitInsts()) ? 2
-       : (ElemWidth == 32 && ST->hasPackedFP32Ops()) ? 2
-       : 1;
+  // For a given width return the max 0number of elements that can be combined
+  // into a wider bit value:
+  return (ElemWidth == 8 && ST->has16BitInsts())       ? 4
+         : (ElemWidth == 16 && ST->has16BitInsts())    ? 2
+         : (ElemWidth == 32 && ST->hasPackedFP32Ops()) ? 2
+                                                       : 1;
 }
 
 unsigned GCNTTIImpl::getLoadVectorFactor(unsigned VF, unsigned LoadSize,
@@ -364,7 +381,9 @@ unsigned GCNTTIImpl::getLoadStoreVecRegBitWidth(unsigned AddrSpace) const {
   if (AddrSpace == AMDGPUAS::GLOBAL_ADDRESS ||
       AddrSpace == AMDGPUAS::CONSTANT_ADDRESS ||
       AddrSpace == AMDGPUAS::CONSTANT_ADDRESS_32BIT ||
-      AddrSpace == AMDGPUAS::BUFFER_FAT_POINTER) {
+      AddrSpace == AMDGPUAS::BUFFER_FAT_POINTER ||
+      AddrSpace == AMDGPUAS::BUFFER_RESOURCE ||
+      AddrSpace == AMDGPUAS::BUFFER_STRIDED_POINTER) {
     return 512;
   }
 
@@ -382,8 +401,8 @@ bool GCNTTIImpl::isLegalToVectorizeMemChain(unsigned ChainSizeInBytes,
   // them later if they may access private memory. We don't have enough context
   // here, and legalization can handle it.
   if (AddrSpace == AMDGPUAS::PRIVATE_ADDRESS) {
-    return (Alignment >= 4 || ST->hasUnalignedScratchAccess()) &&
-      ChainSizeInBytes <= ST->getMaxPrivateElementSize();
+    return (Alignment >= 4 || ST->hasUnalignedScratchAccessEnabled()) &&
+           ChainSizeInBytes <= ST->getMaxPrivateElementSize();
   }
   return true;
 }
@@ -400,61 +419,64 @@ bool GCNTTIImpl::isLegalToVectorizeStoreChain(unsigned ChainSizeInBytes,
   return isLegalToVectorizeMemChain(ChainSizeInBytes, Alignment, AddrSpace);
 }
 
-// FIXME: Really we would like to issue multiple 128-bit loads and stores per
-// iteration. Should we report a larger size and let it legalize?
-//
-// FIXME: Should we use narrower types for local/region, or account for when
-// unaligned access is legal?
-//
-// FIXME: This could use fine tuning and microbenchmarks.
-Type *GCNTTIImpl::getMemcpyLoopLoweringType(LLVMContext &Context, Value *Length,
-                                            unsigned SrcAddrSpace,
-                                            unsigned DestAddrSpace,
-                                            unsigned SrcAlign,
-                                            unsigned DestAlign) const {
-  unsigned MinAlign = std::min(SrcAlign, DestAlign);
+uint64_t GCNTTIImpl::getMaxMemIntrinsicInlineSizeThreshold() const {
+  return 1024;
+}
 
-  // A (multi-)dword access at an address == 2 (mod 4) will be decomposed by the
-  // hardware into byte accesses. If you assume all alignments are equally
-  // probable, it's more efficient on average to use short accesses for this
-  // case.
-  if (MinAlign == 2)
-    return Type::getInt16Ty(Context);
+Type *GCNTTIImpl::getMemcpyLoopLoweringType(
+    LLVMContext &Context, Value *Length, unsigned SrcAddrSpace,
+    unsigned DestAddrSpace, Align SrcAlign, Align DestAlign,
+    std::optional<uint32_t> AtomicElementSize) const {
 
-  // Not all subtargets have 128-bit DS instructions, and we currently don't
-  // form them by default.
-  if (SrcAddrSpace == AMDGPUAS::LOCAL_ADDRESS ||
-      SrcAddrSpace == AMDGPUAS::REGION_ADDRESS ||
-      DestAddrSpace == AMDGPUAS::LOCAL_ADDRESS ||
-      DestAddrSpace == AMDGPUAS::REGION_ADDRESS) {
-    return FixedVectorType::get(Type::getInt32Ty(Context), 2);
-  }
+  if (AtomicElementSize)
+    return Type::getIntNTy(Context, *AtomicElementSize * 8);
 
-  // Global memory works best with 16-byte accesses. Private memory will also
-  // hit this, although they'll be decomposed.
-  return FixedVectorType::get(Type::getInt32Ty(Context), 4);
+  // 16-byte accesses achieve the highest copy throughput.
+  // If the operation has a fixed known length that is large enough, it is
+  // worthwhile to return an even wider type and let legalization lower it into
+  // multiple accesses, effectively unrolling the memcpy loop.
+  // We also rely on legalization to decompose into smaller accesses for
+  // subtargets and address spaces where it is necessary.
+  //
+  // Don't unroll if Length is not a constant, since unrolling leads to worse
+  // performance for length values that are smaller or slightly larger than the
+  // total size of the type returned here. Mitigating that would require a more
+  // complex lowering for variable-length memcpy and memmove.
+  unsigned I32EltsInVector = 4;
+  if (MemcpyLoopUnroll > 0 && isa<ConstantInt>(Length))
+    return FixedVectorType::get(Type::getInt32Ty(Context),
+                                MemcpyLoopUnroll * I32EltsInVector);
+
+  return FixedVectorType::get(Type::getInt32Ty(Context), I32EltsInVector);
 }
 
 void GCNTTIImpl::getMemcpyLoopResidualLoweringType(
-  SmallVectorImpl<Type *> &OpsOut, LLVMContext &Context,
-  unsigned RemainingBytes, unsigned SrcAddrSpace, unsigned DestAddrSpace,
-  unsigned SrcAlign, unsigned DestAlign) const {
-  assert(RemainingBytes < 16);
+    SmallVectorImpl<Type *> &OpsOut, LLVMContext &Context,
+    unsigned RemainingBytes, unsigned SrcAddrSpace, unsigned DestAddrSpace,
+    Align SrcAlign, Align DestAlign,
+    std::optional<uint32_t> AtomicCpySize) const {
 
-  unsigned MinAlign = std::min(SrcAlign, DestAlign);
+  if (AtomicCpySize)
+    BaseT::getMemcpyLoopResidualLoweringType(
+        OpsOut, Context, RemainingBytes, SrcAddrSpace, DestAddrSpace, SrcAlign,
+        DestAlign, AtomicCpySize);
 
-  if (MinAlign != 2) {
-    Type *I64Ty = Type::getInt64Ty(Context);
-    while (RemainingBytes >= 8) {
-      OpsOut.push_back(I64Ty);
-      RemainingBytes -= 8;
-    }
+  Type *I32x4Ty = FixedVectorType::get(Type::getInt32Ty(Context), 4);
+  while (RemainingBytes >= 16) {
+    OpsOut.push_back(I32x4Ty);
+    RemainingBytes -= 16;
+  }
 
-    Type *I32Ty = Type::getInt32Ty(Context);
-    while (RemainingBytes >= 4) {
-      OpsOut.push_back(I32Ty);
-      RemainingBytes -= 4;
-    }
+  Type *I64Ty = Type::getInt64Ty(Context);
+  while (RemainingBytes >= 8) {
+    OpsOut.push_back(I64Ty);
+    RemainingBytes -= 8;
+  }
+
+  Type *I32Ty = Type::getInt32Ty(Context);
+  while (RemainingBytes >= 4) {
+    OpsOut.push_back(I32Ty);
+    RemainingBytes -= 4;
   }
 
   Type *I16Ty = Type::getInt16Ty(Context);
@@ -470,10 +492,10 @@ void GCNTTIImpl::getMemcpyLoopResidualLoweringType(
   }
 }
 
-unsigned GCNTTIImpl::getMaxInterleaveFactor(unsigned VF) {
+unsigned GCNTTIImpl::getMaxInterleaveFactor(ElementCount VF) const {
   // Disable unrolling if the loop is not vectorized.
   // TODO: Enable this again.
-  if (VF == 1)
+  if (VF.isScalar())
     return 1;
 
   return 8;
@@ -482,13 +504,8 @@ unsigned GCNTTIImpl::getMaxInterleaveFactor(unsigned VF) {
 bool GCNTTIImpl::getTgtMemIntrinsic(IntrinsicInst *Inst,
                                        MemIntrinsicInfo &Info) const {
   switch (Inst->getIntrinsicID()) {
-  case Intrinsic::amdgcn_atomic_inc:
-  case Intrinsic::amdgcn_atomic_dec:
   case Intrinsic::amdgcn_ds_ordered_add:
-  case Intrinsic::amdgcn_ds_ordered_swap:
-  case Intrinsic::amdgcn_ds_fadd:
-  case Intrinsic::amdgcn_ds_fmin:
-  case Intrinsic::amdgcn_ds_fmax: {
+  case Intrinsic::amdgcn_ds_ordered_swap: {
     auto *Ordering = dyn_cast<ConstantInt>(Inst->getArgOperand(2));
     auto *Volatile = dyn_cast<ConstantInt>(Inst->getArgOperand(4));
     if (!Ordering || !Volatile)
@@ -502,7 +519,7 @@ bool GCNTTIImpl::getTgtMemIntrinsic(IntrinsicInst *Inst,
     Info.Ordering = static_cast<AtomicOrdering>(OrderingVal);
     Info.ReadMem = true;
     Info.WriteMem = true;
-    Info.IsVolatile = !Volatile->isNullValue();
+    Info.IsVolatile = !Volatile->isZero();
     return true;
   }
   default:
@@ -512,64 +529,11 @@ bool GCNTTIImpl::getTgtMemIntrinsic(IntrinsicInst *Inst,
 
 InstructionCost GCNTTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::TargetCostKind CostKind,
-    TTI::OperandValueKind Opd1Info, TTI::OperandValueKind Opd2Info,
-    TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args,
-    const Instruction *CxtI) {
-  EVT OrigTy = TLI->getValueType(DL, Ty);
-  if (!OrigTy.isSimple()) {
-    // FIXME: We're having to query the throughput cost so that the basic
-    // implementation tries to generate legalize and scalarization costs. Maybe
-    // we could hoist the scalarization code here?
-    if (CostKind != TTI::TCK_CodeSize)
-      return BaseT::getArithmeticInstrCost(Opcode, Ty, TTI::TCK_RecipThroughput,
-                                           Opd1Info, Opd2Info, Opd1PropInfo,
-                                           Opd2PropInfo, Args, CxtI);
-    // Scalarization
-
-    // Check if any of the operands are vector operands.
-    int ISD = TLI->InstructionOpcodeToISD(Opcode);
-    assert(ISD && "Invalid opcode");
-
-    std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
-
-    bool IsFloat = Ty->isFPOrFPVectorTy();
-    // Assume that floating point arithmetic operations cost twice as much as
-    // integer operations.
-    unsigned OpCost = (IsFloat ? 2 : 1);
-
-    if (TLI->isOperationLegalOrPromote(ISD, LT.second)) {
-      // The operation is legal. Assume it costs 1.
-      // TODO: Once we have extract/insert subvector cost we need to use them.
-      return LT.first * OpCost;
-    }
-
-    if (!TLI->isOperationExpand(ISD, LT.second)) {
-      // If the operation is custom lowered, then assume that the code is twice
-      // as expensive.
-      return LT.first * 2 * OpCost;
-    }
-
-    // Else, assume that we need to scalarize this op.
-    // TODO: If one of the types get legalized by splitting, handle this
-    // similarly to what getCastInstrCost() does.
-    if (auto *VTy = dyn_cast<VectorType>(Ty)) {
-      unsigned Num = cast<FixedVectorType>(VTy)->getNumElements();
-      InstructionCost Cost = getArithmeticInstrCost(
-          Opcode, VTy->getScalarType(), CostKind, Opd1Info, Opd2Info,
-          Opd1PropInfo, Opd2PropInfo, Args, CxtI);
-      // Return the cost of multiple scalar invocation plus the cost of
-      // inserting and extracting the values.
-      SmallVector<Type *> Tys(Args.size(), Ty);
-      return getScalarizationOverhead(VTy, Args, Tys) + Num * Cost;
-    }
-
-    // We don't know anything about this scalar instruction.
-    return OpCost;
-  }
+    TTI::OperandValueInfo Op1Info, TTI::OperandValueInfo Op2Info,
+    ArrayRef<const Value *> Args, const Instruction *CxtI) const {
 
   // Legalize the type.
-  std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
+  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
   int ISD = TLI->InstructionOpcodeToISD(Opcode);
 
   // Because we don't have any legal vector operations, but the legal types, we
@@ -634,15 +598,16 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
           // Estimate all types may be fused with contract/unsafe flags
           const TargetOptions &Options = TLI->getTargetMachine().Options;
           if (Options.AllowFPOpFusion == FPOpFusion::Fast ||
-              Options.UnsafeFPMath ||
               (FAdd->hasAllowContract() && CxtI->hasAllowContract()))
             return TargetTransformInfo::TCC_Free;
         }
       }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::FADD:
   case ISD::FSUB:
     if (ST->hasPackedFP32Ops() && SLT == MVT::f32)
+      NElts = (NElts + 1) / 2;
+    if (ST->hasBF16PackedInsts() && SLT == MVT::bf16)
       NElts = (NElts + 1) / 2;
     if (SLT == MVT::f64)
       return LT.first * NElts * get64BitInstrCost(CostKind);
@@ -650,7 +615,7 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
     if (ST->has16BitInsts() && SLT == MVT::f16)
       NElts = (NElts + 1) / 2;
 
-    if (SLT == MVT::f32 || SLT == MVT::f16)
+    if (SLT == MVT::f32 || SLT == MVT::f16 || SLT == MVT::bf16)
       return LT.first * NElts * getFullRateInstrCost();
     break;
   case ISD::FDIV:
@@ -687,6 +652,14 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
       return LT.first * Cost * NElts;
     }
 
+    if (SLT == MVT::f32 && (CxtI && CxtI->hasApproxFunc())) {
+      // Fast unsafe fdiv lowering:
+      // f32 rcp
+      // f32 fmul
+      int Cost = getQuarterRateInstrCost(CostKind) + getFullRateInstrCost();
+      return LT.first * Cost * NElts;
+    }
+
     if (SLT == MVT::f32 || SLT == MVT::f16) {
       // 4 more v_cvt_* insts without f16 insts support
       int Cost = (SLT == MVT::f16 ? 14 : 10) * getFullRateInstrCost() +
@@ -708,21 +681,27 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
     break;
   }
 
-  return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Opd1Info, Opd2Info,
-                                       Opd1PropInfo, Opd2PropInfo, Args, CxtI);
+  return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
+                                       Args, CxtI);
 }
 
 // Return true if there's a potential benefit from using v2f16/v2i16
 // instructions for an intrinsic, even if it requires nontrivial legalization.
 static bool intrinsicHasPackedVectorBenefit(Intrinsic::ID ID) {
   switch (ID) {
-  case Intrinsic::fma: // TODO: fmuladd
+  case Intrinsic::fma:
+  case Intrinsic::fmuladd:
+  case Intrinsic::copysign:
+  case Intrinsic::minimumnum:
+  case Intrinsic::maximumnum:
+  case Intrinsic::canonicalize:
   // There's a small benefit to using vector ops in the legalized code.
   case Intrinsic::round:
   case Intrinsic::uadd_sat:
   case Intrinsic::usub_sat:
   case Intrinsic::sadd_sat:
   case Intrinsic::ssub_sat:
+  case Intrinsic::abs:
     return true;
   default:
     return false;
@@ -731,61 +710,47 @@ static bool intrinsicHasPackedVectorBenefit(Intrinsic::ID ID) {
 
 InstructionCost
 GCNTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
-                                  TTI::TargetCostKind CostKind) {
-  if (ICA.getID() == Intrinsic::fabs)
+                                  TTI::TargetCostKind CostKind) const {
+  switch (ICA.getID()) {
+  case Intrinsic::fabs:
+    // Free source modifier in the common case.
     return 0;
+  case Intrinsic::amdgcn_workitem_id_x:
+  case Intrinsic::amdgcn_workitem_id_y:
+  case Intrinsic::amdgcn_workitem_id_z:
+    // TODO: If hasPackedTID, or if the calling context is not an entry point
+    // there may be a bit instruction.
+    return 0;
+  case Intrinsic::amdgcn_workgroup_id_x:
+  case Intrinsic::amdgcn_workgroup_id_y:
+  case Intrinsic::amdgcn_workgroup_id_z:
+  case Intrinsic::amdgcn_lds_kernel_id:
+  case Intrinsic::amdgcn_dispatch_ptr:
+  case Intrinsic::amdgcn_dispatch_id:
+  case Intrinsic::amdgcn_implicitarg_ptr:
+  case Intrinsic::amdgcn_queue_ptr:
+    // Read from an argument register.
+    return 0;
+  default:
+    break;
+  }
 
   if (!intrinsicHasPackedVectorBenefit(ICA.getID()))
     return BaseT::getIntrinsicInstrCost(ICA, CostKind);
 
   Type *RetTy = ICA.getReturnType();
-  EVT OrigTy = TLI->getValueType(DL, RetTy);
-  if (!OrigTy.isSimple()) {
-    if (CostKind != TTI::TCK_CodeSize)
-      return BaseT::getIntrinsicInstrCost(ICA, CostKind);
-
-    // TODO: Combine these two logic paths.
-    if (ICA.isTypeBasedOnly())
-      return getTypeBasedIntrinsicInstrCost(ICA, CostKind);
-
-    unsigned RetVF =
-        (RetTy->isVectorTy() ? cast<FixedVectorType>(RetTy)->getNumElements()
-                             : 1);
-    const IntrinsicInst *I = ICA.getInst();
-    const SmallVectorImpl<const Value *> &Args = ICA.getArgs();
-    FastMathFlags FMF = ICA.getFlags();
-    // Assume that we need to scalarize this intrinsic.
-
-    // Compute the scalarization overhead based on Args for a vector
-    // intrinsic. A vectorizer will pass a scalar RetTy and VF > 1, while
-    // CostModel will pass a vector RetTy and VF is 1.
-    InstructionCost ScalarizationCost = InstructionCost::getInvalid();
-    if (RetVF > 1) {
-      ScalarizationCost = 0;
-      if (!RetTy->isVoidTy())
-        ScalarizationCost +=
-            getScalarizationOverhead(cast<VectorType>(RetTy), true, false);
-      ScalarizationCost +=
-          getOperandsScalarizationOverhead(Args, ICA.getArgTypes());
-    }
-
-    IntrinsicCostAttributes Attrs(ICA.getID(), RetTy, ICA.getArgTypes(), FMF, I,
-                                  ScalarizationCost);
-    return getIntrinsicInstrCost(Attrs, CostKind);
-  }
 
   // Legalize the type.
-  std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, RetTy);
+  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(RetTy);
 
   unsigned NElts = LT.second.isVector() ?
     LT.second.getVectorNumElements() : 1;
 
   MVT::SimpleValueType SLT = LT.second.getScalarType().SimpleTy;
 
-  if (SLT == MVT::f64)
-    return LT.first * NElts * get64BitInstrCost(CostKind);
-
-  if ((ST->has16BitInsts() && SLT == MVT::f16) ||
+  if ((ST->hasVOP3PInsts() &&
+       (SLT == MVT::f16 || SLT == MVT::i16 ||
+        (SLT == MVT::bf16 && ST->hasBF16PackedInsts()))) ||
       (ST->hasPackedFP32Ops() && SLT == MVT::f32))
     NElts = (NElts + 1) / 2;
 
@@ -794,16 +759,61 @@ GCNTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
 
   switch (ICA.getID()) {
   case Intrinsic::fma:
-    InstRate = ST->hasFastFMAF32() ? getHalfRateInstrCost(CostKind)
-                                   : getQuarterRateInstrCost(CostKind);
+  case Intrinsic::fmuladd:
+    if (SLT == MVT::f64) {
+      InstRate = get64BitInstrCost(CostKind);
+      break;
+    }
+
+    if ((SLT == MVT::f32 && ST->hasFastFMAF32()) || SLT == MVT::f16)
+      InstRate = getFullRateInstrCost();
+    else {
+      InstRate = ST->hasFastFMAF32() ? getHalfRateInstrCost(CostKind)
+                                     : getQuarterRateInstrCost(CostKind);
+    }
     break;
+  case Intrinsic::copysign:
+    return NElts * getFullRateInstrCost();
+  case Intrinsic::minimumnum:
+  case Intrinsic::maximumnum: {
+    // Instruction + 2 canonicalizes. For cases that need type promotion, we the
+    // promotion takes the place of the canonicalize.
+    unsigned NumOps = 3;
+    if (const IntrinsicInst *II = ICA.getInst()) {
+      // Directly legal with ieee=0
+      // TODO: Not directly legal with strictfp
+      if (fpenvIEEEMode(*II) == KnownIEEEMode::Off)
+        NumOps = 1;
+    }
+
+    unsigned BaseRate =
+        SLT == MVT::f64 ? get64BitInstrCost(CostKind) : getFullRateInstrCost();
+    InstRate = BaseRate * NumOps;
+    break;
+  }
+  case Intrinsic::canonicalize: {
+    InstRate =
+        SLT == MVT::f64 ? get64BitInstrCost(CostKind) : getFullRateInstrCost();
+    break;
+  }
   case Intrinsic::uadd_sat:
   case Intrinsic::usub_sat:
   case Intrinsic::sadd_sat:
-  case Intrinsic::ssub_sat:
+  case Intrinsic::ssub_sat: {
+    if (SLT == MVT::i16 || SLT == MVT::i32)
+      InstRate = getFullRateInstrCost();
+
     static const auto ValidSatTys = {MVT::v2i16, MVT::v4i16};
     if (any_of(ValidSatTys, [&LT](MVT M) { return M == LT.second; }))
       NElts = 1;
+    break;
+  }
+  case Intrinsic::abs:
+    // Expansion takes 2 instructions for VALU
+    if (SLT == MVT::i16 || SLT == MVT::i32)
+      InstRate = 2 * getFullRateInstrCost();
+    break;
+  default:
     break;
   }
 
@@ -812,7 +822,7 @@ GCNTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
 
 InstructionCost GCNTTIImpl::getCFInstrCost(unsigned Opcode,
                                            TTI::TargetCostKind CostKind,
-                                           const Instruction *I) {
+                                           const Instruction *I) const {
   assert((I == nullptr || I->getOpcode() == Opcode) &&
          "Opcode should reflect passed instruction.");
   const bool SCost =
@@ -821,7 +831,7 @@ InstructionCost GCNTTIImpl::getCFInstrCost(unsigned Opcode,
   switch (Opcode) {
   case Instruction::Br: {
     // Branch instruction takes about 4 slots on gfx900.
-    auto BI = dyn_cast_or_null<BranchInst>(I);
+    const auto *BI = dyn_cast_or_null<BranchInst>(I);
     if (BI && BI->isUnconditional())
       return SCost ? 1 : 4;
     // Suppose conditional branch takes additional 3 exec manipulations
@@ -829,58 +839,54 @@ InstructionCost GCNTTIImpl::getCFInstrCost(unsigned Opcode,
     return CBrCost;
   }
   case Instruction::Switch: {
-    auto SI = dyn_cast_or_null<SwitchInst>(I);
+    const auto *SI = dyn_cast_or_null<SwitchInst>(I);
     // Each case (including default) takes 1 cmp + 1 cbr instructions in
     // average.
     return (SI ? (SI->getNumCases() + 1) : 4) * (CBrCost + 1);
   }
   case Instruction::Ret:
     return SCost ? 1 : 10;
-  case Instruction::PHI:
-    // TODO: 1. A prediction phi won't be eliminated?
-    //       2. Estimate data copy instructions in this case.
-    return 1;
   }
   return BaseT::getCFInstrCost(Opcode, CostKind, I);
 }
 
 InstructionCost
 GCNTTIImpl::getArithmeticReductionCost(unsigned Opcode, VectorType *Ty,
-                                       bool IsPairwise,
-                                       TTI::TargetCostKind CostKind) {
+                                       std::optional<FastMathFlags> FMF,
+                                       TTI::TargetCostKind CostKind) const {
+  if (TTI::requiresOrderedReduction(FMF))
+    return BaseT::getArithmeticReductionCost(Opcode, Ty, FMF, CostKind);
+
   EVT OrigTy = TLI->getValueType(DL, Ty);
 
   // Computes cost on targets that have packed math instructions(which support
   // 16-bit types only).
-  if (IsPairwise ||
-      !ST->hasVOP3PInsts() ||
-      OrigTy.getScalarSizeInBits() != 16)
-    return BaseT::getArithmeticReductionCost(Opcode, Ty, IsPairwise, CostKind);
+  if (!ST->hasVOP3PInsts() || OrigTy.getScalarSizeInBits() != 16)
+    return BaseT::getArithmeticReductionCost(Opcode, Ty, FMF, CostKind);
 
-  std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
+  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
   return LT.first * getFullRateInstrCost();
 }
 
 InstructionCost
-GCNTTIImpl::getMinMaxReductionCost(VectorType *Ty, VectorType *CondTy,
-                                   bool IsPairwise, bool IsUnsigned,
-                                   TTI::TargetCostKind CostKind) {
+GCNTTIImpl::getMinMaxReductionCost(Intrinsic::ID IID, VectorType *Ty,
+                                   FastMathFlags FMF,
+                                   TTI::TargetCostKind CostKind) const {
   EVT OrigTy = TLI->getValueType(DL, Ty);
 
   // Computes cost on targets that have packed math instructions(which support
   // 16-bit types only).
-  if (IsPairwise ||
-      !ST->hasVOP3PInsts() ||
-      OrigTy.getScalarSizeInBits() != 16)
-    return BaseT::getMinMaxReductionCost(Ty, CondTy, IsPairwise, IsUnsigned,
-                                         CostKind);
+  if (!ST->hasVOP3PInsts() || OrigTy.getScalarSizeInBits() != 16)
+    return BaseT::getMinMaxReductionCost(IID, Ty, FMF, CostKind);
 
-  std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
+  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
   return LT.first * getHalfRateInstrCost(CostKind);
 }
 
 InstructionCost GCNTTIImpl::getVectorInstrCost(unsigned Opcode, Type *ValTy,
-                                               unsigned Index) {
+                                               TTI::TargetCostKind CostKind,
+                                               unsigned Index, const Value *Op0,
+                                               const Value *Op1) const {
   switch (Opcode) {
   case Instruction::ExtractElement:
   case Instruction::InsertElement: {
@@ -889,7 +895,8 @@ InstructionCost GCNTTIImpl::getVectorInstrCost(unsigned Opcode, Type *ValTy,
     if (EltSize < 32) {
       if (EltSize == 16 && Index == 0 && ST->has16BitInsts())
         return 0;
-      return BaseT::getVectorInstrCost(Opcode, ValTy, Index);
+      return BaseT::getVectorInstrCost(Opcode, ValTy, CostKind, Index, Op0,
+                                       Op1);
     }
 
     // Extracts are just reads of a subregister, so are free. Inserts are
@@ -900,7 +907,7 @@ InstructionCost GCNTTIImpl::getVectorInstrCost(unsigned Opcode, Type *ValTy,
     return Index == ~0u ? 2 : 0;
   }
   default:
-    return BaseT::getVectorInstrCost(Opcode, ValTy, Index);
+    return BaseT::getVectorInstrCost(Opcode, ValTy, CostKind, Index, Op0, Op1);
   }
 }
 
@@ -914,7 +921,7 @@ bool GCNTTIImpl::isInlineAsmSourceOfDivergence(
   if (Indices.size() > 1)
     return true;
 
-  const DataLayout &DL = CI->getModule()->getDataLayout();
+  const DataLayout &DL = CI->getDataLayout();
   const SIRegisterInfo *TRI = ST->getRegisterInfo();
   TargetLowering::AsmOperandInfoVector TargetConstraints =
       TLI->ParseConstraints(DL, ST->getRegisterInfo(), *CI);
@@ -932,15 +939,8 @@ bool GCNTTIImpl::isInlineAsmSourceOfDivergence(
 
     TLI->ComputeConstraintToUse(TC, SDValue());
 
-    Register AssignedReg;
-    const TargetRegisterClass *RC;
-    std::tie(AssignedReg, RC) = TLI->getRegForInlineAsmConstraint(
-      TRI, TC.ConstraintCode, TC.ConstraintVT);
-    if (AssignedReg) {
-      // FIXME: This is a workaround for getRegForInlineAsmConstraint
-      // returning VS_32
-      RC = TRI->getPhysRegClass(AssignedReg);
-    }
+    const TargetRegisterClass *RC = TLI->getRegForInlineAsmConstraint(
+        TRI, TC.ConstraintCode, TC.ConstraintVT).second;
 
     // For AGPR constraints null is returned on subtargets without AGPRs, so
     // assume divergent for null.
@@ -951,9 +951,25 @@ bool GCNTTIImpl::isInlineAsmSourceOfDivergence(
   return false;
 }
 
-/// \returns true if the new GPU divergence analysis is enabled.
-bool GCNTTIImpl::useGPUDivergenceAnalysis() const {
-  return !UseLegacyDA;
+bool GCNTTIImpl::isReadRegisterSourceOfDivergence(
+    const IntrinsicInst *ReadReg) const {
+  Metadata *MD =
+      cast<MetadataAsValue>(ReadReg->getArgOperand(0))->getMetadata();
+  StringRef RegName =
+      cast<MDString>(cast<MDNode>(MD)->getOperand(0))->getString();
+
+  // Special case registers that look like VCC.
+  MVT VT = MVT::getVT(ReadReg->getType());
+  if (VT == MVT::i1)
+    return true;
+
+  // Special case scalar registers that start with 'v'.
+  if (RegName.starts_with("vcc") || RegName.empty())
+    return false;
+
+  // VGPR or AGPR is divergent. There aren't any specially named vector
+  // registers.
+  return RegName[0] == 'v' || RegName[0] == 'a';
 }
 
 /// \returns true if the result of the value could potentially be
@@ -976,11 +992,35 @@ bool GCNTTIImpl::isSourceOfDivergence(const Value *V) const {
   // atomic operation refers to the same address in each thread, then each
   // thread after the first sees the value written by the previous thread as
   // original value.
-  if (isa<AtomicRMWInst>(V) || isa<AtomicCmpXchgInst>(V))
+  if (isa<AtomicRMWInst, AtomicCmpXchgInst>(V))
     return true;
 
-  if (const IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(V))
-    return AMDGPU::isIntrinsicSourceOfDivergence(Intrinsic->getIntrinsicID());
+  if (const IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(V)) {
+    Intrinsic::ID IID = Intrinsic->getIntrinsicID();
+    switch (IID) {
+    case Intrinsic::read_register:
+      return isReadRegisterSourceOfDivergence(Intrinsic);
+    case Intrinsic::amdgcn_addrspacecast_nonnull: {
+      unsigned SrcAS =
+          Intrinsic->getOperand(0)->getType()->getPointerAddressSpace();
+      unsigned DstAS = Intrinsic->getType()->getPointerAddressSpace();
+      return SrcAS == AMDGPUAS::PRIVATE_ADDRESS &&
+             DstAS == AMDGPUAS::FLAT_ADDRESS &&
+             ST->hasGloballyAddressableScratch();
+    }
+    case Intrinsic::amdgcn_workitem_id_y:
+    case Intrinsic::amdgcn_workitem_id_z: {
+      const Function *F = Intrinsic->getFunction();
+      bool HasUniformYZ =
+          ST->hasWavefrontsEvenlySplittingXDim(*F, /*RequitezUniformYZ=*/true);
+      std::optional<unsigned> ThisDimSize = ST->getReqdWorkGroupSize(
+          *F, IID == Intrinsic::amdgcn_workitem_id_y ? 1 : 2);
+      return !HasUniformYZ && (!ThisDimSize || *ThisDimSize != 1);
+    }
+    default:
+      return AMDGPU::isIntrinsicSourceOfDivergence(IID);
+    }
+  }
 
   // Assume all function calls are a source of divergence.
   if (const CallInst *CI = dyn_cast<CallInst>(V)) {
@@ -993,28 +1033,61 @@ bool GCNTTIImpl::isSourceOfDivergence(const Value *V) const {
   if (isa<InvokeInst>(V))
     return true;
 
+  // If the target supports globally addressable scratch, the mapping from
+  // scratch memory to the flat aperture changes therefore an address space cast
+  // is no longer uniform.
+  if (auto *CastI = dyn_cast<AddrSpaceCastInst>(V)) {
+    return CastI->getSrcAddressSpace() == AMDGPUAS::PRIVATE_ADDRESS &&
+           CastI->getDestAddressSpace() == AMDGPUAS::FLAT_ADDRESS &&
+           ST->hasGloballyAddressableScratch();
+  }
+
   return false;
 }
 
 bool GCNTTIImpl::isAlwaysUniform(const Value *V) const {
-  if (const IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(V)) {
-    switch (Intrinsic->getIntrinsicID()) {
-    default:
-      return false;
-    case Intrinsic::amdgcn_readfirstlane:
-    case Intrinsic::amdgcn_readlane:
-    case Intrinsic::amdgcn_icmp:
-    case Intrinsic::amdgcn_fcmp:
-    case Intrinsic::amdgcn_ballot:
-    case Intrinsic::amdgcn_if_break:
-      return true;
-    }
-  }
+  if (const IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(V))
+    return AMDGPU::isIntrinsicAlwaysUniform(Intrinsic->getIntrinsicID());
 
   if (const CallInst *CI = dyn_cast<CallInst>(V)) {
     if (CI->isInlineAsm())
       return !isInlineAsmSourceOfDivergence(CI);
     return false;
+  }
+
+  // In most cases TID / wavefrontsize is uniform.
+  //
+  // However, if a kernel has uneven dimesions we can have a value of
+  // workitem-id-x divided by the wavefrontsize non-uniform. For example
+  // dimensions (65, 2) will have workitems with address (64, 0) and (0, 1)
+  // packed into a same wave which gives 1 and 0 after the division by 64
+  // respectively.
+  //
+  // The X dimension doesn't reset within a wave if either both the Y
+  // and Z dimensions are of length 1, or if the X dimension's required
+  // size is a power of 2. Note, however, if the X dimension's maximum
+  // size is a power of 2 < the wavefront size, division by the wavefront
+  // size is guaranteed to yield 0, so this is also a no-reset case.
+  bool XDimDoesntResetWithinWaves = false;
+  if (auto *I = dyn_cast<Instruction>(V)) {
+    const Function *F = I->getFunction();
+    XDimDoesntResetWithinWaves = ST->hasWavefrontsEvenlySplittingXDim(*F);
+  }
+  using namespace llvm::PatternMatch;
+  uint64_t C;
+  if (match(V, m_LShr(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
+                      m_ConstantInt(C))) ||
+      match(V, m_AShr(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
+                      m_ConstantInt(C)))) {
+    return C >= ST->getWavefrontSizeLog2() && XDimDoesntResetWithinWaves;
+  }
+
+  Value *Mask;
+  if (match(V, m_c_And(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
+                       m_Value(Mask)))) {
+    return computeKnownBits(Mask, DL).countMinTrailingZeros() >=
+               ST->getWavefrontSizeLog2() &&
+           XDimDoesntResetWithinWaves;
   }
 
   const ExtractValueInst *ExtValue = dyn_cast<ExtractValueInst>(V);
@@ -1049,13 +1122,12 @@ bool GCNTTIImpl::isAlwaysUniform(const Value *V) const {
 bool GCNTTIImpl::collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
                                             Intrinsic::ID IID) const {
   switch (IID) {
-  case Intrinsic::amdgcn_atomic_inc:
-  case Intrinsic::amdgcn_atomic_dec:
-  case Intrinsic::amdgcn_ds_fadd:
-  case Intrinsic::amdgcn_ds_fmin:
-  case Intrinsic::amdgcn_ds_fmax:
   case Intrinsic::amdgcn_is_shared:
   case Intrinsic::amdgcn_is_private:
+  case Intrinsic::amdgcn_flat_atomic_fmax_num:
+  case Intrinsic::amdgcn_flat_atomic_fmin_num:
+  case Intrinsic::amdgcn_load_to_lds:
+  case Intrinsic::amdgcn_make_buffer_rsrc:
     OpIndexes.push_back(0);
     return true;
   default:
@@ -1068,23 +1140,6 @@ Value *GCNTTIImpl::rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
                                                     Value *NewV) const {
   auto IntrID = II->getIntrinsicID();
   switch (IntrID) {
-  case Intrinsic::amdgcn_atomic_inc:
-  case Intrinsic::amdgcn_atomic_dec:
-  case Intrinsic::amdgcn_ds_fadd:
-  case Intrinsic::amdgcn_ds_fmin:
-  case Intrinsic::amdgcn_ds_fmax: {
-    const ConstantInt *IsVolatile = cast<ConstantInt>(II->getArgOperand(4));
-    if (!IsVolatile->isZero())
-      return nullptr;
-    Module *M = II->getParent()->getParent()->getParent();
-    Type *DestTy = II->getType();
-    Type *SrcTy = NewV->getType();
-    Function *NewDecl =
-        Intrinsic::getDeclaration(M, II->getIntrinsicID(), {DestTy, SrcTy});
-    II->setArgOperand(0, NewV);
-    II->setCalledFunction(NewDecl);
-    return II;
-  }
   case Intrinsic::amdgcn_is_shared:
   case Intrinsic::amdgcn_is_private: {
     unsigned TrueAS = IntrID == Intrinsic::amdgcn_is_shared ?
@@ -1114,7 +1169,7 @@ Value *GCNTTIImpl::rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
         return nullptr;
 
       // TODO: Do we need to thread more context in here?
-      KnownBits Known = computeKnownBits(MaskOp, DL, 0, nullptr, II);
+      KnownBits Known = computeKnownBits(MaskOp, DL, nullptr, II);
       if (Known.countMinLeadingOnes() < 32)
         return nullptr;
 
@@ -1130,33 +1185,202 @@ Value *GCNTTIImpl::rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
     return B.CreateIntrinsic(Intrinsic::ptrmask, {NewV->getType(), MaskTy},
                              {NewV, MaskOp});
   }
+  case Intrinsic::amdgcn_flat_atomic_fmax_num:
+  case Intrinsic::amdgcn_flat_atomic_fmin_num: {
+    Type *DestTy = II->getType();
+    Type *SrcTy = NewV->getType();
+    unsigned NewAS = SrcTy->getPointerAddressSpace();
+    if (!AMDGPU::isExtendedGlobalAddrSpace(NewAS))
+      return nullptr;
+    Module *M = II->getModule();
+    Function *NewDecl = Intrinsic::getOrInsertDeclaration(
+        M, II->getIntrinsicID(), {DestTy, SrcTy, DestTy});
+    II->setArgOperand(0, NewV);
+    II->setCalledFunction(NewDecl);
+    return II;
+  }
+  case Intrinsic::amdgcn_load_to_lds: {
+    Type *SrcTy = NewV->getType();
+    Module *M = II->getModule();
+    Function *NewDecl =
+        Intrinsic::getOrInsertDeclaration(M, II->getIntrinsicID(), {SrcTy});
+    II->setArgOperand(0, NewV);
+    II->setCalledFunction(NewDecl);
+    return II;
+  }
+  case Intrinsic::amdgcn_make_buffer_rsrc: {
+    Type *SrcTy = NewV->getType();
+    Type *DstTy = II->getType();
+    Module *M = II->getModule();
+    Function *NewDecl = Intrinsic::getOrInsertDeclaration(
+        M, II->getIntrinsicID(), {DstTy, SrcTy});
+    II->setArgOperand(0, NewV);
+    II->setCalledFunction(NewDecl);
+    return II;
+  }
   default:
     return nullptr;
   }
 }
 
 InstructionCost GCNTTIImpl::getShuffleCost(TTI::ShuffleKind Kind,
-                                           VectorType *VT, ArrayRef<int> Mask,
-                                           int Index, VectorType *SubTp) {
-  Kind = improveShuffleKindFromMask(Kind, Mask);
-  if (ST->hasVOP3PInsts()) {
-    if (cast<FixedVectorType>(VT)->getNumElements() == 2 &&
-        DL.getTypeSizeInBits(VT->getElementType()) == 16) {
-      // With op_sel VOP3P instructions freely can access the low half or high
-      // half of a register, so any swizzle is free.
+                                           VectorType *DstTy, VectorType *SrcTy,
+                                           ArrayRef<int> Mask,
+                                           TTI::TargetCostKind CostKind,
+                                           int Index, VectorType *SubTp,
+                                           ArrayRef<const Value *> Args,
+                                           const Instruction *CxtI) const {
+  if (!isa<FixedVectorType>(SrcTy))
+    return BaseT::getShuffleCost(Kind, DstTy, SrcTy, Mask, CostKind, Index,
+                                 SubTp);
 
-      switch (Kind) {
-      case TTI::SK_Broadcast:
-      case TTI::SK_Reverse:
-      case TTI::SK_PermuteSingleSrc:
+  Kind = improveShuffleKindFromMask(Kind, Mask, SrcTy, Index, SubTp);
+
+  unsigned ScalarSize = DL.getTypeSizeInBits(SrcTy->getElementType());
+  if (ST->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS &&
+      (ScalarSize == 16 || ScalarSize == 8)) {
+    // Larger vector widths may require additional instructions, but are
+    // typically cheaper than scalarized versions.
+    //
+    // We assume that shuffling at a register granularity can be done for free.
+    // This is not true for vectors fed into memory instructions, but it is
+    // effectively true for all other shuffling. The emphasis of the logic here
+    // is to assist generic transform in cleaning up / canonicalizing those
+    // shuffles.
+
+    // With op_sel VOP3P instructions freely can access the low half or high
+    // half of a register, so any swizzle of two elements is free.
+    if (auto *SrcVecTy = dyn_cast<FixedVectorType>(SrcTy)) {
+      unsigned NumSrcElts = SrcVecTy->getNumElements();
+      if (ST->hasVOP3PInsts() && ScalarSize == 16 && NumSrcElts == 2 &&
+          (Kind == TTI::SK_Broadcast || Kind == TTI::SK_Reverse ||
+           Kind == TTI::SK_PermuteSingleSrc))
         return 0;
-      default:
-        break;
+    }
+
+    unsigned EltsPerReg = 32 / ScalarSize;
+    switch (Kind) {
+    case TTI::SK_Broadcast:
+      // A single v_perm_b32 can be re-used for all destination registers.
+      return 1;
+    case TTI::SK_Reverse:
+      // One instruction per register.
+      if (auto *DstVecTy = dyn_cast<FixedVectorType>(DstTy))
+        return divideCeil(DstVecTy->getNumElements(), EltsPerReg);
+      return InstructionCost::getInvalid();
+    case TTI::SK_ExtractSubvector:
+      if (Index % EltsPerReg == 0)
+        return 0; // Shuffling at register granularity
+      if (auto *DstVecTy = dyn_cast<FixedVectorType>(DstTy))
+        return divideCeil(DstVecTy->getNumElements(), EltsPerReg);
+      return InstructionCost::getInvalid();
+    case TTI::SK_InsertSubvector: {
+      auto *DstVecTy = dyn_cast<FixedVectorType>(DstTy);
+      if (!DstVecTy)
+        return InstructionCost::getInvalid();
+      unsigned NumDstElts = DstVecTy->getNumElements();
+      unsigned NumInsertElts = cast<FixedVectorType>(SubTp)->getNumElements();
+      unsigned EndIndex = Index + NumInsertElts;
+      unsigned BeginSubIdx = Index % EltsPerReg;
+      unsigned EndSubIdx = EndIndex % EltsPerReg;
+      unsigned Cost = 0;
+
+      if (BeginSubIdx != 0) {
+        // Need to shift the inserted vector into place. The cost is the number
+        // of destination registers overlapped by the inserted vector.
+        Cost = divideCeil(EndIndex, EltsPerReg) - (Index / EltsPerReg);
       }
+
+      // If the last register overlap is partial, there may be three source
+      // registers feeding into it; that takes an extra instruction.
+      if (EndIndex < NumDstElts && BeginSubIdx < EndSubIdx)
+        Cost += 1;
+
+      return Cost;
+    }
+    case TTI::SK_Splice: {
+      auto *DstVecTy = dyn_cast<FixedVectorType>(DstTy);
+      if (!DstVecTy)
+        return InstructionCost::getInvalid();
+      unsigned NumElts = DstVecTy->getNumElements();
+      assert(NumElts == cast<FixedVectorType>(SrcTy)->getNumElements());
+      // Determine the sub-region of the result vector that requires
+      // sub-register shuffles / mixing.
+      unsigned EltsFromLHS = NumElts - Index;
+      bool LHSIsAligned = (Index % EltsPerReg) == 0;
+      bool RHSIsAligned = (EltsFromLHS % EltsPerReg) == 0;
+      if (LHSIsAligned && RHSIsAligned)
+        return 0;
+      if (LHSIsAligned && !RHSIsAligned)
+        return divideCeil(NumElts, EltsPerReg) - (EltsFromLHS / EltsPerReg);
+      if (!LHSIsAligned && RHSIsAligned)
+        return divideCeil(EltsFromLHS, EltsPerReg);
+      return divideCeil(NumElts, EltsPerReg);
+    }
+    default:
+      break;
+    }
+
+    if (!Mask.empty()) {
+      unsigned NumSrcElts = cast<FixedVectorType>(SrcTy)->getNumElements();
+
+      // Generically estimate the cost by assuming that each destination
+      // register is derived from sources via v_perm_b32 instructions if it
+      // can't be copied as-is.
+      //
+      // For each destination register, derive the cost of obtaining it based
+      // on the number of source registers that feed into it.
+      unsigned Cost = 0;
+      for (unsigned DstIdx = 0; DstIdx < Mask.size(); DstIdx += EltsPerReg) {
+        SmallVector<int, 4> Regs;
+        bool Aligned = true;
+        for (unsigned I = 0; I < EltsPerReg && DstIdx + I < Mask.size(); ++I) {
+          int SrcIdx = Mask[DstIdx + I];
+          if (SrcIdx == -1)
+            continue;
+          int Reg;
+          if (SrcIdx < (int)NumSrcElts) {
+            Reg = SrcIdx / EltsPerReg;
+            if (SrcIdx % EltsPerReg != I)
+              Aligned = false;
+          } else {
+            Reg = NumSrcElts + (SrcIdx - NumSrcElts) / EltsPerReg;
+            if ((SrcIdx - NumSrcElts) % EltsPerReg != I)
+              Aligned = false;
+          }
+          if (!llvm::is_contained(Regs, Reg))
+            Regs.push_back(Reg);
+        }
+        if (Regs.size() >= 2)
+          Cost += Regs.size() - 1;
+        else if (!Aligned)
+          Cost += 1;
+      }
+      return Cost;
     }
   }
 
-  return BaseT::getShuffleCost(Kind, VT, Mask, Index, SubTp);
+  return BaseT::getShuffleCost(Kind, DstTy, SrcTy, Mask, CostKind, Index,
+                               SubTp);
+}
+
+/// Whether it is profitable to sink the operands of an
+/// Instruction I to the basic block of I.
+/// This helps using several modifiers (like abs and neg) more often.
+bool GCNTTIImpl::isProfitableToSinkOperands(Instruction *I,
+                                            SmallVectorImpl<Use *> &Ops) const {
+  using namespace PatternMatch;
+
+  for (auto &Op : I->operands()) {
+    // Ensure we are not already sinking this operand.
+    if (any_of(Ops, [&](Use *U) { return U->get() == Op.get(); }))
+      continue;
+
+    if (match(&Op, m_FAbs(m_Value())) || match(&Op, m_FNeg(m_Value())))
+      Ops.push_back(&Op);
+  }
+
+  return !Ops.empty();
 }
 
 bool GCNTTIImpl::areInlineCompatible(const Function *Caller,
@@ -1177,8 +1401,8 @@ bool GCNTTIImpl::areInlineCompatible(const Function *Caller,
 
   // FIXME: dx10_clamp can just take the caller setting, but there seems to be
   // no way to support merge for backend defined attributes.
-  AMDGPU::SIModeRegisterDefaults CallerMode(*Caller);
-  AMDGPU::SIModeRegisterDefaults CalleeMode(*Callee);
+  SIModeRegisterDefaults CallerMode(*Caller, *CallerST);
+  SIModeRegisterDefaults CalleeMode(*Callee, *CalleeST);
   if (!CallerMode.isInlineCompatible(CalleeMode))
     return false;
 
@@ -1198,43 +1422,144 @@ bool GCNTTIImpl::areInlineCompatible(const Function *Caller,
   return true;
 }
 
-unsigned GCNTTIImpl::adjustInliningThreshold(const CallBase *CB) const {
-  // If we have a pointer to private array passed into a function
+static unsigned adjustInliningThresholdUsingCallee(const CallBase *CB,
+                                                   const SITargetLowering *TLI,
+                                                   const GCNTTIImpl *TTIImpl) {
+  const int NrOfSGPRUntilSpill = 26;
+  const int NrOfVGPRUntilSpill = 32;
+
+  const DataLayout &DL = TTIImpl->getDataLayout();
+
+  unsigned adjustThreshold = 0;
+  int SGPRsInUse = 0;
+  int VGPRsInUse = 0;
+  for (const Use &A : CB->args()) {
+    SmallVector<EVT, 4> ValueVTs;
+    ComputeValueVTs(*TLI, DL, A.get()->getType(), ValueVTs);
+    for (auto ArgVT : ValueVTs) {
+      unsigned CCRegNum = TLI->getNumRegistersForCallingConv(
+          CB->getContext(), CB->getCallingConv(), ArgVT);
+      if (AMDGPU::isArgPassedInSGPR(CB, CB->getArgOperandNo(&A)))
+        SGPRsInUse += CCRegNum;
+      else
+        VGPRsInUse += CCRegNum;
+    }
+  }
+
+  // The cost of passing function arguments through the stack:
+  //  1 instruction to put a function argument on the stack in the caller.
+  //  1 instruction to take a function argument from the stack in callee.
+  //  1 instruction is explicitly take care of data dependencies in callee
+  //  function.
+  InstructionCost ArgStackCost(1);
+  ArgStackCost += const_cast<GCNTTIImpl *>(TTIImpl)->getMemoryOpCost(
+      Instruction::Store, Type::getInt32Ty(CB->getContext()), Align(4),
+      AMDGPUAS::PRIVATE_ADDRESS, TTI::TCK_SizeAndLatency);
+  ArgStackCost += const_cast<GCNTTIImpl *>(TTIImpl)->getMemoryOpCost(
+      Instruction::Load, Type::getInt32Ty(CB->getContext()), Align(4),
+      AMDGPUAS::PRIVATE_ADDRESS, TTI::TCK_SizeAndLatency);
+
+  // The penalty cost is computed relative to the cost of instructions and does
+  // not model any storage costs.
+  adjustThreshold += std::max(0, SGPRsInUse - NrOfSGPRUntilSpill) *
+                     ArgStackCost.getValue() * InlineConstants::getInstrCost();
+  adjustThreshold += std::max(0, VGPRsInUse - NrOfVGPRUntilSpill) *
+                     ArgStackCost.getValue() * InlineConstants::getInstrCost();
+  return adjustThreshold;
+}
+
+static unsigned getCallArgsTotalAllocaSize(const CallBase *CB,
+                                           const DataLayout &DL) {
+  // If we have a pointer to a private array passed into a function
   // it will not be optimized out, leaving scratch usage.
-  // Increase the inline threshold to allow inlining in this case.
-  uint64_t AllocaSize = 0;
+  // This function calculates the total size in bytes of the memory that would
+  // end in scratch if the call was not inlined.
+  unsigned AllocaSize = 0;
   SmallPtrSet<const AllocaInst *, 8> AIVisited;
   for (Value *PtrArg : CB->args()) {
     PointerType *Ty = dyn_cast<PointerType>(PtrArg->getType());
-    if (!Ty || (Ty->getAddressSpace() != AMDGPUAS::PRIVATE_ADDRESS &&
-                Ty->getAddressSpace() != AMDGPUAS::FLAT_ADDRESS))
+    if (!Ty)
       continue;
 
-    PtrArg = getUnderlyingObject(PtrArg);
-    if (const AllocaInst *AI = dyn_cast<AllocaInst>(PtrArg)) {
-      if (!AI->isStaticAlloca() || !AIVisited.insert(AI).second)
-        continue;
-      AllocaSize += DL.getTypeAllocSize(AI->getAllocatedType());
-      // If the amount of stack memory is excessive we will not be able
-      // to get rid of the scratch anyway, bail out.
-      if (AllocaSize > ArgAllocaCutoff) {
-        AllocaSize = 0;
-        break;
-      }
-    }
+    unsigned AddrSpace = Ty->getAddressSpace();
+    if (AddrSpace != AMDGPUAS::FLAT_ADDRESS &&
+        AddrSpace != AMDGPUAS::PRIVATE_ADDRESS)
+      continue;
+
+    const AllocaInst *AI = dyn_cast<AllocaInst>(getUnderlyingObject(PtrArg));
+    if (!AI || !AI->isStaticAlloca() || !AIVisited.insert(AI).second)
+      continue;
+
+    AllocaSize += DL.getTypeAllocSize(AI->getAllocatedType());
   }
-  if (AllocaSize)
-    return ArgAllocaCost;
-  return 0;
+  return AllocaSize;
+}
+
+int GCNTTIImpl::getInliningLastCallToStaticBonus() const {
+  return BaseT::getInliningLastCallToStaticBonus() *
+         getInliningThresholdMultiplier();
+}
+
+unsigned GCNTTIImpl::adjustInliningThreshold(const CallBase *CB) const {
+  unsigned Threshold = adjustInliningThresholdUsingCallee(CB, TLI, this);
+
+  // Private object passed as arguments may end up in scratch usage if the call
+  // is not inlined. Increase the inline threshold to promote inlining.
+  unsigned AllocaSize = getCallArgsTotalAllocaSize(CB, DL);
+  if (AllocaSize > 0)
+    Threshold += ArgAllocaCost;
+  return Threshold;
+}
+
+unsigned GCNTTIImpl::getCallerAllocaCost(const CallBase *CB,
+                                         const AllocaInst *AI) const {
+
+  // Below the cutoff, assume that the private memory objects would be
+  // optimized
+  auto AllocaSize = getCallArgsTotalAllocaSize(CB, DL);
+  if (AllocaSize <= ArgAllocaCutoff)
+    return 0;
+
+  // Above the cutoff, we give a cost to each private memory object
+  // depending its size. If the array can be optimized by SROA this cost is not
+  // added to the total-cost in the inliner cost analysis.
+  //
+  // We choose the total cost of the alloca such that their sum cancels the
+  // bonus given in the threshold (ArgAllocaCost).
+  //
+  //   Cost_Alloca_0 + ... + Cost_Alloca_N == ArgAllocaCost
+  //
+  // Awkwardly, the ArgAllocaCost bonus is multiplied by threshold-multiplier,
+  // the single-bb bonus and the vector-bonus.
+  //
+  // We compensate the first two multipliers, by repeating logic from the
+  // inliner-cost in here. The vector-bonus is 0 on AMDGPU.
+  static_assert(InlinerVectorBonusPercent == 0, "vector bonus assumed to be 0");
+  unsigned Threshold = ArgAllocaCost * getInliningThresholdMultiplier();
+
+  bool SingleBB = none_of(*CB->getCalledFunction(), [](const BasicBlock &BB) {
+    return BB.getTerminator()->getNumSuccessors() > 1;
+  });
+  if (SingleBB) {
+    Threshold += Threshold / 2;
+  }
+
+  auto ArgAllocaSize = DL.getTypeAllocSize(AI->getAllocatedType());
+
+  // Attribute the bonus proportionally to the alloca size
+  unsigned AllocaThresholdBonus = (Threshold * ArgAllocaSize) / AllocaSize;
+
+  return AllocaThresholdBonus;
 }
 
 void GCNTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
-                                         TTI::UnrollingPreferences &UP) {
-  CommonTTI.getUnrollingPreferences(L, SE, UP);
+                                         TTI::UnrollingPreferences &UP,
+                                         OptimizationRemarkEmitter *ORE) const {
+  CommonTTI.getUnrollingPreferences(L, SE, UP, ORE);
 }
 
 void GCNTTIImpl::getPeelingPreferences(Loop *L, ScalarEvolution &SE,
-                                       TTI::PeelingPreferences &PP) {
+                                       TTI::PeelingPreferences &PP) const {
   CommonTTI.getPeelingPreferences(L, SE, PP);
 }
 
@@ -1245,121 +1570,95 @@ int GCNTTIImpl::get64BitInstrCost(TTI::TargetCostKind CostKind) const {
                                       : getQuarterRateInstrCost(CostKind);
 }
 
-R600TTIImpl::R600TTIImpl(const AMDGPUTargetMachine *TM, const Function &F)
-    : BaseT(TM, F.getParent()->getDataLayout()),
-      ST(static_cast<const R600Subtarget *>(TM->getSubtargetImpl(F))),
-      TLI(ST->getTargetLowering()), CommonTTI(TM, F) {}
+std::pair<InstructionCost, MVT>
+GCNTTIImpl::getTypeLegalizationCost(Type *Ty) const {
+  std::pair<InstructionCost, MVT> Cost = BaseT::getTypeLegalizationCost(Ty);
+  auto Size = DL.getTypeSizeInBits(Ty);
+  // Maximum load or store can handle 8 dwords for scalar and 4 for
+  // vector ALU. Let's assume anything above 8 dwords is expensive
+  // even if legal.
+  if (Size <= 256)
+    return Cost;
 
-unsigned R600TTIImpl::getHardwareNumberOfRegisters(bool Vec) const {
-  return 4 * 128; // XXX - 4 channels. Should these count as vector instead?
+  Cost.first += (Size + 255) / 256;
+  return Cost;
 }
 
-unsigned R600TTIImpl::getNumberOfRegisters(bool Vec) const {
-  return getHardwareNumberOfRegisters(Vec);
+unsigned GCNTTIImpl::getPrefetchDistance() const {
+  return ST->hasPrefetch() ? 128 : 0;
 }
 
-TypeSize
-R600TTIImpl::getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
-  return TypeSize::getFixed(32);
+bool GCNTTIImpl::shouldPrefetchAddressSpace(unsigned AS) const {
+  return AMDGPU::isFlatGlobalAddrSpace(AS);
 }
 
-unsigned R600TTIImpl::getMinVectorRegisterBitWidth() const {
-  return 32;
+void GCNTTIImpl::collectKernelLaunchBounds(
+    const Function &F,
+    SmallVectorImpl<std::pair<StringRef, int64_t>> &LB) const {
+  SmallVector<unsigned> MaxNumWorkgroups = ST->getMaxNumWorkGroups(F);
+  LB.push_back({"amdgpu-max-num-workgroups[0]", MaxNumWorkgroups[0]});
+  LB.push_back({"amdgpu-max-num-workgroups[1]", MaxNumWorkgroups[1]});
+  LB.push_back({"amdgpu-max-num-workgroups[2]", MaxNumWorkgroups[2]});
+  std::pair<unsigned, unsigned> FlatWorkGroupSize =
+      ST->getFlatWorkGroupSizes(F);
+  LB.push_back({"amdgpu-flat-work-group-size[0]", FlatWorkGroupSize.first});
+  LB.push_back({"amdgpu-flat-work-group-size[1]", FlatWorkGroupSize.second});
+  std::pair<unsigned, unsigned> WavesPerEU = ST->getWavesPerEU(F);
+  LB.push_back({"amdgpu-waves-per-eu[0]", WavesPerEU.first});
+  LB.push_back({"amdgpu-waves-per-eu[1]", WavesPerEU.second});
 }
 
-unsigned R600TTIImpl::getLoadStoreVecRegBitWidth(unsigned AddrSpace) const {
-  if (AddrSpace == AMDGPUAS::GLOBAL_ADDRESS ||
-      AddrSpace == AMDGPUAS::CONSTANT_ADDRESS)
-    return 128;
-  if (AddrSpace == AMDGPUAS::LOCAL_ADDRESS ||
-      AddrSpace == AMDGPUAS::REGION_ADDRESS)
-    return 64;
-  if (AddrSpace == AMDGPUAS::PRIVATE_ADDRESS)
-    return 32;
+GCNTTIImpl::KnownIEEEMode
+GCNTTIImpl::fpenvIEEEMode(const Instruction &I) const {
+  if (!ST->hasIEEEMode()) // Only mode on gfx12
+    return KnownIEEEMode::On;
 
-  if ((AddrSpace == AMDGPUAS::PARAM_D_ADDRESS ||
-      AddrSpace == AMDGPUAS::PARAM_I_ADDRESS ||
-      (AddrSpace >= AMDGPUAS::CONSTANT_BUFFER_0 &&
-      AddrSpace <= AMDGPUAS::CONSTANT_BUFFER_15)))
-    return 128;
-  llvm_unreachable("unhandled address space");
+  const Function *F = I.getFunction();
+  if (!F)
+    return KnownIEEEMode::Unknown;
+
+  Attribute IEEEAttr = F->getFnAttribute("amdgpu-ieee");
+  if (IEEEAttr.isValid())
+    return IEEEAttr.getValueAsBool() ? KnownIEEEMode::On : KnownIEEEMode::Off;
+
+  return AMDGPU::isShader(F->getCallingConv()) ? KnownIEEEMode::Off
+                                               : KnownIEEEMode::On;
 }
 
-bool R600TTIImpl::isLegalToVectorizeMemChain(unsigned ChainSizeInBytes,
-                                             Align Alignment,
-                                             unsigned AddrSpace) const {
-  // We allow vectorization of flat stores, even though we may need to decompose
-  // them later if they may access private memory. We don't have enough context
-  // here, and legalization can handle it.
-  return (AddrSpace != AMDGPUAS::PRIVATE_ADDRESS);
-}
-
-bool R600TTIImpl::isLegalToVectorizeLoadChain(unsigned ChainSizeInBytes,
-                                              Align Alignment,
-                                              unsigned AddrSpace) const {
-  return isLegalToVectorizeMemChain(ChainSizeInBytes, Alignment, AddrSpace);
-}
-
-bool R600TTIImpl::isLegalToVectorizeStoreChain(unsigned ChainSizeInBytes,
-                                               Align Alignment,
-                                               unsigned AddrSpace) const {
-  return isLegalToVectorizeMemChain(ChainSizeInBytes, Alignment, AddrSpace);
-}
-
-unsigned R600TTIImpl::getMaxInterleaveFactor(unsigned VF) {
-  // Disable unrolling if the loop is not vectorized.
-  // TODO: Enable this again.
-  if (VF == 1)
-    return 1;
-
-  return 8;
-}
-
-InstructionCost R600TTIImpl::getCFInstrCost(unsigned Opcode,
+InstructionCost GCNTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
+                                            Align Alignment,
+                                            unsigned AddressSpace,
                                             TTI::TargetCostKind CostKind,
-                                            const Instruction *I) {
-  if (CostKind == TTI::TCK_CodeSize || CostKind == TTI::TCK_SizeAndLatency)
-    return Opcode == Instruction::PHI ? 0 : 1;
-
-  // XXX - For some reason this isn't called for switch.
-  switch (Opcode) {
-  case Instruction::Br:
-  case Instruction::Ret:
-    return 10;
-  default:
-    return BaseT::getCFInstrCost(Opcode, CostKind, I);
-  }
-}
-
-InstructionCost R600TTIImpl::getVectorInstrCost(unsigned Opcode, Type *ValTy,
-                                                unsigned Index) {
-  switch (Opcode) {
-  case Instruction::ExtractElement:
-  case Instruction::InsertElement: {
-    unsigned EltSize
-      = DL.getTypeSizeInBits(cast<VectorType>(ValTy)->getElementType());
-    if (EltSize < 32) {
-      return BaseT::getVectorInstrCost(Opcode, ValTy, Index);
+                                            TTI::OperandValueInfo OpInfo,
+                                            const Instruction *I) const {
+  if (VectorType *VecTy = dyn_cast<VectorType>(Src)) {
+    if ((Opcode == Instruction::Load || Opcode == Instruction::Store) &&
+        VecTy->getElementType()->isIntegerTy(8)) {
+      return divideCeil(DL.getTypeSizeInBits(VecTy) - 1,
+                        getLoadStoreVecRegBitWidth(AddressSpace));
     }
-
-    // Extracts are just reads of a subregister, so are free. Inserts are
-    // considered free because we don't want to have any cost for scalarizing
-    // operations, and we don't have to copy into a different register class.
-
-    // Dynamic indexing isn't free and is best avoided.
-    return Index == ~0u ? 2 : 0;
   }
-  default:
-    return BaseT::getVectorInstrCost(Opcode, ValTy, Index);
-  }
+  return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace, CostKind,
+                                OpInfo, I);
 }
 
-void R600TTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
-                                          TTI::UnrollingPreferences &UP) {
-  CommonTTI.getUnrollingPreferences(L, SE, UP);
+unsigned GCNTTIImpl::getNumberOfParts(Type *Tp) const {
+  if (VectorType *VecTy = dyn_cast<VectorType>(Tp)) {
+    if (VecTy->getElementType()->isIntegerTy(8)) {
+      unsigned ElementCount = VecTy->getElementCount().getFixedValue();
+      return divideCeil(ElementCount - 1, 4);
+    }
+  }
+  return BaseT::getNumberOfParts(Tp);
 }
 
-void R600TTIImpl::getPeelingPreferences(Loop *L, ScalarEvolution &SE,
-                                        TTI::PeelingPreferences &PP) {
-  CommonTTI.getPeelingPreferences(L, SE, PP);
+InstructionUniformity
+GCNTTIImpl::getInstructionUniformity(const Value *V) const {
+  if (isAlwaysUniform(V))
+    return InstructionUniformity::AlwaysUniform;
+
+  if (isSourceOfDivergence(V))
+    return InstructionUniformity::NeverUniform;
+
+  return InstructionUniformity::Default;
 }

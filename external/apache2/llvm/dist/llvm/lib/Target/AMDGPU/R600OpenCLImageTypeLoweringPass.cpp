@@ -24,13 +24,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AMDGPU.h"
+#include "R600.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
@@ -82,11 +83,11 @@ GetFunctionFromMDNode(MDNode *Node) {
   if (NumOps != NumKernelArgMDNodes + 1)
     return nullptr;
 
-  auto F = mdconst::dyn_extract<Function>(Node->getOperand(0));
+  auto *F = mdconst::dyn_extract<Function>(Node->getOperand(0));
   if (!F)
     return nullptr;
 
-  // Sanity checks.
+  // Validation checks.
   size_t ExpectNumArgNodeOps = F->arg_size() + 1;
   for (size_t i = 0; i < NumKernelArgMDNodes; ++i) {
     MDNode *ArgNode = dyn_cast_or_null<MDNode>(Node->getOperand(i + 1));
@@ -152,7 +153,7 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
     bool Modified = false;
 
     for (auto &Use : ImageArg.uses()) {
-      auto Inst = dyn_cast<CallInst>(Use.getUser());
+      auto *Inst = dyn_cast<CallInst>(Use.getUser());
       if (!Inst) {
         continue;
       }
@@ -163,11 +164,11 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
 
       Value *Replacement = nullptr;
       StringRef Name = F->getName();
-      if (Name.startswith(GetImageResourceIDFunc)) {
+      if (Name.starts_with(GetImageResourceIDFunc)) {
         Replacement = ConstantInt::get(Int32Type, ResourceID);
-      } else if (Name.startswith(GetImageSizeFunc)) {
+      } else if (Name.starts_with(GetImageSizeFunc)) {
         Replacement = &ImageSizeArg;
-      } else if (Name.startswith(GetImageFormatFunc)) {
+      } else if (Name.starts_with(GetImageFormatFunc)) {
         Replacement = &ImageFormatArg;
       } else {
         continue;
@@ -185,7 +186,7 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
     bool Modified = false;
 
     for (const auto &Use : SamplerArg.uses()) {
-      auto Inst = dyn_cast<CallInst>(Use.getUser());
+      auto *Inst = dyn_cast<CallInst>(Use.getUser());
       if (!Inst) {
         continue;
       }
@@ -217,7 +218,7 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
 
     bool Modified = false;
     InstsToErase.clear();
-    for (auto ArgI = F->arg_begin(); ArgI != F->arg_end(); ++ArgI) {
+    for (auto *ArgI = F->arg_begin(); ArgI != F->arg_end(); ++ArgI) {
       Argument &Arg = *ArgI;
       StringRef Type = ArgTypeFromMD(KernelMDNode, Arg.getArgNo());
 
@@ -243,9 +244,8 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
         Modified |= replaceSamplerUses(Arg, ResourceID);
       }
     }
-    for (unsigned i = 0; i < InstsToErase.size(); ++i) {
-      InstsToErase[i]->eraseFromParent();
-    }
+    for (auto *Inst : InstsToErase)
+      Inst->eraseFromParent();
 
     return Modified;
   }
@@ -283,14 +283,14 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
       Modified = true;
     }
     if (!Modified) {
-      return std::make_tuple(nullptr, nullptr);
+      return std::tuple(nullptr, nullptr);
     }
 
     // Create function with new signature and clone the old body into it.
-    auto NewFT = FunctionType::get(FT->getReturnType(), ArgTypes, false);
-    auto NewF = Function::Create(NewFT, F->getLinkage(), F->getName());
+    auto *NewFT = FunctionType::get(FT->getReturnType(), ArgTypes, false);
+    auto *NewF = Function::Create(NewFT, F->getLinkage(), F->getName());
     ValueToValueMapTy VMap;
-    auto NewFArgIt = NewF->arg_begin();
+    auto *NewFArgIt = NewF->arg_begin();
     for (auto &Arg: F->args()) {
       auto ArgName = Arg.getName();
       NewFArgIt->setName(ArgName);
@@ -307,11 +307,11 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
     // Build new MDNode.
     SmallVector<Metadata *, 6> KernelMDArgs;
     KernelMDArgs.push_back(ConstantAsMetadata::get(NewF));
-    for (unsigned i = 0; i < NumKernelArgMDNodes; ++i)
-      KernelMDArgs.push_back(MDNode::get(*Context, NewArgMDs.ArgVector[i]));
+    for (const MDVector &MDV : NewArgMDs.ArgVector)
+      KernelMDArgs.push_back(MDNode::get(*Context, MDV));
     MDNode *NewMDNode = MDNode::get(*Context, KernelMDArgs);
 
-    return std::make_tuple(NewF, NewMDNode);
+    return std::tuple(NewF, NewMDNode);
   }
 
   bool transformKernels(Module &M) {

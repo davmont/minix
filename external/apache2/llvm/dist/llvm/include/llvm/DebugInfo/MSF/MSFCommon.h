@@ -11,6 +11,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/MathExtras.h"
@@ -83,9 +84,9 @@ public:
 /// Determine the layout of the FPM stream, given the MSF layout.  An FPM
 /// stream spans 1 or more blocks, each at equally spaced intervals throughout
 /// the file.
-MSFStreamLayout getFpmStreamLayout(const MSFLayout &Msf,
-                                   bool IncludeUnusedFpmData = false,
-                                   bool AltFpm = false);
+LLVM_ABI MSFStreamLayout getFpmStreamLayout(const MSFLayout &Msf,
+                                            bool IncludeUnusedFpmData = false,
+                                            bool AltFpm = false);
 
 inline bool isValidBlockSize(uint32_t Size) {
   switch (Size) {
@@ -93,9 +94,32 @@ inline bool isValidBlockSize(uint32_t Size) {
   case 1024:
   case 2048:
   case 4096:
+  case 8192:
+  case 16384:
+  case 32768:
     return true;
   }
   return false;
+}
+
+/// Given the specified block size, returns the maximum possible file size.
+/// Block Size  |  Max File Size
+/// <= 4096     |      4GB
+///    8192     |      8GB
+///   16384     |      16GB
+///   32768     |      32GB
+/// \p Size - the block size of the MSF
+inline uint64_t getMaxFileSizeFromBlockSize(uint32_t Size) {
+  switch (Size) {
+  case 8192:
+    return (uint64_t)UINT32_MAX * 2ULL;
+  case 16384:
+    return (uint64_t)UINT32_MAX * 3ULL;
+  case 32768:
+    return (uint64_t)UINT32_MAX * 4ULL;
+  default:
+    return (uint64_t)UINT32_MAX;
+  }
 }
 
 // Super Block, Fpm0, Fpm1, and Block Map
@@ -153,7 +177,7 @@ inline uint32_t getNumFpmIntervals(const MSFLayout &L,
                             AltFpm ? L.alternateFpmBlock() : L.mainFpmBlock());
 }
 
-Error validateSuperBlock(const SuperBlock &SB);
+LLVM_ABI Error validateSuperBlock(const SuperBlock &SB);
 
 } // end namespace msf
 } // end namespace llvm

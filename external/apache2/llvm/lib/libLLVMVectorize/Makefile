@@ -7,17 +7,38 @@ LIB=	LLVMVectorize
 .PATH: ${LLVM_SRCDIR}/lib/Transforms/Vectorize
 
 SRCS+=	LoadStoreVectorizer.cpp \
+	LoopIdiomVectorize.cpp \
 	LoopVectorizationLegality.cpp \
 	LoopVectorize.cpp \
 	SLPVectorizer.cpp \
-	VectorCombine.cpp \
-	Vectorize.cpp \
+	SandboxVectorizer/DependencyGraph.cpp \
+	SandboxVectorizer/InstrMaps.cpp \
+	SandboxVectorizer/Interval.cpp \
+	SandboxVectorizer/Legality.cpp \
+	SandboxVectorizer/Passes/BottomUpVec.cpp \
+	SandboxVectorizer/Passes/PackReuse.cpp \
+	SandboxVectorizer/Passes/RegionsFromBBs.cpp \
+	SandboxVectorizer/Passes/RegionsFromMetadata.cpp \
+	SandboxVectorizer/Passes/SeedCollection.cpp \
+	SandboxVectorizer/Passes/TransactionAcceptOrRevert.cpp \
+	SandboxVectorizer/Passes/TransactionSave.cpp \
+	SandboxVectorizer/SandboxVectorizer.cpp \
+	SandboxVectorizer/SandboxVectorizerPassBuilder.cpp \
+	SandboxVectorizer/Scheduler.cpp \
+	SandboxVectorizer/SeedCollector.cpp \
+	SandboxVectorizer/VecUtils.cpp \
 	VPlan.cpp \
-	VPlanHCFGBuilder.cpp \
+	VPlanAnalysis.cpp \
+	VPlanConstruction.cpp \
 	VPlanPredicator.cpp \
+	VPlanRecipes.cpp \
 	VPlanSLP.cpp \
 	VPlanTransforms.cpp \
-	VPlanVerifier.cpp
+	VPlanUnroll.cpp \
+	VPlanUtils.cpp \
+	VPlanVerifier.cpp \
+	VectorCombine.cpp \
+	Vectorize.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

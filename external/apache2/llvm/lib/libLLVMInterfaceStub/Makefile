@@ -7,8 +7,8 @@ LIB=	LLVMInterfaceStub
 .PATH: ${LLVM_SRCDIR}/lib/InterfaceStub
 
 SRCS+=	ELFObjHandler.cpp \
-	ELFStub.cpp \
-	TBEHandler.cpp
+	IFSHandler.cpp \
+	IFSStub.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

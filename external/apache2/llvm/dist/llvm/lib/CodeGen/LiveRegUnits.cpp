@@ -20,53 +20,67 @@
 using namespace llvm;
 
 void LiveRegUnits::removeRegsNotPreserved(const uint32_t *RegMask) {
-  for (unsigned U = 0, E = TRI->getNumRegUnits(); U != E; ++U) {
+  for (MCRegUnit U : TRI->regunits()) {
     for (MCRegUnitRootIterator RootReg(U, TRI); RootReg.isValid(); ++RootReg) {
-      if (MachineOperand::clobbersPhysReg(RegMask, *RootReg))
-        Units.reset(U);
+      if (MachineOperand::clobbersPhysReg(RegMask, *RootReg)) {
+        Units.reset(static_cast<unsigned>(U));
+        break;
+      }
     }
   }
 }
 
 void LiveRegUnits::addRegsInMask(const uint32_t *RegMask) {
-  for (unsigned U = 0, E = TRI->getNumRegUnits(); U != E; ++U) {
+  for (MCRegUnit U : TRI->regunits()) {
     for (MCRegUnitRootIterator RootReg(U, TRI); RootReg.isValid(); ++RootReg) {
-      if (MachineOperand::clobbersPhysReg(RegMask, *RootReg))
-        Units.set(U);
+      if (MachineOperand::clobbersPhysReg(RegMask, *RootReg)) {
+        Units.set(static_cast<unsigned>(U));
+        break;
+      }
     }
   }
 }
 
 void LiveRegUnits::stepBackward(const MachineInstr &MI) {
   // Remove defined registers and regmask kills from the set.
-  for (const MachineOperand &MOP : phys_regs_and_masks(MI)) {
+  for (const MachineOperand &MOP : MI.operands()) {
+    if (MOP.isReg()) {
+      if (MOP.isDef() && MOP.getReg().isPhysical())
+        removeReg(MOP.getReg());
+      continue;
+    }
+
     if (MOP.isRegMask()) {
       removeRegsNotPreserved(MOP.getRegMask());
       continue;
     }
-
-    if (MOP.isDef())
-      removeReg(MOP.getReg());
   }
 
   // Add uses to the set.
-  for (const MachineOperand &MOP : phys_regs_and_masks(MI)) {
+  for (const MachineOperand &MOP : MI.operands()) {
     if (!MOP.isReg() || !MOP.readsReg())
       continue;
-    addReg(MOP.getReg());
+
+    if (MOP.getReg().isPhysical())
+      addReg(MOP.getReg());
   }
 }
 
 void LiveRegUnits::accumulate(const MachineInstr &MI) {
   // Add defs, uses and regmask clobbers to the set.
-  for (const MachineOperand &MOP : phys_regs_and_masks(MI)) {
+  for (const MachineOperand &MOP : MI.operands()) {
+    if (MOP.isReg()) {
+      if (!MOP.getReg().isPhysical())
+        continue;
+      if (MOP.isDef() || MOP.readsReg())
+        addReg(MOP.getReg());
+      continue;
+    }
+
     if (MOP.isRegMask()) {
       addRegsInMask(MOP.getRegMask());
       continue;
     }
-    if (!MOP.isDef() && !MOP.readsReg())
-      continue;
-    addReg(MOP.getReg());
   }
 }
 
@@ -75,6 +89,13 @@ static void addBlockLiveIns(LiveRegUnits &LiveUnits,
                             const MachineBasicBlock &MBB) {
   for (const auto &LI : MBB.liveins())
     LiveUnits.addRegMasked(LI.PhysReg, LI.LaneMask);
+}
+
+/// Add live-out registers of basic block \p MBB to \p LiveUnits.
+static void addBlockLiveOuts(LiveRegUnits &LiveUnits,
+                             const MachineBasicBlock &MBB) {
+  for (const auto &LO : MBB.liveouts())
+    LiveUnits.addRegMasked(LO.PhysReg, LO.LaneMask);
 }
 
 /// Adds all callee saved registers to \p LiveUnits.
@@ -123,12 +144,8 @@ void LiveRegUnits::addPristines(const MachineFunction &MF) {
 
 void LiveRegUnits::addLiveOuts(const MachineBasicBlock &MBB) {
   const MachineFunction &MF = *MBB.getParent();
-
   addPristines(MF);
-
-  // To get the live-outs we simply merge the live-ins of all successors.
-  for (const MachineBasicBlock *Succ : MBB.successors())
-    addBlockLiveIns(*this, *Succ);
+  addBlockLiveOuts(*this, MBB);
 
   // For the return block: Add all callee saved registers.
   if (MBB.isReturnBlock()) {

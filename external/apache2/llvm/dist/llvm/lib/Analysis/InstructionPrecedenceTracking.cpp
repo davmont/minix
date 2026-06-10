@@ -43,11 +43,16 @@ const Instruction *InstructionPrecedenceTracking::getFirstSpecialInstruction(
     validate(BB);
 #endif
 
-  if (FirstSpecialInsts.find(BB) == FirstSpecialInsts.end()) {
-    fill(BB);
-    assert(FirstSpecialInsts.find(BB) != FirstSpecialInsts.end() && "Must be!");
+  auto [It, Inserted] = FirstSpecialInsts.try_emplace(BB);
+  if (Inserted) {
+    for (const auto &I : *BB) {
+      if (isSpecialInstruction(&I)) {
+        It->second = &I;
+        break;
+      }
+    }
   }
-  return FirstSpecialInsts[BB];
+  return It->second;
 }
 
 bool InstructionPrecedenceTracking::hasSpecialInstructions(
@@ -60,18 +65,6 @@ bool InstructionPrecedenceTracking::isPreceededBySpecialInstruction(
   const Instruction *MaybeFirstSpecial =
       getFirstSpecialInstruction(Insn->getParent());
   return MaybeFirstSpecial && MaybeFirstSpecial->comesBefore(Insn);
-}
-
-void InstructionPrecedenceTracking::fill(const BasicBlock *BB) {
-  FirstSpecialInsts.erase(BB);
-  for (auto &I : *BB)
-    if (isSpecialInstruction(&I)) {
-      FirstSpecialInsts[BB] = &I;
-      return;
-    }
-
-  // Mark this block as having no special instructions.
-  FirstSpecialInsts[BB] = nullptr;
 }
 
 #ifndef NDEBUG
@@ -95,7 +88,7 @@ void InstructionPrecedenceTracking::validate(const BasicBlock *BB) const {
 
 void InstructionPrecedenceTracking::validateAll() const {
   // Check that for every known block the cached value is correct.
-  for (auto &It : FirstSpecialInsts)
+  for (const auto &It : FirstSpecialInsts)
     validate(It.first);
 }
 #endif
@@ -107,8 +100,11 @@ void InstructionPrecedenceTracking::insertInstructionTo(const Instruction *Inst,
 }
 
 void InstructionPrecedenceTracking::removeInstruction(const Instruction *Inst) {
-  if (isSpecialInstruction(Inst))
-    FirstSpecialInsts.erase(Inst->getParent());
+  auto *BB = Inst->getParent();
+  assert(BB && "must be called before instruction is actually removed");
+  auto It = FirstSpecialInsts.find(BB);
+  if (It != FirstSpecialInsts.end() && It->second == Inst)
+    FirstSpecialInsts.erase(It);
 }
 
 void InstructionPrecedenceTracking::removeUsersOf(const Instruction *Inst) {

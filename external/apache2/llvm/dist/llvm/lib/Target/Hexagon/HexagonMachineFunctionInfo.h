@@ -9,10 +9,15 @@
 #ifndef LLVM_LIB_TARGET_HEXAGON_HEXAGONMACHINEFUNCTIONINFO_H
 #define LLVM_LIB_TARGET_HEXAGON_HEXAGONMACHINEFUNCTIONINFO_H
 
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include <map>
 
 namespace llvm {
+
+namespace yaml {
+struct HexagonFunctionInfo;
+} // end namespace yaml
 
 namespace Hexagon {
 
@@ -27,8 +32,7 @@ class HexagonMachineFunctionInfo : public MachineFunctionInfo {
   // returning the value of the returned struct in a register. This field
   // holds the virtual register into which the sret argument is passed.
   unsigned SRetReturnReg = 0;
-  unsigned StackAlignBaseVReg = 0;    // Aligned-stack base register (virtual)
-  unsigned StackAlignBasePhysReg = 0; //                             (physical)
+  Register StackAlignBaseReg = 0;    // Aligned-stack base register
   int VarArgsFrameIndex;
   int RegSavedAreaStartFrameIndex;
   int FirstNamedArgFrameIndex;
@@ -41,7 +45,15 @@ class HexagonMachineFunctionInfo : public MachineFunctionInfo {
 public:
   HexagonMachineFunctionInfo() = default;
 
-  HexagonMachineFunctionInfo(MachineFunction &MF) {}
+  HexagonMachineFunctionInfo(const Function &F,
+                             const TargetSubtargetInfo *STI) {}
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
+
+  void initializeBaseYamlFields(const yaml::HexagonFunctionInfo &YamlMFI);
 
   unsigned getSRetReturnReg() const { return SRetReturnReg; }
   void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
@@ -65,12 +77,12 @@ public:
     PacketInfo[MI] |= Hexagon::EndPacket;
   }
   bool isStartPacket(const MachineInstr* MI) const {
-    return (PacketInfo.count(MI) &&
-            (PacketInfo.find(MI)->second & Hexagon::StartPacket));
+    auto It = PacketInfo.find(MI);
+    return It != PacketInfo.end() && (It->second & Hexagon::StartPacket);
   }
   bool isEndPacket(const MachineInstr* MI) const {
-    return (PacketInfo.count(MI) &&
-            (PacketInfo.find(MI)->second & Hexagon::EndPacket));
+    auto It = PacketInfo.find(MI);
+    return It != PacketInfo.end() && (It->second & Hexagon::EndPacket);
   }
   void setHasClobberLR(bool v) { HasClobberLR = v;  }
   bool hasClobberLR() const { return HasClobberLR; }
@@ -78,12 +90,31 @@ public:
   bool hasEHReturn() const { return HasEHReturn; };
   void setHasEHReturn(bool H = true) { HasEHReturn = H; };
 
-  void setStackAlignBaseVReg(unsigned R) { StackAlignBaseVReg = R; }
-  unsigned getStackAlignBaseVReg() const { return StackAlignBaseVReg; }
-
-  void setStackAlignBasePhysReg(unsigned R) { StackAlignBasePhysReg = R; }
-  unsigned getStackAlignBasePhysReg() const { return StackAlignBasePhysReg; }
+  void setStackAlignBaseReg(Register R) { StackAlignBaseReg = R; }
+  Register getStackAlignBaseReg() const { return StackAlignBaseReg; }
 };
+
+namespace yaml {
+
+/// Hexagon-specific MachineFunction properties for YAML serialization.
+struct HexagonFunctionInfo final : public yaml::MachineFunctionInfo {
+  StringValue StackAlignBaseReg;
+
+  HexagonFunctionInfo() = default;
+  HexagonFunctionInfo(const llvm::HexagonMachineFunctionInfo &MFI,
+                      const TargetRegisterInfo &TRI);
+
+  void mappingImpl(yaml::IO &YamlIO) override;
+  ~HexagonFunctionInfo() override = default;
+};
+
+template <> struct MappingTraits<HexagonFunctionInfo> {
+  static void mapping(IO &YamlIO, HexagonFunctionInfo &MFI) {
+    YamlIO.mapOptional("stackAlignBaseReg", MFI.StackAlignBaseReg);
+  }
+};
+
+} // end namespace yaml
 
 } // end namespace llvm
 

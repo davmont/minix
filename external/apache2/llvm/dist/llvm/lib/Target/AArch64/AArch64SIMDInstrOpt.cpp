@@ -33,6 +33,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AArch64InstrInfo.h"
+#include "AArch64Subtarget.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
@@ -49,6 +50,7 @@
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCSchedule.h"
 #include "llvm/Pass.h"
+#include <map>
 #include <unordered_map>
 
 using namespace llvm;
@@ -66,7 +68,7 @@ namespace {
 struct AArch64SIMDInstrOpt : public MachineFunctionPass {
   static char ID;
 
-  const TargetInstrInfo *TII;
+  const AArch64InstrInfo *TII;
   MachineRegisterInfo *MRI;
   TargetSchedModel SchedModel;
 
@@ -146,12 +148,10 @@ struct AArch64SIMDInstrOpt : public MachineFunctionPass {
   };
 
   // A costly instruction is replaced in this work by N efficient instructions
-  // The maximum of N is curently 10 and it is for ST4 case.
+  // The maximum of N is currently 10 and it is for ST4 case.
   static const unsigned MaxNumRepl = 10;
 
-  AArch64SIMDInstrOpt() : MachineFunctionPass(ID) {
-    initializeAArch64SIMDInstrOptPass(*PassRegistry::getPassRegistry());
-  }
+  AArch64SIMDInstrOpt() : MachineFunctionPass(ID) {}
 
   /// Based only on latency of instructions, determine if it is cost efficient
   /// to replace the instruction InstDesc by the instructions stored in the
@@ -237,7 +237,7 @@ shouldReplaceInst(MachineFunction *MF, const MCInstrDesc *InstDesc,
     SIMDInstrTable[InstID] = false;
     return false;
   }
-  for (auto IDesc : InstDescRepl)
+  for (const auto *IDesc : InstDescRepl)
   {
     SCDescRepl = SchedModel.getMCSchedModel()->getSchedClassDesc(
       IDesc->getSchedClass());
@@ -250,7 +250,7 @@ shouldReplaceInst(MachineFunction *MF, const MCInstrDesc *InstDesc,
 
   // Replacement cost.
   unsigned ReplCost = 0;
-  for (auto IDesc :InstDescRepl)
+  for (const auto *IDesc :InstDescRepl)
     ReplCost += SchedModel.computeInstrLatency(IDesc->getOpcode());
 
   if (SchedModel.computeInstrLatency(InstDesc->getOpcode()) > ReplCost)
@@ -633,7 +633,7 @@ bool AArch64SIMDInstrOpt::optimizeLdStInterleave(MachineInstr &MI) {
 /// Return true when the instruction is processed successfully.
 bool AArch64SIMDInstrOpt::processSeqRegInst(MachineInstr *DefiningMI,
      unsigned* StReg, unsigned* StRegKill, unsigned NumArg) const {
-  assert (DefiningMI != NULL);
+  assert(DefiningMI != nullptr);
   if (DefiningMI->getOpcode() != AArch64::REG_SEQUENCE)
     return false;
 
@@ -641,7 +641,7 @@ bool AArch64SIMDInstrOpt::processSeqRegInst(MachineInstr *DefiningMI,
     StReg[i]     = DefiningMI->getOperand(2*i+1).getReg();
     StRegKill[i] = getKillRegState(DefiningMI->getOperand(2*i+1).isKill());
 
-    // Sanity check for the other arguments.
+    // Validation check for the other arguments.
     if (DefiningMI->getOperand(2*i+2).isImm()) {
       switch (DefiningMI->getOperand(2*i+2).getImm()) {
       default:
@@ -695,13 +695,9 @@ bool AArch64SIMDInstrOpt::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
 
-  TII = MF.getSubtarget().getInstrInfo();
   MRI = &MF.getRegInfo();
-  const TargetSubtargetInfo &ST = MF.getSubtarget();
-  const AArch64InstrInfo *AAII =
-      static_cast<const AArch64InstrInfo *>(ST.getInstrInfo());
-  if (!AAII)
-    return false;
+  const AArch64Subtarget &ST = MF.getSubtarget<AArch64Subtarget>();
+  TII = ST.getInstrInfo();
   SchedModel.init(&ST);
   if (!SchedModel.hasInstrSchedModel())
     return false;
@@ -711,9 +707,7 @@ bool AArch64SIMDInstrOpt::runOnMachineFunction(MachineFunction &MF) {
     if (!shouldExitEarly(&MF, OptimizationKind)) {
       SmallVector<MachineInstr *, 8> RemoveMIs;
       for (MachineBasicBlock &MBB : MF) {
-        for (MachineBasicBlock::iterator MII = MBB.begin(), MIE = MBB.end();
-             MII != MIE;) {
-          MachineInstr &MI = *MII;
+        for (MachineInstr &MI : MBB) {
           bool InstRewrite;
           if (OptimizationKind == VectorElem)
             InstRewrite = optimizeVectElement(MI) ;
@@ -725,7 +719,6 @@ bool AArch64SIMDInstrOpt::runOnMachineFunction(MachineFunction &MF) {
             RemoveMIs.push_back(&MI);
             Changed = true;
           }
-          ++MII;
         }
       }
       for (MachineInstr *MI : RemoveMIs)

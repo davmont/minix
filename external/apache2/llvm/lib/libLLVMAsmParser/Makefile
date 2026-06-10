@@ -6,7 +6,8 @@ LIB=	LLVMAsmParser
 
 .PATH: ${LLVM_SRCDIR}/lib/AsmParser
 
-SRCS+=	LLLexer.cpp \
+SRCS+=	AsmParserContext.cpp \
+	LLLexer.cpp \
 	LLParser.cpp \
 	Parser.cpp
 

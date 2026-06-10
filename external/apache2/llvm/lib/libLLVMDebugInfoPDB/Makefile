@@ -6,12 +6,59 @@ LIB=	LLVMDebugInfoPDB
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB
 
-SRCS+=	GenericError.cpp \
+SRCS+=	DbiModuleDescriptor.cpp \
+	DbiModuleDescriptorBuilder.cpp \
+	DbiModuleList.cpp \
+	DbiStream.cpp \
+	DbiStreamBuilder.cpp \
+	EnumTables.cpp \
+	FormatUtil.cpp \
+	GSIStreamBuilder.cpp \
+	GenericError.cpp \
+	GlobalsStream.cpp \
+	Hash.cpp \
+	HashTable.cpp \
 	IPDBSourceFile.cpp \
+	InfoStream.cpp \
+	InfoStreamBuilder.cpp \
+	InjectedSourceStream.cpp \
+	InputFile.cpp \
+	LinePrinter.cpp \
+	ModuleDebugStream.cpp \
+	NamedStreamMap.cpp \
+	NativeCompilandSymbol.cpp \
+	NativeEnumGlobals.cpp \
+	NativeEnumInjectedSources.cpp \
+	NativeEnumLineNumbers.cpp \
+	NativeEnumModules.cpp \
+	NativeEnumSymbols.cpp \
+	NativeEnumTypes.cpp \
+	NativeExeSymbol.cpp \
+	NativeFunctionSymbol.cpp \
+	NativeInlineSiteSymbol.cpp \
+	NativeLineNumber.cpp \
+	NativePublicSymbol.cpp \
+	NativeRawSymbol.cpp \
+	NativeSession.cpp \
+	NativeSourceFile.cpp \
+	NativeSymbolEnumerator.cpp \
+	NativeTypeArray.cpp \
+	NativeTypeBuiltin.cpp \
+	NativeTypeEnum.cpp \
+	NativeTypeFunctionSig.cpp \
+	NativeTypePointer.cpp \
+	NativeTypeTypedef.cpp \
+	NativeTypeUDT.cpp \
+	NativeTypeVTShape.cpp \
 	PDB.cpp \
 	PDBContext.cpp \
 	PDBExtras.cpp \
+	PDBFile.cpp \
+	PDBFileBuilder.cpp \
 	PDBInterfaceAnchors.cpp \
+	PDBStringTable.cpp \
+	PDBStringTableBuilder.cpp \
+	PDBSymDumper.cpp \
 	PDBSymbol.cpp \
 	PDBSymbolAnnotation.cpp \
 	PDBSymbolBlock.cpp \
@@ -44,7 +91,13 @@ SRCS+=	GenericError.cpp \
 	PDBSymbolTypeVTableShape.cpp \
 	PDBSymbolUnknown.cpp \
 	PDBSymbolUsingNamespace.cpp \
-	PDBSymDumper.cpp \
+	PublicsStream.cpp \
+	RawError.cpp \
+	SymbolCache.cpp \
+	SymbolStream.cpp \
+	TpiHashing.cpp \
+	TpiStream.cpp \
+	TpiStreamBuilder.cpp \
 	UDTLayout.cpp
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB/Native

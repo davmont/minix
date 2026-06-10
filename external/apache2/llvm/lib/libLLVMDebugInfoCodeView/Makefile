@@ -7,11 +7,11 @@ LIB=	LLVMDebugInfoCodeView
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/CodeView
 
 SRCS+=	AppendingTypeTableBuilder.cpp \
+	CVSymbolVisitor.cpp \
+	CVTypeVisitor.cpp \
 	CodeViewError.cpp \
 	CodeViewRecordIO.cpp \
 	ContinuationRecordBuilder.cpp \
-	CVSymbolVisitor.cpp \
-	CVTypeVisitor.cpp \
 	DebugChecksumsSubsection.cpp \
 	DebugCrossExSubsection.cpp \
 	DebugCrossImpSubsection.cpp \
@@ -22,6 +22,7 @@ SRCS+=	AppendingTypeTableBuilder.cpp \
 	DebugSubsection.cpp \
 	DebugSubsectionRecord.cpp \
 	DebugSubsectionVisitor.cpp \
+	DebugSymbolRVASubsection.cpp \
 	DebugSymbolsSubsection.cpp \
 	EnumTables.cpp \
 	Formatters.cpp \

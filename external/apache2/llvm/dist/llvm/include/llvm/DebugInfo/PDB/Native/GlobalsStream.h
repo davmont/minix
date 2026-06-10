@@ -10,18 +10,19 @@
 #define LLVM_DEBUGINFO_PDB_NATIVE_GLOBALSSTREAM_H
 
 #include "llvm/ADT/iterator.h"
-#include "llvm/DebugInfo/CodeView/SymbolRecord.h"
-#include "llvm/DebugInfo/MSF/MappedBlockStream.h"
-#include "llvm/DebugInfo/PDB/Native/RawConstants.h"
+#include "llvm/DebugInfo/CodeView/CVRecord.h"
 #include "llvm/DebugInfo/PDB/Native/RawTypes.h"
-#include "llvm/DebugInfo/PDB/PDBTypes.h"
 #include "llvm/Support/BinaryStreamArray.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 
 namespace llvm {
+class BinaryStreamReader;
+namespace msf {
+class MappedBlockStream;
+}
 namespace pdb {
-class DbiStream;
-class PDBFile;
 class SymbolStream;
 
 /// Iterator over hash records producing symbol record offsets. Abstracts away
@@ -55,7 +56,7 @@ public:
   FixedStreamArray<support::ulittle32_t> HashBuckets;
   std::array<int32_t, IPHR_HASH + 1> BucketMap;
 
-  Error read(BinaryStreamReader &Reader);
+  LLVM_ABI Error read(BinaryStreamReader &Reader);
 
   uint32_t getVerSignature() const { return HashHdr->VerSignature; }
   uint32_t getVerHeader() const { return HashHdr->VerHdr; }
@@ -69,19 +70,20 @@ public:
 
 class GlobalsStream {
 public:
-  explicit GlobalsStream(std::unique_ptr<msf::MappedBlockStream> Stream);
-  ~GlobalsStream();
+  LLVM_ABI explicit GlobalsStream(
+      std::unique_ptr<msf::MappedBlockStream> Stream);
+  LLVM_ABI ~GlobalsStream();
   const GSIHashTable &getGlobalsTable() const { return GlobalsTable; }
-  Error reload();
+  LLVM_ABI Error reload();
 
-  std::vector<std::pair<uint32_t, codeview::CVSymbol>>
+  LLVM_ABI std::vector<std::pair<uint32_t, codeview::CVSymbol>>
   findRecordsByName(StringRef Name, const SymbolStream &Symbols) const;
 
 private:
   GSIHashTable GlobalsTable;
   std::unique_ptr<msf::MappedBlockStream> Stream;
 };
-}
+} // namespace pdb
 }
 
 #endif

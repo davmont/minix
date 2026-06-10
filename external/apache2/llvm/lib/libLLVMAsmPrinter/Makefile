@@ -6,19 +6,19 @@ LIB=	LLVMAsmPrinter
 
 .PATH: ${LLVM_SRCDIR}/lib/CodeGen/AsmPrinter
 
-SRCS+=	AccelTable.cpp \
-	AddressPool.cpp \
-	AIXException.cpp \
+SRCS+=	AIXException.cpp \
 	ARMException.cpp \
+	AccelTable.cpp \
+	AddressPool.cpp \
 	AsmPrinter.cpp \
 	AsmPrinterDwarf.cpp \
 	AsmPrinterInlineAsm.cpp \
 	CodeViewDebug.cpp \
+	DIE.cpp \
+	DIEHash.cpp \
 	DbgEntityHistoryCalculator.cpp \
 	DebugHandlerBase.cpp \
 	DebugLocStream.cpp \
-	DIE.cpp \
-	DIEHash.cpp \
 	DwarfCFIException.cpp \
 	DwarfCompileUnit.cpp \
 	DwarfDebug.cpp \

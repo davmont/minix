@@ -17,6 +17,7 @@
 
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
+#include "llvm/Support/Casting.h"
 
 namespace clang {
 inline StringRef getLambdaStaticInvokerName() {
@@ -33,6 +34,27 @@ inline bool isLambdaCallOperator(const CXXMethodDecl *MD) {
 inline bool isLambdaCallOperator(const DeclContext *DC) {
   if (!DC || !isa<CXXMethodDecl>(DC)) return false;
   return isLambdaCallOperator(cast<CXXMethodDecl>(DC));
+}
+
+inline bool isLambdaMethod(const DeclContext *DC) {
+  if (const auto *MD = dyn_cast_if_present<CXXMethodDecl>(DC))
+    return MD->getParent()->isLambda();
+  return false;
+}
+
+inline bool isLambdaCallWithExplicitObjectParameter(const DeclContext *DC) {
+  return isLambdaCallOperator(DC) &&
+         cast<CXXMethodDecl>(DC)->isExplicitObjectMemberFunction();
+}
+
+inline bool isLambdaCallWithImplicitObjectParameter(const DeclContext *DC) {
+  return isLambdaCallOperator(DC) &&
+         // FIXME: Checking for a null type is not great
+         // but lambdas with invalid captures or whose closure parameter list
+         // have not fully been parsed may have a call operator whose type is
+         // null.
+         !cast<CXXMethodDecl>(DC)->getType().isNull() &&
+         !cast<CXXMethodDecl>(DC)->isExplicitObjectMemberFunction();
 }
 
 inline bool isGenericLambdaCallOperatorSpecialization(const CXXMethodDecl *MD) {
@@ -65,8 +87,8 @@ inline bool isGenericLambdaCallOperatorSpecialization(DeclContext *DC) {
 }
 
 inline bool isGenericLambdaCallOperatorOrStaticInvokerSpecialization(
-    DeclContext *DC) {
-  CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(DC);
+    const DeclContext *DC) {
+  const auto *MD = dyn_cast<CXXMethodDecl>(DC);
   if (!MD) return false;
   const CXXRecordDecl *LambdaClass = MD->getParent();
   if (LambdaClass && LambdaClass->isGenericLambda())
@@ -74,7 +96,6 @@ inline bool isGenericLambdaCallOperatorOrStaticInvokerSpecialization(
                     MD->isFunctionTemplateSpecialization();
   return false;
 }
-
 
 // This returns the parent DeclContext ensuring that the correct
 // parent DeclContext is returned for Lambdas

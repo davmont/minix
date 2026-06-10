@@ -27,7 +27,6 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/Debug.h"
-#include <bitset>
 
 using namespace llvm;
 
@@ -58,8 +57,6 @@ char X86LoadValueInjectionRetHardeningPass::ID = 0;
 
 bool X86LoadValueInjectionRetHardeningPass::runOnMachineFunction(
     MachineFunction &MF) {
-  LLVM_DEBUG(dbgs() << "***** " << getPassName() << " : " << MF.getName()
-                    << " *****\n");
   const X86Subtarget *Subtarget = &MF.getSubtarget<X86Subtarget>();
   if (!Subtarget->useLVIControlFlowIntegrity() || !Subtarget->is64Bit())
     return false; // FIXME: support 32-bit
@@ -69,6 +66,8 @@ bool X86LoadValueInjectionRetHardeningPass::runOnMachineFunction(
   if (!F.hasOptNone() && skipFunction(F))
     return false;
 
+  LLVM_DEBUG(dbgs() << "***** " << getPassName() << " : " << MF.getName()
+                    << " *****\n");
   ++NumFunctionsConsidered;
   const X86RegisterInfo *TRI = Subtarget->getRegisterInfo();
   const X86InstrInfo *TII = Subtarget->getInstrInfo();
@@ -76,7 +75,7 @@ bool X86LoadValueInjectionRetHardeningPass::runOnMachineFunction(
   bool Modified = false;
   for (auto &MBB : MF) {
     for (auto MBBI = MBB.begin(); MBBI != MBB.end(); ++MBBI) {
-      if (MBBI->getOpcode() != X86::RETQ)
+      if (MBBI->getOpcode() != X86::RET64)
         continue;
 
       unsigned ClobberReg = TRI->findDeadCallerSavedReg(MBB, MBBI);

@@ -18,8 +18,8 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
 
@@ -43,8 +43,9 @@ enum TSFlagsConstants {
 // Pin the vtable to this file.
 void ARCInstrInfo::anchor() {}
 
-ARCInstrInfo::ARCInstrInfo()
-    : ARCGenInstrInfo(ARC::ADJCALLSTACKDOWN, ARC::ADJCALLSTACKUP), RI() {}
+ARCInstrInfo::ARCInstrInfo(const ARCSubtarget &ST)
+    : ARCGenInstrInfo(ST, RI, ARC::ADJCALLSTACKDOWN, ARC::ADJCALLSTACKUP),
+      RI(ST) {}
 
 static bool isZeroImm(const MachineOperand &Op) {
   return Op.isImm() && Op.getImm() == 0;
@@ -65,7 +66,7 @@ static bool isStore(int Opcode) {
 /// the destination along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than loading from the stack slot.
-unsigned ARCInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
+Register ARCInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
                                            int &FrameIndex) const {
   int Opcode = MI.getOpcode();
   if (isLoad(Opcode)) {
@@ -84,7 +85,7 @@ unsigned ARCInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
 /// the source reg along with the FrameIndex of the loaded stack slot.  If
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than storing to the stack slot.
-unsigned ARCInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
+Register ARCInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
                                           int &FrameIndex) const {
   int Opcode = MI.getOpcode();
   if (isStore(Opcode)) {
@@ -99,7 +100,7 @@ unsigned ARCInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
 }
 
 /// Return the inverse of passed condition, i.e. turning COND_E to COND_NE.
-static ARCCC::CondCode GetOppositeBranchCondition(ARCCC::CondCode CC) {
+static ARCCC::CondCode getOppositeBranchCondition(ARCCC::CondCode CC) {
   switch (CC) {
   default:
     llvm_unreachable("Illegal condition code!");
@@ -280,23 +281,22 @@ unsigned ARCInstrInfo::removeBranch(MachineBasicBlock &MBB,
 
 void ARCInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator I,
-                               const DebugLoc &dl, MCRegister DestReg,
-                               MCRegister SrcReg, bool KillSrc) const {
+                               const DebugLoc &DL, Register DestReg,
+                               Register SrcReg, bool KillSrc,
+                               bool RenamableDest, bool RenamableSrc) const {
   assert(ARC::GPR32RegClass.contains(SrcReg) &&
          "Only GPR32 src copy supported.");
   assert(ARC::GPR32RegClass.contains(DestReg) &&
          "Only GPR32 dest copy supported.");
-  BuildMI(MBB, I, dl, get(ARC::MOV_rr), DestReg)
+  BuildMI(MBB, I, DL, get(ARC::MOV_rr), DestReg)
       .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
-void ARCInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
-                                       MachineBasicBlock::iterator I,
-                                       Register SrcReg, bool isKill,
-                                       int FrameIndex,
-                                       const TargetRegisterClass *RC,
-                                       const TargetRegisterInfo *TRI) const {
-  DebugLoc dl = MBB.findDebugLoc(I);
+void ARCInstrInfo::storeRegToStackSlot(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator I, Register SrcReg,
+    bool IsKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
+    MachineInstr::MIFlag Flags) const {
+  DebugLoc DL = MBB.findDebugLoc(I);
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
 
@@ -306,14 +306,14 @@ void ARCInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
       MFI.getObjectAlign(FrameIndex));
 
   assert(MMO && "Couldn't get MachineMemOperand for store to stack.");
-  assert(TRI->getSpillSize(*RC) == 4 &&
+  assert(TRI.getSpillSize(*RC) == 4 &&
          "Only support 4-byte stores to stack now.");
   assert(ARC::GPR32RegClass.hasSubClassEq(RC) &&
          "Only support GPR32 stores to stack now.");
-  LLVM_DEBUG(dbgs() << "Created store reg=" << printReg(SrcReg, TRI)
+  LLVM_DEBUG(dbgs() << "Created store reg=" << printReg(SrcReg, &TRI)
                     << " to FrameIndex=" << FrameIndex << "\n");
-  BuildMI(MBB, I, dl, get(ARC::ST_rs9))
-      .addReg(SrcReg, getKillRegState(isKill))
+  BuildMI(MBB, I, DL, get(ARC::ST_rs9))
+      .addReg(SrcReg, getKillRegState(IsKill))
       .addFrameIndex(FrameIndex)
       .addImm(0)
       .addMemOperand(MMO);
@@ -323,8 +323,9 @@ void ARCInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator I,
                                         Register DestReg, int FrameIndex,
                                         const TargetRegisterClass *RC,
-                                        const TargetRegisterInfo *TRI) const {
-  DebugLoc dl = MBB.findDebugLoc(I);
+                                        Register VReg, unsigned SubReg,
+                                        MachineInstr::MIFlag Flags) const {
+  DebugLoc DL = MBB.findDebugLoc(I);
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
   MachineMemOperand *MMO = MF.getMachineMemOperand(
@@ -333,13 +334,13 @@ void ARCInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
       MFI.getObjectAlign(FrameIndex));
 
   assert(MMO && "Couldn't get MachineMemOperand for store to stack.");
-  assert(TRI->getSpillSize(*RC) == 4 &&
+  assert(TRI.getSpillSize(*RC) == 4 &&
          "Only support 4-byte loads from stack now.");
   assert(ARC::GPR32RegClass.hasSubClassEq(RC) &&
          "Only support GPR32 stores to stack now.");
-  LLVM_DEBUG(dbgs() << "Created load reg=" << printReg(DestReg, TRI)
+  LLVM_DEBUG(dbgs() << "Created load reg=" << printReg(DestReg, &TRI)
                     << " from FrameIndex=" << FrameIndex << "\n");
-  BuildMI(MBB, I, dl, get(ARC::LD_rs9))
+  BuildMI(MBB, I, DL, get(ARC::LD_rs9))
       .addReg(DestReg, RegState::Define)
       .addFrameIndex(FrameIndex)
       .addImm(0)
@@ -350,7 +351,7 @@ void ARCInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 bool ARCInstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
   assert((Cond.size() == 3) && "Invalid ARC branch condition!");
-  Cond[2].setImm(GetOppositeBranchCondition((ARCCC::CondCode)Cond[2].getImm()));
+  Cond[2].setImm(getOppositeBranchCondition((ARCCC::CondCode)Cond[2].getImm()));
   return false;
 }
 
@@ -358,9 +359,9 @@ MachineBasicBlock::iterator
 ARCInstrInfo::loadImmediate(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MI, unsigned Reg,
                             uint64_t Value) const {
-  DebugLoc dl = MBB.findDebugLoc(MI);
+  DebugLoc DL = MBB.findDebugLoc(MI);
   if (isInt<12>(Value)) {
-    return BuildMI(MBB, MI, dl, get(ARC::MOV_rs12), Reg)
+    return BuildMI(MBB, MI, DL, get(ARC::MOV_rs12), Reg)
         .addImm(Value)
         .getInstr();
   }
@@ -371,7 +372,7 @@ unsigned ARCInstrInfo::insertBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
                                     ArrayRef<MachineOperand> Cond,
-                                    const DebugLoc &dl, int *BytesAdded) const {
+                                    const DebugLoc &DL, int *BytesAdded) const {
   assert(!BytesAdded && "Code size not handled.");
 
   // Shouldn't be a fall through.
@@ -380,11 +381,11 @@ unsigned ARCInstrInfo::insertBranch(MachineBasicBlock &MBB,
          "ARC branch conditions have two components!");
 
   if (Cond.empty()) {
-    BuildMI(&MBB, dl, get(ARC::BR)).addMBB(TBB);
+    BuildMI(&MBB, DL, get(ARC::BR)).addMBB(TBB);
     return 1;
   }
   int BccOpc = Cond[1].isImm() ? ARC::BRcc_ru6_p : ARC::BRcc_rr_p;
-  MachineInstrBuilder MIB = BuildMI(&MBB, dl, get(BccOpc));
+  MachineInstrBuilder MIB = BuildMI(&MBB, DL, get(BccOpc));
   MIB.addMBB(TBB);
   for (unsigned i = 0; i < 3; i++) {
     MIB.add(Cond[i]);
@@ -396,7 +397,7 @@ unsigned ARCInstrInfo::insertBranch(MachineBasicBlock &MBB,
   }
 
   // Two-way conditional branch.
-  BuildMI(&MBB, dl, get(ARC::BR)).addMBB(FBB);
+  BuildMI(&MBB, DL, get(ARC::BR)).addMBB(FBB);
   return 2;
 }
 

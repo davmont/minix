@@ -10,97 +10,141 @@ CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU
 
 SRCS+=	AMDGPUAliasAnalysis.cpp \
 	AMDGPUAlwaysInlinePass.cpp \
-	AMDGPUAnnotateKernelFeatures.cpp \
 	AMDGPUAnnotateUniformValues.cpp \
 	AMDGPUArgumentUsageInfo.cpp \
+	AMDGPUAsanInstrumentation.cpp \
 	AMDGPUAsmPrinter.cpp \
 	AMDGPUAtomicOptimizer.cpp \
+	AMDGPUAttributor.cpp \
+	AMDGPUBarrierLatency.cpp \
 	AMDGPUCallLowering.cpp \
 	AMDGPUCodeGenPrepare.cpp \
+	AMDGPUCombinerHelper.cpp \
+	AMDGPUCtorDtorLowering.cpp \
 	AMDGPUExportClustering.cpp \
-	AMDGPUFixFunctionBitcasts.cpp \
+	AMDGPUExportKernelRuntimeHandles.cpp \
 	AMDGPUFrameLowering.cpp \
+	AMDGPUGlobalISelDivergenceLowering.cpp \
 	AMDGPUGlobalISelUtils.cpp \
 	AMDGPUHSAMetadataStreamer.cpp \
+	AMDGPUIGroupLP.cpp \
+	AMDGPUISelDAGToDAG.cpp \
+	AMDGPUISelLowering.cpp \
+	AMDGPUImageIntrinsicOptimizer.cpp \
+	AMDGPUInsertDelayAlu.cpp \
 	AMDGPUInstCombineIntrinsic.cpp \
 	AMDGPUInstrInfo.cpp \
 	AMDGPUInstructionSelector.cpp \
-	AMDGPUISelDAGToDAG.cpp \
-	AMDGPUISelLowering.cpp \
 	AMDGPULateCodeGenPrepare.cpp \
 	AMDGPULegalizerInfo.cpp \
 	AMDGPULibCalls.cpp \
 	AMDGPULibFunc.cpp \
+	AMDGPULowerBufferFatPointers.cpp \
+	AMDGPULowerExecSync.cpp \
 	AMDGPULowerIntrinsics.cpp \
 	AMDGPULowerKernelArguments.cpp \
 	AMDGPULowerKernelAttributes.cpp \
 	AMDGPULowerModuleLDSPass.cpp \
-	AMDGPUMachineCFGStructurizer.cpp \
+	AMDGPULowerVGPREncoding.cpp \
+	AMDGPUMCInstLower.cpp \
+	AMDGPUMCResourceInfo.cpp \
+	AMDGPUMIRFormatter.cpp \
 	AMDGPUMachineFunction.cpp \
 	AMDGPUMachineModuleInfo.cpp \
 	AMDGPUMacroFusion.cpp \
-	AMDGPUMCInstLower.cpp \
-	AMDGPUMIRFormatter.cpp \
-	AMDGPUOpenCLEnqueuedBlockLowering.cpp \
+	AMDGPUMarkLastScratchLoad.cpp \
+	AMDGPUMemoryUtils.cpp \
 	AMDGPUPerfHintAnalysis.cpp \
 	AMDGPUPostLegalizerCombiner.cpp \
 	AMDGPUPreLegalizerCombiner.cpp \
+	AMDGPUPreloadKernArgProlog.cpp \
+	AMDGPUPreloadKernelArguments.cpp \
+	AMDGPUPrepareAGPRAlloc.cpp \
 	AMDGPUPrintfRuntimeBinding.cpp \
 	AMDGPUPromoteAlloca.cpp \
-	AMDGPUPropagateAttributes.cpp \
+	AMDGPUPromoteKernelArguments.cpp \
 	AMDGPURegBankCombiner.cpp \
+	AMDGPURegBankLegalize.cpp \
+	AMDGPURegBankLegalizeHelper.cpp \
+	AMDGPURegBankLegalizeRules.cpp \
+	AMDGPURegBankSelect.cpp \
 	AMDGPURegisterBankInfo.cpp \
+	AMDGPURemoveIncompatibleFunctions.cpp \
+	AMDGPUReserveWWMRegs.cpp \
+	AMDGPUResourceUsageAnalysis.cpp \
+	AMDGPURewriteAGPRCopyMFMA.cpp \
 	AMDGPURewriteOutArguments.cpp \
+	AMDGPURewriteUndefForPHI.cpp \
+	AMDGPUSelectionDAGInfo.cpp \
+	AMDGPUSetWavePriority.cpp \
+	AMDGPUSplitModule.cpp \
 	AMDGPUSubtarget.cpp \
+	AMDGPUSwLowerLDS.cpp \
 	AMDGPUTargetMachine.cpp \
 	AMDGPUTargetObjectFile.cpp \
 	AMDGPUTargetTransformInfo.cpp \
+	AMDGPUUniformIntrinsicCombine.cpp \
 	AMDGPUUnifyDivergentExitNodes.cpp \
-	AMDGPUUnifyMetadata.cpp \
-	AMDILCFGStructurizer.cpp \
+	AMDGPUWaitSGPRHazards.cpp \
+	GCNCreateVOPD.cpp \
 	GCNDPPCombine.cpp \
 	GCNHazardRecognizer.cpp \
 	GCNILPSched.cpp \
 	GCNIterativeScheduler.cpp \
 	GCNMinRegStrategy.cpp \
 	GCNNSAReassign.cpp \
+	GCNPreRALongBranchReg.cpp \
+	GCNPreRAOptimizations.cpp \
 	GCNRegPressure.cpp \
+	GCNRewritePartialRegUses.cpp \
 	GCNSchedStrategy.cpp \
+	GCNSubtarget.cpp \
+	GCNVOPDUtils.cpp \
+	MCA/AMDGPUCustomBehaviour.cpp \
 	R600AsmPrinter.cpp \
 	R600ClauseMergePass.cpp \
 	R600ControlFlowFinalizer.cpp \
 	R600EmitClauseMarkers.cpp \
 	R600ExpandSpecialInstrs.cpp \
 	R600FrameLowering.cpp \
-	R600InstrInfo.cpp \
+	R600ISelDAGToDAG.cpp \
 	R600ISelLowering.cpp \
+	R600InstrInfo.cpp \
+	R600MCInstLower.cpp \
+	R600MachineCFGStructurizer.cpp \
 	R600MachineFunctionInfo.cpp \
 	R600MachineScheduler.cpp \
 	R600OpenCLImageTypeLoweringPass.cpp \
 	R600OptimizeVectorRegisters.cpp \
 	R600Packetizer.cpp \
 	R600RegisterInfo.cpp \
+	R600Subtarget.cpp \
+	R600TargetMachine.cpp \
+	R600TargetTransformInfo.cpp \
 	SIAnnotateControlFlow.cpp \
 	SIFixSGPRCopies.cpp \
 	SIFixVGPRCopies.cpp \
 	SIFoldOperands.cpp \
 	SIFormMemoryClauses.cpp \
 	SIFrameLowering.cpp \
+	SIISelLowering.cpp \
 	SIInsertHardClauses.cpp \
 	SIInsertWaitcnts.cpp \
 	SIInstrInfo.cpp \
-	SIISelLowering.cpp \
 	SILateBranchLowering.cpp \
 	SILoadStoreOptimizer.cpp \
 	SILowerControlFlow.cpp \
 	SILowerI1Copies.cpp \
 	SILowerSGPRSpills.cpp \
+	SILowerWWMCopies.cpp \
 	SIMachineFunctionInfo.cpp \
 	SIMachineScheduler.cpp \
 	SIMemoryLegalizer.cpp \
 	SIModeRegister.cpp \
+	SIModeRegisterDefaults.cpp \
 	SIOptimizeExecMasking.cpp \
 	SIOptimizeExecMaskingPreRA.cpp \
+	SIOptimizeVGPRLiveRange.cpp \
 	SIPeepholeSDWA.cpp \
 	SIPostRABundler.cpp \
 	SIPreAllocateWWMRegs.cpp \

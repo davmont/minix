@@ -15,7 +15,7 @@ foreach (lib ${clang_libs})
   endif()
   if (BUILD_SHARED_LIBS)
     # If we are building static libraries, then we don't need to add the static
-    # libraries as a depedency, because we are already linking against the
+    # libraries as a dependency, because we are already linking against the
     # individual object files.
     list(APPEND _DEPS $<TARGET_PROPERTY:${lib},INTERFACE_LINK_LIBRARIES>)
   endif()
@@ -41,6 +41,10 @@ if (CLANG_LINK_CLANG_DYLIB)
   set(INSTALL_WITH_TOOLCHAIN INSTALL_WITH_TOOLCHAIN)
 endif()
 
+if (HAIKU)
+  list(APPEND _DEPS network)
+endif()
+
 add_clang_library(clang-cpp
                   SHARED
                   ${INSTALL_WITH_TOOLCHAIN}
@@ -48,8 +52,23 @@ add_clang_library(clang-cpp
                   ${_OBJECTS}
                   LINK_LIBS
                   ${_DEPS})
+
+configure_file(simple_version_script.map.in simple_version_script.map)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_options(clang-cpp PRIVATE LINKER:--version-script,${CMAKE_CURRENT_BINARY_DIR}/simple_version_script.map)
+endif()
+
 # Optimize function calls for default visibility definitions to avoid PLT and
 # reduce dynamic relocations.
-if (NOT APPLE)
+if (NOT APPLE AND LLVM_LINKER_SUPPORTS_B_SYMBOLIC_FUNCTIONS)
   target_link_options(clang-cpp PRIVATE LINKER:-Bsymbolic-functions)
+endif()
+if (MINGW OR CYGWIN)
+  # The clang-cpp DLL is supposed to export all symbols (except for ones
+  # that are explicitly hidden). Normally, this is what happens anyway, but
+  # if there are symbols that are marked explicitly as dllexport, we'd only
+  # export them and nothing else. Therefore, add --export-all-symbols to
+  # make sure we export all symbols despite potential dllexports.
+  target_link_options(clang-cpp PRIVATE LINKER:--export-all-symbols)
 endif()

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_NON_TRIVIAL_TYPE_VISITOR_H
-#define LLVM_CLANG_NON_TRIVIAL_TYPE_VISITOR_H
+#ifndef LLVM_CLANG_AST_NONTRIVIALTYPEVISITOR_H
+#define LLVM_CLANG_AST_NONTRIVIALTYPEVISITOR_H
 
 #include "clang/AST/Type.h"
 
@@ -93,6 +93,8 @@ struct CopiedTypeVisitor {
       return asDerived().visitARCStrong(FT, std::forward<Ts>(Args)...);
     case QualType::PCK_ARCWeak:
       return asDerived().visitARCWeak(FT, std::forward<Ts>(Args)...);
+    case QualType::PCK_PtrAuth:
+      return asDerived().visitPtrAuth(FT, std::forward<Ts>(Args)...);
     case QualType::PCK_Struct:
       return asDerived().visitStruct(FT, std::forward<Ts>(Args)...);
     case QualType::PCK_Trivial:

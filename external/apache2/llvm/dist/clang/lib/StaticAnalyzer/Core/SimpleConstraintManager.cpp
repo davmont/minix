@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/SimpleConstraintManager.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/APSIntType.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
+#include <optional>
 
 namespace clang {
 
@@ -22,11 +22,11 @@ namespace ento {
 
 SimpleConstraintManager::~SimpleConstraintManager() {}
 
-ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef State,
-                                                DefinedSVal Cond,
-                                                bool Assumption) {
+ProgramStateRef SimpleConstraintManager::assumeInternal(ProgramStateRef State,
+                                                        DefinedSVal Cond,
+                                                        bool Assumption) {
   // If we have a Loc value, cast it to a bool NonLoc first.
-  if (Optional<Loc> LV = Cond.getAs<Loc>()) {
+  if (std::optional<Loc> LV = Cond.getAs<Loc>()) {
     SValBuilder &SVB = State->getStateManager().getSValBuilder();
     QualType T;
     const MemRegion *MR = LV->getAsRegion();
@@ -44,7 +44,7 @@ ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef State,
 ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef State,
                                                 NonLoc Cond, bool Assumption) {
   State = assumeAux(State, Cond, Assumption);
-  if (NotifyAssumeClients && EE)
+  if (EE)
     return EE->processAssume(State, Cond, Assumption);
   return State;
 }
@@ -62,7 +62,7 @@ ProgramStateRef SimpleConstraintManager::assumeAux(ProgramStateRef State,
     return assumeSymUnsupported(State, Sym, Assumption);
   }
 
-  switch (Cond.getSubKind()) {
+  switch (Cond.getKind()) {
   default:
     llvm_unreachable("'Assume' not implemented for this NonLoc");
 
@@ -74,7 +74,7 @@ ProgramStateRef SimpleConstraintManager::assumeAux(ProgramStateRef State,
   }
 
   case nonloc::ConcreteIntKind: {
-    bool b = Cond.castAs<nonloc::ConcreteInt>().getValue() != 0;
+    bool b = *Cond.castAs<nonloc::ConcreteInt>().getValue() != 0;
     bool isFeasible = b ? Assumption : !Assumption;
     return isFeasible ? State : nullptr;
   }
@@ -86,12 +86,12 @@ ProgramStateRef SimpleConstraintManager::assumeAux(ProgramStateRef State,
   }
 
   case nonloc::LocAsIntegerKind:
-    return assume(State, Cond.castAs<nonloc::LocAsInteger>().getLoc(),
-                  Assumption);
+    return assumeInternal(State, Cond.castAs<nonloc::LocAsInteger>().getLoc(),
+                          Assumption);
   } // end switch
 }
 
-ProgramStateRef SimpleConstraintManager::assumeInclusiveRange(
+ProgramStateRef SimpleConstraintManager::assumeInclusiveRangeInternal(
     ProgramStateRef State, NonLoc Value, const llvm::APSInt &From,
     const llvm::APSInt &To, bool InRange) {
 
@@ -106,7 +106,7 @@ ProgramStateRef SimpleConstraintManager::assumeInclusiveRange(
     return assumeSymInclusiveRange(State, Sym, From, To, InRange);
   }
 
-  switch (Value.getSubKind()) {
+  switch (Value.getKind()) {
   default:
     llvm_unreachable("'assumeInclusiveRange' is not implemented"
                      "for this NonLoc");

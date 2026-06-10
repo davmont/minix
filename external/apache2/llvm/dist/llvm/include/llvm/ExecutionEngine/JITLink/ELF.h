@@ -13,7 +13,6 @@
 #ifndef LLVM_EXECUTIONENGINE_JITLINK_ELF_H
 #define LLVM_EXECUTIONENGINE_JITLINK_ELF_H
 
-#include "llvm/ExecutionEngine/JITLink/ELF.h"
 #include "llvm/ExecutionEngine/JITLink/JITLink.h"
 
 namespace llvm {
@@ -25,7 +24,8 @@ namespace jitlink {
 /// its contents. The caller is responsible for ensuring that the object buffer
 /// outlives the graph.
 Expected<std::unique_ptr<LinkGraph>>
-createLinkGraphFromELFObject(MemoryBufferRef ObjectBuffer);
+createLinkGraphFromELFObject(MemoryBufferRef ObjectBuffer,
+                             std::shared_ptr<orc::SymbolStringPool> SSP);
 
 /// Link the given graph.
 ///

@@ -16,11 +16,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "Minix.h"
-#include "CommonArgs.h"
-#include "InputInfo.h"
+#include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
-#include "clang/Driver/Options.h"
+#include "clang/Options/Options.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
@@ -116,7 +115,7 @@ void tools::minix::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  Args.AddAllArgs(CmdArgs, {options::OPT_L, options::OPT_T_Group,
+  Args.addAllArgs(CmdArgs, {options::OPT_L, options::OPT_T_Group,
                             options::OPT_e, options::OPT_s, options::OPT_t,
                             options::OPT_Z_Flag, options::OPT_r});
 

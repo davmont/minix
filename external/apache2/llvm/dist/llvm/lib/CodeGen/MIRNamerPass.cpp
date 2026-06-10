@@ -18,18 +18,10 @@
 
 #include "MIRVRegNamerUtils.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/InitializePasses.h"
 
 using namespace llvm;
-
-namespace llvm {
-extern char &MIRNamerID;
-} // namespace llvm
 
 #define DEBUG_TYPE "mir-namer"
 
@@ -57,10 +49,9 @@ public:
 
     VRegRenamer Renamer(MF.getRegInfo());
 
-    unsigned BBIndex = 0;
     ReversePostOrderTraversal<MachineBasicBlock *> RPOT(&*MF.begin());
-    for (auto &MBB : RPOT)
-      Changed |= Renamer.renameVRegs(MBB, BBIndex++);
+    for (const auto &[BBIndex, MBB] : enumerate(RPOT))
+      Changed |= Renamer.renameVRegs(MBB, BBIndex);
 
     return Changed;
   }
@@ -70,10 +61,4 @@ public:
 
 char MIRNamer::ID;
 
-char &llvm::MIRNamerID = MIRNamer::ID;
-
-INITIALIZE_PASS_BEGIN(MIRNamer, "mir-namer", "Rename Register Operands", false,
-                      false)
-
-INITIALIZE_PASS_END(MIRNamer, "mir-namer", "Rename Register Operands", false,
-                    false)
+INITIALIZE_PASS(MIRNamer, "mir-namer", "Rename Register Operands", false, false)

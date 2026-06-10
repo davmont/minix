@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "SystemZMCInstLower.h"
+#include "MCTargetDesc/SystemZMCAsmInfo.h"
 #include "SystemZAsmPrinter.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCExpr.h"
@@ -15,15 +16,15 @@
 
 using namespace llvm;
 
-// Return the VK_* enumeration for MachineOperand target flags Flags.
-static MCSymbolRefExpr::VariantKind getVariantKind(unsigned Flags) {
+// Return the S_* enumeration for MachineOperand target flags Flags.
+static SystemZ::Specifier getSpecifierForTFlags(unsigned Flags) {
   switch (Flags & SystemZII::MO_SYMBOL_MODIFIER) {
     case 0:
-      return MCSymbolRefExpr::VK_None;
+      return SystemZ::S_None;
     case SystemZII::MO_GOT:
-      return MCSymbolRefExpr::VK_GOT;
+      return SystemZ::S_GOT;
     case SystemZII::MO_INDNTPOFF:
-      return MCSymbolRefExpr::VK_INDNTPOFF;
+      return SystemZ::S_INDNTPOFF;
   }
   llvm_unreachable("Unrecognised MO_ACCESS_MODEL");
 }
@@ -32,9 +33,8 @@ SystemZMCInstLower::SystemZMCInstLower(MCContext &ctx,
                                        SystemZAsmPrinter &asmprinter)
   : Ctx(ctx), AsmPrinter(asmprinter) {}
 
-const MCExpr *
-SystemZMCInstLower::getExpr(const MachineOperand &MO,
-                            MCSymbolRefExpr::VariantKind Kind) const {
+const MCExpr *SystemZMCInstLower::getExpr(const MachineOperand &MO,
+                                          SystemZ::Specifier Spec) const {
   const MCSymbol *Symbol;
   bool HasOffset = true;
   switch (MO.getType()) {
@@ -67,7 +67,7 @@ SystemZMCInstLower::getExpr(const MachineOperand &MO,
   default:
     llvm_unreachable("unknown operand type");
   }
-  const MCExpr *Expr = MCSymbolRefExpr::create(Symbol, Kind, Ctx);
+  const MCExpr *Expr = MCSymbolRefExpr::create(Symbol, Spec, Ctx);
   if (HasOffset)
     if (int64_t Offset = MO.getOffset()) {
       const MCExpr *OffsetExpr = MCConstantExpr::create(Offset, Ctx);
@@ -85,7 +85,7 @@ MCOperand SystemZMCInstLower::lowerOperand(const MachineOperand &MO) const {
     return MCOperand::createImm(MO.getImm());
 
   default: {
-    MCSymbolRefExpr::VariantKind Kind = getVariantKind(MO.getTargetFlags());
+    auto Kind = getSpecifierForTFlags(MO.getTargetFlags());
     return MCOperand::createExpr(getExpr(MO, Kind));
   }
   }
@@ -93,10 +93,8 @@ MCOperand SystemZMCInstLower::lowerOperand(const MachineOperand &MO) const {
 
 void SystemZMCInstLower::lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
-  for (unsigned I = 0, E = MI->getNumOperands(); I != E; ++I) {
-    const MachineOperand &MO = MI->getOperand(I);
+  for (const MachineOperand &MO : MI->operands())
     // Ignore all implicit register operands.
     if (!MO.isReg() || !MO.isImplicit())
       OutMI.addOperand(lowerOperand(MO));
-  }
 }

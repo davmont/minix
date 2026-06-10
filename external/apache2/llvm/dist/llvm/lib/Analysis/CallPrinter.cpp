@@ -14,17 +14,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/CallPrinter.h"
-#include "llvm/Analysis/BlockFrequencyInfo.h"
-#include "llvm/Analysis/BranchProbabilityInfo.h"
-#include "llvm/Analysis/CallGraph.h"
-#include "llvm/Analysis/DOTGraphTraitsPass.h"
-#include "llvm/Analysis/HeatUtils.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/Analysis/BlockFrequencyInfo.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/HeatUtils.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Module.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/DOTGraphTraits.h"
+#include "llvm/Support/GraphWriter.h"
 
 using namespace llvm;
+
+namespace llvm {
+template <class GraphType> struct GraphTraits;
+} // namespace llvm
 
 // This option shows static (relative) call counts.
 // FIXME:
@@ -64,7 +69,7 @@ public:
 
     for (Function &F : M->getFunctionList()) {
       uint64_t localSumFreq = 0;
-      SmallSet<Function *, 16> Callers;
+      SmallPtrSet<Function *, 16> Callers;
       for (User *U : F.users())
         if (isa<CallInst>(U))
           Callers.insert(cast<Instruction>(U)->getFunction());
@@ -93,7 +98,7 @@ private:
 
       bool FoundParallelEdge = true;
       while (FoundParallelEdge) {
-        SmallSet<Function *, 16> Visited;
+        SmallPtrSet<Function *, 16> Visited;
         FoundParallelEdge = false;
         for (auto CI = Node->begin(), CE = Node->end(); CI != CE; CI++) {
           if (!(Visited.insert(CI->second->getFunction())).second) {
@@ -210,7 +215,72 @@ struct DOTGraphTraits<CallGraphDOTInfo *> : public DefaultDOTGraphTraits {
   }
 };
 
-} // end llvm namespace
+} // namespace llvm
+
+namespace {
+void doCallGraphDOTPrinting(
+    Module &M, function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
+  std::string Filename;
+  if (!CallGraphDotFilenamePrefix.empty())
+    Filename = (CallGraphDotFilenamePrefix + ".callgraph.dot");
+  else
+    Filename = (std::string(M.getModuleIdentifier()) + ".callgraph.dot");
+  errs() << "Writing '" << Filename << "'...";
+
+  std::error_code EC;
+  raw_fd_ostream File(Filename, EC, sys::fs::OF_Text);
+
+  CallGraph CG(M);
+  CallGraphDOTInfo CFGInfo(&M, &CG, LookupBFI);
+
+  if (!EC)
+    WriteGraph(File, &CFGInfo);
+  else
+    errs() << "  error opening file for writing!";
+  errs() << "\n";
+}
+
+void viewCallGraph(Module &M,
+                   function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
+  CallGraph CG(M);
+  CallGraphDOTInfo CFGInfo(&M, &CG, LookupBFI);
+
+  std::string Title =
+      DOTGraphTraits<CallGraphDOTInfo *>::getGraphName(&CFGInfo);
+  ViewGraph(&CFGInfo, "callgraph", true, Title);
+}
+} // namespace
+
+namespace llvm {
+PreservedAnalyses CallGraphDOTPrinterPass::run(Module &M,
+                                               ModuleAnalysisManager &AM) {
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  doCallGraphDOTPrinting(M, LookupBFI);
+
+  return PreservedAnalyses::all();
+}
+
+PreservedAnalyses CallGraphViewerPass::run(Module &M,
+                                           ModuleAnalysisManager &AM) {
+
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  viewCallGraph(M, LookupBFI);
+
+  return PreservedAnalyses::all();
+}
+} // namespace llvm
 
 namespace {
 // Viewer
@@ -234,12 +304,7 @@ bool CallGraphViewer::runOnModule(Module &M) {
     return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
   };
 
-  CallGraph CG(M);
-  CallGraphDOTInfo CFGInfo(&M, &CG, LookupBFI);
-
-  std::string Title =
-      DOTGraphTraits<CallGraphDOTInfo *>::getGraphName(&CFGInfo);
-  ViewGraph(&CFGInfo, "callgraph", true, Title);
+  viewCallGraph(M, LookupBFI);
 
   return false;
 }
@@ -266,24 +331,7 @@ bool CallGraphDOTPrinter::runOnModule(Module &M) {
     return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
   };
 
-  std::string Filename;
-  if (!CallGraphDotFilenamePrefix.empty())
-    Filename = (CallGraphDotFilenamePrefix + ".callgraph.dot");
-  else
-    Filename = (std::string(M.getModuleIdentifier()) + ".callgraph.dot");
-  errs() << "Writing '" << Filename << "'...";
-
-  std::error_code EC;
-  raw_fd_ostream File(Filename, EC, sys::fs::OF_Text);
-
-  CallGraph CG(M);
-  CallGraphDOTInfo CFGInfo(&M, &CG, LookupBFI);
-
-  if (!EC)
-    WriteGraph(File, &CFGInfo);
-  else
-    errs() << "  error opening file for writing!";
-  errs() << "\n";
+  doCallGraphDOTPrinting(M, LookupBFI);
 
   return false;
 }

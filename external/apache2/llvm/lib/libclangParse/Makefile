@@ -12,8 +12,11 @@ SRCS+=	ParseAST.cpp \
 	ParseDeclCXX.cpp \
 	ParseExpr.cpp \
 	ParseExprCXX.cpp \
+	ParseHLSL.cpp \
+	ParseHLSLRootSignature.cpp \
 	ParseInit.cpp \
 	ParseObjc.cpp \
+	ParseOpenACC.cpp \
 	ParseOpenMP.cpp \
 	ParsePragma.cpp \
 	ParseStmt.cpp \

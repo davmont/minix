@@ -52,12 +52,18 @@
 #ifndef LLVM_TRANSFORMS_SCALAR_TAILRECURSIONELIMINATION_H
 #define LLVM_TRANSFORMS_SCALAR_TAILRECURSIONELIMINATION_H
 
-#include "llvm/IR/Function.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
 
-struct TailCallElimPass : PassInfoMixin<TailCallElimPass> {
+class Function;
+
+class TailCallElimPass : public PassInfoMixin<TailCallElimPass> {
+  const bool UpdateFunctionEntryCount;
+
+public:
+  TailCallElimPass(bool UpdateFunctionEntryCount = true)
+      : UpdateFunctionEntryCount(UpdateFunctionEntryCount) {}
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 }

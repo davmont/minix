@@ -45,7 +45,7 @@ static void diagnosticHandler(LLVMDiagnosticInfoRef DI, void *C) {
 static int handlerCalled = 0;
 
 int llvm_test_diagnostic_handler(void) {
-  LLVMContextRef C = LLVMGetGlobalContext();
+  LLVMContextRef C = LLVMContextCreate();
   LLVMContextSetDiagnosticHandler(C, diagnosticHandler, &handlerCalled);
 
   if (LLVMContextGetDiagnosticHandler(C) != diagnosticHandler) {
@@ -69,14 +69,9 @@ int llvm_test_diagnostic_handler(void) {
 
 
   LLVMModuleRef M;
-  int Ret = LLVMGetBitcodeModule2(MB, &M);
-  if (Ret) {
-    // We do not return if the bitcode was invalid, as we want to test whether
-    // the diagnostic handler was executed.
-    fprintf(stderr, "Error parsing bitcode: %s\n", msg);
-  }
-
-  LLVMDisposeMemoryBuffer(MB);
+  int Ret = LLVMGetBitcodeModuleInContext2(C, MB, &M);
+  if (Ret)
+    LLVMDisposeMemoryBuffer(MB);
 
   if (handlerCalled) {
     fprintf(stderr, "Diagnostic handler was called while loading module\n");
@@ -84,5 +79,6 @@ int llvm_test_diagnostic_handler(void) {
     fprintf(stderr, "Diagnostic handler was not called while loading module\n");
   }
 
+  LLVMContextDispose(C);
   return 0;
 }

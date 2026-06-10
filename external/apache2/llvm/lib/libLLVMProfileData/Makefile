@@ -6,14 +6,27 @@ LIB=	LLVMProfileData
 
 .PATH: ${LLVM_SRCDIR}/lib/ProfileData
 
-SRCS+=	GCOV.cpp \
+SRCS+=	DataAccessProf.cpp \
+	GCOV.cpp \
+	IndexedMemProfData.cpp \
 	InstrProf.cpp \
+	InstrProfCorrelator.cpp \
 	InstrProfReader.cpp \
 	InstrProfWriter.cpp \
+	ItaniumManglingCanonicalizer.cpp \
+	MemProf.cpp \
+	MemProfCommon.cpp \
+	MemProfRadixTree.cpp \
+	MemProfReader.cpp \
+	MemProfSummary.cpp \
+	MemProfSummaryBuilder.cpp \
+	PGOCtxProfReader.cpp \
+	PGOCtxProfWriter.cpp \
 	ProfileSummaryBuilder.cpp \
 	SampleProf.cpp \
 	SampleProfReader.cpp \
-	SampleProfWriter.cpp
+	SampleProfWriter.cpp \
+	SymbolRemappingReader.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

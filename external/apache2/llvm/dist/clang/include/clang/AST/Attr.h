@@ -16,15 +16,18 @@
 #include "clang/AST/ASTFwd.h"
 #include "clang/AST/AttrIterator.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/AttrKinds.h"
 #include "clang/Basic/AttributeCommonInfo.h"
-#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/LLVM.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/SourceLocation.h"
-#include "llvm/ADT/StringSwitch.h"
+#include "clang/Support/Compiler.h"
+#include "llvm/Frontend/HLSL/HLSLResource.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/raw_ostream.h"
@@ -34,28 +37,30 @@
 namespace clang {
 class ASTContext;
 class AttributeCommonInfo;
-class IdentifierInfo;
-class ObjCInterfaceDecl;
-class Expr;
-class QualType;
 class FunctionDecl;
-class TypeSourceInfo;
 class OMPTraitInfo;
+class OpenACCClause;
 
 /// Attr - This represents one attribute.
 class Attr : public AttributeCommonInfo {
 private:
+  LLVM_PREFERRED_TYPE(attr::Kind)
   unsigned AttrKind : 16;
 
 protected:
   /// An index into the spelling list of an
   /// attribute defined in Attr.td file.
+  LLVM_PREFERRED_TYPE(bool)
   unsigned Inherited : 1;
+  LLVM_PREFERRED_TYPE(bool)
   unsigned IsPackExpansion : 1;
+  LLVM_PREFERRED_TYPE(bool)
   unsigned Implicit : 1;
   // FIXME: These are properties of the attribute kind, not state for this
   // instance of the attribute.
+  LLVM_PREFERRED_TYPE(bool)
   unsigned IsLateParsed : 1;
+  LLVM_PREFERRED_TYPE(bool)
   unsigned InheritEvenIfAlreadyPresent : 1;
 
   void *operator new(size_t bytes) noexcept {
@@ -109,6 +114,8 @@ public:
 
   // Pretty print this attribute.
   void printPretty(raw_ostream &OS, const PrintingPolicy &Policy) const;
+
+  static StringRef getDocumentation(attr::Kind);
 };
 
 class TypeAttr : public Attr {
@@ -193,6 +200,55 @@ public:
   }
 };
 
+class InheritableParamOrStmtAttr : public InheritableParamAttr {
+protected:
+  InheritableParamOrStmtAttr(ASTContext &Context,
+                             const AttributeCommonInfo &CommonInfo,
+                             attr::Kind AK, bool IsLateParsed,
+                             bool InheritEvenIfAlreadyPresent)
+      : InheritableParamAttr(Context, CommonInfo, AK, IsLateParsed,
+                             InheritEvenIfAlreadyPresent) {}
+
+public:
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Attr *A) {
+    return A->getKind() >= attr::FirstInheritableParamOrStmtAttr &&
+           A->getKind() <= attr::LastInheritableParamOrStmtAttr;
+  }
+};
+
+class HLSLAnnotationAttr : public InheritableAttr {
+protected:
+  HLSLAnnotationAttr(ASTContext &Context, const AttributeCommonInfo &CommonInfo,
+                     attr::Kind AK, bool IsLateParsed,
+                     bool InheritEvenIfAlreadyPresent)
+      : InheritableAttr(Context, CommonInfo, AK, IsLateParsed,
+                        InheritEvenIfAlreadyPresent) {}
+
+public:
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Attr *A) {
+    return A->getKind() >= attr::FirstHLSLAnnotationAttr &&
+           A->getKind() <= attr::LastHLSLAnnotationAttr;
+  }
+};
+
+class HLSLSemanticBaseAttr : public HLSLAnnotationAttr {
+protected:
+  HLSLSemanticBaseAttr(ASTContext &Context,
+                       const AttributeCommonInfo &CommonInfo, attr::Kind AK,
+                       bool IsLateParsed, bool InheritEvenIfAlreadyPresent)
+      : HLSLAnnotationAttr(Context, CommonInfo, AK, IsLateParsed,
+                           InheritEvenIfAlreadyPresent) {}
+
+public:
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Attr *A) {
+    return A->getKind() >= attr::FirstHLSLSemanticBaseAttr &&
+           A->getKind() <= attr::LastHLSLSemanticBaseAttr;
+  }
+};
+
 /// A parameter attribute which changes the argument-passing ABI rule
 /// for the parameter.
 class ParameterABIAttr : public InheritableParamAttr {
@@ -204,18 +260,7 @@ protected:
                              InheritEvenIfAlreadyPresent) {}
 
 public:
-  ParameterABI getABI() const {
-    switch (getKind()) {
-    case attr::SwiftContext:
-      return ParameterABI::SwiftContext;
-    case attr::SwiftErrorResult:
-      return ParameterABI::SwiftErrorResult;
-    case attr::SwiftIndirectResult:
-      return ParameterABI::SwiftIndirectResult;
-    default:
-      llvm_unreachable("bad parameter ABI attribute kind");
-    }
-  }
+  ParameterABI getABI() const;
 
   static bool classof(const Attr *A) {
     return A->getKind() >= attr::FirstParameterABIAttr &&
@@ -228,7 +273,9 @@ public:
 class ParamIdx {
   // Idx is exposed only via accessors that specify specific encodings.
   unsigned Idx : 30;
+  LLVM_PREFERRED_TYPE(bool)
   unsigned HasThis : 1;
+  LLVM_PREFERRED_TYPE(bool)
   unsigned IsValid : 1;
 
   void assertComparable(const ParamIdx &I) const {
@@ -256,8 +303,8 @@ public:
   ParamIdx(unsigned Idx, const Decl *D)
       : Idx(Idx), HasThis(false), IsValid(true) {
     assert(Idx >= 1 && "Idx must be one-origin");
-    if (const auto *FD = dyn_cast<FunctionDecl>(D))
-      HasThis = FD->isCXXInstanceMember();
+    if (const auto *MethodDecl = dyn_cast<CXXMethodDecl>(D))
+      HasThis = MethodDecl->isImplicitObjectMemberFunction();
   }
 
   /// A type into which \c ParamIdx can be serialized.
@@ -348,31 +395,35 @@ public:
 static_assert(sizeof(ParamIdx) == sizeof(ParamIdx::SerialType),
               "ParamIdx does not fit its serialization type");
 
-/// Contains information gathered from parsing the contents of TargetAttr.
-struct ParsedTargetAttr {
-  std::vector<std::string> Features;
-  StringRef Architecture;
-  StringRef Tune;
-  StringRef BranchProtection;
-  bool DuplicateArchitecture = false;
-  bool DuplicateTune = false;
-  bool operator ==(const ParsedTargetAttr &Other) const {
-    return DuplicateArchitecture == Other.DuplicateArchitecture &&
-           DuplicateTune == Other.DuplicateTune &&
-           Architecture == Other.Architecture &&
-           Tune == Other.Tune &&
-           BranchProtection == Other.BranchProtection &&
-           Features == Other.Features;
-  }
-};
-
-#include "clang/AST/Attrs.inc"
+#include "clang/AST/Attrs.inc" // IWYU pragma: export
 
 inline const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                              const Attr *At) {
-  DB.AddTaggedVal(reinterpret_cast<intptr_t>(At),
-                  DiagnosticsEngine::ak_attr);
+  DB.AddTaggedVal(reinterpret_cast<uint64_t>(At), DiagnosticsEngine::ak_attr);
   return DB;
+}
+
+inline ParameterABI ParameterABIAttr::getABI() const {
+  switch (getKind()) {
+  case attr::SwiftContext:
+    return ParameterABI::SwiftContext;
+  case attr::SwiftAsyncContext:
+    return ParameterABI::SwiftAsyncContext;
+  case attr::SwiftErrorResult:
+    return ParameterABI::SwiftErrorResult;
+  case attr::SwiftIndirectResult:
+    return ParameterABI::SwiftIndirectResult;
+  case attr::HLSLParamModifier: {
+    const auto *A = cast<HLSLParamModifierAttr>(this);
+    if (A->isOut())
+      return ParameterABI::HLSLOut;
+    if (A->isInOut())
+      return ParameterABI::HLSLInOut;
+    return ParameterABI::Ordinary;
+  }
+  default:
+    llvm_unreachable("bad parameter ABI attribute kind");
+  }
 }
 }  // end namespace clang
 

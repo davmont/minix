@@ -6,12 +6,10 @@ LIB=	LLVMLTO
 
 .PATH: ${LLVM_SRCDIR}/lib/LTO
 
-SRCS+=	Caching.cpp \
+SRCS+=	LTO.cpp \
 	LTOBackend.cpp \
 	LTOCodeGenerator.cpp \
-	LTO.cpp \
 	LTOModule.cpp \
-	SummaryBasedOptimizations.cpp \
 	ThinLTOCodeGenerator.cpp \
 	UpdateCompilerUsed.cpp
 

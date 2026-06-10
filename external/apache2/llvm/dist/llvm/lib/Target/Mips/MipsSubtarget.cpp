@@ -12,20 +12,30 @@
 
 #include "MipsSubtarget.h"
 #include "Mips.h"
-#include "MipsMachineFunction.h"
-#include "MipsRegisterInfo.h"
-#include "MipsTargetMachine.h"
 #include "MipsCallLowering.h"
 #include "MipsLegalizerInfo.h"
 #include "MipsRegisterBankInfo.h"
+#include "MipsRegisterInfo.h"
+#include "MipsSelectionDAGInfo.h"
+#include "MipsTargetMachine.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
+
+cl::opt<CompactBranchPolicy> MipsCompactBranchPolicy(
+    "mips-compact-branches", cl::Optional, cl::init(CB_Optimal),
+    cl::desc("MIPS Specific: Compact branch policy."),
+    cl::values(clEnumValN(CB_Never, "never",
+                          "Do not use compact branches if possible."),
+               clEnumValN(CB_Optimal, "optimal",
+                          "Use compact branches where appropriate (default)."),
+               clEnumValN(CB_Always, "always",
+                          "Always use compact branches if possible.")));
 
 #define DEBUG_TYPE "mips-subtarget"
 
@@ -64,6 +74,7 @@ bool MipsSubtarget::MSAWarningPrinted = false;
 bool MipsSubtarget::VirtWarningPrinted = false;
 bool MipsSubtarget::CRCWarningPrinted = false;
 bool MipsSubtarget::GINVWarningPrinted = false;
+bool MipsSubtarget::MIPS1WarningPrinted = false;
 
 void MipsSubtarget::anchor() {}
 
@@ -78,29 +89,34 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
       HasMips3_32(false), HasMips3_32r2(false), HasMips4_32(false),
       HasMips4_32r2(false), HasMips5_32r2(false), InMips16Mode(false),
       InMips16HardFloat(Mips16HardFloat), InMicroMipsMode(false), HasDSP(false),
-      HasDSPR2(false), HasDSPR3(false), AllowMixed16_32(Mixed16_32 | Mips_Os16),
-      Os16(Mips_Os16), HasMSA(false), UseTCCInDIV(false), HasSym32(false),
-      HasEVA(false), DisableMadd4(false), HasMT(false), HasCRC(false),
-      HasVirt(false), HasGINV(false), UseIndirectJumpsHazard(false),
+      HasDSPR2(false), HasDSPR3(false),
+      AllowMixed16_32(Mixed16_32 || Mips_Os16), Os16(Mips_Os16), HasMSA(false),
+      UseTCCInDIV(false), HasSym32(false), HasEVA(false), DisableMadd4(false),
+      HasMT(false), HasCRC(false), HasVirt(false), HasGINV(false),
+      UseIndirectJumpsHazard(false), StrictAlign(false),
+      UseCompactBranches(MipsCompactBranchPolicy != CB_Never),
       StackAlignOverride(StackAlignOverride), TM(TM), TargetTriple(TT),
-      TSInfo(), InstrInfo(MipsInstrInfo::create(
-                    initializeSubtargetDependencies(CPU, FS, TM))),
+      InstrInfo(
+          MipsInstrInfo::create(initializeSubtargetDependencies(CPU, FS, TM))),
       FrameLowering(MipsFrameLowering::create(*this)),
       TLInfo(MipsTargetLowering::create(TM, *this)) {
 
   if (MipsArchVersion == MipsDefault)
     MipsArchVersion = Mips32;
 
-  // Don't even attempt to generate code for MIPS-I and MIPS-V. They have not
-  // been tested and currently exist for the integrated assembler only.
-  if (MipsArchVersion == Mips1)
-    report_fatal_error("Code generation for MIPS-I is not implemented", false);
+  // MIPS-I has not been tested.
+  if (MipsArchVersion == Mips1 && !MIPS1WarningPrinted) {
+    errs() << "warning: MIPS-I support is experimental\n";
+    MIPS1WarningPrinted = true;
+  }
+
+  // Don't even attempt to generate code for MIPS-V. It has not
+  // been tested and currently exists for the integrated assembler only.
   if (MipsArchVersion == Mips5)
     report_fatal_error("Code generation for MIPS-V is not implemented", false);
 
   // Check if Architecture and ABI are compatible.
-  assert(((!isGP64bit() && isABI_O32()) ||
-          (isGP64bit() && (isABI_N32() || isABI_N64()))) &&
+  assert(((!isGP64bit() && isABI_O32()) || isGP64bit()) &&
          "Invalid  Arch & ABI pair.");
 
   if (hasMSA() && !isFP64bit())
@@ -111,7 +127,7 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
   if (isFP64bit() && !hasMips64() && hasMips32() && !hasMips32r2())
     report_fatal_error(
         "FPU with 64-bit registers is not available on MIPS32 pre revision 2. "
-        "Use -mcpu=mips32r2 or greater.");
+        "Use -mcpu=mips32r2 or greater.", false);
 
   if (!isABI_O32() && !useOddSPReg())
     report_fatal_error("-mattr=+nooddspreg requires the O32 ABI.", false);
@@ -208,14 +224,17 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
     GINVWarningPrinted = true;
   }
 
+  TSInfo = std::make_unique<MipsSelectionDAGInfo>();
+
   CallLoweringInfo.reset(new MipsCallLowering(*getTargetLowering()));
   Legalizer.reset(new MipsLegalizerInfo(*this));
 
   auto *RBI = new MipsRegisterBankInfo(*getRegisterInfo());
   RegBankInfo.reset(RBI);
-  InstSelector.reset(createMipsInstructionSelector(
-      *static_cast<const MipsTargetMachine *>(&TM), *this, *RBI));
+  InstSelector.reset(createMipsInstructionSelector(TM, *this, *RBI));
 }
+
+MipsSubtarget::~MipsSubtarget() = default;
 
 bool MipsSubtarget::isPositionIndependent() const {
   return TM.isPositionIndependent();
@@ -230,8 +249,8 @@ void MipsSubtarget::getCriticalPathRCs(RegClassVector &CriticalPathRCs) const {
                                         : &Mips::GPR32RegClass);
 }
 
-CodeGenOpt::Level MipsSubtarget::getOptLevelToEnablePostRAScheduler() const {
-  return CodeGenOpt::Aggressive;
+CodeGenOptLevel MipsSubtarget::getOptLevelToEnablePostRAScheduler() const {
+  return CodeGenOptLevel::Aggressive;
 }
 
 MipsSubtarget &
@@ -257,8 +276,8 @@ MipsSubtarget::initializeSubtargetDependencies(StringRef CPU, StringRef FS,
   }
 
   if ((isABI_N32() || isABI_N64()) && !isGP64bit())
-    report_fatal_error("64-bit code requested on a subtarget that doesn't "
-                       "support it!");
+    reportFatalUsageError("64-bit code requested on a subtarget that doesn't "
+                          "support it!");
 
   return *this;
 }
@@ -278,6 +297,10 @@ bool MipsSubtarget::isABI_N32() const { return getABI().IsN32(); }
 bool MipsSubtarget::isABI_O32() const { return getABI().IsO32(); }
 const MipsABIInfo &MipsSubtarget::getABI() const { return TM.getABI(); }
 
+const SelectionDAGTargetInfo *MipsSubtarget::getSelectionDAGInfo() const {
+  return TSInfo.get();
+}
+
 const CallLowering *MipsSubtarget::getCallLowering() const {
   return CallLoweringInfo.get();
 }
@@ -292,4 +315,36 @@ const RegisterBankInfo *MipsSubtarget::getRegBankInfo() const {
 
 InstructionSelector *MipsSubtarget::getInstructionSelector() const {
   return InstSelector.get();
+}
+
+// Libcalls for which no helper is generated. Sorted by name for binary search.
+const RTLIB::LibcallImpl MipsSubtarget::HardFloatLibCalls[34] = {
+    RTLIB::impl___mips16_adddf3,        RTLIB::impl___mips16_addsf3,
+    RTLIB::impl___mips16_divdf3,        RTLIB::impl___mips16_divsf3,
+    RTLIB::impl___mips16_eqdf2,         RTLIB::impl___mips16_eqsf2,
+    RTLIB::impl___mips16_extendsfdf2,   RTLIB::impl___mips16_fix_truncdfsi,
+    RTLIB::impl___mips16_fix_truncsfsi, RTLIB::impl___mips16_floatsidf,
+    RTLIB::impl___mips16_floatsisf,     RTLIB::impl___mips16_floatunsidf,
+    RTLIB::impl___mips16_floatunsisf,   RTLIB::impl___mips16_gedf2,
+    RTLIB::impl___mips16_gesf2,         RTLIB::impl___mips16_gtdf2,
+    RTLIB::impl___mips16_gtsf2,         RTLIB::impl___mips16_ledf2,
+    RTLIB::impl___mips16_lesf2,         RTLIB::impl___mips16_ltdf2,
+    RTLIB::impl___mips16_ltsf2,         RTLIB::impl___mips16_muldf3,
+    RTLIB::impl___mips16_mulsf3,        RTLIB::impl___mips16_nedf2,
+    RTLIB::impl___mips16_nesf2,         RTLIB::impl___mips16_ret_dc,
+    RTLIB::impl___mips16_ret_df,        RTLIB::impl___mips16_ret_sc,
+    RTLIB::impl___mips16_ret_sf,        RTLIB::impl___mips16_subdf3,
+    RTLIB::impl___mips16_subsf3,        RTLIB::impl___mips16_truncdfsf2,
+    RTLIB::impl___mips16_unorddf2,      RTLIB::impl___mips16_unordsf2};
+
+void MipsSubtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
+  if (inMips16Mode() && !useSoftFloat()) {
+    for (unsigned I = 0; I != std::size(HardFloatLibCalls); ++I) {
+      assert((I == 0 || HardFloatLibCalls[I - 1] < HardFloatLibCalls[I]) &&
+             "Array not sorted!");
+      RTLIB::Libcall LC =
+          RTLIB::RuntimeLibcallsInfo::getLibcallFromImpl(HardFloatLibCalls[I]);
+      Info.setLibcallImpl(LC, HardFloatLibCalls[I]);
+    }
+  }
 }

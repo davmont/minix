@@ -6,8 +6,8 @@ LIB=	LLVMOption
 
 .PATH: ${LLVM_SRCDIR}/lib/Option
 
-SRCS+=	ArgList.cpp  \
-	Arg.cpp \
+SRCS+=	Arg.cpp \
+	ArgList.cpp \
 	OptTable.cpp \
 	Option.cpp
 

@@ -38,10 +38,10 @@ RegisterFileStatistics::RegisterFileStatistics(const MCSubtargetInfo &sti)
   unsigned NumRegFiles = std::max(PI.NumRegisterFiles, 1U);
 
   PRFUsage.resize(NumRegFiles);
-  std::fill(PRFUsage.begin(), PRFUsage.end(), RFUEmpty);
+  llvm::fill(PRFUsage, RFUEmpty);
 
   MoveElimInfo.resize(NumRegFiles);
-  std::fill(MoveElimInfo.begin(), MoveElimInfo.end(), MEIEmpty);
+  llvm::fill(MoveElimInfo, MEIEmpty);
 }
 
 void RegisterFileStatistics::updateRegisterFileUsage(
@@ -65,7 +65,7 @@ void RegisterFileStatistics::updateMoveElimInfo(const Instruction &Inst) {
 
   for (size_t I = 0, E = Inst.getDefs().size(); I < E; ++I) {
     const WriteState &WS = Inst.getDefs()[I];
-    const ReadState &RS = Inst.getUses()[E - (I+1)];
+    const ReadState &RS = Inst.getUses()[E - (I + 1)];
 
     MoveEliminationInfo &Info =
         MoveElimInfo[Inst.getDefs()[0].getRegisterFileID()];

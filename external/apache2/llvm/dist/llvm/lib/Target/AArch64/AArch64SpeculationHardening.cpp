@@ -13,7 +13,7 @@
 // register. That taint register can then be used to mask off registers with
 // sensitive data when executing under miss-speculation, a.k.a. "transient
 // execution".
-// This pass is aimed at mitigating against SpectreV1-style vulnarabilities.
+// This pass is aimed at mitigating against SpectreV1-style vulnerabilities.
 //
 // It also implements speculative load hardening, i.e. using the taint register
 // to automatically mask off loaded data.
@@ -90,7 +90,6 @@
 //   could be done for some indirect branches, such as switch jump tables.
 //===----------------------------------------------------------------------===//
 
-#include "AArch64InstrInfo.h"
 #include "AArch64Subtarget.h"
 #include "Utils/AArch64BaseInfo.h"
 #include "llvm/ADT/BitVector.h"
@@ -101,11 +100,9 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineOperand.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cassert>
@@ -129,9 +126,7 @@ public:
 
   static char ID;
 
-  AArch64SpeculationHardening() : MachineFunctionPass(ID) {
-    initializeAArch64SpeculationHardeningPass(*PassRegistry::getPassRegistry());
-  }
+  AArch64SpeculationHardening() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
@@ -286,25 +281,27 @@ bool AArch64SpeculationHardening::instrumentControlFlow(
   bool TmpRegisterNotAvailableEverywhere = false;
 
   RegScavenger RS;
-  RS.enterBasicBlock(MBB);
+  RS.enterBasicBlockEnd(MBB);
 
-  for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); I++) {
-    MachineInstr &MI = *I;
+  for (MachineBasicBlock::iterator I = MBB.end(); I != MBB.begin(); ) {
+    MachineInstr &MI = *--I;
     if (!MI.isReturn() && !MI.isCall())
       continue;
 
     // The RegScavenger represents registers available *after* the MI
     // instruction pointed to by RS.getCurrentPosition().
     // We need to have a register that is available *before* the MI is executed.
-    if (I != MBB.begin())
-      RS.forward(std::prev(I));
+    if (I == MBB.begin())
+      RS.enterBasicBlock(MBB);
+    else
+      RS.backward(I);
     // FIXME: The below just finds *a* unused register. Maybe code could be
     // optimized more if this looks for the register that isn't used for the
     // longest time around this place, to enable more scheduling freedom. Not
     // sure if that would actually result in a big performance difference
     // though. Maybe RegisterScavenger::findSurvivorBackwards has some logic
     // already to do this - but it's unclear if that could easily be used here.
-    unsigned TmpReg = RS.FindUnusedReg(&AArch64::GPR64commonRegClass);
+    Register TmpReg = RS.FindUnusedReg(&AArch64::GPR64commonRegClass);
     LLVM_DEBUG(dbgs() << "RS finds "
                       << ((TmpReg == 0) ? "no register " : "register ");
                if (TmpReg != 0) dbgs() << printReg(TmpReg, TRI) << " ";
@@ -556,7 +553,7 @@ bool AArch64SpeculationHardening::expandSpeculationSafeValue(
     break;
   case AArch64::SpeculationSafeValueW:
     Is64Bit = false;
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case AArch64::SpeculationSafeValueX:
     // Just remove the SpeculationSafe pseudo's if control flow
     // miss-speculation isn't happening because we're already inserting barriers
@@ -681,7 +678,7 @@ bool AArch64SpeculationHardening::runOnMachineFunction(MachineFunction &MF) {
   EntryBlocks.push_back(&MF.front());
   for (const LandingPadInfo &LPI : MF.getLandingPads())
     EntryBlocks.push_back(LPI.LandingPadBlock);
-  for (auto Entry : EntryBlocks)
+  for (auto *Entry : EntryBlocks)
     insertSPToRegTaintPropagation(
         *Entry, Entry->SkipPHIsLabelsAndDebug(Entry->begin()));
 

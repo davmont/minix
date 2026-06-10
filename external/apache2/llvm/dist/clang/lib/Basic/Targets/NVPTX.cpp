@@ -11,25 +11,27 @@
 //===----------------------------------------------------------------------===//
 
 #include "NVPTX.h"
-#include "Targets.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/MacroBuilder.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/Frontend/OpenMP/OMPGridValues.h"
 
 using namespace clang;
 using namespace clang::targets;
 
-const Builtin::Info NVPTXTargetInfo::BuiltinInfo[] = {
-#define BUILTIN(ID, TYPE, ATTRS)                                               \
-  {#ID, TYPE, ATTRS, nullptr, ALL_LANGUAGES, nullptr},
-#define LIBBUILTIN(ID, TYPE, ATTRS, HEADER)                                    \
-  {#ID, TYPE, ATTRS, HEADER, ALL_LANGUAGES, nullptr},
-#define TARGET_BUILTIN(ID, TYPE, ATTRS, FEATURE)                               \
-  {#ID, TYPE, ATTRS, nullptr, ALL_LANGUAGES, FEATURE},
-#include "clang/Basic/BuiltinsNVPTX.def"
+static constexpr int NumBuiltins =
+    clang::NVPTX::LastTSBuiltin - Builtin::FirstTSBuiltin;
+
+#define GET_BUILTIN_STR_TABLE
+#include "clang/Basic/BuiltinsNVPTX.inc"
+#undef GET_BUILTIN_STR_TABLE
+
+static constexpr Builtin::Info BuiltinInfos[] = {
+#define GET_BUILTIN_INFOS
+#include "clang/Basic/BuiltinsNVPTX.inc"
+#undef GET_BUILTIN_INFOS
 };
+static_assert(std::size(BuiltinInfos) == NumBuiltins);
 
 const char *const NVPTXTargetInfo::GCCRegNames[] = {"r0"};
 
@@ -40,52 +42,43 @@ NVPTXTargetInfo::NVPTXTargetInfo(const llvm::Triple &Triple,
   assert((TargetPointerWidth == 32 || TargetPointerWidth == 64) &&
          "NVPTX only supports 32- and 64-bit modes.");
 
-  PTXVersion = 32;
+  // PTXVersion is 0 by default, meaning "use the minimum for the SM target".
+  // Only set it if the user explicitly requested a PTX version.
+  PTXVersion = 0;
   for (const StringRef Feature : Opts.FeaturesAsWritten) {
-    if (!Feature.startswith("+ptx"))
+    int PTXV;
+    if (!Feature.starts_with("+ptx") ||
+        Feature.drop_front(4).getAsInteger(10, PTXV))
       continue;
-    PTXVersion = llvm::StringSwitch<unsigned>(Feature)
-                     .Case("+ptx72", 72)
-                     .Case("+ptx71", 71)
-                     .Case("+ptx70", 70)
-                     .Case("+ptx65", 65)
-                     .Case("+ptx64", 64)
-                     .Case("+ptx63", 63)
-                     .Case("+ptx61", 61)
-                     .Case("+ptx60", 60)
-                     .Case("+ptx50", 50)
-                     .Case("+ptx43", 43)
-                     .Case("+ptx42", 42)
-                     .Case("+ptx41", 41)
-                     .Case("+ptx40", 40)
-                     .Case("+ptx32", 32)
-                     .Default(32);
+    PTXVersion = PTXV; // TODO: should it be max(PTXVersion, PTXV)?
   }
 
   TLSSupported = false;
   VLASupported = false;
   AddrSpaceMap = &NVPTXAddrSpaceMap;
-  GridValues = llvm::omp::NVPTXGpuGridValues;
   UseAddrSpaceMapMangling = true;
+  // __bf16 is always available as a load/store only type.
+  BFloat16Width = BFloat16Align = 16;
+  BFloat16Format = &llvm::APFloat::BFloat();
 
   // Define available target features
   // These must be defined in sorted order!
   NoAsmVariants = true;
-  GPU = CudaArch::SM_20;
+  GPU = OffloadArch::UNUSED;
 
-  if (TargetPointerWidth == 32)
-    resetDataLayout("e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64");
-  else if (Opts.NVPTXUseShortPointers)
-    resetDataLayout(
-        "e-p3:32:32-p4:32:32-p5:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64");
-  else
-    resetDataLayout("e-i64:64-i128:128-v16:16-v32:32-n16:32:64");
+  // PTX supports f16 as a fundamental type.
+  HasFastHalfType = true;
+  HasFloat16 = true;
+
+  // TODO: Make shortptr a proper ABI?
+  DataLayoutString =
+      Triple.computeDataLayout(Opts.NVPTXUseShortPointers ? "shortptr" : "");
 
   // If possible, get a TargetInfo for our host triple, so we can match its
   // types.
   llvm::Triple HostTriple(Opts.HostTriple);
   if (!HostTriple.isNVPTX())
-    HostTarget.reset(AllocateTarget(llvm::Triple(Opts.HostTriple), Opts));
+    HostTarget = AllocateTarget(llvm::Triple(Opts.HostTriple), Opts);
 
   // If no host target, make some guesses about the data layout and return.
   if (!HostTarget) {
@@ -105,12 +98,14 @@ NVPTXTargetInfo::NVPTXTargetInfo(const llvm::Triple &Triple,
     default:
       llvm_unreachable("TargetPointerWidth must be 32 or 64");
     }
+
+    MaxAtomicInlineWidth = TargetPointerWidth;
     return;
   }
 
   // Copy properties from host target.
-  PointerWidth = HostTarget->getPointerWidth(/* AddrSpace = */ 0);
-  PointerAlign = HostTarget->getPointerAlign(/* AddrSpace = */ 0);
+  PointerWidth = HostTarget->getPointerWidth(LangAS::Default);
+  PointerAlign = HostTarget->getPointerAlign(LangAS::Default);
   BoolWidth = HostTarget->getBoolWidth();
   BoolAlign = HostTarget->getBoolAlign();
   IntWidth = HostTarget->getIntWidth();
@@ -125,13 +120,14 @@ NVPTXTargetInfo::NVPTXTargetInfo(const llvm::Triple &Triple,
   LongAlign = HostTarget->getLongAlign();
   LongLongWidth = HostTarget->getLongLongWidth();
   LongLongAlign = HostTarget->getLongLongAlign();
-  MinGlobalAlign = HostTarget->getMinGlobalAlign(/* TypeSize = */ 0);
+  MinGlobalAlign = HostTarget->getMinGlobalAlign(/* TypeSize = */ 0,
+                                                 /* HasNonWeakDef = */ true);
   NewAlign = HostTarget->getNewAlign();
   DefaultAlignForAttributeAligned =
       HostTarget->getDefaultAlignForAttributeAligned();
   SizeType = HostTarget->getSizeType();
   IntMaxType = HostTarget->getIntMaxType();
-  PtrDiffType = HostTarget->getPtrDiffType(/* AddrSpace = */ 0);
+  PtrDiffType = HostTarget->getPtrDiffType(LangAS::Default);
   IntPtrType = HostTarget->getIntPtrType();
   WCharType = HostTarget->getWCharType();
   WIntType = HostTarget->getWIntType();
@@ -165,12 +161,12 @@ NVPTXTargetInfo::NVPTXTargetInfo(const llvm::Triple &Triple,
 }
 
 ArrayRef<const char *> NVPTXTargetInfo::getGCCRegNames() const {
-  return llvm::makeArrayRef(GCCRegNames);
+  return llvm::ArrayRef(GCCRegNames);
 }
 
 bool NVPTXTargetInfo::hasFeature(StringRef Feature) const {
   return llvm::StringSwitch<bool>(Feature)
-      .Cases("ptx", "nvptx", true)
+      .Cases({"ptx", "nvptx"}, true)
       .Default(false);
 }
 
@@ -178,88 +174,23 @@ void NVPTXTargetInfo::getTargetDefines(const LangOptions &Opts,
                                        MacroBuilder &Builder) const {
   Builder.defineMacro("__PTX__");
   Builder.defineMacro("__NVPTX__");
-  if (Opts.CUDAIsDevice) {
+
+  // Skip setting architecture dependent macros if undefined.
+  if (!IsNVIDIAOffloadArch(GPU))
+    return;
+
+  if (Opts.CUDAIsDevice || Opts.OpenMPIsTargetDevice || !HostTarget) {
     // Set __CUDA_ARCH__ for the GPU specified.
-    std::string CUDAArchCode = [this] {
-      switch (GPU) {
-      case CudaArch::GFX600:
-      case CudaArch::GFX601:
-      case CudaArch::GFX602:
-      case CudaArch::GFX700:
-      case CudaArch::GFX701:
-      case CudaArch::GFX702:
-      case CudaArch::GFX703:
-      case CudaArch::GFX704:
-      case CudaArch::GFX705:
-      case CudaArch::GFX801:
-      case CudaArch::GFX802:
-      case CudaArch::GFX803:
-      case CudaArch::GFX805:
-      case CudaArch::GFX810:
-      case CudaArch::GFX900:
-      case CudaArch::GFX902:
-      case CudaArch::GFX904:
-      case CudaArch::GFX906:
-      case CudaArch::GFX908:
-      case CudaArch::GFX909:
-      case CudaArch::GFX90a:
-      case CudaArch::GFX90c:
-      case CudaArch::GFX1010:
-      case CudaArch::GFX1011:
-      case CudaArch::GFX1012:
-      case CudaArch::GFX1030:
-      case CudaArch::GFX1031:
-      case CudaArch::GFX1032:
-      case CudaArch::GFX1033:
-      case CudaArch::GFX1034:
-      case CudaArch::LAST:
-        break;
-      case CudaArch::UNUSED:
-      case CudaArch::UNKNOWN:
-        assert(false && "No GPU arch when compiling CUDA device code.");
-        return "";
-      case CudaArch::SM_20:
-        return "200";
-      case CudaArch::SM_21:
-        return "210";
-      case CudaArch::SM_30:
-        return "300";
-      case CudaArch::SM_32:
-        return "320";
-      case CudaArch::SM_35:
-        return "350";
-      case CudaArch::SM_37:
-        return "370";
-      case CudaArch::SM_50:
-        return "500";
-      case CudaArch::SM_52:
-        return "520";
-      case CudaArch::SM_53:
-        return "530";
-      case CudaArch::SM_60:
-        return "600";
-      case CudaArch::SM_61:
-        return "610";
-      case CudaArch::SM_62:
-        return "620";
-      case CudaArch::SM_70:
-        return "700";
-      case CudaArch::SM_72:
-        return "720";
-      case CudaArch::SM_75:
-        return "750";
-      case CudaArch::SM_80:
-        return "800";
-      case CudaArch::SM_86:
-        return "860";
-      }
-      llvm_unreachable("unhandled CudaArch");
-    }();
-    Builder.defineMacro("__CUDA_ARCH__", CUDAArchCode);
+    unsigned ArchID = CudaArchToID(GPU);
+    Builder.defineMacro("__CUDA_ARCH__", llvm::Twine(ArchID));
+
+    if (IsNVIDIAAcceleratedOffloadArch(GPU))
+      Builder.defineMacro(
+          "__CUDA_ARCH_FEAT_SM" + llvm::Twine(ArchID / 10) + "_ALL", "1");
   }
 }
 
-ArrayRef<Builtin::Info> NVPTXTargetInfo::getTargetBuiltins() const {
-  return llvm::makeArrayRef(BuiltinInfo, clang::NVPTX::LastTSBuiltin -
-                                             Builtin::FirstTSBuiltin);
+llvm::SmallVector<Builtin::InfosShard>
+NVPTXTargetInfo::getTargetBuiltins() const {
+  return {{&BuiltinStrings, BuiltinInfos}};
 }

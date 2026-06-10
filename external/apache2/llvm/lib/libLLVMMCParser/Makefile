@@ -12,12 +12,13 @@ SRCS+=	AsmLexer.cpp \
 	COFFMasmParser.cpp \
 	DarwinAsmParser.cpp \
 	ELFAsmParser.cpp \
-	MasmParser.cpp \
-	MCAsmLexer.cpp \
+	GOFFAsmParser.cpp \
 	MCAsmParser.cpp \
 	MCAsmParserExtension.cpp \
 	MCTargetAsmParser.cpp \
-	WasmAsmParser.cpp
+	MasmParser.cpp \
+	WasmAsmParser.cpp \
+	XCOFFAsmParser.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

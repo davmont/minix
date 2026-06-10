@@ -6,10 +6,23 @@ LIB=	LLVMDWARFLinker
 
 .PATH: ${LLVM_SRCDIR}/lib/DWARFLinker
 
-SRCS+=	DWARFLinker.cpp \
-	DWARFLinkerCompileUnit.cpp \
-	DWARFLinkerDeclContext.cpp \
-	DWARFStreamer.cpp
+SRCS+=	Classic/DWARFLinker.cpp \
+	Classic/DWARFLinkerCompileUnit.cpp \
+	Classic/DWARFLinkerDeclContext.cpp \
+	Classic/DWARFStreamer.cpp \
+	DWARFLinkerBase.cpp \
+	Parallel/AcceleratorRecordsSaver.cpp \
+	Parallel/DIEAttributeCloner.cpp \
+	Parallel/DWARFEmitterImpl.cpp \
+	Parallel/DWARFLinker.cpp \
+	Parallel/DWARFLinkerCompileUnit.cpp \
+	Parallel/DWARFLinkerImpl.cpp \
+	Parallel/DWARFLinkerTypeUnit.cpp \
+	Parallel/DWARFLinkerUnit.cpp \
+	Parallel/DependencyTracker.cpp \
+	Parallel/OutputSections.cpp \
+	Parallel/SyntheticTypeNameBuilder.cpp \
+	Utils.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

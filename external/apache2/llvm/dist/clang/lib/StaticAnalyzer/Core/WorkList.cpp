@@ -11,11 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/WorkList.h"
-#include "llvm/ADT/PriorityQueue.h"
-#include "llvm/ADT/DenseSet.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/EntryPointStats.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/PriorityQueue.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Statistic.h"
 #include <deque>
 #include <vector>
 
@@ -24,8 +24,8 @@ using namespace ento;
 
 #define DEBUG_TYPE "WorkList"
 
-STATISTIC(MaxQueueSize, "Maximum size of the worklist");
-STATISTIC(MaxReachableSize, "Maximum size of auxiliary worklist set");
+STAT_MAX(MaxQueueSize, "Maximum size of the worklist");
+STAT_MAX(MaxReachableSize, "Maximum size of auxiliary worklist set");
 
 //===----------------------------------------------------------------------===//
 // Worklist classes for exploration of reachable states.
@@ -205,12 +205,6 @@ class UnexploredFirstPriorityQueue : public WorkList {
   using QueuePriority = std::pair<int, unsigned long>;
   using QueueItem = std::pair<WorkListUnit, QueuePriority>;
 
-  struct ExplorationComparator {
-    bool operator() (const QueueItem &LHS, const QueueItem &RHS) {
-      return LHS.second < RHS.second;
-    }
-  };
-
   // Number of inserted nodes, used to emulate DFS ordering in the priority
   // queue when insertions are equal.
   unsigned long Counter = 0;
@@ -219,7 +213,7 @@ class UnexploredFirstPriorityQueue : public WorkList {
   VisitedTimesMap NumReached;
 
   // The top item is the largest one.
-  llvm::PriorityQueue<QueueItem, std::vector<QueueItem>, ExplorationComparator>
+  llvm::PriorityQueue<QueueItem, std::vector<QueueItem>, llvm::less_second>
       queue;
 
 public:
@@ -267,12 +261,6 @@ class UnexploredFirstPriorityLocationQueue : public WorkList {
   using QueuePriority = std::pair<int, unsigned long>;
   using QueueItem = std::pair<WorkListUnit, QueuePriority>;
 
-  struct ExplorationComparator {
-    bool operator() (const QueueItem &LHS, const QueueItem &RHS) {
-      return LHS.second < RHS.second;
-    }
-  };
-
   // Number of inserted nodes, used to emulate DFS ordering in the priority
   // queue when insertions are equal.
   unsigned long Counter = 0;
@@ -281,7 +269,7 @@ class UnexploredFirstPriorityLocationQueue : public WorkList {
   VisitedTimesMap NumReached;
 
   // The top item is the largest one.
-  llvm::PriorityQueue<QueueItem, std::vector<QueueItem>, ExplorationComparator>
+  llvm::PriorityQueue<QueueItem, std::vector<QueueItem>, llvm::less_second>
       queue;
 
 public:

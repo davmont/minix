@@ -13,10 +13,10 @@
 // Having said that, we should re-attempt to pull this earlier at some point
 // in future.
 
-// The basic approach looks for sequence of predicated jump, compare instruciton
-// that genereates the predicate and, the feeder to the predicate. Once it finds
+// The basic approach looks for sequence of predicated jump, compare instruction
+// that generates the predicate and, the feeder to the predicate. Once it finds
 // all, it collapses compare and jump instruction into a new value jump
-// intstructions.
+// instructions.
 //
 //===----------------------------------------------------------------------===//
 
@@ -61,15 +61,9 @@ static cl::opt<int> DbgNVJCount("nvj-count", cl::init(-1), cl::Hidden,
     "New Value Jump"));
 
 static cl::opt<bool> DisableNewValueJumps("disable-nvjump", cl::Hidden,
-    cl::ZeroOrMore, cl::init(false),
-    cl::desc("Disable New Value Jumps"));
+                                          cl::desc("Disable New Value Jumps"));
 
-namespace llvm {
-
-FunctionPass *createHexagonNewValueJump();
-void initializeHexagonNewValueJumpPass(PassRegistry&);
-
-} // end namespace llvm
+extern cl::opt<bool> DisablePacketizer;
 
 namespace {
 
@@ -79,7 +73,7 @@ namespace {
     HexagonNewValueJump() : MachineFunctionPass(ID) {}
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.addRequired<MachineBranchProbabilityInfo>();
+      AU.addRequired<MachineBranchProbabilityInfoWrapperPass>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -88,8 +82,7 @@ namespace {
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
     MachineFunctionProperties getRequiredProperties() const override {
-      return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::NoVRegs);
+      return MachineFunctionProperties().setNoVRegs();
     }
 
   private:
@@ -108,7 +101,7 @@ char HexagonNewValueJump::ID = 0;
 
 INITIALIZE_PASS_BEGIN(HexagonNewValueJump, "hexagon-nvj",
                       "Hexagon NewValueJump", false, false)
-INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfo)
+INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_END(HexagonNewValueJump, "hexagon-nvj",
                     "Hexagon NewValueJump", false, false)
 
@@ -460,9 +453,11 @@ bool HexagonNewValueJump::runOnMachineFunction(MachineFunction &MF) {
   QII = static_cast<const HexagonInstrInfo *>(MF.getSubtarget().getInstrInfo());
   QRI = static_cast<const HexagonRegisterInfo *>(
       MF.getSubtarget().getRegisterInfo());
-  MBPI = &getAnalysis<MachineBranchProbabilityInfo>();
+  MBPI = &getAnalysis<MachineBranchProbabilityInfoWrapperPass>().getMBPI();
 
-  if (DisableNewValueJumps ||
+  // New value jumps require the feeder instruction to be in the same packet.
+  // If packetization is disabled, we cannot generate new value jumps.
+  if (DisableNewValueJumps || DisablePacketizer ||
       !MF.getSubtarget<HexagonSubtarget>().useNewValueJumps())
     return false;
 
@@ -535,13 +530,9 @@ bool HexagonNewValueJump::runOnMachineFunction(MachineFunction &MF) {
         // I am doing this only because LLVM does not provide LiveOut
         // at the BB level.
         bool predLive = false;
-        for (MachineBasicBlock::const_succ_iterator SI = MBB->succ_begin(),
-                                                    SIE = MBB->succ_end();
-             SI != SIE; ++SI) {
-          MachineBasicBlock *succMBB = *SI;
-          if (succMBB->isLiveIn(predReg))
+        for (const MachineBasicBlock *SuccMBB : MBB->successors())
+          if (SuccMBB->isLiveIn(predReg))
             predLive = true;
-        }
         if (predLive)
           break;
 

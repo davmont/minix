@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/VEMCExpr.h"
+#include "MCTargetDesc/VEMCAsmInfo.h"
 #include "VE.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -28,7 +28,7 @@ using namespace llvm;
 static MCOperand LowerSymbolOperand(const MachineInstr *MI,
                                     const MachineOperand &MO,
                                     const MCSymbol *Symbol, AsmPrinter &AP) {
-  VEMCExpr::VariantKind Kind = (VEMCExpr::VariantKind)MO.getTargetFlags();
+  auto Kind = (VE::Specifier)MO.getTargetFlags();
 
   const MCExpr *Expr = MCSymbolRefExpr::create(Symbol, AP.OutContext);
   // Add offset iff MO is not jump table info or machine basic block.
@@ -36,7 +36,7 @@ static MCOperand LowerSymbolOperand(const MachineInstr *MI,
     Expr = MCBinaryExpr::createAdd(
         Expr, MCConstantExpr::create(MO.getOffset(), AP.OutContext),
         AP.OutContext);
-  Expr = VEMCExpr::create(Kind, Expr, AP.OutContext);
+  Expr = MCSpecifierExpr::create(Expr, Kind, AP.OutContext);
   return MCOperand::createExpr(Expr);
 }
 
@@ -78,8 +78,7 @@ void llvm::LowerVEMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                        AsmPrinter &AP) {
   OutMI.setOpcode(MI->getOpcode());
 
-  for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-    const MachineOperand &MO = MI->getOperand(i);
+  for (const MachineOperand &MO : MI->operands()) {
     MCOperand MCOp = LowerOperand(MI, MO, AP);
 
     if (MCOp.isValid())

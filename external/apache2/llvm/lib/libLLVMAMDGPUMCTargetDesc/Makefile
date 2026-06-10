@@ -15,11 +15,13 @@ SRCS+=	AMDGPUAsmBackend.cpp \
 	AMDGPUInstPrinter.cpp \
 	AMDGPUMCAsmInfo.cpp \
 	AMDGPUMCCodeEmitter.cpp \
+	AMDGPUMCExpr.cpp \
+	AMDGPUMCKernelDescriptor.cpp \
 	AMDGPUMCTargetDesc.cpp \
 	AMDGPUTargetStreamer.cpp \
+	R600InstPrinter.cpp \
 	R600MCCodeEmitter.cpp \
-	R600MCTargetDesc.cpp \
-	SIMCCodeEmitter.cpp
+	R600MCTargetDesc.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

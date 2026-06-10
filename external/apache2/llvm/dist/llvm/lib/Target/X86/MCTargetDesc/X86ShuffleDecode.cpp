@@ -15,6 +15,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/MathExtras.h"
 
 //===----------------------------------------------------------------------===//
 //  Vector Mask Decoding
@@ -22,7 +23,8 @@
 
 namespace llvm {
 
-void DecodeINSERTPSMask(unsigned Imm, SmallVectorImpl<int> &ShuffleMask) {
+void DecodeINSERTPSMask(unsigned Imm, SmallVectorImpl<int> &ShuffleMask,
+                        bool SrcIsMem) {
   // Defaults the copying the dest value.
   ShuffleMask.push_back(0);
   ShuffleMask.push_back(1);
@@ -32,7 +34,7 @@ void DecodeINSERTPSMask(unsigned Imm, SmallVectorImpl<int> &ShuffleMask) {
   // Decode the immediate.
   unsigned ZMask = Imm & 15;
   unsigned CountD = (Imm >> 4) & 3;
-  unsigned CountS = (Imm >> 6) & 3;
+  unsigned CountS = SrcIsMem ? 0 : (Imm >> 6) & 3;
 
   // CountS selects which input element to use.
   unsigned InVal = 4 + CountS;

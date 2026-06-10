@@ -1,22 +1,19 @@
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "llvm/Support/ScopedPrinter.h"
-
 #include "llvm/Support/Format.h"
-#include <cctype>
 
-using namespace llvm::support;
+using namespace llvm;
 
-namespace llvm {
-
-raw_ostream &operator<<(raw_ostream &OS, const HexNumber &Value) {
-  OS << "0x" << to_hexString(Value.Value);
+raw_ostream &llvm::operator<<(raw_ostream &OS, const HexNumber &Value) {
+  OS << "0x" << utohexstr(Value.Value);
   return OS;
-}
-
-std::string to_hexString(uint64_t Value, bool UpperCase) {
-  std::string number;
-  llvm::raw_string_ostream stream(number);
-  stream << format_hex_no_prefix(Value, 1, UpperCase);
-  return stream.str();
 }
 
 void ScopedPrinter::printBinaryImpl(StringRef Label, StringRef Str,
@@ -39,8 +36,17 @@ void ScopedPrinter::printBinaryImpl(StringRef Label, StringRef Str,
     startLine() << Label << ":";
     if (!Str.empty())
       OS << " " << Str;
-    OS << " (" << format_bytes(Data, None, Data.size(), 1, 0, true) << ")\n";
+    OS << " (" << format_bytes(Data, std::nullopt, Data.size(), 1, 0, true)
+       << ")\n";
   }
 }
 
-} // namespace llvm
+JSONScopedPrinter::JSONScopedPrinter(
+    raw_ostream &OS, bool PrettyPrint,
+    std::unique_ptr<DelimitedScope> &&OuterScope)
+    : ScopedPrinter(OS, ScopedPrinter::ScopedPrinterKind::JSON),
+      JOS(OS, /*Indent=*/PrettyPrint ? 2 : 0),
+      OuterScope(std::move(OuterScope)) {
+  if (this->OuterScope)
+    this->OuterScope->setPrinter(*this);
+}

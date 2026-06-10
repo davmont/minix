@@ -75,16 +75,17 @@ class CXXTryStmt final : public Stmt,
   unsigned NumHandlers;
   size_t numTrailingObjects(OverloadToken<Stmt *>) const { return NumHandlers; }
 
-  CXXTryStmt(SourceLocation tryLoc, Stmt *tryBlock, ArrayRef<Stmt*> handlers);
+  CXXTryStmt(SourceLocation tryLoc, CompoundStmt *tryBlock,
+             ArrayRef<Stmt *> handlers);
   CXXTryStmt(EmptyShell Empty, unsigned numHandlers)
     : Stmt(CXXTryStmtClass), NumHandlers(numHandlers) { }
 
-  Stmt *const *getStmts() const { return getTrailingObjects<Stmt *>(); }
-  Stmt **getStmts() { return getTrailingObjects<Stmt *>(); }
+  Stmt *const *getStmts() const { return getTrailingObjects(); }
+  Stmt **getStmts() { return getTrailingObjects(); }
 
 public:
   static CXXTryStmt *Create(const ASTContext &C, SourceLocation tryLoc,
-                            Stmt *tryBlock, ArrayRef<Stmt*> handlers);
+                            CompoundStmt *tryBlock, ArrayRef<Stmt *> handlers);
 
   static CXXTryStmt *Create(const ASTContext &C, EmptyShell Empty,
                             unsigned numHandlers);
@@ -132,11 +133,11 @@ public:
 /// analysis of the constituent components. The original syntactic components
 /// can be extracted using getLoopVariable and getRangeInit.
 class CXXForRangeStmt : public Stmt {
-  SourceLocation ForLoc;
   enum { INIT, RANGE, BEGINSTMT, ENDSTMT, COND, INC, LOOPVAR, BODY, END };
   // SubExprs[RANGE] is an expression or declstmt.
   // SubExprs[COND] and SubExprs[INC] are expressions.
   Stmt *SubExprs[END];
+  SourceLocation ForLoc;
   SourceLocation CoawaitLoc;
   SourceLocation ColonLoc;
   SourceLocation RParenLoc;
@@ -326,8 +327,8 @@ class CoroutineBodyStmt final
     OnFallthrough, ///< Handler for control flow falling off the body.
     Allocate,      ///< Coroutine frame memory allocation.
     Deallocate,    ///< Coroutine frame memory deallocation.
-    ReturnValue,   ///< Return value for thunk function: p.get_return_object().
     ResultDecl,    ///< Declaration holding the result of get_return_object.
+    ReturnValue,   ///< Return value for thunk function: p.get_return_object().
     ReturnStmt,    ///< Return statement for the thunk function.
     ReturnStmtOnAllocFailure, ///< Return statement if allocation failed.
     FirstParamMove ///< First offset for move construction of parameter copies.
@@ -338,9 +339,9 @@ class CoroutineBodyStmt final
   friend class ASTReader;
   friend TrailingObjects;
 
-  Stmt **getStoredStmts() { return getTrailingObjects<Stmt *>(); }
+  Stmt **getStoredStmts() { return getTrailingObjects(); }
 
-  Stmt *const *getStoredStmts() const { return getTrailingObjects<Stmt *>(); }
+  Stmt *const *getStoredStmts() const { return getTrailingObjects(); }
 
 public:
 
@@ -353,8 +354,8 @@ public:
     Stmt *OnFallthrough = nullptr;
     Expr *Allocate = nullptr;
     Expr *Deallocate = nullptr;
-    Expr *ReturnValue = nullptr;
     Stmt *ResultDecl = nullptr;
+    Expr *ReturnValue = nullptr;
     Stmt *ReturnStmt = nullptr;
     Stmt *ReturnStmtOnAllocFailure = nullptr;
     ArrayRef<Stmt *> ParamMoves;
@@ -374,9 +375,10 @@ public:
   }
 
   /// Retrieve the body of the coroutine as written. This will be either
-  /// a CompoundStmt or a TryStmt.
-  Stmt *getBody() const {
-    return getStoredStmts()[SubStmt::Body];
+  /// a CompoundStmt. If the coroutine is in function-try-block, we will
+  /// wrap the CXXTryStmt into a CompoundStmt to keep consistency.
+  CompoundStmt *getBody() const {
+    return cast<CompoundStmt>(getStoredStmts()[SubStmt::Body]);
   }
 
   Stmt *getPromiseDeclStmt() const {
@@ -406,10 +408,14 @@ public:
   Expr *getDeallocate() const {
     return cast_or_null<Expr>(getStoredStmts()[SubStmt::Deallocate]);
   }
+  Stmt *getResultDecl() const { return getStoredStmts()[SubStmt::ResultDecl]; }
   Expr *getReturnValueInit() const {
     return cast<Expr>(getStoredStmts()[SubStmt::ReturnValue]);
   }
-  Stmt *getResultDecl() const { return getStoredStmts()[SubStmt::ResultDecl]; }
+  Expr *getReturnValue() const {
+    auto *RS = dyn_cast_or_null<clang::ReturnStmt>(getReturnStmt());
+    return RS ? RS->getRetValue() : nullptr;
+  }
   Stmt *getReturnStmt() const { return getStoredStmts()[SubStmt::ReturnStmt]; }
   Stmt *getReturnStmtOnAllocFailure() const {
     return getStoredStmts()[SubStmt::ReturnStmtOnAllocFailure];
@@ -435,6 +441,17 @@ public:
     return const_child_range(getStoredStmts(), getStoredStmts() +
                                                    SubStmt::FirstParamMove +
                                                    NumParams);
+  }
+
+  child_range childrenExclBody() {
+    return child_range(getStoredStmts() + SubStmt::Body + 1,
+                       getStoredStmts() + SubStmt::FirstParamMove + NumParams);
+  }
+
+  const_child_range childrenExclBody() const {
+    return const_child_range(getStoredStmts() + SubStmt::Body + 1,
+                             getStoredStmts() + SubStmt::FirstParamMove +
+                                 NumParams);
   }
 
   static bool classof(const Stmt *T) {
@@ -495,16 +512,10 @@ public:
   }
 
   child_range children() {
-    if (!getOperand())
-      return child_range(SubStmts + SubStmt::PromiseCall,
-                         SubStmts + SubStmt::Count);
     return child_range(SubStmts, SubStmts + SubStmt::Count);
   }
 
   const_child_range children() const {
-    if (!getOperand())
-      return const_child_range(SubStmts + SubStmt::PromiseCall,
-                               SubStmts + SubStmt::Count);
     return const_child_range(SubStmts, SubStmts + SubStmt::Count);
   }
 

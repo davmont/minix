@@ -1,4 +1,4 @@
-//===- M68kISelDAGToDAG.cpp - M68k Dag to Dag Inst Selector -*- C++ -*-===//
+//===-- M68kISelDAGToDAG.cpp - M68k Dag to Dag Inst Selector ----*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,8 +15,8 @@
 
 #include "M68kMachineFunction.h"
 #include "M68kRegisterInfo.h"
+#include "M68kSelectionDAGInfo.h"
 #include "M68kTargetMachine.h"
-
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -39,6 +39,7 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "m68k-isel"
+#define PASS_NAME "M68k DAG->DAG Pattern Instruction Selection"
 
 namespace {
 
@@ -173,14 +174,13 @@ namespace {
 
 class M68kDAGToDAGISel : public SelectionDAGISel {
 public:
+  M68kDAGToDAGISel() = delete;
+
   explicit M68kDAGToDAGISel(M68kTargetMachine &TM)
       : SelectionDAGISel(TM), Subtarget(nullptr) {}
 
-  StringRef getPassName() const override {
-    return "M68k DAG->DAG Pattern Instruction Selection";
-  }
-
   bool runOnMachineFunction(MachineFunction &MF) override;
+  bool IsProfitableToFold(SDValue N, SDNode *U, SDNode *Root) const override;
 
 private:
   /// Keep a pointer to the M68kSubtarget around so that we can
@@ -224,6 +224,10 @@ private:
   bool SelectAL(SDNode *Parent, SDValue N, SDValue &Sym);
   bool SelectPCD(SDNode *Parent, SDValue N, SDValue &Imm);
   bool SelectPCI(SDNode *Parent, SDValue N, SDValue &Imm, SDValue &Index);
+
+  bool SelectInlineAsmMemoryOperand(const SDValue &Op,
+                                    InlineAsm::ConstraintCode ConstraintID,
+                                    std::vector<SDValue> &OutOps) override;
 
   // If Address Mode represents Frame Index store FI in Disp and
   // Displacement bit size in Base. These values are read symmetrically by
@@ -285,17 +289,17 @@ private:
 
   /// Return a target constant with the specified value of type i8.
   inline SDValue getI8Imm(int64_t Imm, const SDLoc &DL) {
-    return CurDAG->getTargetConstant(Imm, DL, MVT::i8);
+    return CurDAG->getSignedTargetConstant(Imm, DL, MVT::i8);
   }
 
   /// Return a target constant with the specified value of type i8.
   inline SDValue getI16Imm(int64_t Imm, const SDLoc &DL) {
-    return CurDAG->getTargetConstant(Imm, DL, MVT::i16);
+    return CurDAG->getSignedTargetConstant(Imm, DL, MVT::i16);
   }
 
   /// Return a target constant with the specified value, of type i32.
   inline SDValue getI32Imm(int64_t Imm, const SDLoc &DL) {
-    return CurDAG->getTargetConstant(Imm, DL, MVT::i32);
+    return CurDAG->getSignedTargetConstant(Imm, DL, MVT::i32);
   }
 
   /// Return a reference to the TargetInstrInfo, casted to the target-specific
@@ -309,17 +313,56 @@ private:
   /// if necessary.
   SDNode *getGlobalBaseReg();
 };
+
+class M68kDAGToDAGISelLegacy : public SelectionDAGISelLegacy {
+public:
+  static char ID;
+  explicit M68kDAGToDAGISelLegacy(M68kTargetMachine &TM)
+      : SelectionDAGISelLegacy(ID, std::make_unique<M68kDAGToDAGISel>(TM)) {}
+};
+
+char M68kDAGToDAGISelLegacy::ID;
+
 } // namespace
 
+INITIALIZE_PASS(M68kDAGToDAGISelLegacy, DEBUG_TYPE, PASS_NAME, false, false)
+
+bool M68kDAGToDAGISel::IsProfitableToFold(SDValue N, SDNode *U,
+                                          SDNode *Root) const {
+  if (OptLevel == CodeGenOptLevel::None)
+    return false;
+
+  if (U == Root) {
+    switch (U->getOpcode()) {
+    default:
+      return true;
+    case M68kISD::SUB:
+    case ISD::SUB:
+      // Prefer NEG instruction when zero subtracts a value.
+      // e.g.
+      //   move.l	#0, %d0
+      //   sub.l	(4,%sp), %d0
+      // vs.
+      //   move.l	(4,%sp), %d0
+      //   neg.l	%d0
+      if (llvm::isNullConstant(U->getOperand(0)))
+        return false;
+      break;
+    }
+  }
+
+  return true;
+}
+
 bool M68kDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
-  Subtarget = &static_cast<const M68kSubtarget &>(MF.getSubtarget());
+  Subtarget = &MF.getSubtarget<M68kSubtarget>();
   return SelectionDAGISel::runOnMachineFunction(MF);
 }
 
 /// This pass converts a legalized DAG into a M68k-specific DAG,
 /// ready for instruction scheduling.
 FunctionPass *llvm::createM68kISelDag(M68kTargetMachine &TM) {
-  return new M68kDAGToDAGISel(TM);
+  return new M68kDAGToDAGISelLegacy(TM);
 }
 
 static bool doesDispFitFI(M68kISelAddressMode &AM) {
@@ -463,6 +506,13 @@ bool M68kDAGToDAGISel::matchAddressRecursively(SDValue N,
       return true;
     }
     break;
+
+  case ISD::TargetGlobalTLSAddress: {
+    GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(N);
+    AM.GV = GA->getGlobal();
+    AM.SymbolFlags = GA->getTargetFlags();
+    return true;
+  }
   }
 
   return matchAddressBase(N, AM);
@@ -629,6 +679,15 @@ void M68kDAGToDAGISel::Select(SDNode *Node) {
   default:
     break;
 
+  case ISD::GLOBAL_OFFSET_TABLE: {
+    SDValue GOT = CurDAG->getTargetExternalSymbol(
+        "_GLOBAL_OFFSET_TABLE_", MVT::i32, M68kII::MO_GOTPCREL);
+    MachineSDNode *Res =
+        CurDAG->getMachineNode(M68k::LEA32q, DL, MVT::i32, GOT);
+    ReplaceNode(Node, Res);
+    return;
+  }
+
   case M68kISD::GLOBAL_BASE_REG:
     ReplaceNode(Node, getGlobalBaseReg());
     return;
@@ -647,6 +706,20 @@ bool M68kDAGToDAGISel::SelectARIPD(SDNode *Parent, SDValue N, SDValue &Base) {
   LLVM_DEBUG(dbgs() << "Selecting AddrType::ARIPD: ");
   LLVM_DEBUG(dbgs() << "NOT IMPLEMENTED\n");
   return false;
+}
+
+[[maybe_unused]] static bool allowARIDWithDisp(SDNode *Parent) {
+  if (!Parent)
+    return false;
+  switch (Parent->getOpcode()) {
+  case ISD::LOAD:
+  case ISD::STORE:
+  case ISD::ATOMIC_LOAD:
+  case ISD::ATOMIC_STORE:
+    return true;
+  default:
+    return false;
+  }
 }
 
 bool M68kDAGToDAGISel::SelectARID(SDNode *Parent, SDValue N, SDValue &Disp,
@@ -678,8 +751,11 @@ bool M68kDAGToDAGISel::SelectARID(SDNode *Parent, SDValue N, SDValue &Disp,
     return false;
   }
 
+  Base = AM.BaseReg;
+
   if (getSymbolicDisplacement(AM, SDLoc(N), Disp)) {
-    assert(!AM.Disp && "Should not be any displacement");
+    assert((!AM.Disp || allowARIDWithDisp(Parent)) &&
+           "Should not be any displacement");
     LLVM_DEBUG(dbgs() << "SUCCESS, matched Symbol\n");
     return true;
   }
@@ -690,7 +766,6 @@ bool M68kDAGToDAGISel::SelectARID(SDNode *Parent, SDValue N, SDValue &Disp,
     return false;
   }
 
-  Base = AM.BaseReg;
   Disp = getI16Imm(AM.Disp, SDLoc(N));
 
   LLVM_DEBUG(dbgs() << "SUCCESS\n");
@@ -706,6 +781,21 @@ static bool isAddressBase(const SDValue &N) {
   case M68kISD::Wrapper:
   case M68kISD::WrapperPC:
   case M68kISD::GLOBAL_BASE_REG:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool AllowARIIWithZeroDisp(SDNode *Parent) {
+  if (!Parent)
+    return false;
+  switch (Parent->getOpcode()) {
+  case ISD::LOAD:
+  case ISD::STORE:
+  case ISD::ATOMIC_LOAD:
+  case ISD::ATOMIC_STORE:
+  case ISD::ATOMIC_CMP_SWAP:
     return true;
   default:
     return false;
@@ -751,8 +841,7 @@ bool M68kDAGToDAGISel::SelectARII(SDNode *Parent, SDValue N, SDValue &Disp,
   // The idea here is that we want to use AddrType::ARII without displacement
   // only if necessary like memory operations, otherwise this must be lowered
   // into addition
-  if (AM.Disp == 0 && (!Parent || (Parent->getOpcode() != ISD::LOAD &&
-                                   Parent->getOpcode() != ISD::STORE))) {
+  if (AM.Disp == 0 && !AllowARIIWithZeroDisp(Parent)) {
     LLVM_DEBUG(dbgs() << "REJECT: Displacement is Zero\n");
     return false;
   }
@@ -896,4 +985,76 @@ bool M68kDAGToDAGISel::SelectARI(SDNode *Parent, SDValue N, SDValue &Base) {
   }
 
   return false;
+}
+
+bool M68kDAGToDAGISel::SelectInlineAsmMemoryOperand(
+    const SDValue &Op, InlineAsm::ConstraintCode ConstraintID,
+    std::vector<SDValue> &OutOps) {
+  // In order to tell AsmPrinter the exact addressing mode we select here, which
+  // might comprise of multiple SDValues (hence MachineOperands), a 32-bit
+  // immediate value is prepended to the list of selected SDValues to indicate
+  // the addressing mode kind.
+  using AMK = M68k::MemAddrModeKind;
+  auto addKind = [this](SDValue &Opnd, AMK Kind) -> bool {
+    Opnd = CurDAG->getTargetConstant(unsigned(Kind), SDLoc(), MVT::i32);
+    return true;
+  };
+
+  switch (ConstraintID) {
+  // Generic memory operand.
+  case InlineAsm::ConstraintCode::m: {
+    // Try every supported (memory) addressing modes.
+    SDValue Operands[4];
+
+    // TODO: The ordering of the following SelectXXX is relatively...arbitrary,
+    // right now we simply sort them by descending complexity. Maybe we should
+    // adjust this by code model and/or relocation mode in the future.
+    if (SelectARII(nullptr, Op, Operands[1], Operands[2], Operands[3]) &&
+        addKind(Operands[0], AMK::f)) {
+      OutOps.insert(OutOps.end(), &Operands[0], Operands + 4);
+      return false;
+    }
+
+    if ((SelectPCI(nullptr, Op, Operands[1], Operands[2]) &&
+         addKind(Operands[0], AMK::k)) ||
+        (SelectARID(nullptr, Op, Operands[1], Operands[2]) &&
+         addKind(Operands[0], AMK::p))) {
+      OutOps.insert(OutOps.end(), &Operands[0], Operands + 3);
+      return false;
+    }
+
+    if ((SelectPCD(nullptr, Op, Operands[1]) && addKind(Operands[0], AMK::q)) ||
+        (SelectARI(nullptr, Op, Operands[1]) && addKind(Operands[0], AMK::j)) ||
+        (SelectAL(nullptr, Op, Operands[1]) && addKind(Operands[0], AMK::b))) {
+      OutOps.insert(OutOps.end(), {Operands[0], Operands[1]});
+      return false;
+    }
+
+    return true;
+  }
+  // 'Q': Address register indirect addressing.
+  case InlineAsm::ConstraintCode::Q: {
+    SDValue AMKind, Base;
+    // 'j' addressing mode.
+    // TODO: Add support for 'o' and 'e' after their
+    // select functions are implemented.
+    if (SelectARI(nullptr, Op, Base) && addKind(AMKind, AMK::j)) {
+      OutOps.insert(OutOps.end(), {AMKind, Base});
+      return false;
+    }
+    return true;
+  }
+  // 'U': Address register indirect w/ constant offset addressing.
+  case InlineAsm::ConstraintCode::Um: {
+    SDValue AMKind, Base, Offset;
+    // 'p' addressing mode.
+    if (SelectARID(nullptr, Op, Offset, Base) && addKind(AMKind, AMK::p)) {
+      OutOps.insert(OutOps.end(), {AMKind, Offset, Base});
+      return false;
+    }
+    return true;
+  }
+  default:
+    return true;
+  }
 }

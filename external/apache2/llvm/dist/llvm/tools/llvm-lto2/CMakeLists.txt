@@ -11,8 +11,10 @@ set(LLVM_LINK_COMPONENTS
   MC
   Object
   Passes
+  Plugins
   Support
   Target
+  TargetParser
   )
 
 add_llvm_tool(llvm-lto2

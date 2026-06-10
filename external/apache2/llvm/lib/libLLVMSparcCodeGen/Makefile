@@ -9,13 +9,13 @@ LIB=	LLVMSparcCodeGen
 SRCS+=	DelaySlotFiller.cpp \
 	LeonPasses.cpp \
 	SparcAsmPrinter.cpp \
-	SparcInstrInfo.cpp \
+	SparcFrameLowering.cpp \
 	SparcISelDAGToDAG.cpp \
 	SparcISelLowering.cpp \
-	SparcFrameLowering.cpp \
-	SparcMCInstLower.cpp \
+	SparcInstrInfo.cpp \
 	SparcMachineFunctionInfo.cpp \
 	SparcRegisterInfo.cpp \
+	SparcSelectionDAGInfo.cpp \
 	SparcSubtarget.cpp \
 	SparcTargetMachine.cpp \
 	SparcTargetObjectFile.cpp

@@ -20,32 +20,97 @@
 namespace llvm {
 class VESubtarget;
 
-namespace VEISD {
-enum NodeType : unsigned {
-  FIRST_NUMBER = ISD::BUILTIN_OP_END,
-
-  CALL,                   // A call instruction.
-  EH_SJLJ_LONGJMP,        // SjLj exception handling longjmp.
-  EH_SJLJ_SETJMP,         // SjLj exception handling setjmp.
-  EH_SJLJ_SETUP_DISPATCH, // SjLj exception handling setup_dispatch.
-  GETFUNPLT,              // Load function address through %plt insturction.
-  GETTLSADDR,             // Load address for TLS access.
-  GETSTACKTOP,            // Retrieve address of stack top (first address of
-                          // locals and temporaries).
-  GLOBAL_BASE_REG,        // Global base reg for PIC.
-  Hi,                     // Hi/Lo operations, typically on a global address.
-  Lo,                     // Hi/Lo operations, typically on a global address.
-  MEMBARRIER,             // Compiler barrier only; generate a no-op.
-  RET_FLAG,               // Return with a flag operand.
-  TS1AM,                  // A TS1AM instruction used for 1/2 bytes swap.
-  VEC_BROADCAST,          // A vector broadcast instruction.
-                          //   0: scalar value, 1: VL
-
-// VVP_* nodes.
-#define ADD_VVP_OP(VVP_NAME, ...) VVP_NAME,
-#include "VVPNodes.def"
-};
+/// Convert a DAG integer condition code to a VE ICC condition.
+inline static VECC::CondCode intCondCode2Icc(ISD::CondCode CC) {
+  switch (CC) {
+  default:
+    llvm_unreachable("Unknown integer condition code!");
+  case ISD::SETEQ:
+    return VECC::CC_IEQ;
+  case ISD::SETNE:
+    return VECC::CC_INE;
+  case ISD::SETLT:
+    return VECC::CC_IL;
+  case ISD::SETGT:
+    return VECC::CC_IG;
+  case ISD::SETLE:
+    return VECC::CC_ILE;
+  case ISD::SETGE:
+    return VECC::CC_IGE;
+  case ISD::SETULT:
+    return VECC::CC_IL;
+  case ISD::SETULE:
+    return VECC::CC_ILE;
+  case ISD::SETUGT:
+    return VECC::CC_IG;
+  case ISD::SETUGE:
+    return VECC::CC_IGE;
+  }
 }
+
+/// Convert a DAG floating point condition code to a VE FCC condition.
+inline static VECC::CondCode fpCondCode2Fcc(ISD::CondCode CC) {
+  switch (CC) {
+  default:
+    llvm_unreachable("Unknown fp condition code!");
+  case ISD::SETFALSE:
+    return VECC::CC_AF;
+  case ISD::SETEQ:
+  case ISD::SETOEQ:
+    return VECC::CC_EQ;
+  case ISD::SETNE:
+  case ISD::SETONE:
+    return VECC::CC_NE;
+  case ISD::SETLT:
+  case ISD::SETOLT:
+    return VECC::CC_L;
+  case ISD::SETGT:
+  case ISD::SETOGT:
+    return VECC::CC_G;
+  case ISD::SETLE:
+  case ISD::SETOLE:
+    return VECC::CC_LE;
+  case ISD::SETGE:
+  case ISD::SETOGE:
+    return VECC::CC_GE;
+  case ISD::SETO:
+    return VECC::CC_NUM;
+  case ISD::SETUO:
+    return VECC::CC_NAN;
+  case ISD::SETUEQ:
+    return VECC::CC_EQNAN;
+  case ISD::SETUNE:
+    return VECC::CC_NENAN;
+  case ISD::SETULT:
+    return VECC::CC_LNAN;
+  case ISD::SETUGT:
+    return VECC::CC_GNAN;
+  case ISD::SETULE:
+    return VECC::CC_LENAN;
+  case ISD::SETUGE:
+    return VECC::CC_GENAN;
+  case ISD::SETTRUE:
+    return VECC::CC_AT;
+  }
+}
+
+/// getImmVal - get immediate representation of integer value
+inline static uint64_t getImmVal(const ConstantSDNode *N) {
+  return N->getSExtValue();
+}
+
+/// getFpImmVal - get immediate representation of floating point value
+inline static uint64_t getFpImmVal(const ConstantFPSDNode *N) {
+  const APInt &Imm = N->getValueAPF().bitcastToAPInt();
+  uint64_t Val = Imm.getZExtValue();
+  if (Imm.getBitWidth() == 32) {
+    // Immediate value of float place places at higher bits on VE.
+    Val <<= 32;
+  }
+  return Val;
+}
+
+class VECustomDAG;
 
 class VETargetLowering : public TargetLowering {
   const VESubtarget *Subtarget;
@@ -57,7 +122,6 @@ class VETargetLowering : public TargetLowering {
 public:
   VETargetLowering(const TargetMachine &TM, const VESubtarget &STI);
 
-  const char *getTargetNodeName(unsigned Opcode) const override;
   MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override {
     return MVT::i32;
   }
@@ -81,7 +145,8 @@ public:
   bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                       bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &ArgsFlags,
-                      LLVMContext &Context) const override;
+                      LLVMContext &Context,
+                      const Type *RetTy) const override;
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &dl,
@@ -92,14 +157,20 @@ public:
     // VE uses release consistency, so need fence for each atomics.
     return true;
   }
-  Instruction *emitLeadingFence(IRBuilder<> &Builder, Instruction *Inst,
+  Instruction *emitLeadingFence(IRBuilderBase &Builder, Instruction *Inst,
                                 AtomicOrdering Ord) const override;
-  Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
+  Instruction *emitTrailingFence(IRBuilderBase &Builder, Instruction *Inst,
                                  AtomicOrdering Ord) const override;
   TargetLoweringBase::AtomicExpansionKind
   shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const override;
+  ISD::NodeType getExtendForAtomicOps() const override {
+    return ISD::ANY_EXTEND;
+  }
 
   /// Custom Lower {
+  TargetLoweringBase::LegalizeAction
+  getCustomOperationAction(SDNode &) const override;
+
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
   unsigned getJumpTableEncoding() const override;
   const MCExpr *LowerCustomJumpTableEntry(const MachineJumpTableInfo *MJTI,
@@ -165,11 +236,22 @@ public:
 
   /// VVP Lowering {
   SDValue lowerToVVP(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerVVP_LOAD_STORE(SDValue Op, VECustomDAG &) const;
+  SDValue lowerVVP_GATHER_SCATTER(SDValue Op, VECustomDAG &) const;
+
+  SDValue legalizeInternalVectorOp(SDValue Op, SelectionDAG &DAG) const;
+  SDValue legalizeInternalLoadStoreOp(SDValue Op, VECustomDAG &CDAG) const;
+  SDValue splitVectorOp(SDValue Op, VECustomDAG &CDAG) const;
+  SDValue splitPackedLoadStore(SDValue Op, VECustomDAG &CDAG) const;
+  SDValue legalizePackedAVL(SDValue Op, VECustomDAG &CDAG) const;
+  SDValue splitMaskArithmetic(SDValue Op, SelectionDAG &DAG) const;
   /// } VVPLowering
 
   /// Custom DAGCombine {
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
+  SDValue combineSelect(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue combineSelectCC(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineTRUNCATE(SDNode *N, DAGCombinerInfo &DCI) const;
   /// } Custom DAGCombine
 
@@ -185,7 +267,7 @@ public:
   /// specified type.
   bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, Align A,
                                       MachineMemOperand::Flags Flags,
-                                      bool *Fast) const override;
+                                      unsigned *Fast) const override;
 
   /// Inline Assembly {
 
@@ -206,14 +288,13 @@ public:
   // VE doesn't have rem.
   bool hasStandaloneRem(EVT) const override { return false; }
   // VE LDZ instruction returns 64 if the input is zero.
-  bool isCheapToSpeculateCtlz() const override { return true; }
+  bool isCheapToSpeculateCtlz(Type *) const override { return true; }
   // VE LDZ instruction is fast.
   bool isCtlzFast() const override { return true; }
   // VE has NND instruction.
   bool hasAndNot(SDValue Y) const override;
-
   /// } Target Optimization
 };
 } // namespace llvm
 
-#endif // VE_ISELLOWERING_H
+#endif // LLVM_LIB_TARGET_VE_VEISELLOWERING_H

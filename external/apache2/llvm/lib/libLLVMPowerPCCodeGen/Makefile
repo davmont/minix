@@ -12,36 +12,42 @@ SRCS+=	PPCAsmPrinter.cpp \
 	PPCBoolRetToInt.cpp \
 	PPCBranchCoalescing.cpp \
 	PPCBranchSelector.cpp \
-	PPCCallingConv.cpp \
-	PPCCCState.cpp \
 	PPCCTRLoops.cpp \
+	PPCCTRLoopsVerify.cpp \
+	PPCCallLowering.cpp \
+	PPCCallingConv.cpp \
 	PPCEarlyReturn.cpp \
-	PPCExpandISEL.cpp \
+	PPCExpandAtomicPseudoInsts.cpp \
 	PPCFastISel.cpp \
 	PPCFrameLowering.cpp \
+	PPCGenScalarMASSEntries.cpp \
 	PPCHazardRecognizers.cpp \
-	PPCInstrInfo.cpp \
 	PPCISelDAGToDAG.cpp \
 	PPCISelLowering.cpp \
+	PPCInstrInfo.cpp \
+	PPCInstructionSelector.cpp \
+	PPCLegalizerInfo.cpp \
 	PPCLoopInstrFormPrep.cpp \
 	PPCLowerMASSVEntries.cpp \
+	PPCMCInstLower.cpp \
+	PPCMIPeephole.cpp \
 	PPCMachineFunctionInfo.cpp \
 	PPCMachineScheduler.cpp \
 	PPCMacroFusion.cpp \
-	PPCMCInstLower.cpp \
-	PPCMIPeephole.cpp \
 	PPCPreEmitPeephole.cpp \
 	PPCReduceCRLogicals.cpp \
+	PPCRegisterBankInfo.cpp \
 	PPCRegisterInfo.cpp \
+	PPCSelectionDAGInfo.cpp \
 	PPCSubtarget.cpp \
+	PPCTLSDynamicCall.cpp \
+	PPCTOCRegDeps.cpp \
 	PPCTargetMachine.cpp \
 	PPCTargetObjectFile.cpp \
 	PPCTargetTransformInfo.cpp \
-	PPCTLSDynamicCall.cpp \
-	PPCTOCRegDeps.cpp \
-	PPCVSXCopy.cpp \
 	PPCVSXFMAMutate.cpp \
-	PPCVSXSwapRemoval.cpp
+	PPCVSXSwapRemoval.cpp \
+	PPCVSXWACCCopy.cpp
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/PowerPC/GISel
 

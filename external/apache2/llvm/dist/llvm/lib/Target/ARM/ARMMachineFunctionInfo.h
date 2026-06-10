@@ -15,12 +15,18 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <utility>
 
 namespace llvm {
+
+namespace yaml {
+struct ARMFunctionInfo;
+} // end namespace yaml
+
+class ARMSubtarget;
 
 /// ARMFunctionInfo - This class is derived from MachineFunctionInfo and
 /// contains private ARM-specific information for each MachineFunction.
@@ -36,14 +42,9 @@ class ARMFunctionInfo : public MachineFunctionInfo {
   /// 'isThumb'.
   bool hasThumb2 = false;
 
-  /// StByValParamsPadding - For parameter that is split between
-  /// GPRs and memory; while recovering GPRs part, when
-  /// StackAlignment > 4, and GPRs-part-size mod StackAlignment != 0,
-  /// we need to insert gap before parameter start address. It allows to
-  /// "attach" GPR-part to the part that was passed via stack.
-  unsigned StByValParamsPadding = 0;
-
-  /// VarArgsRegSaveSize - Size of the register save area for vararg functions.
+  /// ArgsRegSaveSize - Size of the register save area for vararg functions or
+  /// those making guaranteed tail calls that need more stack argument space
+  /// than is provided by this functions incoming parameters.
   ///
   unsigned ArgRegsSaveSize = 0;
 
@@ -79,15 +80,18 @@ class ARMFunctionInfo : public MachineFunctionInfo {
   /// Some may be spilled after the stack has been realigned.
   unsigned GPRCS1Offset = 0;
   unsigned GPRCS2Offset = 0;
-  unsigned DPRCSOffset = 0;
+  unsigned DPRCS1Offset = 0;
 
   /// GPRCS1Size, GPRCS2Size, DPRCSSize - Sizes of callee saved register spills
   /// areas.
   unsigned FPCXTSaveSize = 0;
+  unsigned FRSaveSize = 0;
   unsigned GPRCS1Size = 0;
   unsigned GPRCS2Size = 0;
+  unsigned FPStatusSize = 0;
   unsigned DPRCSAlignGapSize = 0;
-  unsigned DPRCSSize = 0;
+  unsigned DPRCS1Size = 0;
+  unsigned GPRCS3Size = 0;
 
   /// NumAlignedDPRCS2Regs - The number of callee-saved DPRs that are saved in
   /// the aligned portion of the stack frame.  This is always a contiguous
@@ -118,6 +122,10 @@ class ARMFunctionInfo : public MachineFunctionInfo {
   /// being passed on the stack
   unsigned ArgumentStackSize = 0;
 
+  /// ArgumentStackToRestore - amount of bytes on stack consumed that we must
+  /// restore on return.
+  unsigned ArgumentStackToRestore = 0;
+
   /// CoalescedWeights - mapping of basic blocks to the rolling counter of
   /// coalesced weights.
   DenseMap<const MachineBasicBlock*, unsigned> CoalescedWeights;
@@ -136,10 +144,26 @@ class ARMFunctionInfo : public MachineFunctionInfo {
   /// con/destructors).
   bool PreservesR0 = false;
 
+  /// True if the function should sign its return address.
+  bool SignReturnAddress = false;
+
+  /// True if the fucntion should sign its return address, even if LR is not
+  /// saved.
+  bool SignReturnAddressAll = false;
+
+  /// True if BTI instructions should be placed at potential indirect jump
+  /// destinations.
+  bool BranchTargetEnforcement = false;
+
 public:
   ARMFunctionInfo() = default;
 
-  explicit ARMFunctionInfo(MachineFunction &MF);
+  explicit ARMFunctionInfo(const Function &F, const ARMSubtarget *STI);
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
 
   bool isThumbFunction() const { return isThumb; }
   bool isThumb1OnlyFunction() const { return isThumb && !hasThumb2; }
@@ -147,9 +171,6 @@ public:
 
   bool isCmseNSEntryFunction() const { return IsCmseNSEntry; }
   bool isCmseNSCallFunction() const { return IsCmseNSCall; }
-
-  unsigned getStoredByValParamsPadding() const { return StByValParamsPadding; }
-  void setStoredByValParamsPadding(unsigned p) { StByValParamsPadding = p; }
 
   unsigned getArgRegsSaveSize() const { return ArgRegsSaveSize; }
   void setArgRegsSaveSize(unsigned s) { ArgRegsSaveSize = s; }
@@ -174,26 +195,35 @@ public:
 
   unsigned getGPRCalleeSavedArea1Offset() const { return GPRCS1Offset; }
   unsigned getGPRCalleeSavedArea2Offset() const { return GPRCS2Offset; }
-  unsigned getDPRCalleeSavedAreaOffset()  const { return DPRCSOffset; }
+  unsigned getDPRCalleeSavedArea1Offset() const { return DPRCS1Offset; }
 
   void setGPRCalleeSavedArea1Offset(unsigned o) { GPRCS1Offset = o; }
   void setGPRCalleeSavedArea2Offset(unsigned o) { GPRCS2Offset = o; }
-  void setDPRCalleeSavedAreaOffset(unsigned o)  { DPRCSOffset = o; }
+  void setDPRCalleeSavedArea1Offset(unsigned o) { DPRCS1Offset = o; }
 
   unsigned getFPCXTSaveAreaSize() const       { return FPCXTSaveSize; }
+  unsigned getFrameRecordSavedAreaSize() const { return FRSaveSize; }
   unsigned getGPRCalleeSavedArea1Size() const { return GPRCS1Size; }
   unsigned getGPRCalleeSavedArea2Size() const { return GPRCS2Size; }
+  unsigned getFPStatusSavesSize() const       { return FPStatusSize; }
   unsigned getDPRCalleeSavedGapSize() const   { return DPRCSAlignGapSize; }
-  unsigned getDPRCalleeSavedAreaSize()  const { return DPRCSSize; }
+  unsigned getDPRCalleeSavedArea1Size() const { return DPRCS1Size; }
+  unsigned getGPRCalleeSavedArea3Size() const { return GPRCS3Size; }
 
   void setFPCXTSaveAreaSize(unsigned s)       { FPCXTSaveSize = s; }
+  void setFrameRecordSavedAreaSize(unsigned s) { FRSaveSize = s; }
   void setGPRCalleeSavedArea1Size(unsigned s) { GPRCS1Size = s; }
   void setGPRCalleeSavedArea2Size(unsigned s) { GPRCS2Size = s; }
+  void setFPStatusSavesSize(unsigned s)       { FPStatusSize = s; }
   void setDPRCalleeSavedGapSize(unsigned s)   { DPRCSAlignGapSize = s; }
-  void setDPRCalleeSavedAreaSize(unsigned s)  { DPRCSSize = s; }
+  void setDPRCalleeSavedArea1Size(unsigned s) { DPRCS1Size = s; }
+  void setGPRCalleeSavedArea3Size(unsigned s) { GPRCS3Size = s; }
 
   unsigned getArgumentStackSize() const { return ArgumentStackSize; }
   void setArgumentStackSize(unsigned size) { ArgumentStackSize = size; }
+
+  unsigned getArgumentStackToRestore() const { return ArgumentStackToRestore; }
+  void setArgumentStackToRestore(unsigned v) { ArgumentStackToRestore = v; }
 
   void initPICLabelUId(unsigned UId) {
     PICLabelUId = UId;
@@ -229,13 +259,9 @@ public:
       return -1U;
   }
 
-  DenseMap<const MachineBasicBlock*, unsigned>::iterator getCoalescedWeight(
-                                                  MachineBasicBlock* MBB) {
-    auto It = CoalescedWeights.find(MBB);
-    if (It == CoalescedWeights.end()) {
-      It = CoalescedWeights.insert(std::make_pair(MBB, 0)).first;
-    }
-    return It;
+  DenseMap<const MachineBasicBlock *, unsigned>::iterator
+  getCoalescedWeight(MachineBasicBlock *MBB) {
+    return CoalescedWeights.try_emplace(MBB, 0).first;
   }
 
   /// Indicate to the backend that \c GV has had its storage changed to inside
@@ -259,7 +285,42 @@ public:
 
   void setPreservesR0() { PreservesR0 = true; }
   bool getPreservesR0() const { return PreservesR0; }
+
+  bool shouldSignReturnAddress() const {
+    return shouldSignReturnAddress(LRSpilled);
+  }
+
+  bool shouldSignReturnAddress(bool SpillsLR) const {
+    if (!SignReturnAddress)
+      return false;
+    if (SignReturnAddressAll)
+      return true;
+    return SpillsLR;
+  }
+
+  bool branchTargetEnforcement() const { return BranchTargetEnforcement; }
+
+  void initializeBaseYamlFields(const yaml::ARMFunctionInfo &YamlMFI);
 };
+
+namespace yaml {
+struct ARMFunctionInfo final : public yaml::MachineFunctionInfo {
+  bool LRSpilled;
+
+  ARMFunctionInfo() = default;
+  ARMFunctionInfo(const llvm::ARMFunctionInfo &MFI);
+
+  void mappingImpl(yaml::IO &YamlIO) override;
+  ~ARMFunctionInfo() override = default;
+};
+
+template <> struct MappingTraits<ARMFunctionInfo> {
+  static void mapping(IO &YamlIO, ARMFunctionInfo &MFI) {
+    YamlIO.mapOptional("isLRSpilled", MFI.LRSpilled);
+  }
+};
+
+} // end namespace yaml
 
 } // end namespace llvm
 

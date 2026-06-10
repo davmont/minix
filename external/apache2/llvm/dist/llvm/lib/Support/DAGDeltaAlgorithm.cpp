@@ -35,9 +35,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 #include <cassert>
-#include <iterator>
 #include <map>
 using namespace llvm;
 
@@ -49,16 +47,16 @@ class DAGDeltaAlgorithmImpl {
   friend class DeltaActiveSetHelper;
 
 public:
-  typedef DAGDeltaAlgorithm::change_ty change_ty;
-  typedef DAGDeltaAlgorithm::changeset_ty changeset_ty;
-  typedef DAGDeltaAlgorithm::changesetlist_ty changesetlist_ty;
-  typedef DAGDeltaAlgorithm::edge_ty edge_ty;
+  using change_ty = DAGDeltaAlgorithm::change_ty;
+  using changeset_ty = DAGDeltaAlgorithm::changeset_ty;
+  using changesetlist_ty = DAGDeltaAlgorithm::changesetlist_ty;
+  using edge_ty = DAGDeltaAlgorithm::edge_ty;
 
 private:
-  typedef std::vector<change_ty>::iterator pred_iterator_ty;
-  typedef std::vector<change_ty>::iterator succ_iterator_ty;
-  typedef std::set<change_ty>::iterator pred_closure_iterator_ty;
-  typedef std::set<change_ty>::iterator succ_closure_iterator_ty;
+  using pred_iterator_ty = std::vector<change_ty>::iterator;
+  using succ_iterator_ty = std::vector<change_ty>::iterator;
+  using pred_closure_iterator_ty = std::set<change_ty>::iterator;
+  using succ_closure_iterator_ty = std::set<change_ty>::iterator;
 
   DAGDeltaAlgorithm &DDA;
 
@@ -180,22 +178,19 @@ DAGDeltaAlgorithmImpl::DAGDeltaAlgorithmImpl(
     DAGDeltaAlgorithm &DDA, const changeset_ty &Changes,
     const std::vector<edge_ty> &Dependencies)
     : DDA(DDA) {
-  for (changeset_ty::const_iterator it = Changes.begin(),
-         ie = Changes.end(); it != ie; ++it) {
-    Predecessors.insert(std::make_pair(*it, std::vector<change_ty>()));
-    Successors.insert(std::make_pair(*it, std::vector<change_ty>()));
+  for (change_ty Change : Changes) {
+    Predecessors.try_emplace(Change);
+    Successors.try_emplace(Change);
   }
-  for (std::vector<edge_ty>::const_iterator it = Dependencies.begin(),
-         ie = Dependencies.end(); it != ie; ++it) {
-    Predecessors[it->second].push_back(it->first);
-    Successors[it->first].push_back(it->second);
+  for (const edge_ty &Dep : Dependencies) {
+    Predecessors[Dep.second].push_back(Dep.first);
+    Successors[Dep.first].push_back(Dep.second);
   }
 
   // Compute the roots.
-  for (changeset_ty::const_iterator it = Changes.begin(),
-         ie = Changes.end(); it != ie; ++it)
-    if (succ_begin(*it) == succ_end(*it))
-      Roots.push_back(*it);
+  for (change_ty Change : Changes)
+    if (succ_begin(Change) == succ_end(Change))
+      Roots.push_back(Change);
 
   // Pre-compute the closure of the successor relation.
   std::vector<change_ty> Worklist(Roots.begin(), Roots.end());
@@ -206,21 +201,21 @@ DAGDeltaAlgorithmImpl::DAGDeltaAlgorithmImpl(
     std::set<change_ty> &ChangeSuccs = SuccClosure[Change];
     for (pred_iterator_ty it = pred_begin(Change),
            ie = pred_end(Change); it != ie; ++it) {
-      SuccClosure[*it].insert(Change);
-      SuccClosure[*it].insert(ChangeSuccs.begin(), ChangeSuccs.end());
+      auto &SC = SuccClosure[*it];
+      SC.insert(Change);
+      SC.insert(ChangeSuccs.begin(), ChangeSuccs.end());
       Worklist.push_back(*it);
     }
   }
 
   // Invert to form the predecessor closure map.
-  for (changeset_ty::const_iterator it = Changes.begin(),
-         ie = Changes.end(); it != ie; ++it)
-    PredClosure.insert(std::make_pair(*it, std::set<change_ty>()));
-  for (changeset_ty::const_iterator it = Changes.begin(),
-         ie = Changes.end(); it != ie; ++it)
-    for (succ_closure_iterator_ty it2 = succ_closure_begin(*it),
-           ie2 = succ_closure_end(*it); it2 != ie2; ++it2)
-      PredClosure[*it2].insert(*it);
+  for (change_ty Change : Changes)
+    PredClosure.try_emplace(Change);
+  for (change_ty Change : Changes)
+    for (succ_closure_iterator_ty it2 = succ_closure_begin(Change),
+                                  ie2 = succ_closure_end(Change);
+         it2 != ie2; ++it2)
+      PredClosure[*it2].insert(Change);
 
   // Dump useful debug info.
   LLVM_DEBUG({
@@ -256,13 +251,12 @@ DAGDeltaAlgorithmImpl::DAGDeltaAlgorithmImpl(
     llvm::errs() << "]\n";
 
     llvm::errs() << "Predecessor Closure:\n";
-    for (changeset_ty::const_iterator it = Changes.begin(), ie = Changes.end();
-         it != ie; ++it) {
-      llvm::errs() << format("  %-4d: [", *it);
-      for (pred_closure_iterator_ty it2 = pred_closure_begin(*it),
-                                    ie2 = pred_closure_end(*it);
+    for (change_ty Change : Changes) {
+      llvm::errs() << format("  %-4d: [", Change);
+      for (pred_closure_iterator_ty it2 = pred_closure_begin(Change),
+                                    ie2 = pred_closure_end(Change);
            it2 != ie2; ++it2) {
-        if (it2 != pred_closure_begin(*it))
+        if (it2 != pred_closure_begin(Change))
           llvm::errs() << ", ";
         llvm::errs() << *it2;
       }
@@ -270,13 +264,12 @@ DAGDeltaAlgorithmImpl::DAGDeltaAlgorithmImpl(
     }
 
     llvm::errs() << "Successor Closure:\n";
-    for (changeset_ty::const_iterator it = Changes.begin(), ie = Changes.end();
-         it != ie; ++it) {
-      llvm::errs() << format("  %-4d: [", *it);
-      for (succ_closure_iterator_ty it2 = succ_closure_begin(*it),
-                                    ie2 = succ_closure_end(*it);
+    for (change_ty Change : Changes) {
+      llvm::errs() << format("  %-4d: [", Change);
+      for (succ_closure_iterator_ty it2 = succ_closure_begin(Change),
+                                    ie2 = succ_closure_end(Change);
            it2 != ie2; ++it2) {
-        if (it2 != succ_closure_begin(*it))
+        if (it2 != succ_closure_begin(Change))
           llvm::errs() << ", ";
         llvm::errs() << *it2;
       }
@@ -291,9 +284,8 @@ bool DAGDeltaAlgorithmImpl::GetTestResult(const changeset_ty &Changes,
                                           const changeset_ty &Required) {
   changeset_ty Extended(Required);
   Extended.insert(Changes.begin(), Changes.end());
-  for (changeset_ty::const_iterator it = Changes.begin(),
-         ie = Changes.end(); it != ie; ++it)
-    Extended.insert(pred_closure_begin(*it), pred_closure_end(*it));
+  for (change_ty Change : Changes)
+    Extended.insert(pred_closure_begin(Change), pred_closure_end(Change));
 
   if (FailedTestsCache.count(Extended))
     return false;
@@ -340,9 +332,8 @@ DAGDeltaAlgorithmImpl::Run() {
     // Replace the current set with the predecssors of the minimized set of
     // active changes.
     CurrentSet.clear();
-    for (changeset_ty::const_iterator it = CurrentMinSet.begin(),
-           ie = CurrentMinSet.end(); it != ie; ++it)
-      CurrentSet.insert(pred_begin(*it), pred_end(*it));
+    for (change_ty CT : CurrentMinSet)
+      CurrentSet.insert(pred_begin(CT), pred_end(CT));
 
     // FIXME: We could enforce CurrentSet intersect Required == {} here if we
     // wanted to protect against cyclic graphs.

@@ -16,23 +16,30 @@
 #ifndef LLVM_TRANSFORMS_IPO_THINLTOBITCODEWRITER_H
 #define LLVM_TRANSFORMS_IPO_THINLTOBITCODEWRITER_H
 
+#include "llvm/Support/Compiler.h"
 #include <llvm/IR/PassManager.h>
-#include <llvm/Support/raw_ostream.h>
 
 namespace llvm {
+class Module;
+class raw_ostream;
 
 class ThinLTOBitcodeWriterPass
     : public PassInfoMixin<ThinLTOBitcodeWriterPass> {
   raw_ostream &OS;
   raw_ostream *ThinLinkOS;
+  const bool ShouldPreserveUseListOrder;
 
 public:
   // Writes bitcode to OS. Also write thin link file to ThinLinkOS, if
   // it's not nullptr.
-  ThinLTOBitcodeWriterPass(raw_ostream &OS, raw_ostream *ThinLinkOS)
-      : OS(OS), ThinLinkOS(ThinLinkOS) {}
+  ThinLTOBitcodeWriterPass(raw_ostream &OS, raw_ostream *ThinLinkOS,
+                           bool ShouldPreserveUseListOrder = false)
+      : OS(OS), ThinLinkOS(ThinLinkOS),
+        ShouldPreserveUseListOrder(ShouldPreserveUseListOrder) {}
 
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+
+  static bool isRequired() { return true; }
 };
 
 } // namespace llvm

@@ -1,10 +1,10 @@
 .\" Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 .\" See https://llvm.org/LICENSE.txt for license information.
 .\" SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-.\" $Id: scan-build.1,v 1.1.1.1 2019/11/08 14:29:40 joerg Exp $
-.Dd May 25, 2012
+.\" $Id$
+.Dd Aug 18, 2024
 .Dt SCAN-BUILD 1
-.Os "clang" "3.5"
+.Os "clang" "20"
 .Sh NAME
 .Nm scan-build
 .Nd Clang static analyzer
@@ -110,7 +110,7 @@ increases verbosity.
 .It Fl V , Fl Fl view
 View analysis results in a web browser when the build completes.
 .It Fl constraints Op Ar model
-Specify the contraint engine used by the analyzer.  By default the
+Specify the constraint engine used by the analyzer.  By default the
 .Ql range
 model is used.  Specifying
 .Ql basic

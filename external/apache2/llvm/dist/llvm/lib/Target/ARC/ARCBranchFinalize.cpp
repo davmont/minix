@@ -10,8 +10,6 @@
 // range conditional branches.
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "arc-branch-finalize"
-
 #include "ARCInstrInfo.h"
 #include "ARCTargetMachine.h"
 #include "MCTargetDesc/ARCInfo.h"
@@ -23,6 +21,8 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Debug.h"
 #include <vector>
+
+#define DEBUG_TYPE "arc-branch-finalize"
 
 using namespace llvm;
 
@@ -61,7 +61,7 @@ char ARCBranchFinalize::ID = 0;
 
 INITIALIZE_PASS_BEGIN(ARCBranchFinalize, "arc-branch-finalize",
                       "ARC finalize branches", false, false)
-INITIALIZE_PASS_DEPENDENCY(MachineDominatorTree)
+INITIALIZE_PASS_DEPENDENCY(MachineDominatorTreeWrapperPass)
 INITIALIZE_PASS_END(ARCBranchFinalize, "arc-branch-finalize",
                     "ARC finalize branches", false, false)
 

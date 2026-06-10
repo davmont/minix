@@ -24,7 +24,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Path.h"
@@ -61,6 +60,10 @@ class PerfJITEventListener : public JITEventListener {
 public:
   PerfJITEventListener();
   ~PerfJITEventListener() {
+    // Lock a mutex to correctly synchronize with prior calls to
+    // `notifyObjectLoaded` and `notifyFreeingObject` that happened on other
+    // threads to prevent tsan from complaining.
+    std::lock_guard<sys::Mutex> Guard(Mutex);
     if (MarkerAddr)
       CloseMarker();
   }
@@ -196,17 +199,16 @@ PerfJITEventListener::PerfJITEventListener()
   // Need to open ourselves, because we need to hand the FD to OpenMarker() and
   // raw_fd_ostream doesn't expose the FD.
   using sys::fs::openFileForWrite;
-  if (auto EC =
-          openFileForReadWrite(FilenameBuf.str(), DumpFd,
-			       sys::fs::CD_CreateNew, sys::fs::OF_None)) {
-    errs() << "could not open JIT dump file " << FilenameBuf.str() << ": "
+  if (auto EC = openFileForReadWrite(Filename, DumpFd, sys::fs::CD_CreateNew,
+                                     sys::fs::OF_None)) {
+    errs() << "could not open JIT dump file " << Filename << ": "
            << EC.message() << "\n";
     return;
   }
 
   Dumpstream = std::make_unique<raw_fd_ostream>(DumpFd, true);
 
-  LLVMPerfJitHeader Header = {0};
+  LLVMPerfJitHeader Header = {0, 0, 0, 0, 0, 0, 0, 0};
   if (!FillMachine(Header))
     return;
 
@@ -276,13 +278,16 @@ void PerfJITEventListener::notifyObjectLoaded(
             SectionIndex = SectOrErr.get()->getIndex();
 
     // According to spec debugging info has to come before loading the
-    // corresonding code load.
+    // corresponding code load.
     DILineInfoTable Lines = Context->getLineInfoForAddressRange(
         {*AddrOrErr, SectionIndex}, Size, FileLineInfoKind::AbsoluteFilePath);
 
     NotifyDebug(*AddrOrErr, Lines);
     NotifyCode(Name, *AddrOrErr, Size);
   }
+
+  // avoid races with writes
+  std::lock_guard<sys::Mutex> Guard(Mutex);
 
   Dumpstream->flush();
 }
@@ -415,7 +420,7 @@ void PerfJITEventListener::NotifyCode(Expected<llvm::StringRef> &Symbol,
   rec.Prefix.Timestamp = perf_get_timestamp();
 
   rec.CodeSize = CodeSize;
-  rec.Vma = 0;
+  rec.Vma = CodeAddr;
   rec.CodeAddr = CodeAddr;
   rec.Pid = Pid;
   rec.Tid = get_threadid();
@@ -445,7 +450,7 @@ void PerfJITEventListener::NotifyDebug(uint64_t CodeAddr,
   rec.CodeAddr = CodeAddr;
   rec.NrEntry = Lines.size();
 
-  // compute total size size of record (variable due to filenames)
+  // compute total size of record (variable due to filenames)
   DILineInfoTable::iterator Begin = Lines.begin();
   DILineInfoTable::iterator End = Lines.end();
   for (DILineInfoTable::iterator It = Begin; It != End; ++It) {
@@ -485,15 +490,14 @@ void PerfJITEventListener::NotifyDebug(uint64_t CodeAddr,
   }
 }
 
-// There should be only a single event listener per process, otherwise perf gets
-// confused.
-llvm::ManagedStatic<PerfJITEventListener> PerfListener;
-
 } // end anonymous namespace
 
 namespace llvm {
 JITEventListener *JITEventListener::createPerfJITEventListener() {
-  return &*PerfListener;
+  // There should be only a single event listener per process, otherwise perf
+  // gets confused.
+  static PerfJITEventListener PerfListener;
+  return &PerfListener;
 }
 
 } // namespace llvm

@@ -7,13 +7,20 @@ LIB=	LLVMTextAPI
 .PATH: ${LLVM_SRCDIR}/lib/TextAPI
 SRCS+=	Architecture.cpp \
 	ArchitectureSet.cpp \
+	BinaryReader/DylibReader.cpp \
 	InterfaceFile.cpp \
 	PackedVersion.cpp \
 	Platform.cpp \
+	RecordVisitor.cpp \
+	RecordsSlice.cpp \
 	Symbol.cpp \
+	SymbolSet.cpp \
 	Target.cpp \
+	TextAPIError.cpp \
 	TextStub.cpp \
-	TextStubCommon.cpp
+	TextStubCommon.cpp \
+	TextStubV5.cpp \
+	Utils.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

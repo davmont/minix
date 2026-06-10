@@ -8,9 +8,16 @@ LIB=	clangInterpreter
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Interpreter
 
-SRCS+=	IncrementalExecutor.cpp \
+SRCS+=	CodeCompletion.cpp \
+	DeviceOffload.cpp \
+	IncrementalAction.cpp \
+	IncrementalExecutor.cpp \
 	IncrementalParser.cpp \
-	Interpreter.cpp
+	Interpreter.cpp \
+	InterpreterUtils.cpp \
+	InterpreterValuePrinter.cpp \
+	OrcIncrementalExecutor.cpp \
+	Value.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

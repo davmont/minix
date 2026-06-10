@@ -11,16 +11,17 @@
 
 #include "PDBSymbol.h"
 #include "PDBTypes.h"
+#include "llvm/Support/Compiler.h"
 
-#include "llvm/DebugInfo/PDB/PDBSymbolTypeVTable.h"
-#include "llvm/DebugInfo/PDB/PDBSymbolTypeVTableShape.h"
+#include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
 
 namespace llvm {
 
-class raw_ostream;
 namespace pdb {
 
-class PDBSymbolTypeBaseClass : public PDBSymbol {
+class PDBSymDumper;
+
+class LLVM_ABI PDBSymbolTypeBaseClass : public PDBSymbol {
   DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::BaseClass)
 public:
   void dump(PDBSymDumper &Dumper) const override;
@@ -53,7 +54,7 @@ public:
   FORWARD_SYMBOL_METHOD(isVolatileType)
 };
 
+} // namespace pdb
 } // namespace llvm
-}
 
 #endif // LLVM_DEBUGINFO_PDB_PDBSYMBOLTYPEBASECLASS_H

@@ -12,14 +12,12 @@
 
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/ComputeDependence.h"
-#include "clang/AST/DependenceFlags.h"
 #include "clang/AST/SelectorLocationsKind.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <algorithm>
 #include <cassert>
 #include <cstdint>
 
@@ -27,7 +25,7 @@ using namespace clang;
 
 ObjCArrayLiteral::ObjCArrayLiteral(ArrayRef<Expr *> Elements, QualType T,
                                    ObjCMethodDecl *Method, SourceRange SR)
-    : Expr(ObjCArrayLiteralClass, T, VK_RValue, OK_Ordinary),
+    : Expr(ObjCArrayLiteralClass, T, VK_PRValue, OK_Ordinary),
       NumElements(Elements.size()), Range(SR), ArrayWithObjectsMethod(Method) {
   Expr **SaveElements = getElements();
   for (unsigned I = 0, N = Elements.size(); I != N; ++I)
@@ -54,7 +52,7 @@ ObjCDictionaryLiteral::ObjCDictionaryLiteral(ArrayRef<ObjCDictionaryElement> VK,
                                              bool HasPackExpansions, QualType T,
                                              ObjCMethodDecl *method,
                                              SourceRange SR)
-    : Expr(ObjCDictionaryLiteralClass, T, VK_RValue, OK_Ordinary),
+    : Expr(ObjCDictionaryLiteralClass, T, VK_PRValue, OK_Ordinary),
       NumElements(VK.size()), HasPackExpansions(HasPackExpansions), Range(SR),
       DictWithObjectsMethod(method) {
   KeyValuePair *KeyValues = getTrailingObjects<KeyValuePair>();
@@ -165,10 +163,8 @@ void ObjCMessageExpr::initArgsAndSelLocs(ArrayRef<Expr *> Args,
     MyArgs[I] = Args[I];
 
   SelLocsKind = SelLocsK;
-  if (!isImplicit()) {
-    if (SelLocsK == SelLoc_NonStandard)
-      std::copy(SelLocs.begin(), SelLocs.end(), getStoredSelLocs());
-  }
+  if (!isImplicit() && SelLocsK == SelLoc_NonStandard)
+    llvm::copy(SelLocs, getStoredSelLocs());
 }
 
 ObjCMessageExpr *
@@ -271,20 +267,7 @@ QualType ObjCMessageExpr::getCallReturnType(ASTContext &Ctx) const {
     }
     return QT;
   }
-
-  // Expression type might be different from an expected call return type,
-  // as expression type would never be a reference even if call returns a
-  // reference. Reconstruct the original expression type.
-  QualType QT = getType();
-  switch (getValueKind()) {
-  case VK_LValue:
-    return Ctx.getLValueReferenceType(QT);
-  case VK_XValue:
-    return Ctx.getRValueReferenceType(QT);
-  case VK_RValue:
-    return QT;
-  }
-  llvm_unreachable("Unsupported ExprValueKind");
+  return Ctx.getReferenceQualifiedType(this);
 }
 
 SourceRange ObjCMessageExpr::getReceiverRange() const {
@@ -347,8 +330,7 @@ Stmt::child_range ObjCMessageExpr::children() {
 }
 
 Stmt::const_child_range ObjCMessageExpr::children() const {
-  auto Children = const_cast<ObjCMessageExpr *>(this)->children();
-  return const_child_range(Children.begin(), Children.end());
+  return const_cast<ObjCMessageExpr *>(this)->children();
 }
 
 StringRef ObjCBridgedCastExpr::getBridgeKindName() const {

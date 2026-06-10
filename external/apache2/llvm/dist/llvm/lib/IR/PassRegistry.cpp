@@ -15,21 +15,14 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Pass.h"
 #include "llvm/PassInfo.h"
-#include "llvm/Support/ManagedStatic.h"
 #include <cassert>
 #include <memory>
-#include <utility>
 
 using namespace llvm;
 
-// FIXME: We use ManagedStatic to erase the pass registrar on shutdown.
-// Unfortunately, passes are registered with static ctors, and having
-// llvm_shutdown clear this map prevents successful resurrection after
-// llvm_shutdown is run.  Ideally we should find a solution so that we don't
-// leak the map, AND can still resurrect after shutdown.
-static ManagedStatic<PassRegistry> PassRegistryObj;
 PassRegistry *PassRegistry::getPassRegistry() {
-  return &*PassRegistryObj;
+  static PassRegistry PassRegistryObj;
+  return &PassRegistryObj;
 }
 
 //===----------------------------------------------------------------------===//
@@ -72,45 +65,6 @@ void PassRegistry::enumerateWith(PassRegistrationListener *L) {
   sys::SmartScopedReader<true> Guard(Lock);
   for (auto PassInfoPair : PassInfoMap)
     L->passEnumerate(PassInfoPair.second);
-}
-
-/// Analysis Group Mechanisms.
-void PassRegistry::registerAnalysisGroup(const void *InterfaceID,
-                                         const void *PassID,
-                                         PassInfo &Registeree, bool isDefault,
-                                         bool ShouldFree) {
-  PassInfo *InterfaceInfo = const_cast<PassInfo *>(getPassInfo(InterfaceID));
-  if (!InterfaceInfo) {
-    // First reference to Interface, register it now.
-    registerPass(Registeree);
-    InterfaceInfo = &Registeree;
-  }
-  assert(Registeree.isAnalysisGroup() &&
-         "Trying to join an analysis group that is a normal pass!");
-
-  if (PassID) {
-    PassInfo *ImplementationInfo = const_cast<PassInfo *>(getPassInfo(PassID));
-    assert(ImplementationInfo &&
-           "Must register pass before adding to AnalysisGroup!");
-
-    sys::SmartScopedWriter<true> Guard(Lock);
-
-    // Make sure we keep track of the fact that the implementation implements
-    // the interface.
-    ImplementationInfo->addInterfaceImplemented(InterfaceInfo);
-
-    if (isDefault) {
-      assert(InterfaceInfo->getNormalCtor() == nullptr &&
-             "Default implementation for analysis group already specified!");
-      assert(
-          ImplementationInfo->getNormalCtor() &&
-          "Cannot specify pass as default if it does not have a default ctor");
-      InterfaceInfo->setNormalCtor(ImplementationInfo->getNormalCtor());
-    }
-  }
-
-  if (ShouldFree)
-    ToFree.push_back(std::unique_ptr<const PassInfo>(&Registeree));
 }
 
 void PassRegistry::addRegistrationListener(PassRegistrationListener *L) {

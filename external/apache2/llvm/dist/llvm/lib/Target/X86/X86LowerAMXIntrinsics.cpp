@@ -17,20 +17,21 @@
 //===----------------------------------------------------------------------===//
 //
 #include "X86.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
-#include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/IR/Analysis.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsX86.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
@@ -42,7 +43,7 @@
 using namespace llvm;
 using namespace PatternMatch;
 
-#define DEBUG_TYPE "lower-amx-intrinsics"
+#define DEBUG_TYPE "x86-lower-amx-intrinsics"
 
 #ifndef NDEBUG
 static bool isV256I32Ty(Type *Ty) {
@@ -77,24 +78,24 @@ private:
                                   IRBuilderBase &B, Value *Row, Value *Col,
                                   Value *Ptr, Value *Stride, Value *Tile);
   template <Intrinsic::ID IntrID>
-  typename std::enable_if<IntrID == Intrinsic::x86_tdpbssd_internal ||
-                              IntrID == Intrinsic::x86_tdpbsud_internal ||
-                              IntrID == Intrinsic::x86_tdpbusd_internal ||
-                              IntrID == Intrinsic::x86_tdpbuud_internal ||
-                              IntrID == Intrinsic::x86_tdpbf16ps_internal,
-                          Value *>::type
+  std::enable_if_t<IntrID == Intrinsic::x86_tdpbssd_internal ||
+                       IntrID == Intrinsic::x86_tdpbsud_internal ||
+                       IntrID == Intrinsic::x86_tdpbusd_internal ||
+                       IntrID == Intrinsic::x86_tdpbuud_internal ||
+                       IntrID == Intrinsic::x86_tdpbf16ps_internal,
+                   Value *>
   createTileDPLoops(BasicBlock *Start, BasicBlock *End, IRBuilderBase &B,
                     Value *Row, Value *Col, Value *K, Value *Acc, Value *LHS,
                     Value *RHS);
   template <bool IsTileLoad>
   bool lowerTileLoadStore(Instruction *TileLoadStore);
   template <Intrinsic::ID IntrID>
-  typename std::enable_if<IntrID == Intrinsic::x86_tdpbssd_internal ||
-                              IntrID == Intrinsic::x86_tdpbsud_internal ||
-                              IntrID == Intrinsic::x86_tdpbusd_internal ||
-                              IntrID == Intrinsic::x86_tdpbuud_internal ||
-                              IntrID == Intrinsic::x86_tdpbf16ps_internal,
-                          bool>::type
+  std::enable_if_t<IntrID == Intrinsic::x86_tdpbssd_internal ||
+                       IntrID == Intrinsic::x86_tdpbsud_internal ||
+                       IntrID == Intrinsic::x86_tdpbusd_internal ||
+                       IntrID == Intrinsic::x86_tdpbuud_internal ||
+                       IntrID == Intrinsic::x86_tdpbf16ps_internal,
+                   bool>
   lowerTileDP(Instruction *TileDP);
   bool lowerTileZero(Instruction *TileZero);
 };
@@ -116,7 +117,7 @@ BasicBlock *X86LowerAMXIntrinsics::createLoop(BasicBlock *Preheader,
   BranchInst::Create(Body, Header);
   BranchInst::Create(Latch, Body);
   PHINode *IV =
-      PHINode::Create(I16Ty, 2, Name + ".iv", Header->getTerminator());
+      PHINode::Create(I16Ty, 2, Name + ".iv", Header->getTerminator()->getIterator());
   IV->addIncoming(ConstantInt::get(I16Ty, 0), Preheader);
 
   B.SetInsertPoint(Latch);
@@ -184,9 +185,7 @@ Value *X86LowerAMXIntrinsics::createTileLoadStoreLoops(
   Value *CurrentColZExt = B.CreateZExt(CurrentCol, Stride->getType());
   Value *Offset =
       B.CreateAdd(B.CreateMul(CurrentRowZExt, Stride), CurrentColZExt);
-  unsigned AS = cast<PointerType>(Ptr->getType())->getAddressSpace();
-  Value *EltBasePtr = B.CreatePointerCast(Ptr, PointerType::get(EltTy, AS));
-  Value *EltPtr = B.CreateGEP(EltTy, EltBasePtr, Offset);
+  Value *EltPtr = B.CreateGEP(EltTy, Ptr, Offset);
   Value *Idx = B.CreateAdd(B.CreateMul(CurrentRow, B.getInt16(16)), CurrentCol);
   if (IsTileLoad) {
     // tileload.scalarize.rows.header:
@@ -234,12 +233,12 @@ Value *X86LowerAMXIntrinsics::createTileLoadStoreLoops(
 }
 
 template <Intrinsic::ID IntrID>
-typename std::enable_if<IntrID == Intrinsic::x86_tdpbssd_internal ||
-                            IntrID == Intrinsic::x86_tdpbsud_internal ||
-                            IntrID == Intrinsic::x86_tdpbusd_internal ||
-                            IntrID == Intrinsic::x86_tdpbuud_internal ||
-                            IntrID == Intrinsic::x86_tdpbf16ps_internal,
-                        Value *>::type
+std::enable_if_t<IntrID == Intrinsic::x86_tdpbssd_internal ||
+                     IntrID == Intrinsic::x86_tdpbsud_internal ||
+                     IntrID == Intrinsic::x86_tdpbusd_internal ||
+                     IntrID == Intrinsic::x86_tdpbuud_internal ||
+                     IntrID == Intrinsic::x86_tdpbf16ps_internal,
+                 Value *>
 X86LowerAMXIntrinsics::createTileDPLoops(BasicBlock *Start, BasicBlock *End,
                                          IRBuilderBase &B, Value *Row,
                                          Value *Col, Value *K, Value *Acc,
@@ -440,7 +439,7 @@ X86LowerAMXIntrinsics::createTileDPLoops(BasicBlock *Start, BasicBlock *End,
     Value *SubVecB = B.CreateBitCast(EltB, V2I16Ty);
     Value *ZeroV2I16 = Constant::getNullValue(V2I16Ty);
     int ShuffleMask[4] = {2, 0, 3, 1};
-    auto ShuffleArray = makeArrayRef(ShuffleMask);
+    auto ShuffleArray = ArrayRef(ShuffleMask);
     Value *AV2F32 = B.CreateBitCast(
         B.CreateShuffleVector(SubVecA, ZeroV2I16, ShuffleArray), V2F32Ty);
     Value *BV2F32 = B.CreateBitCast(
@@ -468,12 +467,12 @@ X86LowerAMXIntrinsics::createTileDPLoops(BasicBlock *Start, BasicBlock *End,
 }
 
 template <Intrinsic::ID IntrID>
-typename std::enable_if<IntrID == Intrinsic::x86_tdpbssd_internal ||
-                            IntrID == Intrinsic::x86_tdpbsud_internal ||
-                            IntrID == Intrinsic::x86_tdpbusd_internal ||
-                            IntrID == Intrinsic::x86_tdpbuud_internal ||
-                            IntrID == Intrinsic::x86_tdpbf16ps_internal,
-                        bool>::type
+std::enable_if_t<IntrID == Intrinsic::x86_tdpbssd_internal ||
+                     IntrID == Intrinsic::x86_tdpbsud_internal ||
+                     IntrID == Intrinsic::x86_tdpbusd_internal ||
+                     IntrID == Intrinsic::x86_tdpbuud_internal ||
+                     IntrID == Intrinsic::x86_tdpbf16ps_internal,
+                 bool>
 X86LowerAMXIntrinsics::lowerTileDP(Instruction *TileDP) {
   Value *M, *N, *K, *C, *A, *B;
   match(TileDP, m_Intrinsic<IntrID>(m_Value(M), m_Value(N), m_Value(K),
@@ -494,12 +493,12 @@ X86LowerAMXIntrinsics::lowerTileDP(Instruction *TileDP) {
                                             KDWord, C, A, B);
   // we cannot assume there always be bitcast after tiledpbssd. So we need to
   // insert one bitcast as required
-  Builder.SetInsertPoint(End->getFirstNonPHI());
+  Builder.SetInsertPoint(End, End->getFirstNonPHIIt());
   Value *ResAMX =
       Builder.CreateBitCast(ResVec, Type::getX86_AMXTy(Builder.getContext()));
   // Delete TileDP intrinsic and do some clean-up.
-  for (auto UI = TileDP->use_begin(), UE = TileDP->use_end(); UI != UE;) {
-    Instruction *I = cast<Instruction>((UI++)->getUser());
+  for (Use &U : llvm::make_early_inc_range(TileDP->uses())) {
+    Instruction *I = cast<Instruction>(U.getUser());
     Value *Vec;
     if (match(I, m_BitCast(m_Value(Vec)))) {
       I->replaceAllUsesWith(ResVec);
@@ -538,13 +537,12 @@ bool X86LowerAMXIntrinsics::lowerTileLoadStore(Instruction *TileLoadStore) {
   if (IsTileLoad) {
     // we cannot assume there always be bitcast after tileload. So we need to
     // insert one bitcast as required
-    Builder.SetInsertPoint(End->getFirstNonPHI());
+    Builder.SetInsertPoint(End, End->getFirstNonPHIIt());
     Value *ResAMX =
         Builder.CreateBitCast(ResVec, Type::getX86_AMXTy(Builder.getContext()));
     // Delete tileloadd6 intrinsic and do some clean-up
-    for (auto UI = TileLoadStore->use_begin(), UE = TileLoadStore->use_end();
-         UI != UE;) {
-      Instruction *I = cast<Instruction>((UI++)->getUser());
+    for (Use &U : llvm::make_early_inc_range(TileLoadStore->uses())) {
+      Instruction *I = cast<Instruction>(U.getUser());
       Value *Vec;
       if (match(I, m_BitCast(m_Value(Vec)))) {
         I->replaceAllUsesWith(ResVec);
@@ -561,8 +559,8 @@ bool X86LowerAMXIntrinsics::lowerTileZero(Instruction *TileZero) {
   IRBuilder<> Builder(TileZero);
   FixedVectorType *V256I32Ty = FixedVectorType::get(Builder.getInt32Ty(), 256);
   Value *VecZero = Constant::getNullValue(V256I32Ty);
-  for (auto UI = TileZero->use_begin(), UE = TileZero->use_end(); UI != UE;) {
-    Instruction *I = cast<Instruction>((UI++)->getUser());
+  for (Use &U : llvm::make_early_inc_range(TileZero->uses())) {
+    Instruction *I = cast<Instruction>(U.getUser());
     Value *Vec;
     if (match(I, m_BitCast(m_Value(Vec)))) {
       I->replaceAllUsesWith(VecZero);
@@ -631,31 +629,54 @@ bool X86LowerAMXIntrinsics::visit() {
   return C;
 }
 
+namespace {
+bool shouldRunLowerAMXIntrinsics(const Function &F, const TargetMachine *TM) {
+  return X86ScalarizeAMX && (F.hasFnAttribute(Attribute::OptimizeNone) ||
+                             TM->getOptLevel() == CodeGenOptLevel::None);
+}
+
+bool runLowerAMXIntrinsics(Function &F, DominatorTree *DT, LoopInfo *LI) {
+  DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Lazy);
+
+  X86LowerAMXIntrinsics LAT(F, DTU, LI);
+  return LAT.visit();
+}
+} // namespace
+
+PreservedAnalyses X86LowerAMXIntrinsicsPass::run(Function &F,
+                                                 FunctionAnalysisManager &FAM) {
+  if (!shouldRunLowerAMXIntrinsics(F, TM))
+    return PreservedAnalyses::all();
+
+  DominatorTree &DT = FAM.getResult<DominatorTreeAnalysis>(F);
+  LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
+  bool Changed = runLowerAMXIntrinsics(F, &DT, &LI);
+  if (!Changed)
+    return PreservedAnalyses::all();
+
+  PreservedAnalyses PA = PreservedAnalyses::none();
+  PA.preserve<DominatorTreeAnalysis>();
+  PA.preserve<LoopAnalysis>();
+  return PA;
+}
+
+namespace {
 class X86LowerAMXIntrinsicsLegacyPass : public FunctionPass {
 public:
   static char ID;
 
-  X86LowerAMXIntrinsicsLegacyPass() : FunctionPass(ID) {
-    initializeX86LowerAMXIntrinsicsLegacyPassPass(
-        *PassRegistry::getPassRegistry());
-  }
+  X86LowerAMXIntrinsicsLegacyPass() : FunctionPass(ID) {}
 
   bool runOnFunction(Function &F) override {
-    if (!X86ScalarizeAMX)
-      return false;
     TargetMachine *TM = &getAnalysis<TargetPassConfig>().getTM<TargetMachine>();
-    if (!F.hasFnAttribute(Attribute::OptimizeNone) &&
-        TM->getOptLevel() != CodeGenOpt::None)
+    if (!shouldRunLowerAMXIntrinsics(F, TM))
       return false;
 
     auto *DTWP = getAnalysisIfAvailable<DominatorTreeWrapperPass>();
     auto *DT = DTWP ? &DTWP->getDomTree() : nullptr;
     auto *LIWP = getAnalysisIfAvailable<LoopInfoWrapperPass>();
     auto *LI = LIWP ? &LIWP->getLoopInfo() : nullptr;
-    DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Lazy);
-
-    X86LowerAMXIntrinsics LAT(F, DTU, LI);
-    return LAT.visit();
+    return runLowerAMXIntrinsics(F, DT, LI);
   }
   StringRef getPassName() const override { return "Lower AMX intrinsics"; }
 
@@ -665,6 +686,7 @@ public:
     AU.addRequired<TargetPassConfig>();
   }
 };
+} // namespace
 
 static const char PassName[] = "Lower AMX intrinsics";
 char X86LowerAMXIntrinsicsLegacyPass::ID = 0;
@@ -674,6 +696,6 @@ INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
 INITIALIZE_PASS_END(X86LowerAMXIntrinsicsLegacyPass, DEBUG_TYPE, PassName,
                     false, false)
 
-FunctionPass *llvm::createX86LowerAMXIntrinsicsPass() {
+FunctionPass *llvm::createX86LowerAMXIntrinsicsLegacyPass() {
   return new X86LowerAMXIntrinsicsLegacyPass();
 }

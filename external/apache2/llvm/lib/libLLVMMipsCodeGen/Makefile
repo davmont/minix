@@ -10,41 +10,45 @@ SRCS+=	MicroMipsSizeReduction.cpp \
 	Mips16FrameLowering.cpp \
 	Mips16HardFloat.cpp \
 	Mips16HardFloatInfo.cpp \
-	Mips16InstrInfo.cpp \
 	Mips16ISelDAGToDAG.cpp \
 	Mips16ISelLowering.cpp \
+	Mips16InstrInfo.cpp \
 	Mips16RegisterInfo.cpp \
 	MipsAnalyzeImmediate.cpp \
 	MipsAsmPrinter.cpp \
 	MipsBranchExpansion.cpp \
-	MipsCallLowering.cpp \
 	MipsCCState.cpp \
+	MipsCallLowering.cpp \
 	MipsConstantIslandPass.cpp \
 	MipsDelaySlotFiller.cpp \
 	MipsExpandPseudo.cpp \
 	MipsFastISel.cpp \
 	MipsFrameLowering.cpp \
-	MipsInstrInfo.cpp \
-	MipsInstructionSelector.cpp \
 	MipsISelDAGToDAG.cpp \
 	MipsISelLowering.cpp \
+	MipsInstrInfo.cpp \
+	MipsInstructionSelector.cpp \
 	MipsLegalizerInfo.cpp \
-	MipsMachineFunction.cpp \
 	MipsMCInstLower.cpp \
+	MipsMachineFunction.cpp \
 	MipsModuleISelDAGToDAG.cpp \
+	MipsMulMulBugPass.cpp \
 	MipsOptimizePICCall.cpp \
 	MipsOs16.cpp \
+	MipsPostLegalizerCombiner.cpp \
 	MipsPreLegalizerCombiner.cpp \
 	MipsRegisterBankInfo.cpp \
 	MipsRegisterInfo.cpp \
 	MipsSEFrameLowering.cpp \
-	MipsSEInstrInfo.cpp \
 	MipsSEISelDAGToDAG.cpp \
 	MipsSEISelLowering.cpp \
+	MipsSEInstrInfo.cpp \
 	MipsSERegisterInfo.cpp \
+	MipsSelectionDAGInfo.cpp \
 	MipsSubtarget.cpp \
 	MipsTargetMachine.cpp \
-	MipsTargetObjectFile.cpp
+	MipsTargetObjectFile.cpp \
+	MipsTargetTransformInfo.cpp
 
 TABLEGEN_SRC=		Mips.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/Mips

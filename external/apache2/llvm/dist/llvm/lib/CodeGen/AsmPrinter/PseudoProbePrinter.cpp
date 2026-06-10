@@ -13,37 +13,28 @@
 #include "PseudoProbePrinter.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/IR/DebugInfoMetadata.h"
-#include "llvm/IR/Module.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/PseudoProbe.h"
 #include "llvm/MC/MCPseudoProbe.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/ProfileData/SampleProf.h"
+
+#ifndef NDEBUG
+#include "llvm/IR/Module.h"
+#include "llvm/Support/WithColor.h"
+#endif
 
 using namespace llvm;
 
-#define DEBUG_TYPE "pseudoprobe"
-
-PseudoProbeHandler::~PseudoProbeHandler() = default;
-
-PseudoProbeHandler::PseudoProbeHandler(AsmPrinter *A, Module *M) : Asm(A) {
-  NamedMDNode *FuncInfo = M->getNamedMetadata(PseudoProbeDescMetadataName);
-  assert(FuncInfo && "Pseudo probe descriptors are missing");
-  for (const auto *Operand : FuncInfo->operands()) {
-    const auto *MD = cast<MDNode>(Operand);
-    auto GUID =
-        mdconst::dyn_extract<ConstantInt>(MD->getOperand(0))->getZExtValue();
-    auto Name = cast<MDString>(MD->getOperand(2))->getString();
-    // We may see pairs with same name but different GUIDs here in LTO mode, due
-    // to static same-named functions inlined from other modules into this
-    // module. Function profiles with the same name will be merged no matter
-    // whether they are collected on the same function. Therefore we just pick
-    // up the last <Name, GUID> pair here to represent the same-named function
-    // collection and all probes from the collection will be merged into a
-    // single profile eventually.
-    Names[Name] = GUID;
-  }
-
-  LLVM_DEBUG(dump());
-}
+#ifndef NDEBUG
+// Deprecated with ThinLTO. For some modules compiled with ThinLTO, certain
+// pseudo probe descriptors may not be imported, resulting in false positive
+// warning.
+static cl::opt<bool> VerifyGuidExistence(
+    "pseudo-probe-verify-guid-existence-in-desc",
+    cl::desc("Verify whether GUID exists in the .pseudo_probe_desc."),
+    cl::Hidden, cl::init(false));
+#endif
 
 void PseudoProbeHandler::emitPseudoProbe(uint64_t Guid, uint64_t Index,
                                          uint64_t Type, uint64_t Attr,
@@ -55,30 +46,57 @@ void PseudoProbeHandler::emitPseudoProbe(uint64_t Guid, uint64_t Index,
   SmallVector<InlineSite, 8> ReversedInlineStack;
   auto *InlinedAt = DebugLoc ? DebugLoc->getInlinedAt() : nullptr;
   while (InlinedAt) {
-    const DISubprogram *SP = InlinedAt->getScope()->getSubprogram();
-    // Use linkage name for C++ if possible.
-    auto Name = SP->getLinkageName();
-    if (Name.empty())
-      Name = SP->getName();
-    assert(Names.count(Name) && "Pseudo probe descriptor missing for function");
-    uint64_t CallerGuid = Names[Name];
+    auto Name = InlinedAt->getSubprogramLinkageName();
+    // Strip Coroutine suffixes from CoroSplit Pass, since pseudo probes are
+    // generated in an earlier stage.
+    Name = FunctionSamples::getCanonicalCoroFnName(Name);
+    // Use caching to avoid redundant md5 computation for build speed.
+    uint64_t &CallerGuid = NameGuidMap[Name];
+    if (!CallerGuid)
+      CallerGuid = Function::getGUIDAssumingExternalLinkage(Name);
+#ifndef NDEBUG
+    if (VerifyGuidExistence)
+      verifyGuidExistenceInDesc(CallerGuid, Name);
+#endif
     uint64_t CallerProbeId = PseudoProbeDwarfDiscriminator::extractProbeIndex(
         InlinedAt->getDiscriminator());
     ReversedInlineStack.emplace_back(CallerGuid, CallerProbeId);
     InlinedAt = InlinedAt->getInlinedAt();
   }
-
-  SmallVector<InlineSite, 8> InlineStack(ReversedInlineStack.rbegin(),
-                                         ReversedInlineStack.rend());
-  Asm->OutStreamer->emitPseudoProbe(Guid, Index, Type, Attr, InlineStack);
+  uint64_t Discriminator = 0;
+  // For now only block probes have FS discriminators. See
+  // MIRFSDiscriminator.cpp for more details.
+  if (EnableFSDiscriminator && DebugLoc &&
+      (Type == (uint64_t)PseudoProbeType::Block))
+    Discriminator = DebugLoc->getDiscriminator();
+  assert((EnableFSDiscriminator || Discriminator == 0) &&
+         "Discriminator should not be set in non-FSAFDO mode");
+  SmallVector<InlineSite, 8> InlineStack(llvm::reverse(ReversedInlineStack));
+  Asm->OutStreamer->emitPseudoProbe(Guid, Index, Type, Attr, Discriminator,
+                                    InlineStack, Asm->CurrentFnSym);
+#ifndef NDEBUG
+  if (VerifyGuidExistence)
+    verifyGuidExistenceInDesc(
+        Guid, DebugLoc ? DebugLoc->getSubprogramLinkageName() : "");
+#endif
 }
 
 #ifndef NDEBUG
-void PseudoProbeHandler::dump() const {
-  dbgs() << "\n=============================\n";
-  dbgs() << "\nFunction Name to GUID map:\n";
-  dbgs() << "\n=============================\n";
-  for (const auto &Item : Names)
-    dbgs() << "Func: " << Item.first << "   GUID: " << Item.second << "\n";
+void PseudoProbeHandler::verifyGuidExistenceInDesc(uint64_t Guid,
+                                                   StringRef FuncName) {
+  NamedMDNode *Desc = Asm->MF->getFunction().getParent()->getNamedMetadata(
+      PseudoProbeDescMetadataName);
+  assert(Desc && "pseudo probe does not exist");
+
+  // Keep DescGuidSet up to date.
+  for (size_t I = DescGuidSet.size(), E = Desc->getNumOperands(); I != E; ++I) {
+    const auto *MD = cast<MDNode>(Desc->getOperand(I));
+    auto *ID = mdconst::extract<ConstantInt>(MD->getOperand(0));
+    DescGuidSet.insert(ID->getZExtValue());
+  }
+
+  if (!DescGuidSet.contains(Guid))
+    WithColor::warning() << "Guid:" << Guid << " Name:" << FuncName
+                         << " does not exist in pseudo probe desc\n";
 }
 #endif

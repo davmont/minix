@@ -56,15 +56,17 @@ FunctionPass *llvm::createWebAssemblyOptimizeReturned() {
 }
 
 void OptimizeReturned::visitCallBase(CallBase &CB) {
-  for (unsigned I = 0, E = CB.getNumArgOperands(); I < E; ++I)
+  for (unsigned I = 0, E = CB.arg_size(); I < E; ++I)
     if (CB.paramHasAttr(I, Attribute::Returned)) {
       Value *Arg = CB.getArgOperand(I);
       // Ignore constants, globals, undef, etc.
       if (isa<Constant>(Arg))
         continue;
       // Like replaceDominatedUsesWith but using Instruction/Use dominance.
-      Arg->replaceUsesWithIf(&CB,
-                             [&](Use &U) { return DT->dominates(&CB, U); });
+      Arg->replaceUsesWithIf(&CB, [&](Use &U) {
+        auto *I = cast<Instruction>(U.getUser());
+        return !I->isLifetimeStartOrEnd() && DT->dominates(&CB, U);
+      });
     }
 }
 

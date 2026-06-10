@@ -11,36 +11,52 @@
 
 #include "OutputStyle.h"
 
-#include "llvm/ADT/Optional.h"
+#include "llvm/BinaryFormat/COFF.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
 #include "llvm/DebugInfo/MSF/MSFCommon.h"
 #include "llvm/DebugInfo/PDB/Native/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Native/RawConstants.h"
 #include "llvm/DebugInfo/PDB/PDBTypes.h"
+#include "llvm/Object/COFF.h"
 #include "llvm/ObjectYAML/CodeViewYAMLDebugSections.h"
 #include "llvm/ObjectYAML/CodeViewYAMLSymbols.h"
 #include "llvm/ObjectYAML/CodeViewYAMLTypes.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/YAMLTraits.h"
 
+#include <optional>
 #include <vector>
 
 namespace llvm {
-namespace codeview {
-class DebugStringTableSubsection;
-}
 namespace pdb {
 
 namespace yaml {
-struct SerializationContext;
 
 struct MSFHeaders {
   msf::SuperBlock SuperBlock;
   uint32_t NumDirectoryBlocks = 0;
   std::vector<uint32_t> DirectoryBlocks;
   uint32_t NumStreams = 0;
-  uint32_t FileSize = 0;
+  uint64_t FileSize = 0;
+};
+
+struct CoffSectionHeader {
+  CoffSectionHeader();
+  CoffSectionHeader(const object::coff_section &Section);
+
+  object::coff_section toCoffSection() const;
+
+  StringRef Name;
+  uint32_t VirtualSize = 0;
+  uint32_t VirtualAddress = 0;
+  uint32_t SizeOfRawData = 0;
+  uint32_t PointerToRawData = 0;
+  uint32_t PointerToRelocations = 0;
+  uint32_t PointerToLinenumbers = 0;
+  uint16_t NumberOfRelocations = 0;
+  uint16_t NumberOfLinenumbers = 0;
+  uint32_t Characteristics = 0;
 };
 
 struct StreamBlockList {
@@ -71,7 +87,7 @@ struct PdbDbiModuleInfo {
   StringRef Mod;
   std::vector<StringRef> SourceFiles;
   std::vector<CodeViewYAML::YAMLDebugSubsection> Subsections;
-  Optional<PdbModiStream> Modi;
+  std::optional<PdbModiStream> Modi;
 };
 
 struct PdbDbiStream {
@@ -84,6 +100,8 @@ struct PdbDbiStream {
   PDB_Machine MachineType = PDB_Machine::x86;
 
   std::vector<PdbDbiModuleInfo> ModInfos;
+  COFF::header FakeHeader;
+  std::vector<CoffSectionHeader> SectionHeaders;
 };
 
 struct PdbTpiStream {
@@ -98,16 +116,16 @@ struct PdbPublicsStream {
 struct PdbObject {
   explicit PdbObject(BumpPtrAllocator &Allocator) : Allocator(Allocator) {}
 
-  Optional<MSFHeaders> Headers;
-  Optional<std::vector<uint32_t>> StreamSizes;
-  Optional<std::vector<StreamBlockList>> StreamMap;
-  Optional<PdbInfoStream> PdbStream;
-  Optional<PdbDbiStream> DbiStream;
-  Optional<PdbTpiStream> TpiStream;
-  Optional<PdbTpiStream> IpiStream;
-  Optional<PdbPublicsStream> PublicsStream;
+  std::optional<MSFHeaders> Headers;
+  std::optional<std::vector<uint32_t>> StreamSizes;
+  std::optional<std::vector<StreamBlockList>> StreamMap;
+  std::optional<PdbInfoStream> PdbStream;
+  std::optional<PdbDbiStream> DbiStream;
+  std::optional<PdbTpiStream> TpiStream;
+  std::optional<PdbTpiStream> IpiStream;
+  std::optional<PdbPublicsStream> PublicsStream;
 
-  Optional<std::vector<StringRef>> StringTable;
+  std::optional<std::vector<StringRef>> StringTable;
 
   BumpPtrAllocator &Allocator;
 };
@@ -115,16 +133,17 @@ struct PdbObject {
 }
 }
 
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbObject)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::MSFHeaders)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(msf::SuperBlock)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::StreamBlockList)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbInfoStream)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbDbiStream)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbTpiStream)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbPublicsStream)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::NamedStreamMapping)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbModiStream)
-LLVM_YAML_DECLARE_MAPPING_TRAITS(pdb::yaml::PdbDbiModuleInfo)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::CoffSectionHeader)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbObject)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::MSFHeaders)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(msf::SuperBlock)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::StreamBlockList)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbInfoStream)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbDbiStream)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbTpiStream)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbPublicsStream)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::NamedStreamMapping)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbModiStream)
+LLVM_YAML_DECLARE_MAPPING_TRAITS_PRIVATE(pdb::yaml::PdbDbiModuleInfo)
 
 #endif // LLVM_TOOLS_LLVMPDBDUMP_PDBYAML_H

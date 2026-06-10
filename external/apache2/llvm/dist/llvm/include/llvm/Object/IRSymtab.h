@@ -26,9 +26,11 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/IR/Comdat.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/Object/SymbolicFile.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include <cassert>
@@ -80,6 +82,9 @@ struct Module {
 /// This is equivalent to an IR comdat.
 struct Comdat {
   Str Name;
+
+  // llvm::Comdat::SelectionKind
+  Word SelectionKind;
 };
 
 /// Contains the information needed by linkers for symbol resolution, as well as
@@ -132,7 +137,7 @@ struct Header {
   /// when the format changes, but it does not need to be incremented if a
   /// change to LLVM would cause it to create a different symbol table.
   Word Version;
-  enum { kCurrentVersion = 2 };
+  enum { kCurrentVersion = 3 };
 
   /// The producer's version string (LLVM_VERSION_STRING " " LLVM_REVISION).
   /// Consumers should rebuild the symbol table from IR if the producer's
@@ -158,14 +163,16 @@ struct Header {
 
 /// Fills in Symtab and StrtabBuilder with a valid symbol and string table for
 /// Mods.
-Error build(ArrayRef<Module *> Mods, SmallVector<char, 0> &Symtab,
-            StringTableBuilder &StrtabBuilder, BumpPtrAllocator &Alloc);
+LLVM_ABI Error build(ArrayRef<Module *> Mods, SmallVector<char, 0> &Symtab,
+                     StringTableBuilder &StrtabBuilder,
+                     BumpPtrAllocator &Alloc);
 
 /// This represents a symbol that has been read from a storage::Symbol and
 /// possibly a storage::Uncommon.
 struct Symbol {
   // Copied from storage::Symbol.
-  StringRef Name, IRName;
+  mutable StringRef Name;
+  StringRef IRName;
   int ComdatIndex;
   uint32_t Flags;
 
@@ -280,11 +287,13 @@ public:
   StringRef getSourceFileName() const { return str(header().SourceFileName); }
 
   /// Returns a table with all the comdats used by this file.
-  std::vector<StringRef> getComdatTable() const {
-    std::vector<StringRef> ComdatTable;
+  std::vector<std::pair<StringRef, llvm::Comdat::SelectionKind>>
+  getComdatTable() const {
+    std::vector<std::pair<StringRef, llvm::Comdat::SelectionKind>> ComdatTable;
     ComdatTable.reserve(Comdats.size());
     for (auto C : Comdats)
-      ComdatTable.push_back(str(C.Name));
+      ComdatTable.push_back({str(C.Name), llvm::Comdat::SelectionKind(
+                                              uint32_t(C.SelectionKind))});
     return ComdatTable;
   }
 
@@ -366,7 +375,7 @@ struct FileContents {
 };
 
 /// Reads the contents of a bitcode file, creating its irsymtab if necessary.
-Expected<FileContents> readBitcode(const BitcodeFileContents &BFC);
+LLVM_ABI Expected<FileContents> readBitcode(const BitcodeFileContents &BFC);
 
 } // end namespace irsymtab
 } // end namespace llvm

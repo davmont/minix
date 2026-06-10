@@ -15,6 +15,14 @@
 
 namespace llvm {
 
+class ELFObjectWriter;
+class MCContext;
+class MCFragment;
+class MCObjectWriter;
+class MCSection;
+class MCSubtargetInfo;
+class MCSymbol;
+class MCSymbolRefExpr;
 class MCAsmBackend;
 class MCCodeEmitter;
 class MCExpr;
@@ -31,78 +39,120 @@ public:
   /// state management
   void reset() override {
     SeenIdent = false;
-    BundleGroups.clear();
     MCObjectStreamer::reset();
   }
+
+  ELFObjectWriter &getWriter();
 
   /// \name MCStreamer Interface
   /// @{
 
-  void InitSections(bool NoExecStack) override;
-  void changeSection(MCSection *Section, const MCExpr *Subsection) override;
+  void initSections(bool NoExecStack, const MCSubtargetInfo &STI) override;
+  void changeSection(MCSection *Section, uint32_t Subsection = 0) override;
   void emitLabel(MCSymbol *Symbol, SMLoc Loc = SMLoc()) override;
-  void emitLabelAtPos(MCSymbol *Symbol, SMLoc Loc, MCFragment *F,
+  void emitLabelAtPos(MCSymbol *Symbol, SMLoc Loc, MCFragment &F,
                       uint64_t Offset) override;
-  void emitAssemblerFlag(MCAssemblerFlag Flag) override;
-  void emitThumbFunc(MCSymbol *Func) override;
-  void emitWeakReference(MCSymbol *Alias, const MCSymbol *Symbol) override;
+  void emitWeakReference(MCSymbol *Alias, const MCSymbol *Target) override;
   bool emitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) override;
-  void emitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) override;
   void emitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
-                        unsigned ByteAlignment) override;
+                        Align ByteAlignment) override;
 
   void emitELFSize(MCSymbol *Symbol, const MCExpr *Value) override;
   void emitELFSymverDirective(const MCSymbol *OriginalSym, StringRef Name,
                               bool KeepOriginalSym) override;
 
   void emitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
-                             unsigned ByteAlignment) override;
-
-  void emitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
-                    uint64_t Size = 0, unsigned ByteAlignment = 0,
-                    SMLoc L = SMLoc()) override;
-  void emitTBSSSymbol(MCSection *Section, MCSymbol *Symbol, uint64_t Size,
-                      unsigned ByteAlignment = 0) override;
-  void emitValueImpl(const MCExpr *Value, unsigned Size,
-                     SMLoc Loc = SMLoc()) override;
+                             Align ByteAlignment) override;
 
   void emitIdent(StringRef IdentString) override;
-
-  void emitValueToAlignment(unsigned, int64_t, unsigned, unsigned) override;
 
   void emitCGProfileEntry(const MCSymbolRefExpr *From,
                           const MCSymbolRefExpr *To, uint64_t Count) override;
 
-  void finishImpl() override;
+  // This is final. Override MCTargetStreamer::finish instead for
+  // target-specific code.
+  void finishImpl() final;
 
-  void emitBundleAlignMode(unsigned AlignPow2) override;
-  void emitBundleLock(bool AlignToEnd) override;
-  void emitBundleUnlock() override;
+  /// ELF object attributes section emission support
+  struct AttributeItem {
+    // This structure holds all attributes, accounting for their string /
+    // numeric value, so we can later emit them in declaration order, keeping
+    // all in the same vector.
+    enum Types {
+      HiddenAttribute = 0,
+      NumericAttribute,
+      TextAttribute,
+      NumericAndTextAttributes
+    } Type;
+    unsigned Tag;
+    unsigned IntValue;
+    std::string StringValue;
+    AttributeItem(Types Ty, unsigned Tg, unsigned IV, std::string SV)
+        : Type(Ty), Tag(Tg), IntValue(IV), StringValue(std::move(SV)) {}
+  };
+
+  /// ELF object attributes subsection support
+  struct AttributeSubSection {
+    bool IsActive;
+    StringRef VendorName;
+    unsigned IsOptional;
+    unsigned ParameterType;
+    SmallVector<AttributeItem, 64> Content;
+  };
+
+  // Attributes that are added and managed entirely by target.
+  SmallVector<AttributeItem, 64> Contents;
+  void setAttributeItem(unsigned Attribute, unsigned Value,
+                        bool OverwriteExisting);
+  void setAttributeItem(unsigned Attribute, StringRef Value,
+                        bool OverwriteExisting);
+  void setAttributeItems(unsigned Attribute, unsigned IntValue,
+                         StringRef StringValue, bool OverwriteExisting);
+  void emitAttributesSection(StringRef Vendor, const Twine &Section,
+                             unsigned Type, MCSection *&AttributeSection) {
+    createAttributesSection(Vendor, Section, Type, AttributeSection, Contents);
+  }
+  void
+  emitAttributesSection(MCSection *&AttributeSection, const Twine &Section,
+                        unsigned Type,
+                        SmallVector<AttributeSubSection, 64> &SubSectionVec) {
+    createAttributesWithSubsection(AttributeSection, Section, Type,
+                                   SubSectionVec);
+  }
 
 private:
-  bool isBundleLocked() const;
-  void emitInstToFragment(const MCInst &Inst, const MCSubtargetInfo &) override;
-  void emitInstToData(const MCInst &Inst, const MCSubtargetInfo &) override;
+  AttributeItem *getAttributeItem(unsigned Attribute);
+  size_t calculateContentSize(SmallVector<AttributeItem, 64> &AttrsVec) const;
+  void createAttributesSection(StringRef Vendor, const Twine &Section,
+                               unsigned Type, MCSection *&AttributeSection,
+                               SmallVector<AttributeItem, 64> &AttrsVec);
+  void createAttributesWithSubsection(
+      MCSection *&AttributeSection, const Twine &Section, unsigned Type,
+      SmallVector<AttributeSubSection, 64> &SubSectionVec);
 
-  void fixSymbolsInTLSFixups(const MCExpr *expr);
-  void finalizeCGProfileEntry(const MCSymbolRefExpr *&S);
+  // GNU attributes that will get emitted at the end of the asm file.
+  SmallVector<AttributeItem, 64> GNUAttributes;
+
+public:
+  void emitGNUAttribute(unsigned Tag, unsigned Value) override {
+    AttributeItem Item = {AttributeItem::NumericAttribute, Tag, Value,
+                          std::string(StringRef(""))};
+    GNUAttributes.push_back(Item);
+  }
+
+private:
+  void finalizeCGProfileEntry(const MCSymbolRefExpr *Sym, uint64_t Offset,
+                              const MCSymbolRefExpr *&S);
   void finalizeCGProfile();
 
-  /// Merge the content of the fragment \p EF into the fragment \p DF.
-  void mergeFragment(MCDataFragment *, MCDataFragment *);
-
   bool SeenIdent = false;
-
-  /// BundleGroups - The stack of fragments holding the bundle-locked
-  /// instructions.
-  SmallVector<MCDataFragment *, 4> BundleGroups;
 };
 
 MCELFStreamer *createARMELFStreamer(MCContext &Context,
                                     std::unique_ptr<MCAsmBackend> TAB,
                                     std::unique_ptr<MCObjectWriter> OW,
                                     std::unique_ptr<MCCodeEmitter> Emitter,
-                                    bool RelaxAll, bool IsThumb, bool IsAndroid);
+                                    bool IsThumb, bool IsAndroid);
 
 } // end namespace llvm
 

@@ -32,26 +32,20 @@
 namespace llvm {
 class AttrBuilder;
 class Constant;
-class DataLayout;
-class Module;
+class ConstantInt;
 class Function;
 class FunctionType;
 class Type;
 }
 
 namespace clang {
-class ASTContext;
 class CXXConstructorDecl;
 class CXXDestructorDecl;
 class CXXRecordDecl;
 class CXXMethodDecl;
-class CodeGenOptions;
-class CoverageSourceInfo;
-class DiagnosticsEngine;
-class HeaderSearchOptions;
+class GlobalDecl;
 class ObjCMethodDecl;
 class ObjCProtocolDecl;
-class PreprocessorOptions;
 
 namespace CodeGen {
 class CGFunctionInfo;
@@ -82,11 +76,25 @@ const CGFunctionInfo &arrangeCXXMethodType(CodeGenModule &CGM,
                                            const FunctionProtoType *FTP,
                                            const CXXMethodDecl *MD);
 
-const CGFunctionInfo &arrangeFreeFunctionCall(CodeGenModule &CGM,
-                                              CanQualType returnType,
-                                              ArrayRef<CanQualType> argTypes,
-                                              FunctionType::ExtInfo info,
-                                              RequiredArgs args);
+const CGFunctionInfo &
+arrangeCXXMethodCall(CodeGenModule &CGM, CanQualType returnType,
+                     ArrayRef<CanQualType> argTypes, FunctionType::ExtInfo info,
+                     ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
+                     RequiredArgs args);
+
+const CGFunctionInfo &arrangeFreeFunctionCall(
+    CodeGenModule &CGM, CanQualType returnType, ArrayRef<CanQualType> argTypes,
+    FunctionType::ExtInfo info,
+    ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
+    RequiredArgs args);
+
+// An overload with an empty `paramInfos`
+inline const CGFunctionInfo &
+arrangeFreeFunctionCall(CodeGenModule &CGM, CanQualType returnType,
+                        ArrayRef<CanQualType> argTypes,
+                        FunctionType::ExtInfo info, RequiredArgs args) {
+  return arrangeFreeFunctionCall(CGM, returnType, argTypes, info, {}, args);
+}
 
 /// Returns the implicit arguments to add to a complete, non-delegating C++
 /// constructor call.
@@ -111,6 +119,19 @@ llvm::Type *convertTypeForMemory(CodeGenModule &CGM, QualType T);
 /// be a field in RD directly (i.e. not an inherited field).
 unsigned getLLVMFieldNumber(CodeGenModule &CGM,
                             const RecordDecl *RD, const FieldDecl *FD);
+
+/// Return a declaration discriminator for the given global decl.
+uint16_t getPointerAuthDeclDiscriminator(CodeGenModule &CGM, GlobalDecl GD);
+
+/// Return a type discriminator for the given function type.
+uint16_t getPointerAuthTypeDiscriminator(CodeGenModule &CGM,
+                                         QualType FunctionType);
+
+/// Return a signed constant pointer.
+llvm::Constant *getConstantSignedPointer(CodeGenModule &CGM,
+                                         llvm::Constant *Pointer, unsigned Key,
+                                         llvm::Constant *StorageAddress,
+                                         llvm::ConstantInt *OtherDiscriminator);
 
 /// Given the language and code-generation options that Clang was configured
 /// with, set the default LLVM IR attributes for a function definition.

@@ -16,10 +16,13 @@
 #define LLVM_IR_COMDAT_H
 
 #include "llvm-c/Types.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/CBindingWrapping.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
+class GlobalObject;
 class raw_ostream;
 class StringRef;
 template <typename ValueTy> class StringMapEntry;
@@ -31,30 +34,36 @@ template <typename ValueTy> class StringMapEntry;
 class Comdat {
 public:
   enum SelectionKind {
-    Any,          ///< The linker may choose any COMDAT.
-    ExactMatch,   ///< The data referenced by the COMDAT must be the same.
-    Largest,      ///< The linker will choose the largest COMDAT.
-    NoDuplicates, ///< No other Module may specify this COMDAT.
-    SameSize,     ///< The data referenced by the COMDAT must be the same size.
+    Any,           ///< The linker may choose any COMDAT.
+    ExactMatch,    ///< The data referenced by the COMDAT must be the same.
+    Largest,       ///< The linker will choose the largest COMDAT.
+    NoDeduplicate, ///< No deduplication is performed.
+    SameSize,      ///< The data referenced by the COMDAT must be the same size.
   };
 
   Comdat(const Comdat &) = delete;
-  Comdat(Comdat &&C);
+  LLVM_ABI Comdat(Comdat &&C);
 
   SelectionKind getSelectionKind() const { return SK; }
   void setSelectionKind(SelectionKind Val) { SK = Val; }
-  StringRef getName() const;
-  void print(raw_ostream &OS, bool IsForDebug = false) const;
-  void dump() const;
+  LLVM_ABI StringRef getName() const;
+  LLVM_ABI void print(raw_ostream &OS, bool IsForDebug = false) const;
+  LLVM_ABI void dump() const;
+  const SmallPtrSetImpl<GlobalObject *> &getUsers() const { return Users; }
 
 private:
   friend class Module;
+  friend class GlobalObject;
 
   Comdat();
+  void addUser(GlobalObject *GO);
+  void removeUser(GlobalObject *GO);
 
   // Points to the map in Module.
   StringMapEntry<Comdat> *Name = nullptr;
   SelectionKind SK = Any;
+  // Globals using this comdat.
+  SmallPtrSet<GlobalObject *, 2> Users;
 };
 
 // Create wrappers for C Binding types (see CBindingWrapping.h).

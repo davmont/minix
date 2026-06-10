@@ -1,5 +1,7 @@
 import("//llvm/tools/binutils_symlinks.gni")
+import("//llvm/tools/cctools_symlinks.gni")
 import("//llvm/utils/TableGen/tablegen.gni")
+import("//llvm/utils/gn/build/driver_executable.gni")
 import("//llvm/utils/gn/build/symlink_or_copy.gni")
 
 tablegen("ObjdumpOpts") {
@@ -15,6 +17,9 @@ tablegen("OtoolOpts") {
 symlinks = [ "llvm-otool" ]
 if (llvm_install_binutils_symlinks) {
   symlinks += [ "objdump" ]
+}
+if (llvm_install_cctools_symlinks) {
+  symlinks += [ "otool" ]
 }
 
 foreach(target, symlinks) {
@@ -33,15 +38,17 @@ group("symlinks") {
   }
 }
 
-executable("llvm-objdump") {
+driver_executable("llvm-objdump") {
   deps = [
     ":ObjdumpOpts",
     ":OtoolOpts",
     "//llvm/include/llvm/Config:config",
     "//llvm/lib/CodeGen",
     "//llvm/lib/DebugInfo/DWARF",
+    "//llvm/lib/DebugInfo/DWARF/LowLevel",
     "//llvm/lib/DebugInfo/PDB",
     "//llvm/lib/DebugInfo/Symbolize",
+    "//llvm/lib/Debuginfod",
     "//llvm/lib/Demangle",
     "//llvm/lib/MC",
     "//llvm/lib/MC/MCDisassembler",
@@ -51,12 +58,15 @@ executable("llvm-objdump") {
     "//llvm/lib/Target:AllTargetsDescs",
     "//llvm/lib/Target:AllTargetsDisassemblers",
     "//llvm/lib/Target:AllTargetsInfos",
+    "//llvm/lib/TargetParser",
     "//llvm/utils/gn/build/libs/xar",
   ]
   sources = [
     "COFFDump.cpp",
+    "DXContainerDump.cpp",
     "ELFDump.cpp",
     "MachODump.cpp",
+    "OffloadDump.cpp",
     "SourcePrinter.cpp",
     "WasmDump.cpp",
     "XCOFFDump.cpp",

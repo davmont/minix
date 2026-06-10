@@ -14,37 +14,23 @@
 #define LLVM_ANALYSIS_MEMORYDEPENDENCEANALYSIS_H
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PointerEmbeddedInt.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerSumType.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/MemoryLocation.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/Metadata.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/PredIteratorCache.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/ErrorHandling.h"
-#include <cassert>
-#include <cstdint>
-#include <utility>
-#include <vector>
+#include <optional>
 
 namespace llvm {
 
-class AAResults;
 class AssumptionCache;
-class BatchAAResults;
 class DominatorTree;
-class Function;
-class Instruction;
-class LoadInst;
 class PHITransAddr;
-class TargetLibraryInfo;
-class PhiValues;
-class Value;
 
 /// A memory dependence query can return one of three different answers.
 class MemDepResult {
@@ -90,6 +76,11 @@ class MemDepResult {
     ///      calls or memory use intrinsics with identical callees and no
     ///      intervening clobbers.  No validation is done that the operands to
     ///      the calls are the same.
+    ///   4. For loads and stores, this could be a select instruction that
+    ///      defines pointer to this memory location. In this case, users can
+    ///      find non-clobbered Defs for both select values that are reaching
+    //       the desired memory location (there is still a guarantee that there
+    //       are no clobbers between analyzed memory location and select).
     Def,
 
     /// This marker indicates that the query has no known dependency in the
@@ -155,6 +146,9 @@ public:
   /// definition dependency.
   bool isDef() const { return Value.is<Def>(); }
 
+  /// Tests if this MemDepResult represents a valid local query (Clobber/Def).
+  bool isLocal() const { return isClobber() || isDef(); }
+
   /// Tests if this MemDepResult represents a query that is transparent to the
   /// start of the block, but where a non-local hasn't been done.
   bool isNonLocal() const {
@@ -213,11 +207,11 @@ class NonLocalDepEntry {
   MemDepResult Result;
 
 public:
-  NonLocalDepEntry(BasicBlock *bb, MemDepResult result)
-      : BB(bb), Result(result) {}
+  NonLocalDepEntry(BasicBlock *BB, MemDepResult Result)
+      : BB(BB), Result(Result) {}
 
   // This is used for searches.
-  NonLocalDepEntry(BasicBlock *bb) : BB(bb) {}
+  NonLocalDepEntry(BasicBlock *BB) : BB(BB) {}
 
   // BB is the sort key, it can't be changed.
   BasicBlock *getBB() const { return BB; }
@@ -238,8 +232,8 @@ class NonLocalDepResult {
   Value *Address;
 
 public:
-  NonLocalDepResult(BasicBlock *bb, MemDepResult result, Value *address)
-      : Entry(bb, result), Address(address) {}
+  NonLocalDepResult(BasicBlock *BB, MemDepResult Result, Value *Address)
+      : Entry(BB, Result), Address(Address) {}
 
   // BB is the sort key, it can't be changed.
   BasicBlock *getBB() const { return Entry.getBB(); }
@@ -344,7 +338,7 @@ private:
   // A map from instructions to their non-local dependencies.
   using NonLocalDepMapType = DenseMap<Instruction *, PerInstNLInfo>;
 
-  NonLocalDepMapType NonLocalDeps;
+  NonLocalDepMapType NonLocalDepsMap;
 
   // A reverse mapping from dependencies to the dependees.  This is
   // used when removing instructions to keep the cache coherent.
@@ -360,8 +354,8 @@ private:
   AssumptionCache &AC;
   const TargetLibraryInfo &TLI;
   DominatorTree &DT;
-  PhiValues &PV;
   PredIteratorCache PredCache;
+  EarliestEscapeAnalysis EEA;
 
   unsigned DefaultBlockScanLimit;
 
@@ -372,8 +366,8 @@ private:
 public:
   MemoryDependenceResults(AAResults &AA, AssumptionCache &AC,
                           const TargetLibraryInfo &TLI, DominatorTree &DT,
-                          PhiValues &PV, unsigned DefaultBlockScanLimit)
-      : AA(AA), AC(AC), TLI(TLI), DT(DT), PV(PV),
+                          unsigned DefaultBlockScanLimit)
+      : AA(AA), AC(AC), TLI(TLI), DT(DT), EEA(DT),
         DefaultBlockScanLimit(DefaultBlockScanLimit) {}
 
   /// Handle invalidation in the new PM.
@@ -482,11 +476,11 @@ public:
   void releaseMemory();
 
   /// Return the clobber offset to dependent instruction.
-  Optional<int32_t> getClobberOffset(LoadInst *DepInst) const {
+  std::optional<int32_t> getClobberOffset(LoadInst *DepInst) const {
     const auto Off = ClobberOffsets.find(DepInst);
     if (Off != ClobberOffsets.end())
       return Off->getSecond();
-    return None;
+    return std::nullopt;
   }
 
 private:
@@ -498,16 +492,16 @@ private:
                                    const MemoryLocation &Loc, bool isLoad,
                                    BasicBlock *BB,
                                    SmallVectorImpl<NonLocalDepResult> &Result,
-                                   DenseMap<BasicBlock *, Value *> &Visited,
+                                   SmallDenseMap<BasicBlock *, Value *, 16> &Visited,
                                    bool SkipFirstBlock = false,
                                    bool IsIncomplete = false);
-  MemDepResult GetNonLocalInfoForBlock(Instruction *QueryInst,
+  MemDepResult getNonLocalInfoForBlock(Instruction *QueryInst,
                                        const MemoryLocation &Loc, bool isLoad,
                                        BasicBlock *BB, NonLocalDepInfo *Cache,
                                        unsigned NumSortedEntries,
                                        BatchAAResults &BatchAA);
 
-  void RemoveCachedNonLocalPointerDependencies(ValueIsLoadPair P);
+  void removeCachedNonLocalPointerDependencies(ValueIsLoadPair P);
 
   void verifyRemoved(Instruction *Inst) const;
 };
@@ -536,7 +530,7 @@ public:
 /// A wrapper analysis pass for the legacy pass manager that exposes a \c
 /// MemoryDepnedenceResults instance.
 class MemoryDependenceWrapperPass : public FunctionPass {
-  Optional<MemoryDependenceResults> MemDep;
+  std::optional<MemoryDependenceResults> MemDep;
 
 public:
   static char ID;

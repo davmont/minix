@@ -10,17 +10,15 @@
 #ifndef __CLANG_OPENMP_DEVICE_FUNCTIONS_H__
 #define __CLANG_OPENMP_DEVICE_FUNCTIONS_H__
 
-#ifndef _OPENMP
-#error "This file is for OpenMP compilation only."
-#endif
-
-#pragma omp begin declare variant match(                                       \
-    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef __NVPTX__
+#pragma omp begin declare variant match(                                       \
+    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
+
+#pragma push_macro("__CUDA__")
 #define __CUDA__
 #define __OPENMP_NVPTX__
 
@@ -31,13 +29,35 @@ extern "C" {
 #include <__clang_cuda_device_functions.h>
 
 #undef __OPENMP_NVPTX__
-#undef __CUDA__
+#pragma pop_macro("__CUDA__")
+
+#pragma omp end declare variant
+#endif
+
+#ifdef __AMDGCN__
+#pragma omp begin declare variant match(device = {arch(amdgcn)})
+
+// Import types which will be used by __clang_hip_libdevice_declares.h
+#ifndef __cplusplus
+#include <stdint.h>
+#endif
+
+#define __OPENMP_AMDGCN__
+#pragma push_macro("__device__")
+#define __device__
+
+/// Include declarations for libdevice functions.
+#include <__clang_hip_libdevice_declares.h>
+
+#pragma pop_macro("__device__")
+#undef __OPENMP_AMDGCN__
+
+#pragma omp end declare variant
+#endif
 
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
-#pragma omp end declare variant
 
 // Ensure we make `_ZdlPv`, aka. `operator delete(void*)` available without the
 // need to `include <new>` in C++ mode.

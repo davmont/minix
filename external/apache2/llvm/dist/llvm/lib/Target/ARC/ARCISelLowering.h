@@ -24,36 +24,6 @@ namespace llvm {
 class ARCSubtarget;
 class ARCTargetMachine;
 
-namespace ARCISD {
-
-enum NodeType : unsigned {
-  // Start the numbering where the builtin ops and target ops leave off.
-  FIRST_NUMBER = ISD::BUILTIN_OP_END,
-
-  // Branch and link (call)
-  BL,
-
-  // Jump and link (indirect call)
-  JL,
-
-  // CMP
-  CMP,
-
-  // CMOV
-  CMOV,
-
-  // BRcc
-  BRcc,
-
-  // Global Address Wrapper
-  GAWRAPPER,
-
-  // return, (j_s [blink])
-  RET
-};
-
-} // end namespace ARCISD
-
 //===--------------------------------------------------------------------===//
 // TargetLowering Implementation
 //===--------------------------------------------------------------------===//
@@ -65,9 +35,6 @@ public:
   /// Provide custom lowering hooks for some operations.
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
-  /// This method returns the name of a target specific DAG node.
-  const char *getTargetNodeName(unsigned Opcode) const override;
-
   /// Return true if the addressing mode represented by AM is legal for this
   /// target, for a load/store of the specified type.
   bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
@@ -76,6 +43,9 @@ public:
 
 private:
   const ARCSubtarget &Subtarget;
+
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
 
   // Lower Operand helpers
   SDValue LowerCallArguments(SDValue Chain, CallingConv::ID CallConv,
@@ -109,7 +79,7 @@ private:
   bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                       bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &ArgsFlags,
-                      LLVMContext &Context) const override;
+                      LLVMContext &Context, const Type *RetTy) const override;
 
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 };

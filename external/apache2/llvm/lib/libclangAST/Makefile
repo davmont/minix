@@ -16,36 +16,69 @@ SRCS+=	APValue.cpp \
 	ASTImporterLookupTable.cpp \
 	ASTStructuralEquivalence.cpp \
 	ASTTypeTraits.cpp \
+	AttrDocTable.cpp \
 	AttrImpl.cpp \
+	Availability.cpp \
+	ByteCode/BitcastBuffer.cpp \
+	ByteCode/ByteCodeEmitter.cpp \
+	ByteCode/Compiler.cpp \
+	ByteCode/Context.cpp \
+	ByteCode/Descriptor.cpp \
+	ByteCode/Disasm.cpp \
+	ByteCode/DynamicAllocator.cpp \
+	ByteCode/EvalEmitter.cpp \
+	ByteCode/EvaluationResult.cpp \
+	ByteCode/Floating.cpp \
+	ByteCode/Function.cpp \
+	ByteCode/FunctionPointer.cpp \
+	ByteCode/InitMap.cpp \
+	ByteCode/Interp.cpp \
+	ByteCode/InterpBlock.cpp \
+	ByteCode/InterpBuiltin.cpp \
+	ByteCode/InterpBuiltinBitCast.cpp \
+	ByteCode/InterpFrame.cpp \
+	ByteCode/InterpShared.cpp \
+	ByteCode/InterpStack.cpp \
+	ByteCode/InterpState.cpp \
+	ByteCode/MemberPointer.cpp \
+	ByteCode/Pointer.cpp \
+	ByteCode/PrimType.cpp \
+	ByteCode/Program.cpp \
+	ByteCode/Record.cpp \
+	ByteCode/Source.cpp \
+	ByteCode/State.cpp \
+	CXXInheritance.cpp \
+	Comment.cpp \
 	CommentBriefParser.cpp \
 	CommentCommandTraits.cpp \
-	Comment.cpp \
 	CommentLexer.cpp \
 	CommentParser.cpp \
 	CommentSema.cpp \
 	ComparisonCategories.cpp \
 	ComputeDependence.cpp \
-	CXXInheritance.cpp \
 	DataCollection.cpp \
-	DeclarationName.cpp \
-	DeclBase.cpp \
 	Decl.cpp \
+	DeclBase.cpp \
 	DeclCXX.cpp \
 	DeclFriend.cpp \
 	DeclGroup.cpp \
 	DeclObjC.cpp \
+	DeclOpenACC.cpp \
 	DeclOpenMP.cpp \
 	DeclPrinter.cpp \
 	DeclTemplate.cpp \
+	DeclarationName.cpp \
+	DynamicRecursiveASTVisitor.cpp \
+	Expr.cpp \
+	ExprCXX.cpp \
 	ExprClassification.cpp \
 	ExprConcepts.cpp \
 	ExprConstant.cpp \
-	Expr.cpp \
-	ExprCXX.cpp \
 	ExprObjC.cpp \
 	ExternalASTMerger.cpp \
 	ExternalASTSource.cpp \
 	FormatString.cpp \
+	InferAlloc.cpp \
 	InheritViz.cpp \
 	ItaniumCXXABI.cpp \
 	ItaniumMangle.cpp \
@@ -53,24 +86,28 @@ SRCS+=	APValue.cpp \
 	Mangle.cpp \
 	MicrosoftCXXABI.cpp \
 	MicrosoftMangle.cpp \
-	NestedNameSpecifier.cpp \
 	NSAPI.cpp \
+	NestedNameSpecifier.cpp \
+	ODRDiagsEmitter.cpp \
 	ODRHash.cpp \
-	OpenMPClause.cpp \
 	OSLog.cpp \
-	ParentMapContext.cpp \
+	OpenACCClause.cpp \
+	OpenMPClause.cpp \
 	ParentMap.cpp \
+	ParentMapContext.cpp \
 	PrintfFormatString.cpp \
 	QualTypeNames.cpp \
+	Randstruct.cpp \
 	RawCommentList.cpp \
-	RecordLayoutBuilder.cpp \
 	RecordLayout.cpp \
+	RecordLayoutBuilder.cpp \
 	ScanfFormatString.cpp \
 	SelectorLocationsKind.cpp \
 	Stmt.cpp \
 	StmtCXX.cpp \
 	StmtIterator.cpp \
 	StmtObjC.cpp \
+	StmtOpenACC.cpp \
 	StmtOpenMP.cpp \
 	StmtPrinter.cpp \
 	StmtProfile.cpp \
@@ -81,8 +118,8 @@ SRCS+=	APValue.cpp \
 	Type.cpp \
 	TypeLoc.cpp \
 	TypePrinter.cpp \
-	VTableBuilder.cpp \
-	VTTBuilder.cpp
+	VTTBuilder.cpp \
+	VTableBuilder.cpp
 
 .PATH: ${CLANG_SRCDIR}/lib/AST/Interp
 

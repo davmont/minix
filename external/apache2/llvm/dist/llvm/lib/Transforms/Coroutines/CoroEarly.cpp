@@ -8,10 +8,12 @@
 
 #include "llvm/Transforms/Coroutines/CoroEarly.h"
 #include "CoroInternal.h"
+#include "llvm/IR/DIBuilder.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Pass.h"
+#include "llvm/Transforms/Coroutines/CoroShape.h"
 
 using namespace llvm;
 
@@ -28,16 +30,15 @@ class Lowerer : public coro::LowererBase {
   void lowerCoroPromise(CoroPromiseInst *Intrin);
   void lowerCoroDone(IntrinsicInst *II);
   void lowerCoroNoop(IntrinsicInst *II);
+  void hidePromiseAlloca(CoroIdInst *CoroId, CoroBeginInst *CoroBegin);
 
 public:
   Lowerer(Module &M)
       : LowererBase(M), Builder(Context),
-        AnyResumeFnPtrTy(FunctionType::get(Type::getVoidTy(Context), Int8Ptr,
-                                           /*isVarArg=*/false)
-                             ->getPointerTo()) {}
-  bool lowerEarlyIntrinsics(Function &F);
+        AnyResumeFnPtrTy(PointerType::getUnqual(Context)) {}
+  void lowerEarlyIntrinsics(Function &F);
 };
-}
+} // namespace
 
 // Replace a direct call to coro.resume or coro.destroy with an indirect call to
 // an address returned by coro.subfn.addr intrinsic. This is done so that
@@ -89,15 +90,32 @@ void Lowerer::lowerCoroDone(IntrinsicInst *II) {
   static_assert(coro::Shape::SwitchFieldIndex::Resume == 0,
                 "resume function not at offset zero");
   auto *FrameTy = Int8Ptr;
-  PointerType *FramePtrTy = FrameTy->getPointerTo();
 
   Builder.SetInsertPoint(II);
-  auto *BCI = Builder.CreateBitCast(Operand, FramePtrTy);
-  auto *Load = Builder.CreateLoad(FrameTy, BCI);
+  auto *Load = Builder.CreateLoad(FrameTy, Operand);
   auto *Cond = Builder.CreateICmpEQ(Load, NullPtr);
 
   II->replaceAllUsesWith(Cond);
   II->eraseFromParent();
+}
+
+static void buildDebugInfoForNoopResumeDestroyFunc(Function *NoopFn) {
+  Module &M = *NoopFn->getParent();
+  if (M.debug_compile_units().empty())
+     return;
+
+  DICompileUnit *CU = *M.debug_compile_units_begin();
+  DIBuilder DB(M, /*AllowUnresolved*/ false, CU);
+  std::array<Metadata *, 2> Params{nullptr, nullptr};
+  auto *SubroutineType =
+      DB.createSubroutineType(DB.getOrCreateTypeArray(Params));
+  StringRef Name = NoopFn->getName();
+  auto *SP = DB.createFunction(
+      CU, /*Name=*/Name, /*LinkageName=*/Name, /*File=*/ CU->getFile(),
+      /*LineNo=*/0, SubroutineType, /*ScopeLine=*/0, DINode::FlagArtificial,
+      DISubprogram::SPFlagDefinition);
+  NoopFn->setSubprogram(SP);
+  DB.finalize();
 }
 
 void Lowerer::lowerCoroNoop(IntrinsicInst *II) {
@@ -106,18 +124,19 @@ void Lowerer::lowerCoroNoop(IntrinsicInst *II) {
     Module &M = *II->getModule();
 
     // Create a noop.frame struct type.
-    StructType *FrameTy = StructType::create(C, "NoopCoro.Frame");
-    auto *FramePtrTy = FrameTy->getPointerTo();
-    auto *FnTy = FunctionType::get(Type::getVoidTy(C), FramePtrTy,
+    auto *FnTy = FunctionType::get(Type::getVoidTy(C), Builder.getPtrTy(0),
                                    /*isVarArg=*/false);
-    auto *FnPtrTy = FnTy->getPointerTo();
-    FrameTy->setBody({FnPtrTy, FnPtrTy});
+    auto *FnPtrTy = Builder.getPtrTy(0);
+    StructType *FrameTy =
+        StructType::create({FnPtrTy, FnPtrTy}, "NoopCoro.Frame");
 
     // Create a Noop function that does nothing.
-    Function *NoopFn =
-        Function::Create(FnTy, GlobalValue::LinkageTypes::PrivateLinkage,
-                         "NoopCoro.ResumeDestroy", &M);
+    Function *NoopFn = Function::createWithDefaultAttr(
+        FnTy, GlobalValue::LinkageTypes::InternalLinkage,
+        M.getDataLayout().getProgramAddressSpace(), "__NoopCoro_ResumeDestroy",
+        &M);
     NoopFn->setCallingConv(CallingConv::Fast);
+    buildDebugInfoForNoopResumeDestroyFunc(NoopFn);
     auto *Entry = BasicBlock::Create(C, "entry", NoopFn);
     ReturnInst::Create(C, Entry);
 
@@ -127,12 +146,41 @@ void Lowerer::lowerCoroNoop(IntrinsicInst *II) {
     NoopCoro = new GlobalVariable(M, NoopCoroConst->getType(), /*isConstant=*/true,
                                 GlobalVariable::PrivateLinkage, NoopCoroConst,
                                 "NoopCoro.Frame.Const");
+    cast<GlobalVariable>(NoopCoro)->setNoSanitizeMetadata();
   }
 
   Builder.SetInsertPoint(II);
   auto *NoopCoroVoidPtr = Builder.CreateBitCast(NoopCoro, Int8Ptr);
   II->replaceAllUsesWith(NoopCoroVoidPtr);
   II->eraseFromParent();
+}
+
+// Later middle-end passes will assume promise alloca dead after coroutine
+// suspend, leading to misoptimizations. We hide promise alloca using
+// coro.promise and will lower it back to alloca at CoroSplit.
+void Lowerer::hidePromiseAlloca(CoroIdInst *CoroId, CoroBeginInst *CoroBegin) {
+  auto *PA = CoroId->getPromise();
+  if (!PA || !CoroBegin)
+    return;
+  Builder.SetInsertPoint(*CoroBegin->getInsertionPointAfterDef());
+
+  auto *Alignment = Builder.getInt32(PA->getAlign().value());
+  auto *FromPromise = Builder.getInt1(false);
+  SmallVector<Value *, 3> Arg{CoroBegin, Alignment, FromPromise};
+  auto *PI = Builder.CreateIntrinsic(
+      Builder.getPtrTy(), Intrinsic::coro_promise, Arg, {}, "promise.addr");
+  PI->setCannotDuplicate();
+  // Remove lifetime markers, as these are only allowed on allocas.
+  for (User *U : make_early_inc_range(PA->users())) {
+    auto *I = cast<Instruction>(U);
+    if (I->isLifetimeStartOrEnd())
+      I->eraseFromParent();
+  }
+  PA->replaceUsesWithIf(PI, [CoroId](Use &U) {
+    bool IsBitcast = U == U.getUser()->stripPointerCasts();
+    bool IsCoroId = U.getUser() == CoroId;
+    return !IsBitcast && !IsCoroId;
+  });
 }
 
 // Prior to CoroSplit, calls to coro.begin needs to be marked as NoDuplicate,
@@ -145,16 +193,26 @@ static void setCannotDuplicate(CoroIdInst *CoroId) {
       CB->setCannotDuplicate();
 }
 
-bool Lowerer::lowerEarlyIntrinsics(Function &F) {
-  bool Changed = false;
+void Lowerer::lowerEarlyIntrinsics(Function &F) {
   CoroIdInst *CoroId = nullptr;
+  CoroBeginInst *CoroBegin = nullptr;
   SmallVector<CoroFreeInst *, 4> CoroFrees;
-  for (auto IB = inst_begin(F), IE = inst_end(F); IB != IE;) {
-    Instruction &I = *IB++;
-    if (auto *CB = dyn_cast<CallBase>(&I)) {
-      switch (CB->getIntrinsicID()) {
+  bool HasCoroSuspend = false;
+  for (Instruction &I : llvm::make_early_inc_range(instructions(F))) {
+    auto *CB = dyn_cast<CallBase>(&I);
+    if (!CB)
+      continue;
+
+    switch (CB->getIntrinsicID()) {
       default:
         continue;
+      case Intrinsic::coro_begin:
+      case Intrinsic::coro_begin_custom_abi:
+        if (CoroBegin)
+          report_fatal_error(
+              "coroutine should have exactly one defining @llvm.coro.begin");
+        CoroBegin = cast<CoroBeginInst>(&I);
+        break;
       case Intrinsic::coro_free:
         CoroFrees.push_back(cast<CoroFreeInst>(&I));
         break;
@@ -163,6 +221,7 @@ bool Lowerer::lowerEarlyIntrinsics(Function &F) {
         // pass expects that there is at most one final suspend point.
         if (cast<CoroSuspendInst>(&I)->isFinal())
           CB->setCannotDuplicate();
+        HasCoroSuspend = true;
         break;
       case Intrinsic::coro_end_async:
       case Intrinsic::coro_end:
@@ -175,11 +234,11 @@ bool Lowerer::lowerEarlyIntrinsics(Function &F) {
         lowerCoroNoop(cast<IntrinsicInst>(&I));
         break;
       case Intrinsic::coro_id:
-        // Mark a function that comes out of the frontend that has a coro.id
-        // with a coroutine attribute.
         if (auto *CII = cast<CoroIdInst>(&I)) {
           if (CII->getInfo().isPreSplit()) {
-            F.addFnAttr(CORO_PRESPLIT_ATTR, UNPREPARED_FOR_SPLIT);
+            assert(F.isPresplitCoroutine() &&
+                   "The frontend uses Switch-Resumed ABI should emit "
+                   "\"presplitcoroutine\" attribute for the coroutine.");
             setCannotDuplicate(CII);
             CII->setCoroutineSelf();
             CoroId = cast<CoroIdInst>(&I);
@@ -189,7 +248,7 @@ bool Lowerer::lowerEarlyIntrinsics(Function &F) {
       case Intrinsic::coro_id_retcon:
       case Intrinsic::coro_id_retcon_once:
       case Intrinsic::coro_id_async:
-        F.addFnAttr(CORO_PRESPLIT_ATTR, PREPARED_FOR_SPLIT);
+        F.setPresplitCoroutine();
         break;
       case Intrinsic::coro_resume:
         lowerResumeOrDestroy(*CB, CoroSubFnInst::ResumeIndex);
@@ -203,74 +262,47 @@ bool Lowerer::lowerEarlyIntrinsics(Function &F) {
       case Intrinsic::coro_done:
         lowerCoroDone(cast<IntrinsicInst>(&I));
         break;
-      }
-      Changed = true;
     }
   }
-  // Make sure that all CoroFree reference the coro.id intrinsic.
-  // Token type is not exposed through coroutine C/C++ builtins to plain C, so
-  // we allow specifying none and fixing it up here.
-  if (CoroId)
+
+  if (CoroId) {
+    // Make sure that all CoroFree reference the coro.id intrinsic.
+    // Token type is not exposed through coroutine C/C++ builtins to plain C, so
+    // we allow specifying none and fixing it up here.
     for (CoroFreeInst *CF : CoroFrees)
       CF->setArgOperand(0, CoroId);
-  return Changed;
+
+    hidePromiseAlloca(CoroId, CoroBegin);
+  }
+
+  // Coroutine suspention could potentially lead to any argument modified
+  // outside of the function, hence arguments should not have noalias
+  // attributes.
+  if (HasCoroSuspend)
+    for (Argument &A : F.args())
+      if (A.hasNoAliasAttr())
+        A.removeAttr(Attribute::NoAlias);
 }
 
 static bool declaresCoroEarlyIntrinsics(const Module &M) {
+  // coro_suspend omitted as it is overloaded.
   return coro::declaresIntrinsics(
-      M, {"llvm.coro.id", "llvm.coro.id.retcon", "llvm.coro.id.retcon.once",
-          "llvm.coro.id.async", "llvm.coro.destroy", "llvm.coro.done",
-          "llvm.coro.end", "llvm.coro.end.async", "llvm.coro.noop",
-          "llvm.coro.free", "llvm.coro.promise", "llvm.coro.resume",
-          "llvm.coro.suspend"});
+      M, {Intrinsic::coro_id, Intrinsic::coro_id_retcon,
+          Intrinsic::coro_id_retcon_once, Intrinsic::coro_id_async,
+          Intrinsic::coro_destroy, Intrinsic::coro_done, Intrinsic::coro_end,
+          Intrinsic::coro_end_async, Intrinsic::coro_noop, Intrinsic::coro_free,
+          Intrinsic::coro_promise, Intrinsic::coro_resume});
 }
 
-PreservedAnalyses CoroEarlyPass::run(Function &F, FunctionAnalysisManager &) {
-  Module &M = *F.getParent();
-  if (!declaresCoroEarlyIntrinsics(M) || !Lowerer(M).lowerEarlyIntrinsics(F))
+PreservedAnalyses CoroEarlyPass::run(Module &M, ModuleAnalysisManager &) {
+  if (!declaresCoroEarlyIntrinsics(M))
     return PreservedAnalyses::all();
+
+  Lowerer L(M);
+  for (auto &F : M)
+    L.lowerEarlyIntrinsics(F);
 
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
   return PA;
 }
-
-namespace {
-
-struct CoroEarlyLegacy : public FunctionPass {
-  static char ID; // Pass identification, replacement for typeid.
-  CoroEarlyLegacy() : FunctionPass(ID) {
-    initializeCoroEarlyLegacyPass(*PassRegistry::getPassRegistry());
-  }
-
-  std::unique_ptr<Lowerer> L;
-
-  // This pass has work to do only if we find intrinsics we are going to lower
-  // in the module.
-  bool doInitialization(Module &M) override {
-    if (declaresCoroEarlyIntrinsics(M))
-      L = std::make_unique<Lowerer>(M);
-    return false;
-  }
-
-  bool runOnFunction(Function &F) override {
-    if (!L)
-      return false;
-
-    return L->lowerEarlyIntrinsics(F);
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
-  }
-  StringRef getPassName() const override {
-    return "Lower early coroutine intrinsics";
-  }
-};
-}
-
-char CoroEarlyLegacy::ID = 0;
-INITIALIZE_PASS(CoroEarlyLegacy, "coro-early",
-                "Lower early coroutine intrinsics", false, false)
-
-Pass *llvm::createCoroEarlyLegacyPass() { return new CoroEarlyLegacy(); }

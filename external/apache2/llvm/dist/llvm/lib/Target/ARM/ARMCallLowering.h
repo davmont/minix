@@ -23,7 +23,6 @@
 namespace llvm {
 
 class ARMTargetLowering;
-class MachineFunction;
 class MachineInstrBuilder;
 class MachineIRBuilder;
 class Value;
@@ -42,6 +41,8 @@ public:
 
   bool lowerCall(MachineIRBuilder &MIRBuilder,
                  CallLoweringInfo &Info) const override;
+
+  bool enableBigEndian() const override;
 
 private:
   bool lowerReturnVal(MachineIRBuilder &MIRBuilder, const Value *Val,

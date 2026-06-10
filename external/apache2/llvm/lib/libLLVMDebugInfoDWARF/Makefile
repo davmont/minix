@@ -9,13 +9,13 @@ LIB=	LLVMDebugInfoDWARF
 SRCS+=	DWARFAbbreviationDeclaration.cpp \
 	DWARFAcceleratorTable.cpp \
 	DWARFAddressRange.cpp \
+	DWARFCFIPrinter.cpp \
 	DWARFCompileUnit.cpp \
 	DWARFContext.cpp \
-	DWARFDataExtractor.cpp \
 	DWARFDebugAbbrev.cpp \
 	DWARFDebugAddr.cpp \
-	DWARFDebugAranges.cpp \
 	DWARFDebugArangeSet.cpp \
+	DWARFDebugAranges.cpp \
 	DWARFDebugFrame.cpp \
 	DWARFDebugInfoEntry.cpp \
 	DWARFDebugLine.cpp \
@@ -25,7 +25,7 @@ SRCS+=	DWARFAbbreviationDeclaration.cpp \
 	DWARFDebugRangeList.cpp \
 	DWARFDebugRnglists.cpp \
 	DWARFDie.cpp \
-	DWARFExpression.cpp \
+	DWARFExpressionPrinter.cpp \
 	DWARFFormValue.cpp \
 	DWARFGdbIndex.cpp \
 	DWARFListTable.cpp \
@@ -33,7 +33,11 @@ SRCS+=	DWARFAbbreviationDeclaration.cpp \
 	DWARFTypeUnit.cpp \
 	DWARFUnit.cpp \
 	DWARFUnitIndex.cpp \
-	DWARFVerifier.cpp
+	DWARFUnwindTablePrinter.cpp \
+	DWARFVerifier.cpp \
+	LowLevel/DWARFCFIProgram.cpp \
+	LowLevel/DWARFExpression.cpp \
+	LowLevel/DWARFUnwindTable.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

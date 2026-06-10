@@ -17,17 +17,16 @@
 #include "llvm/Object/Error.h"
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include <algorithm>
 #include <memory>
 
 using namespace llvm;
 using namespace object;
+
+namespace llvm {
+class LLVMContext;
+}
 
 SymbolicFile::SymbolicFile(unsigned int Type, MemoryBufferRef Source)
     : Binary(Type, Source) {}
@@ -53,6 +52,7 @@ SymbolicFile::createSymbolicFile(MemoryBufferRef Object, file_magic Type,
   case file_magic::elf_executable:
   case file_magic::elf_shared_object:
   case file_magic::elf_core:
+  case file_magic::goff_object:
   case file_magic::macho_executable:
   case file_magic::macho_fixed_virtual_memory_shared_lib:
   case file_magic::macho_core:
@@ -63,10 +63,12 @@ SymbolicFile::createSymbolicFile(MemoryBufferRef Object, file_magic Type,
   case file_magic::macho_dynamically_linked_shared_lib_stub:
   case file_magic::macho_dsym_companion:
   case file_magic::macho_kext_bundle:
+  case file_magic::macho_file_set:
   case file_magic::pecoff_executable:
   case file_magic::xcoff_object_32:
   case file_magic::xcoff_object_64:
   case file_magic::wasm_object:
+  case file_magic::dxcontainer_object:
     return ObjectFile::createObjectFile(Object, Type, InitContent);
   case file_magic::coff_import_library:
     return std::unique_ptr<SymbolicFile>(new COFFImportFile(Object));
@@ -102,6 +104,7 @@ bool SymbolicFile::isSymbolicFile(file_magic Type, const LLVMContext *Context) {
   case file_magic::elf_executable:
   case file_magic::elf_shared_object:
   case file_magic::elf_core:
+  case file_magic::goff_object:
   case file_magic::macho_executable:
   case file_magic::macho_fixed_virtual_memory_shared_lib:
   case file_magic::macho_core:
@@ -112,6 +115,7 @@ bool SymbolicFile::isSymbolicFile(file_magic Type, const LLVMContext *Context) {
   case file_magic::macho_dynamically_linked_shared_lib_stub:
   case file_magic::macho_dsym_companion:
   case file_magic::macho_kext_bundle:
+  case file_magic::macho_file_set:
   case file_magic::pecoff_executable:
   case file_magic::xcoff_object_32:
   case file_magic::xcoff_object_64:
@@ -120,6 +124,7 @@ bool SymbolicFile::isSymbolicFile(file_magic Type, const LLVMContext *Context) {
   case file_magic::elf_relocatable:
   case file_magic::macho_object:
   case file_magic::coff_object:
+  case file_magic::dxcontainer_object:
     return true;
   default:
     return false;

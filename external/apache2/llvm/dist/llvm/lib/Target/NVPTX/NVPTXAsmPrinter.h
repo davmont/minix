@@ -27,6 +27,7 @@
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Value.h"
 #include "llvm/MC/MCExpr.h"
@@ -61,24 +62,30 @@ class MCOperand;
 class LLVM_LIBRARY_VISIBILITY NVPTXAsmPrinter : public AsmPrinter {
 
   class AggBuffer {
-    // Used to buffer the emitted string for initializing global
-    // aggregates.
+    // Used to buffer the emitted string for initializing global aggregates.
     //
-    // Normally an aggregate (array, vector or structure) is emitted
-    // as a u8[]. However, if one element/field of the aggregate
-    // is a non-NULL address, then the aggregate is emitted as u32[]
-    // or u64[].
+    // Normally an aggregate (array, vector, or structure) is emitted as a u8[].
+    // However, if either element/field of the aggregate is a non-NULL address,
+    // and all such addresses are properly aligned, then the aggregate is
+    // emitted as u32[] or u64[]. In the case of unaligned addresses, the
+    // aggregate is emitted as u8[], and the mask() operator is used for all
+    // pointers.
     //
-    // We first layout the aggregate in 'buffer' in bytes, except for
-    // those symbol addresses. For the i-th symbol address in the
-    //aggregate, its corresponding 4-byte or 8-byte elements in 'buffer'
-    // are filled with 0s. symbolPosInBuffer[i-1] records its position
-    // in 'buffer', and Symbols[i-1] records the Value*.
+    // We first layout the aggregate in 'buffer' in bytes, except for those
+    // symbol addresses. For the i-th symbol address in the aggregate, its
+    // corresponding 4-byte or 8-byte elements in 'buffer' are filled with 0s.
+    // symbolPosInBuffer[i-1] records its position in 'buffer', and Symbols[i-1]
+    // records the Value*.
     //
-    // Once we have this AggBuffer setup, we can choose how to print
-    // it out.
+    // Once we have this AggBuffer setup, we can choose how to print it out.
   public:
-    unsigned numSymbols;   // number of symbol addresses
+    // number of symbol addresses
+    unsigned numSymbols() const { return Symbols.size(); }
+
+    bool allSymbolsAligned(unsigned ptrSize) const {
+      return llvm::all_of(symbolPosInBuffer,
+                          [=](unsigned pos) { return pos % ptrSize == 0; });
+    }
 
   private:
     const unsigned size;   // size of the buffer in bytes
@@ -94,111 +101,57 @@ class LLVM_LIBRARY_VISIBILITY NVPTXAsmPrinter : public AsmPrinter {
     // SymbolsBeforeStripping[i].
     SmallVector<const Value *, 4> SymbolsBeforeStripping;
     unsigned curpos;
-    raw_ostream &O;
-    NVPTXAsmPrinter &AP;
-    bool EmitGeneric;
+    const NVPTXAsmPrinter &AP;
+    const bool EmitGeneric;
 
   public:
-    AggBuffer(unsigned size, raw_ostream &O, NVPTXAsmPrinter &AP)
-        : size(size), buffer(size), O(O), AP(AP) {
-      curpos = 0;
-      numSymbols = 0;
-      EmitGeneric = AP.EmitGeneric;
+    AggBuffer(unsigned size, const NVPTXAsmPrinter &AP)
+        : size(size), buffer(size), curpos(0), AP(AP),
+          EmitGeneric(AP.EmitGeneric) {}
+
+    // Copy Num bytes from Ptr.
+    // if Bytes > Num, zero fill up to Bytes.
+    void addBytes(const unsigned char *Ptr, unsigned Num, unsigned Bytes) {
+      for (unsigned I : llvm::seq(Num))
+        addByte(Ptr[I]);
+      if (Bytes > Num)
+        addZeros(Bytes - Num);
     }
 
-    unsigned addBytes(unsigned char *Ptr, int Num, int Bytes) {
-      assert((curpos + Num) <= size);
-      assert((curpos + Bytes) <= size);
-      for (int i = 0; i < Num; ++i) {
-        buffer[curpos] = Ptr[i];
-        curpos++;
-      }
-      for (int i = Num; i < Bytes; ++i) {
-        buffer[curpos] = 0;
-        curpos++;
-      }
-      return curpos;
+    void addByte(uint8_t Byte) {
+      assert(curpos < size);
+      buffer[curpos] = Byte;
+      curpos++;
     }
 
-    unsigned addZeros(int Num) {
-      assert((curpos + Num) <= size);
-      for (int i = 0; i < Num; ++i) {
-        buffer[curpos] = 0;
-        curpos++;
+    void addZeros(unsigned Num) {
+      for ([[maybe_unused]] unsigned _ : llvm::seq(Num)) {
+        addByte(0);
       }
-      return curpos;
     }
 
     void addSymbol(const Value *GVar, const Value *GVarBeforeStripping) {
       symbolPosInBuffer.push_back(curpos);
       Symbols.push_back(GVar);
       SymbolsBeforeStripping.push_back(GVarBeforeStripping);
-      numSymbols++;
     }
 
-    void print() {
-      if (numSymbols == 0) {
-        // print out in bytes
-        for (unsigned i = 0; i < size; i++) {
-          if (i)
-            O << ", ";
-          O << (unsigned int) buffer[i];
-        }
-      } else {
-        // print out in 4-bytes or 8-bytes
-        unsigned int pos = 0;
-        unsigned int nSym = 0;
-        unsigned int nextSymbolPos = symbolPosInBuffer[nSym];
-        unsigned int nBytes = 4;
-        if (static_cast<const NVPTXTargetMachine &>(AP.TM).is64Bit())
-          nBytes = 8;
-        for (pos = 0; pos < size; pos += nBytes) {
-          if (pos)
-            O << ", ";
-          if (pos == nextSymbolPos) {
-            const Value *v = Symbols[nSym];
-            const Value *v0 = SymbolsBeforeStripping[nSym];
-            if (const GlobalValue *GVar = dyn_cast<GlobalValue>(v)) {
-              MCSymbol *Name = AP.getSymbol(GVar);
-              PointerType *PTy = dyn_cast<PointerType>(v0->getType());
-              bool IsNonGenericPointer = false; // Is v0 a non-generic pointer?
-              if (PTy && PTy->getAddressSpace() != 0) {
-                IsNonGenericPointer = true;
-              }
-              if (EmitGeneric && !isa<Function>(v) && !IsNonGenericPointer) {
-                O << "generic(";
-                Name->print(O, AP.MAI);
-                O << ")";
-              } else {
-                Name->print(O, AP.MAI);
-              }
-            } else if (const ConstantExpr *CExpr = dyn_cast<ConstantExpr>(v0)) {
-              const MCExpr *Expr =
-                AP.lowerConstantForGV(cast<Constant>(CExpr), false);
-              AP.printMCExpr(*Expr, O);
-            } else
-              llvm_unreachable("symbol type unknown");
-            nSym++;
-            if (nSym >= numSymbols)
-              nextSymbolPos = size + 1;
-            else
-              nextSymbolPos = symbolPosInBuffer[nSym];
-          } else if (nBytes == 4)
-            O << *(unsigned int *)(&buffer[pos]);
-          else
-            O << *(unsigned long long *)(&buffer[pos]);
-        }
-      }
-    }
+    void printBytes(raw_ostream &os);
+    void printWords(raw_ostream &os);
+
+  private:
+    void printSymbol(unsigned nSym, raw_ostream &os);
   };
 
   friend class AggBuffer;
 
-private:
+public:
+  static char ID;
+
   StringRef getPassName() const override { return "NVPTX Assembly Printer"; }
 
+private:
   const Function *F;
-  std::string CurrentFnName;
 
   void emitStartOfAsmFile(Module &M) override;
   void emitBasicBlockStart(const MachineBasicBlock &MBB) override;
@@ -209,33 +162,33 @@ private:
 
   void emitInstruction(const MachineInstr *) override;
   void lowerToMCInst(const MachineInstr *MI, MCInst &OutMI);
-  bool lowerOperand(const MachineOperand &MO, MCOperand &MCOp);
+  MCOperand lowerOperand(const MachineOperand &MO);
   MCOperand GetSymbolRef(const MCSymbol *Symbol);
   unsigned encodeVirtualRegister(unsigned Reg);
 
-  void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &O,
+  void printMemOperand(const MachineInstr *MI, unsigned OpNum, raw_ostream &O,
                        const char *Modifier = nullptr);
   void printModuleLevelGV(const GlobalVariable *GVar, raw_ostream &O,
-                          bool = false);
-  void printParamName(Function::const_arg_iterator I, int paramIndex,
-                      raw_ostream &O);
+                          bool processDemoted, const NVPTXSubtarget &STI);
   void emitGlobals(const Module &M);
+  void emitGlobalAlias(const Module &M, const GlobalAlias &GA) override;
   void emitHeader(Module &M, raw_ostream &O, const NVPTXSubtarget &STI);
   void emitKernelFunctionDirectives(const Function &F, raw_ostream &O) const;
   void emitVirtualRegister(unsigned int vr, raw_ostream &);
   void emitFunctionParamList(const Function *, raw_ostream &O);
-  void emitFunctionParamList(const MachineFunction &MF, raw_ostream &O);
   void setAndEmitFunctionVirtualRegisters(const MachineFunction &MF);
+  void encodeDebugInfoRegisterNumbers(const MachineFunction &MF);
   void printReturnValStr(const Function *, raw_ostream &O);
   void printReturnValStr(const MachineFunction &MF, raw_ostream &O);
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        const char *ExtraCode, raw_ostream &) override;
-  void printOperand(const MachineInstr *MI, int opNum, raw_ostream &O);
+  void printOperand(const MachineInstr *MI, unsigned OpNum, raw_ostream &O);
   bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
                              const char *ExtraCode, raw_ostream &) override;
 
-  const MCExpr *lowerConstantForGV(const Constant *CV, bool ProcessingGeneric);
-  void printMCExpr(const MCExpr &Expr, raw_ostream &OS);
+  const MCExpr *lowerConstantForGV(const Constant *CV,
+                                   bool ProcessingGeneric) const;
+  void printMCExpr(const MCExpr &Expr, raw_ostream &OS) const;
 
 protected:
   bool doInitialization(Module &M) override;
@@ -256,22 +209,21 @@ private:
   // List of variables demoted to a function scope.
   std::map<const Function *, std::vector<const GlobalVariable *>> localDecls;
 
-  void emitPTXGlobalVariable(const GlobalVariable *GVar, raw_ostream &O);
+  void emitPTXGlobalVariable(const GlobalVariable *GVar, raw_ostream &O,
+                             const NVPTXSubtarget &STI);
   void emitPTXAddressSpace(unsigned int AddressSpace, raw_ostream &O) const;
   std::string getPTXFundamentalTypeStr(Type *Ty, bool = true) const;
   void printScalarConstant(const Constant *CPV, raw_ostream &O);
-  void printFPConstant(const ConstantFP *Fp, raw_ostream &O);
+  void printFPConstant(const ConstantFP *Fp, raw_ostream &O) const;
   void bufferLEByte(const Constant *CPV, int Bytes, AggBuffer *aggBuffer);
   void bufferAggregateConstant(const Constant *CV, AggBuffer *aggBuffer);
 
   void emitLinkageDirective(const GlobalValue *V, raw_ostream &O);
   void emitDeclarations(const Module &, raw_ostream &O);
   void emitDeclaration(const Function *, raw_ostream &O);
+  void emitAliasDeclaration(const GlobalAlias *, raw_ostream &O);
+  void emitDeclarationWithName(const Function *, MCSymbol *, raw_ostream &O);
   void emitDemotedVars(const Function *, raw_ostream &);
-
-  bool lowerImageHandleOperand(const MachineInstr *MI, unsigned OpNo,
-                               MCOperand &MCOp);
-  void lowerImageHandleSymbol(unsigned Index, MCOperand &MCOp);
 
   bool isLoopHeaderOfNoUnroll(const MachineBasicBlock &MBB) const;
 
@@ -286,24 +238,29 @@ private:
   // Since the address value should always be generic in CUDA C and always
   // be specific in OpenCL, we use this simple control here.
   //
-  bool EmitGeneric;
+  const bool EmitGeneric;
 
 public:
   NVPTXAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer)
-      : AsmPrinter(TM, std::move(Streamer)),
+      : AsmPrinter(TM, std::move(Streamer), ID),
         EmitGeneric(static_cast<NVPTXTargetMachine &>(TM).getDrvInterface() ==
                     NVPTX::CUDA) {}
 
   bool runOnMachineFunction(MachineFunction &F) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<MachineLoopInfo>();
+    AU.addRequired<MachineLoopInfoWrapperPass>();
     AsmPrinter::getAnalysisUsage(AU);
   }
 
   std::string getVirtualRegisterName(unsigned) const;
 
   const MCSymbol *getFunctionFrameSymbol() const override;
+
+  // Make emitGlobalVariable() no-op for NVPTX.
+  // Global variables have been already emitted by the time the base AsmPrinter
+  // attempts to do so in doFinalization() (see NVPTXAsmPrinter::emitGlobals()).
+  void emitGlobalVariable(const GlobalVariable *GV) override {}
 };
 
 } // end namespace llvm

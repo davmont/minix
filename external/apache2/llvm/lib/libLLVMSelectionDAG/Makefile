@@ -18,6 +18,7 @@ SRCS+=	DAGCombiner.cpp \
 	LegalizeVectorOps.cpp \
 	LegalizeVectorTypes.cpp \
 	ResourcePriorityQueue.cpp \
+	SDNodeInfo.cpp \
 	ScheduleDAGFast.cpp \
 	ScheduleDAGRRList.cpp \
 	ScheduleDAGSDNodes.cpp \

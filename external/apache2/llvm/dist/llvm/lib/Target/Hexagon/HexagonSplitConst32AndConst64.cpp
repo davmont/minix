@@ -16,6 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Hexagon.h"
 #include "HexagonSubtarget.h"
 #include "HexagonTargetMachine.h"
 #include "HexagonTargetObjectFile.h"
@@ -29,26 +30,17 @@ using namespace llvm;
 
 #define DEBUG_TYPE "xfer"
 
-namespace llvm {
-  FunctionPass *createHexagonSplitConst32AndConst64();
-  void initializeHexagonSplitConst32AndConst64Pass(PassRegistry&);
-}
-
 namespace {
   class HexagonSplitConst32AndConst64 : public MachineFunctionPass {
   public:
     static char ID;
-    HexagonSplitConst32AndConst64() : MachineFunctionPass(ID) {
-      PassRegistry &R = *PassRegistry::getPassRegistry();
-      initializeHexagonSplitConst32AndConst64Pass(R);
-    }
+    HexagonSplitConst32AndConst64() : MachineFunctionPass(ID) {}
     StringRef getPassName() const override {
       return "Hexagon Split Const32s and Const64s";
     }
     bool runOnMachineFunction(MachineFunction &Fn) override;
     MachineFunctionProperties getRequiredProperties() const override {
-      return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::NoVRegs);
+      return MachineFunctionProperties().setNoVRegs();
     }
   };
 }
@@ -70,9 +62,7 @@ bool HexagonSplitConst32AndConst64::runOnMachineFunction(MachineFunction &Fn) {
 
   // Loop over all of the basic blocks
   for (MachineBasicBlock &B : Fn) {
-    for (auto I = B.begin(), E = B.end(); I != E; ) {
-      MachineInstr &MI = *I;
-      ++I;
+    for (MachineInstr &MI : llvm::make_early_inc_range(B)) {
       unsigned Opc = MI.getOpcode();
 
       if (Opc == Hexagon::CONST32) {

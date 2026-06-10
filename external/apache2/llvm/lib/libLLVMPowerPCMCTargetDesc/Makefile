@@ -15,7 +15,6 @@ SRCS+=	PPCAsmBackend.cpp \
 	PPCInstPrinter.cpp \
 	PPCMCAsmInfo.cpp \
 	PPCMCCodeEmitter.cpp \
-	PPCMCExpr.cpp \
 	PPCMCTargetDesc.cpp \
 	PPCPredicates.cpp \
 	PPCXCOFFObjectWriter.cpp \

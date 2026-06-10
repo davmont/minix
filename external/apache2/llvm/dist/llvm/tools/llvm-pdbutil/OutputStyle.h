@@ -9,15 +9,15 @@
 #ifndef LLVM_TOOLS_LLVMPDBDUMP_OUTPUTSTYLE_H
 #define LLVM_TOOLS_LLVMPDBDUMP_OUTPUTSTYLE_H
 
-#include "llvm/Support/Error.h"
-
 namespace llvm {
+
+class Error;
+
 namespace pdb {
-class PDBFile;
 
 class OutputStyle {
 public:
-  virtual ~OutputStyle() {}
+  virtual ~OutputStyle() = default;
 
   virtual Error dump() = 0;
 };

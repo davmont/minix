@@ -19,19 +19,15 @@
 
 #include "ScheduleDAGSDNodes.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/CodeGen/LatencyPriorityQueue.h"
 #include "llvm/CodeGen/ResourcePriorityQueue.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/IR/DataLayout.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include <climits>
 using namespace llvm;
 
 #define DEBUG_TYPE "pre-RA-sched"
@@ -63,14 +59,10 @@ private:
   /// HazardRec - The hazard recognizer to use.
   ScheduleHazardRecognizer *HazardRec;
 
-  /// AA - AAResults for making memory reference queries.
-  AAResults *AA;
-
 public:
-  ScheduleDAGVLIW(MachineFunction &mf, AAResults *aa,
-                  SchedulingPriorityQueue *availqueue)
-      : ScheduleDAGSDNodes(mf), AvailableQueue(availqueue), AA(aa) {
-    const TargetSubtargetInfo &STI = mf.getSubtarget();
+  ScheduleDAGVLIW(MachineFunction &MF, SchedulingPriorityQueue *AvailableQueue)
+      : ScheduleDAGSDNodes(MF), AvailableQueue(AvailableQueue) {
+    const TargetSubtargetInfo &STI = MF.getSubtarget();
     HazardRec = STI.getInstrInfo()->CreateTargetHazardRecognizer(&STI, this);
   }
 
@@ -95,7 +87,7 @@ void ScheduleDAGVLIW::Schedule() {
                     << " '" << BB->getName() << "' **********\n");
 
   // Build the scheduling graph.
-  BuildSchedGraph(AA);
+  BuildSchedGraph();
 
   AvailableQueue->initNodes(SUnits);
 
@@ -169,11 +161,11 @@ void ScheduleDAGVLIW::listScheduleTopDown() {
   releaseSuccessors(&EntrySU);
 
   // All leaves to AvailableQueue.
-  for (unsigned i = 0, e = SUnits.size(); i != e; ++i) {
+  for (SUnit &SU : SUnits) {
     // It is available if it has no predecessors.
-    if (SUnits[i].Preds.empty()) {
-      AvailableQueue->push(&SUnits[i]);
-      SUnits[i].isAvailable = true;
+    if (SU.Preds.empty()) {
+      AvailableQueue->push(&SU);
+      SU.isAvailable = true;
     }
   }
 
@@ -269,7 +261,7 @@ void ScheduleDAGVLIW::listScheduleTopDown() {
 //===----------------------------------------------------------------------===//
 
 /// createVLIWDAGScheduler - This creates a top-down list scheduler.
-ScheduleDAGSDNodes *
-llvm::createVLIWDAGScheduler(SelectionDAGISel *IS, CodeGenOpt::Level) {
-  return new ScheduleDAGVLIW(*IS->MF, IS->AA, new ResourcePriorityQueue(IS));
+ScheduleDAGSDNodes *llvm::createVLIWDAGScheduler(SelectionDAGISel *IS,
+                                                 CodeGenOptLevel) {
+  return new ScheduleDAGVLIW(*IS->MF, new ResourcePriorityQueue(IS));
 }

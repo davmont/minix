@@ -8,12 +8,28 @@ LIB=	LLVMMCA
 
 SRCS+=	CodeEmitter.cpp \
 	Context.cpp \
+	CustomBehaviour.cpp \
+	DispatchStage.cpp \
+	EntryStage.cpp \
+	ExecuteStage.cpp \
 	HWEventListener.cpp \
+	HardwareUnit.cpp \
 	InOrderIssueStage.cpp \
+	IncrementalSourceMgr.cpp \
 	InstrBuilder.cpp \
 	Instruction.cpp \
+	InstructionTables.cpp \
+	LSUnit.cpp \
+	MicroOpQueueStage.cpp \
 	Pipeline.cpp \
-	Support.cpp
+	RegisterFile.cpp \
+	ResourceManager.cpp \
+	RetireControlUnit.cpp \
+	RetireStage.cpp \
+	Scheduler.cpp \
+	Stage.cpp \
+	Support.cpp \
+	View.cpp
 
 .PATH: ${LLVM_SRCDIR}/lib/MCA/HardwareUnits
 

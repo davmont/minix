@@ -13,6 +13,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
@@ -24,10 +25,12 @@ class StringSaver final {
 public:
   StringSaver(BumpPtrAllocator &Alloc) : Alloc(Alloc) {}
 
+  BumpPtrAllocator &getAllocator() const { return Alloc; }
+
   // All returned strings are null-terminated: *save(S).end() == 0.
   StringRef save(const char *S) { return save(StringRef(S)); }
-  StringRef save(StringRef S);
-  StringRef save(const Twine &S) { return save(StringRef(S.str())); }
+  LLVM_ABI StringRef save(StringRef S);
+  LLVM_ABI StringRef save(const Twine &S);
   StringRef save(const std::string &S) { return save(StringRef(S)); }
 };
 
@@ -48,10 +51,10 @@ public:
 
   // All returned strings are null-terminated: *save(S).end() == 0.
   StringRef save(const char *S) { return save(StringRef(S)); }
-  StringRef save(StringRef S);
-  StringRef save(const Twine &S) { return save(StringRef(S.str())); }
+  LLVM_ABI StringRef save(StringRef S);
+  LLVM_ABI StringRef save(const Twine &S);
   StringRef save(const std::string &S) { return save(StringRef(S)); }
 };
 
-}
+} // namespace llvm
 #endif

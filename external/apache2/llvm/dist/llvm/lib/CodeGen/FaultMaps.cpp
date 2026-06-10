@@ -52,7 +52,7 @@ void FaultMaps::serializeToFaultMapSection() {
   // Create the section.
   MCSection *FaultMapSection =
       OutContext.getObjectFileInfo()->getFaultMapSection();
-  OS.SwitchSection(FaultMapSection);
+  OS.switchSection(FaultMapSection);
 
   // Emit a dummy symbol to force section inclusion.
   OS.emitLabel(OutContext.getOrCreateSymbol(Twine("__LLVM_FaultMaps")));
@@ -85,17 +85,9 @@ void FaultMaps::emitFunctionInfo(const MCSymbol *FnLabel,
 
   OS.emitInt32(0); // Reserved
 
-  for (auto &Fault : FFI) {
-    LLVM_DEBUG(dbgs() << WFMP << "    fault type: "
-                      << faultTypeToString(Fault.Kind) << "\n");
+  for (const auto &Fault : FFI) {
     OS.emitInt32(Fault.Kind);
-
-    LLVM_DEBUG(dbgs() << WFMP << "    faulting PC offset: "
-                      << *Fault.FaultingOffsetExpr << "\n");
     OS.emitValue(Fault.FaultingOffsetExpr, 4);
-
-    LLVM_DEBUG(dbgs() << WFMP << "    fault handler PC offset: "
-                      << *Fault.HandlerOffsetExpr << "\n");
     OS.emitValue(Fault.HandlerOffsetExpr, 4);
   }
 }

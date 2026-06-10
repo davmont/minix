@@ -14,13 +14,16 @@
 #ifndef LLVM_TRANSFORMS_UTILS_SIMPLIFYLIBCALLS_H
 #define LLVM_TRANSFORMS_UTILS_SIMPLIFYLIBCALLS_H
 
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace llvm {
+class AssumptionCache;
 class StringRef;
 class Value;
 class CallInst;
+class DominatorTree;
+class DomConditionCache;
 class DataLayout;
 class Instruction;
 class IRBuilderBase;
@@ -89,9 +92,9 @@ private:
   /// parameter. These are used by an implementation to opt-into stricter
   /// checking.
   bool isFortifiedCallFoldable(CallInst *CI, unsigned ObjSizeOp,
-                               Optional<unsigned> SizeOp = None,
-                               Optional<unsigned> StrOp = None,
-                               Optional<unsigned> FlagsOp = None);
+                               std::optional<unsigned> SizeOp = std::nullopt,
+                               std::optional<unsigned> StrOp = std::nullopt,
+                               std::optional<unsigned> FlagsOp = std::nullopt);
 };
 
 /// LibCallSimplifier - This class implements a collection of optimizations
@@ -102,10 +105,13 @@ private:
   FortifiedLibCallSimplifier FortifiedSimplifier;
   const DataLayout &DL;
   const TargetLibraryInfo *TLI;
+  DominatorTree *DT;
+  DomConditionCache *DC;
+  AssumptionCache *AC;
   OptimizationRemarkEmitter &ORE;
   BlockFrequencyInfo *BFI;
   ProfileSummaryInfo *PSI;
-  bool UnsafeFPShrink;
+  bool UnsafeFPShrink = false;
   function_ref<void(Instruction *, Value *)> Replacer;
   function_ref<void(Instruction *)> Eraser;
 
@@ -132,13 +138,12 @@ private:
     eraseFromParent(I);
   }
 
-  Value *foldMallocMemset(CallInst *Memset, IRBuilderBase &B);
-
 public:
   LibCallSimplifier(
-      const DataLayout &DL, const TargetLibraryInfo *TLI,
-      OptimizationRemarkEmitter &ORE,
-      BlockFrequencyInfo *BFI, ProfileSummaryInfo *PSI,
+      const DataLayout &DL, const TargetLibraryInfo *TLI, DominatorTree *DT,
+      DomConditionCache *DC, AssumptionCache *AC,
+      OptimizationRemarkEmitter &ORE, BlockFrequencyInfo *BFI,
+      ProfileSummaryInfo *PSI,
       function_ref<void(Instruction *, Value *)> Replacer =
           &replaceAllUsesWithDefault,
       function_ref<void(Instruction *)> Eraser = &eraseFromParentDefault);
@@ -163,8 +168,10 @@ private:
   Value *optimizeStrNDup(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrCpy(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStpCpy(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeStrLCpy(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrNCpy(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrLen(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeStrNLen(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrPBrk(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrTo(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrSpn(CallInst *CI, IRBuilderBase &B);
@@ -181,8 +188,13 @@ private:
   Value *optimizeMemMove(CallInst *CI, IRBuilderBase &B);
   Value *optimizeMemSet(CallInst *CI, IRBuilderBase &B);
   Value *optimizeRealloc(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeNew(CallInst *CI, IRBuilderBase &B, LibFunc &Func);
+  Value *maybeOptimizeNoBuiltinOperatorNew(CallInst *CI, IRBuilderBase &B);
   Value *optimizeWcslen(CallInst *CI, IRBuilderBase &B);
   Value *optimizeBCopy(CallInst *CI, IRBuilderBase &B);
+
+  // Helper to optimize stpncpy and strncpy.
+  Value *optimizeStringNCpy(CallInst *CI, bool RetEnd, IRBuilderBase &B);
   // Wrapper for all String/Memory Library Call Optimizations
   Value *optimizeStringMemoryLibCall(CallInst *CI, IRBuilderBase &B);
 
@@ -193,10 +205,16 @@ private:
   Value *replacePowWithSqrt(CallInst *Pow, IRBuilderBase &B);
   Value *optimizeExp2(CallInst *CI, IRBuilderBase &B);
   Value *optimizeFMinFMax(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeFMinimumnumFMaximumnum(CallInst *CI, IRBuilderBase &B);
   Value *optimizeLog(CallInst *CI, IRBuilderBase &B);
   Value *optimizeSqrt(CallInst *CI, IRBuilderBase &B);
-  Value *optimizeSinCosPi(CallInst *CI, IRBuilderBase &B);
-  Value *optimizeTan(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeFMod(CallInst *CI, IRBuilderBase &B);
+  Value *mergeSqrtToExp(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeSinCosPi(CallInst *CI, bool IsSin, IRBuilderBase &B);
+  Value *optimizeTrigInversionPairs(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeSymmetric(CallInst *CI, LibFunc Func, IRBuilderBase &B);
+  Value *optimizeRemquo(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeFdim(CallInst *CI, IRBuilderBase &B);
   // Wrapper for all floating point library call optimizations
   Value *optimizeFloatingPointLibCall(CallInst *CI, LibFunc Func,
                                       IRBuilderBase &B);
@@ -209,7 +227,7 @@ private:
   Value *optimizeIsAscii(CallInst *CI, IRBuilderBase &B);
   Value *optimizeToAscii(CallInst *CI, IRBuilderBase &B);
   Value *optimizeAtoi(CallInst *CI, IRBuilderBase &B);
-  Value *optimizeStrtol(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeStrToInt(CallInst *CI, IRBuilderBase &B, bool AsSigned);
 
   // Formatting and IO Library Call Optimizations
   Value *optimizeErrorReporting(CallInst *CI, IRBuilderBase &B,
@@ -223,6 +241,8 @@ private:
   Value *optimizePuts(CallInst *CI, IRBuilderBase &B);
 
   // Helper methods
+  Value* emitSnPrintfMemCpy(CallInst *CI, Value *StrArg, StringRef Str,
+                            uint64_t N, IRBuilderBase &B);
   Value *emitStrLenMemCpy(Value *Src, Value *Dst, uint64_t Len,
                           IRBuilderBase &B);
   void classifyArgUse(Value *Val, Function *F, bool IsFloat,
@@ -234,12 +254,16 @@ private:
   Value *optimizeSnPrintFString(CallInst *CI, IRBuilderBase &B);
   Value *optimizeFPrintFString(CallInst *CI, IRBuilderBase &B);
 
+  /// Exit functions
+  Value *optimizeExit(CallInst *CI);
+
   /// hasFloatVersion - Checks if there is a float version of the specified
   /// function by checking for an existing function with name FuncName + f
-  bool hasFloatVersion(StringRef FuncName);
+  bool hasFloatVersion(const Module *M, StringRef FuncName);
 
-  /// Shared code to optimize strlen+wcslen.
-  Value *optimizeStringLength(CallInst *CI, IRBuilderBase &B, unsigned CharSize);
+  /// Shared code to optimize strlen+wcslen and strnlen+wcsnlen.
+  Value *optimizeStringLength(CallInst *CI, IRBuilderBase &B, unsigned CharSize,
+                              Value *Bound = nullptr);
 };
 } // End llvm namespace
 

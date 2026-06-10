@@ -15,16 +15,16 @@
 #include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/COFF.h"
+#include "llvm/Object/DXContainer.h"
 #include "llvm/Object/Error.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/Wasm.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <system_error>
@@ -55,14 +55,15 @@ bool SectionRef::containsSymbol(SymbolRef S) const {
 }
 
 Expected<uint64_t> ObjectFile::getSymbolValue(DataRefImpl Ref) const {
-  if (Expected<uint32_t> FlagsOrErr = getSymbolFlags(Ref)) {
-    if (*FlagsOrErr & SymbolRef::SF_Undefined)
-      return 0;
-    if (*FlagsOrErr & SymbolRef::SF_Common)
-      return getCommonSymbolSize(Ref);
-  } else
+  uint32_t Flags;
+  if (Error E = getSymbolFlags(Ref).moveInto(Flags))
     // TODO: Test this error.
-    return FlagsOrErr.takeError();
+    return std::move(E);
+
+  if (Flags & SymbolRef::SF_Undefined)
+    return 0;
+  if (Flags & SymbolRef::SF_Common)
+    return getCommonSymbolSize(Ref);
   return getSymbolValueImpl(Ref);
 }
 
@@ -79,7 +80,7 @@ uint32_t ObjectFile::getSymbolAlignment(DataRefImpl DRI) const { return 0; }
 bool ObjectFile::isSectionBitcode(DataRefImpl Sec) const {
   Expected<StringRef> NameOrErr = getSectionName(Sec);
   if (NameOrErr)
-    return *NameOrErr == ".llvmbc";
+    return *NameOrErr == ".llvm.lto";
   consumeError(NameOrErr.takeError());
   return false;
 }
@@ -94,8 +95,11 @@ bool ObjectFile::isBerkeleyData(DataRefImpl Sec) const {
   return isSectionData(Sec);
 }
 
-bool ObjectFile::isDebugSection(StringRef SectionName) const {
-  return false;
+bool ObjectFile::isDebugSection(DataRefImpl Sec) const { return false; }
+
+bool ObjectFile::hasDebugInfo() const {
+  return any_of(sections(),
+                [](SectionRef Sec) { return Sec.isDebugSection(); });
 }
 
 Expected<section_iterator>
@@ -107,6 +111,10 @@ Triple ObjectFile::makeTriple() const {
   Triple TheTriple;
   auto Arch = getArch();
   TheTriple.setArch(Triple::ArchType(Arch));
+
+  auto OS = getOS();
+  if (OS != Triple::UnknownOS)
+    TheTriple.setOS(OS);
 
   // For ARM targets, try to use the build attributes to build determine
   // the build target. Target features are also added, but later during
@@ -126,6 +134,13 @@ Triple ObjectFile::makeTriple() const {
     // XCOFF implies AIX.
     TheTriple.setOS(Triple::AIX);
     TheTriple.setObjectFormat(Triple::XCOFF);
+  } else if (isGOFF()) {
+    TheTriple.setOS(Triple::ZOS);
+    TheTriple.setObjectFormat(Triple::GOFF);
+  } else if (TheTriple.isAMDGPU()) {
+    TheTriple.setVendor(Triple::AMD);
+  } else if (TheTriple.isNVPTX()) {
+    TheTriple.setVendor(Triple::NVIDIA);
   }
 
   return TheTriple;
@@ -141,12 +156,19 @@ ObjectFile::createObjectFile(MemoryBufferRef Object, file_magic Type,
   switch (Type) {
   case file_magic::unknown:
   case file_magic::bitcode:
+  case file_magic::clang_ast:
   case file_magic::coff_cl_gl_object:
   case file_magic::archive:
   case file_magic::macho_universal_binary:
   case file_magic::windows_resource:
   case file_magic::pdb:
   case file_magic::minidump:
+  case file_magic::goff_object:
+  case file_magic::cuda_fatbinary:
+  case file_magic::offload_binary:
+  case file_magic::offload_bundle:
+  case file_magic::offload_bundle_compressed:
+  case file_magic::spirv_object:
     return errorCodeToError(object_error::invalid_file_type);
   case file_magic::tapi_file:
     return errorCodeToError(object_error::invalid_file_type);
@@ -167,6 +189,7 @@ ObjectFile::createObjectFile(MemoryBufferRef Object, file_magic Type,
   case file_magic::macho_dynamically_linked_shared_lib_stub:
   case file_magic::macho_dsym_companion:
   case file_magic::macho_kext_bundle:
+  case file_magic::macho_file_set:
     return createMachOObjectFile(Object);
   case file_magic::coff_object:
   case file_magic::coff_import_library:
@@ -178,6 +201,8 @@ ObjectFile::createObjectFile(MemoryBufferRef Object, file_magic Type,
     return createXCOFFObjectFile(Object, Binary::ID_XCOFF64);
   case file_magic::wasm_object:
     return createWasmObjectFile(Object);
+  case file_magic::dxcontainer_object:
+    return createDXContainerObjectFile(Object);
   }
   llvm_unreachable("Unexpected Object File Type");
 }
@@ -197,4 +222,13 @@ ObjectFile::createObjectFile(StringRef ObjectPath) {
   std::unique_ptr<ObjectFile> Obj = std::move(ObjOrErr.get());
 
   return OwningBinary<ObjectFile>(std::move(Obj), std::move(Buffer));
+}
+
+bool ObjectFile::isReflectionSectionStrippable(
+    llvm::binaryformat::Swift5ReflectionSectionKind ReflectionSectionKind)
+    const {
+  using llvm::binaryformat::Swift5ReflectionSectionKind;
+  return ReflectionSectionKind == Swift5ReflectionSectionKind::fieldmd ||
+         ReflectionSectionKind == Swift5ReflectionSectionKind::reflstr ||
+         ReflectionSectionKind == Swift5ReflectionSectionKind::assocty;
 }

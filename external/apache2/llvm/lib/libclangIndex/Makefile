@@ -10,10 +10,10 @@ SRCS+=	CommentToXML.cpp \
 	FileIndexRecord.cpp \
 	IndexBody.cpp \
 	IndexDecl.cpp \
-	IndexingAction.cpp \
-	IndexingContext.cpp \
 	IndexSymbol.cpp \
 	IndexTypeSourceInfo.cpp \
+	IndexingAction.cpp \
+	IndexingContext.cpp \
 	USRGeneration.cpp
 
 .if defined(HOSTLIB)

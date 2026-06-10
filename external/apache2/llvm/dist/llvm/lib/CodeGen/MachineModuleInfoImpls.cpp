@@ -13,6 +13,9 @@
 
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCSymbol.h"
 
 using namespace llvm;
@@ -25,6 +28,7 @@ using namespace llvm;
 void MachineModuleInfoMachO::anchor() {}
 void MachineModuleInfoELF::anchor() {}
 void MachineModuleInfoCOFF::anchor() {}
+void MachineModuleInfoWasm::anchor() {}
 
 using PairTy = std::pair<MCSymbol *, MachineModuleInfoImpl::StubValueTy>;
 static int SortSymbolPair(const PairTy *LHS, const PairTy *RHS) {
@@ -39,4 +43,28 @@ MachineModuleInfoImpl::SymbolListTy MachineModuleInfoImpl::getSortedStubs(
 
   Map.clear();
   return List;
+}
+
+using ExprStubPairTy = std::pair<MCSymbol *, const MCExpr *>;
+static int SortAuthStubPair(const ExprStubPairTy *LHS,
+                            const ExprStubPairTy *RHS) {
+  return LHS->first->getName().compare(RHS->first->getName());
+}
+
+MachineModuleInfoImpl::ExprStubListTy MachineModuleInfoImpl::getSortedExprStubs(
+    DenseMap<MCSymbol *, const MCExpr *> &ExprStubs) {
+  MachineModuleInfoImpl::ExprStubListTy List(ExprStubs.begin(),
+                                             ExprStubs.end());
+
+  array_pod_sort(List.begin(), List.end(), SortAuthStubPair);
+
+  ExprStubs.clear();
+  return List;
+}
+
+MachineModuleInfoELF::MachineModuleInfoELF(const MachineModuleInfo &MMI) {
+  const Module *M = MMI.getModule();
+  const auto *Flag = mdconst::extract_or_null<ConstantInt>(
+      M->getModuleFlag("ptrauth-sign-personality"));
+  HasSignedPersonality = Flag && Flag->getZExtValue() == 1;
 }

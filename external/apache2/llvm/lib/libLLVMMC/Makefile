@@ -7,13 +7,16 @@ LIB=	LLVMMC
 .PATH: ${LLVM_SRCDIR}/lib/MC
 
 SRCS+=	ConstantPools.cpp \
+	DXContainerPSVInfo.cpp \
+	DXContainerRootSignature.cpp \
 	ELFObjectWriter.cpp \
-	MachObjectWriter.cpp \
+	GOFFObjectWriter.cpp \
 	MCAsmBackend.cpp \
-	MCAsmInfoCOFF.cpp \
 	MCAsmInfo.cpp \
+	MCAsmInfoCOFF.cpp \
 	MCAsmInfoDarwin.cpp \
 	MCAsmInfoELF.cpp \
+	MCAsmInfoGOFF.cpp \
 	MCAsmInfoWasm.cpp \
 	MCAsmInfoXCOFF.cpp \
 	MCAsmMacro.cpp \
@@ -22,11 +25,14 @@ SRCS+=	ConstantPools.cpp \
 	MCCodeEmitter.cpp \
 	MCCodeView.cpp \
 	MCContext.cpp \
+	MCDXContainerStreamer.cpp \
+	MCDXContainerWriter.cpp \
 	MCDwarf.cpp \
 	MCELFObjectTargetWriter.cpp \
 	MCELFStreamer.cpp \
 	MCExpr.cpp \
 	MCFragment.cpp \
+	MCGOFFStreamer.cpp \
 	MCInst.cpp \
 	MCInstPrinter.cpp \
 	MCInstrAnalysis.cpp \
@@ -34,28 +40,27 @@ SRCS+=	ConstantPools.cpp \
 	MCInstrInfo.cpp \
 	MCLabel.cpp \
 	MCLinkerOptimizationHint.cpp \
-	MCMachObjectTargetWriter.cpp \
 	MCMachOStreamer.cpp \
+	MCMachObjectTargetWriter.cpp \
 	MCNullStreamer.cpp \
 	MCObjectFileInfo.cpp \
 	MCObjectStreamer.cpp \
 	MCObjectWriter.cpp \
 	MCPseudoProbe.cpp \
 	MCRegisterInfo.cpp \
+	MCSFrame.cpp \
+	MCSPIRVStreamer.cpp \
 	MCSchedule.cpp \
-	MCSectionCOFF.cpp \
 	MCSection.cpp \
-	MCSectionELF.cpp \
 	MCSectionMachO.cpp \
-	MCSectionWasm.cpp \
-	MCSectionXCOFF.cpp \
 	MCStreamer.cpp \
 	MCSubtargetInfo.cpp \
 	MCSymbol.cpp \
 	MCSymbolELF.cpp \
+	MCSymbolGOFF.cpp \
 	MCSymbolXCOFF.cpp \
-	MCTargetOptionsCommandFlags.cpp \
 	MCTargetOptions.cpp \
+	MCTargetOptionsCommandFlags.cpp \
 	MCValue.cpp \
 	MCWasmObjectTargetWriter.cpp \
 	MCWasmStreamer.cpp \
@@ -64,8 +69,10 @@ SRCS+=	ConstantPools.cpp \
 	MCWinEH.cpp \
 	MCXCOFFObjectTargetWriter.cpp \
 	MCXCOFFStreamer.cpp \
+	MachObjectWriter.cpp \
+	SPIRVObjectWriter.cpp \
 	StringTableBuilder.cpp \
-	SubtargetFeature.cpp \
+	TargetRegistry.cpp \
 	WasmObjectWriter.cpp \
 	WinCOFFObjectWriter.cpp \
 	XCOFFObjectWriter.cpp

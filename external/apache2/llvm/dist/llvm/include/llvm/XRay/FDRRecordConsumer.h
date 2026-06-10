@@ -8,14 +8,13 @@
 #ifndef LLVM_XRAY_FDRRECORDCONSUMER_H
 #define LLVM_XRAY_FDRRECORDCONSUMER_H
 
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 #include "llvm/XRay/FDRRecords.h"
-#include <algorithm>
 #include <memory>
 #include <vector>
 
-namespace llvm {
-namespace xray {
+namespace llvm::xray {
 
 class RecordConsumer {
 public:
@@ -25,12 +24,12 @@ public:
 
 // This consumer will collect all the records into a vector of records, in
 // arrival order.
-class LogBuilderConsumer : public RecordConsumer {
+class LLVM_ABI LogBuilderConsumer : public RecordConsumer {
   std::vector<std::unique_ptr<Record>> &Records;
 
 public:
   explicit LogBuilderConsumer(std::vector<std::unique_ptr<Record>> &R)
-      : RecordConsumer(), Records(R) {}
+      : Records(R) {}
 
   Error consume(std::unique_ptr<Record> R) override;
 };
@@ -38,17 +37,15 @@ public:
 // A PipelineConsumer applies a set of visitors to every consumed Record, in the
 // order by which the visitors are added to the pipeline in the order of
 // appearance.
-class PipelineConsumer : public RecordConsumer {
+class LLVM_ABI PipelineConsumer : public RecordConsumer {
   std::vector<RecordVisitor *> Visitors;
 
 public:
-  PipelineConsumer(std::initializer_list<RecordVisitor *> V)
-      : RecordConsumer(), Visitors(V) {}
+  PipelineConsumer(std::initializer_list<RecordVisitor *> V) : Visitors(V) {}
 
   Error consume(std::unique_ptr<Record> R) override;
 };
 
-} // namespace xray
-} // namespace llvm
+} // namespace llvm::xray
 
 #endif // LLVM_XRAY_FDRRECORDCONSUMER_H

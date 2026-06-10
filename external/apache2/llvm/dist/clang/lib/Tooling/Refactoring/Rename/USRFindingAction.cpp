@@ -13,22 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Tooling/Refactoring/Rename/USRFindingAction.h"
-#include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/Basic/FileManager.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/FrontendAction.h"
 #include "clang/Lex/Lexer.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Tooling/CommonOptionsParser.h"
-#include "clang/Tooling/Refactoring.h"
 #include "clang/Tooling/Refactoring/Rename/USRFinder.h"
 #include "clang/Tooling/Tooling.h"
 
-#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
@@ -145,14 +138,12 @@ private:
   void handleVarTemplateDecl(const VarTemplateDecl *VTD) {
     USRSet.insert(getUSRForDecl(VTD));
     USRSet.insert(getUSRForDecl(VTD->getTemplatedDecl()));
-    llvm::for_each(VTD->specializations(), [&](const auto *Spec) {
+    for (const auto *Spec : VTD->specializations())
       USRSet.insert(getUSRForDecl(Spec));
-    });
     SmallVector<VarTemplatePartialSpecializationDecl *, 4> PartialSpecs;
     VTD->getPartialSpecializations(PartialSpecs);
-    llvm::for_each(PartialSpecs, [&](const auto *Spec) {
+    for (const auto *Spec : PartialSpecs)
       USRSet.insert(getUSRForDecl(Spec));
-    });
   }
 
   void addUSRsOfCtorDtors(const CXXRecordDecl *RD) {
@@ -245,7 +236,8 @@ private:
           DiagnosticsEngine::Error,
           "SourceLocation in file %0 at offset %1 is invalid");
       Engine.Report(SourceLocation(), InvalidOffset)
-          << SourceMgr.getFileEntryForID(MainFileID)->getName() << SymbolOffset;
+          << SourceMgr.getFileEntryRefForID(MainFileID)->getName()
+          << SymbolOffset;
       return false;
     }
 

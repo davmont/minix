@@ -24,7 +24,6 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalObject.h"
-#include "llvm/IR/GlobalIndirectSymbol.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instruction.h"
@@ -38,7 +37,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
-#include <algorithm>
 #include <cassert>
 #include <iterator>
 #include <memory>
@@ -56,6 +54,18 @@ using ClusterMapType = EquivalenceClasses<const GlobalValue *>;
 using ComdatMembersType = DenseMap<const Comdat *, const GlobalValue *>;
 using ClusterIDMapType = DenseMap<const GlobalValue *, unsigned>;
 
+bool compareClusters(const std::pair<unsigned, unsigned> &A,
+                     const std::pair<unsigned, unsigned> &B) {
+  if (A.second || B.second)
+    return A.second > B.second;
+  return A.first > B.first;
+}
+
+using BalancingQueueType =
+    std::priority_queue<std::pair<unsigned, unsigned>,
+                        std::vector<std::pair<unsigned, unsigned>>,
+                        decltype(compareClusters) *>;
+
 } // end anonymous namespace
 
 static void addNonConstUser(ClusterMapType &GVtoClusterMap,
@@ -65,9 +75,8 @@ static void addNonConstUser(ClusterMapType &GVtoClusterMap,
   if (const Instruction *I = dyn_cast<Instruction>(U)) {
     const GlobalValue *F = I->getParent()->getParent();
     GVtoClusterMap.unionSets(GV, F);
-  } else if (isa<GlobalIndirectSymbol>(U) || isa<Function>(U) ||
-             isa<GlobalVariable>(U)) {
-    GVtoClusterMap.unionSets(GV, cast<GlobalValue>(U));
+  } else if (const GlobalValue *GVU = dyn_cast<GlobalValue>(U)) {
+    GVtoClusterMap.unionSets(GV, GVU);
   } else {
     llvm_unreachable("Underimplemented use case");
   }
@@ -76,7 +85,7 @@ static void addNonConstUser(ClusterMapType &GVtoClusterMap,
 // Adds all GlobalValue users of V to the same cluster as GV.
 static void addAllGlobalValueUsers(ClusterMapType &GVtoClusterMap,
                                    const GlobalValue *GV, const Value *V) {
-  for (auto *U : V->users()) {
+  for (const auto *U : V->users()) {
     SmallVector<const User *, 4> Worklist;
     Worklist.push_back(U);
     while (!Worklist.empty()) {
@@ -91,6 +100,13 @@ static void addAllGlobalValueUsers(ClusterMapType &GVtoClusterMap,
   }
 }
 
+static const GlobalObject *getGVPartitioningRoot(const GlobalValue *GV) {
+  const GlobalObject *GO = GV->getAliaseeObject();
+  if (const auto *GI = dyn_cast_or_null<GlobalIFunc>(GO))
+    GO = GI->getResolverFunction();
+  return GO;
+}
+
 // Find partitions for module in the way that no locals need to be
 // globalized.
 // Try to balance pack those partitions into N files since this roughly equals
@@ -100,7 +116,8 @@ static void findPartitions(Module &M, ClusterIDMapType &ClusterIDMap,
   // At this point module should have the proper mix of globals and locals.
   // As we attempt to partition this module, we must not change any
   // locals to globals.
-  LLVM_DEBUG(dbgs() << "Partition module with (" << M.size() << ")functions\n");
+  LLVM_DEBUG(dbgs() << "Partition module with (" << M.size()
+                    << ") functions\n");
   ClusterMapType GVtoClusterMap;
   ComdatMembersType ComdatMembers;
 
@@ -123,12 +140,11 @@ static void findPartitions(Module &M, ClusterIDMapType &ClusterIDMap,
         Member = &GV;
     }
 
-    // For aliases we should not separate them from their aliasees regardless
-    // of linkage.
-    if (auto *GIS = dyn_cast<GlobalIndirectSymbol>(&GV)) {
-      if (const GlobalObject *Base = GIS->getBaseObject())
-        GVtoClusterMap.unionSets(&GV, Base);
-    }
+    // Aliases should not be separated from their aliasees and ifuncs should
+    // not be separated from their resolvers regardless of linkage.
+    if (const GlobalObject *Root = getGVPartitioningRoot(&GV))
+      if (&GV != Root)
+        GVtoClusterMap.unionSets(&GV, Root);
 
     if (const Function *F = dyn_cast<Function>(&GV)) {
       for (const BasicBlock &BB : *F) {
@@ -149,54 +165,29 @@ static void findPartitions(Module &M, ClusterIDMapType &ClusterIDMap,
 
   // Assigned all GVs to merged clusters while balancing number of objects in
   // each.
-  auto CompareClusters = [](const std::pair<unsigned, unsigned> &a,
-                            const std::pair<unsigned, unsigned> &b) {
-    if (a.second || b.second)
-      return a.second > b.second;
-    else
-      return a.first > b.first;
-  };
-
-  std::priority_queue<std::pair<unsigned, unsigned>,
-                      std::vector<std::pair<unsigned, unsigned>>,
-                      decltype(CompareClusters)>
-      BalancinQueue(CompareClusters);
+  BalancingQueueType BalancingQueue(compareClusters);
   // Pre-populate priority queue with N slot blanks.
   for (unsigned i = 0; i < N; ++i)
-    BalancinQueue.push(std::make_pair(i, 0));
+    BalancingQueue.push(std::make_pair(i, 0));
 
-  using SortType = std::pair<unsigned, ClusterMapType::iterator>;
-
-  SmallVector<SortType, 64> Sets;
   SmallPtrSet<const GlobalValue *, 32> Visited;
 
   // To guarantee determinism, we have to sort SCC according to size.
   // When size is the same, use leader's name.
-  for (ClusterMapType::iterator I = GVtoClusterMap.begin(),
-                                E = GVtoClusterMap.end(); I != E; ++I)
-    if (I->isLeader())
-      Sets.push_back(
-          std::make_pair(std::distance(GVtoClusterMap.member_begin(I),
-                                       GVtoClusterMap.member_end()), I));
+  for (const auto &C : GVtoClusterMap) {
+    if (!C->isLeader())
+      continue;
 
-  llvm::sort(Sets, [](const SortType &a, const SortType &b) {
-    if (a.first == b.first)
-      return a.second->getData()->getName() > b.second->getData()->getName();
-    else
-      return a.first > b.first;
-  });
-
-  for (auto &I : Sets) {
-    unsigned CurrentClusterID = BalancinQueue.top().first;
-    unsigned CurrentClusterSize = BalancinQueue.top().second;
-    BalancinQueue.pop();
+    unsigned CurrentClusterID = BalancingQueue.top().first;
+    unsigned CurrentClusterSize = BalancingQueue.top().second;
+    BalancingQueue.pop();
 
     LLVM_DEBUG(dbgs() << "Root[" << CurrentClusterID << "] cluster_size("
-                      << I.first << ") ----> " << I.second->getData()->getName()
-                      << "\n");
+                      << std::distance(GVtoClusterMap.member_begin(*C),
+                                       GVtoClusterMap.member_end())
+                      << ") ----> " << C->getData()->getName() << "\n");
 
-    for (ClusterMapType::member_iterator MI =
-             GVtoClusterMap.findLeader(I.second);
+    for (ClusterMapType::member_iterator MI = GVtoClusterMap.findLeader(*C);
          MI != GVtoClusterMap.member_end(); ++MI) {
       if (!Visited.insert(*MI).second)
         continue;
@@ -207,7 +198,7 @@ static void findPartitions(Module &M, ClusterIDMapType &ClusterIDMap,
       CurrentClusterSize++;
     }
     // Add this set size to the number of entries in this cluster.
-    BalancinQueue.push(std::make_pair(CurrentClusterID, CurrentClusterSize));
+    BalancingQueue.push(std::make_pair(CurrentClusterID, CurrentClusterSize));
   }
 }
 
@@ -225,9 +216,8 @@ static void externalize(GlobalValue *GV) {
 
 // Returns whether GV should be in partition (0-based) I of N.
 static bool isInPartition(const GlobalValue *GV, unsigned I, unsigned N) {
-  if (auto *GIS = dyn_cast<GlobalIndirectSymbol>(GV))
-    if (const GlobalObject *Base = GIS->getBaseObject())
-      GV = Base;
+  if (const GlobalObject *Root = getGVPartitioningRoot(GV))
+    GV = Root;
 
   StringRef Name;
   if (const Comdat *C = GV->getComdat())
@@ -248,7 +238,7 @@ static bool isInPartition(const GlobalValue *GV, unsigned I, unsigned N) {
 void llvm::SplitModule(
     Module &M, unsigned N,
     function_ref<void(std::unique_ptr<Module> MPart)> ModuleCallback,
-    bool PreserveLocals) {
+    bool PreserveLocals, bool RoundRobin) {
   if (!PreserveLocals) {
     for (Function &F : M)
       externalize(&F);
@@ -265,6 +255,41 @@ void llvm::SplitModule(
   ClusterIDMapType ClusterIDMap;
   findPartitions(M, ClusterIDMap, N);
 
+  // Find functions not mapped to modules in ClusterIDMap and count functions
+  // per module. Map unmapped functions using round-robin so that they skip
+  // being distributed by isInPartition() based on function name hashes below.
+  // This provides better uniformity of distribution of functions to modules
+  // in some cases - for example when the number of functions equals to N.
+  if (RoundRobin) {
+    DenseMap<unsigned, unsigned> ModuleFunctionCount;
+    SmallVector<const GlobalValue *> UnmappedFunctions;
+    for (const auto &F : M.functions()) {
+      if (F.isDeclaration() ||
+          F.getLinkage() != GlobalValue::LinkageTypes::ExternalLinkage)
+        continue;
+      auto It = ClusterIDMap.find(&F);
+      if (It == ClusterIDMap.end())
+        UnmappedFunctions.push_back(&F);
+      else
+        ++ModuleFunctionCount[It->second];
+    }
+    BalancingQueueType BalancingQueue(compareClusters);
+    for (unsigned I = 0; I < N; ++I) {
+      if (auto It = ModuleFunctionCount.find(I);
+          It != ModuleFunctionCount.end())
+        BalancingQueue.push(*It);
+      else
+        BalancingQueue.push({I, 0});
+    }
+    for (const auto *const F : UnmappedFunctions) {
+      const unsigned I = BalancingQueue.top().first;
+      const unsigned Count = BalancingQueue.top().second;
+      BalancingQueue.pop();
+      ClusterIDMap.insert({F, I});
+      BalancingQueue.push({I, Count + 1});
+    }
+  }
+
   // FIXME: We should be able to reuse M as the last partition instead of
   // cloning it. Note that the callers at the moment expect the module to
   // be preserved, so will need some adjustments as well.
@@ -272,8 +297,8 @@ void llvm::SplitModule(
     ValueToValueMapTy VMap;
     std::unique_ptr<Module> MPart(
         CloneModule(M, VMap, [&](const GlobalValue *GV) {
-          if (ClusterIDMap.count(GV))
-            return (ClusterIDMap[GV] == I);
+          if (auto It = ClusterIDMap.find(GV); It != ClusterIDMap.end())
+            return It->second == I;
           else
             return isInPartition(GV, I, N);
         }));

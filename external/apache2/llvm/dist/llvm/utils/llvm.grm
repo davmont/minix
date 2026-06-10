@@ -173,9 +173,12 @@ FuncAttr      ::= noreturn
  | returns_twice
  | nonlazybind
  | sanitize_address
+ | sanitize_alloc_token
  | sanitize_thread
  | sanitize_memory
  | mustprogress
+ | nosanitize_bounds
+ | nosanitize_coverage
  ;
 
 OptFuncAttrs  ::= + _ | OptFuncAttrs FuncAttr ;

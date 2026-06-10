@@ -1,4 +1,4 @@
-//===-- M68kFrameLowering.cpp - M68k Frame Information ------*- C++ -*-===//
+//===-- M68kFrameLowering.cpp - M68k Frame Information ----------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -33,6 +33,8 @@
 
 using namespace llvm;
 
+#define DEBUG_TYPE "m68k-frame"
+
 M68kFrameLowering::M68kFrameLowering(const M68kSubtarget &STI, Align Alignment)
     : TargetFrameLowering(StackGrowsDown, Alignment, -4), STI(STI),
       TII(*STI.getInstrInfo()), TRI(STI.getRegisterInfo()) {
@@ -40,7 +42,7 @@ M68kFrameLowering::M68kFrameLowering(const M68kSubtarget &STI, Align Alignment)
   StackPtr = TRI->getStackRegister();
 }
 
-bool M68kFrameLowering::hasFP(const MachineFunction &MF) const {
+bool M68kFrameLowering::hasFPImpl(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   const TargetRegisterInfo *TRI = STI.getRegisterInfo();
 
@@ -157,7 +159,7 @@ static unsigned findDeadCallerSavedReg(MachineBasicBlock &MBB,
       MachineOperand &MO = MBBI->getOperand(i);
       if (!MO.isReg() || MO.isDef())
         continue;
-      unsigned Reg = MO.getReg();
+      Register Reg = MO.getReg();
       if (!Reg)
         continue;
       for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
@@ -231,8 +233,8 @@ MachineBasicBlock::iterator M68kFrameLowering::eliminateCallFramePseudoInstr(
   unsigned Opcode = I->getOpcode();
   bool IsDestroy = Opcode == TII.getCallFrameDestroyOpcode();
   DebugLoc DL = I->getDebugLoc();
-  uint64_t Amount = !ReserveCallFrame ? I->getOperand(0).getImm() : 0;
-  uint64_t InternalAmt = (IsDestroy && Amount) ? I->getOperand(1).getImm() : 0;
+  uint64_t Amount = I->getOperand(0).getImm();
+  uint64_t InternalAmt = (IsDestroy || Amount) ? I->getOperand(1).getImm() : 0;
   I = MBB.erase(I);
 
   if (!ReserveCallFrame) {
@@ -246,9 +248,7 @@ MachineBasicBlock::iterator M68kFrameLowering::eliminateCallFramePseudoInstr(
     unsigned StackAlign = getStackAlignment();
     Amount = alignTo(Amount, StackAlign);
 
-    MachineModuleInfo &MMI = MF.getMMI();
-    const auto &Fn = MF.getFunction();
-    bool DwarfCFI = MMI.hasDebugInfo() || Fn.needsUnwindTableEntry();
+    bool DwarfCFI = MF.needsFrameMoves();
 
     // If we have any exception handlers in this function, and we adjust
     // the SP before calls, we may need to indicate this to the unwinder
@@ -357,7 +357,7 @@ void M68kFrameLowering::emitSPUpdate(MachineBasicBlock &MBB,
       if (Reg) {
         unsigned Opc = M68k::MOV32ri;
         BuildMI(MBB, MBBI, DL, TII.get(Opc), Reg).addImm(Offset);
-        Opc = IsSub ? M68k::SUB32rr : M68k::ADD32rr;
+        Opc = IsSub ? M68k::SUB32ar : M68k::ADD32ar;
         MachineInstr *MI = BuildMI(MBB, MBBI, DL, TII.get(Opc), StackPtr)
                                .addReg(StackPtr)
                                .addReg(Reg);
@@ -400,13 +400,13 @@ int M68kFrameLowering::mergeSPUpdates(MachineBasicBlock &MBB,
     return Offset;
   }
 
-  if (Opc == M68k::ADD32ri && PI->getOperand(0).getReg() == StackPtr) {
+  if (Opc == M68k::ADD32ai && PI->getOperand(0).getReg() == StackPtr) {
     assert(PI->getOperand(1).getReg() == StackPtr);
     Offset += PI->getOperand(2).getImm();
     MBB.erase(PI);
     if (!MergeWithPrevious)
       MBBI = NI;
-  } else if (Opc == M68k::SUB32ri && PI->getOperand(0).getReg() == StackPtr) {
+  } else if (Opc == M68k::SUB32ai && PI->getOperand(0).getReg() == StackPtr) {
     assert(PI->getOperand(1).getReg() == StackPtr);
     Offset -= PI->getOperand(2).getImm();
     MBB.erase(PI);
@@ -426,7 +426,7 @@ MachineInstrBuilder M68kFrameLowering::BuildStackAdjustment(
 
   bool IsSub = Offset < 0;
   uint64_t AbsOffset = IsSub ? -Offset : Offset;
-  unsigned Opc = IsSub ? M68k::SUB32ri : M68k::ADD32ri;
+  unsigned Opc = IsSub ? M68k::SUB32ai : M68k::ADD32ai;
 
   MachineInstrBuilder MI = BuildMI(MBB, MBBI, DL, TII.get(Opc), StackPtr)
                                .addReg(StackPtr)
@@ -447,13 +447,12 @@ void M68kFrameLowering::BuildCFI(MachineBasicBlock &MBB,
       .addCFIIndex(CFIIndex);
 }
 
-void M68kFrameLowering::emitCalleeSavedFrameMoves(
+void M68kFrameLowering::emitPrologueCalleeSavedFrameMoves(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
-    const DebugLoc &DL, bool IsProlog) const {
+    const DebugLoc &DL) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  MachineModuleInfo &MMI = MF.getMMI();
-  const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
+  const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
 
   // Add callee saved registers to move list.
   const auto &CSI = MFI.getCalleeSavedInfo();
@@ -463,7 +462,7 @@ void M68kFrameLowering::emitCalleeSavedFrameMoves(
   // Calculate offsets.
   for (const auto &I : CSI) {
     int64_t Offset = MFI.getObjectOffset(I.getFrameIdx());
-    unsigned Reg = I.getReg();
+    MCRegister Reg = I.getReg();
 
     unsigned DwarfReg = MRI->getDwarfRegNum(Reg, true);
     BuildCFI(MBB, MBBI, DL,
@@ -478,14 +477,12 @@ void M68kFrameLowering::emitPrologue(MachineFunction &MF,
 
   MachineBasicBlock::iterator MBBI = MBB.begin();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  const auto &Fn = MF.getFunction();
-  MachineModuleInfo &MMI = MF.getMMI();
   M68kMachineFunctionInfo *MMFI = MF.getInfo<M68kMachineFunctionInfo>();
   uint64_t MaxAlign = calculateMaxStackAlign(MF); // Desired stack alignment.
   uint64_t StackSize = MFI.getStackSize(); // Number of bytes to allocate.
   bool HasFP = hasFP(MF);
-  bool NeedsDwarfCFI = MMI.hasDebugInfo() || Fn.needsUnwindTableEntry();
-  unsigned FramePtr = TRI->getFrameRegister(MF);
+  bool NeedsDwarfCFI = MF.needsFrameMoves();
+  Register FramePtr = TRI->getFrameRegister(MF);
   const unsigned MachineFramePtr = FramePtr;
   unsigned BasePtr = TRI->getBaseRegister();
 
@@ -546,9 +543,9 @@ void M68kFrameLowering::emitPrologue(MachineFunction &MF,
     // Update the frame offset adjustment.
     MFI.setOffsetAdjustment(-NumBytes);
 
-    // Save FP into the appropriate stack slot.
-    BuildMI(MBB, MBBI, DL, TII.get(M68k::PUSH32r))
-        .addReg(MachineFramePtr, RegState::Kill)
+    BuildMI(MBB, MBBI, DL, TII.get(M68k::LINK16))
+        .addReg(M68k::WA6, RegState::Kill)
+        .addImm(-NumBytes)
         .setMIFlag(MachineInstr::FrameSetup);
 
     if (NeedsDwarfCFI) {
@@ -565,11 +562,6 @@ void M68kFrameLowering::emitPrologue(MachineFunction &MF,
                MCCFIInstruction::createOffset(nullptr, DwarfFramePtr,
                                               2 * stackGrowth));
     }
-
-    // Update FP with the new base value.
-    BuildMI(MBB, MBBI, DL, TII.get(M68k::MOV32aa), FramePtr)
-        .addReg(StackPtr)
-        .setMIFlag(MachineInstr::FrameSetup);
 
     if (NeedsDwarfCFI) {
       // Mark effective beginning of when frame pointer becomes valid.
@@ -619,7 +611,8 @@ void M68kFrameLowering::emitPrologue(MachineFunction &MF,
   NumBytes -= mergeSPUpdates(MBB, MBBI, true);
 
   // Adjust stack pointer: ESP -= numbytes.
-  emitSPUpdate(MBB, MBBI, -(int64_t)NumBytes, /*InEpilogue=*/false);
+  if (!HasFP)
+    emitSPUpdate(MBB, MBBI, -(int64_t)NumBytes, /*InEpilogue=*/false);
 
   unsigned SPOrEstablisher = StackPtr;
 
@@ -656,7 +649,7 @@ void M68kFrameLowering::emitPrologue(MachineFunction &MF,
 
     // Emit DWARF info specifying the offsets of the callee-saved registers.
     if (PushedRegs)
-      emitCalleeSavedFrameMoves(MBB, MBBI, DL, true);
+      emitPrologueCalleeSavedFrameMoves(MBB, MBBI, DL);
   }
 
   // TODO Interrupt handlers
@@ -677,13 +670,13 @@ void M68kFrameLowering::emitEpilogue(MachineFunction &MF,
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   M68kMachineFunctionInfo *MMFI = MF.getInfo<M68kMachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
-  Optional<unsigned> RetOpcode;
+  std::optional<unsigned> RetOpcode;
   if (MBBI != MBB.end())
     RetOpcode = MBBI->getOpcode();
   DebugLoc DL;
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
-  unsigned FramePtr = TRI->getFrameRegister(MF);
+  Register FramePtr = TRI->getFrameRegister(MF);
   unsigned MachineFramePtr = FramePtr;
 
   // Get the number of bytes to allocate from the FrameInfo.
@@ -702,9 +695,6 @@ void M68kFrameLowering::emitEpilogue(MachineFunction &MF,
     if (TRI->hasStackRealignment(MF))
       NumBytes = alignTo(FrameSize, MaxAlign);
 
-    // Pop FP.
-    BuildMI(MBB, MBBI, DL, TII.get(M68k::POP32r), MachineFramePtr)
-        .setMIFlag(MachineInstr::FrameDestroy);
   } else {
     NumBytes = StackSize - CSSize;
   }
@@ -749,10 +739,15 @@ void M68kFrameLowering::emitEpilogue(MachineFunction &MF,
           LEAAmount);
       --MBBI;
     } else {
-      unsigned Opc = (M68k::MOV32rr);
-      BuildMI(MBB, MBBI, DL, TII.get(Opc), StackPtr).addReg(FramePtr);
+      BuildMI(MBB, MBBI, DL, TII.get(M68k::UNLK))
+          .addReg(MachineFramePtr, RegState::Kill)
+          .setMIFlag(MachineInstr::FrameDestroy);
       --MBBI;
     }
+  } else if (hasFP(MF)) {
+    BuildMI(MBB, MBBI, DL, TII.get(M68k::UNLK))
+        .addReg(MachineFramePtr, RegState::Kill)
+        .setMIFlag(MachineInstr::FrameDestroy);
   } else if (NumBytes) {
     // Adjust stack pointer back: SP += numbytes.
     emitSPUpdate(MBB, MBBI, NumBytes, /*InEpilogue=*/true);
@@ -819,7 +814,7 @@ bool M68kFrameLowering::assignCalleeSavedSpillSlots(
     // Since emitPrologue and emitEpilogue will handle spilling and restoring of
     // the frame register, we can delete it from CSI list and not have to worry
     // about avoiding it later.
-    unsigned FPReg = TRI->getFrameRegister(MF);
+    Register FPReg = TRI->getFrameRegister(MF);
     for (unsigned i = 0, e = CSI.size(); i < e; ++i) {
       if (TRI->regsOverlap(CSI[i].getReg(), FPReg)) {
         CSI.erase(CSI.begin() + i);
@@ -842,7 +837,7 @@ bool M68kFrameLowering::spillCalleeSavedRegisters(
   unsigned Mask = 0;
   for (const auto &Info : CSI) {
     FI = std::max(FI, Info.getFrameIdx());
-    unsigned Reg = Info.getReg();
+    MCRegister Reg = Info.getReg();
     unsigned Shift = MRI.getSpillRegisterOrder(Reg);
     Mask |= 1 << Shift;
   }
@@ -856,7 +851,7 @@ bool M68kFrameLowering::spillCalleeSavedRegisters(
   const MachineFunction &MF = *MBB.getParent();
   const MachineRegisterInfo &RI = MF.getRegInfo();
   for (const auto &Info : CSI) {
-    unsigned Reg = Info.getReg();
+    MCRegister Reg = Info.getReg();
     bool IsLiveIn = RI.isLiveIn(Reg);
     if (!IsLiveIn)
       MBB.addLiveIn(Reg);
@@ -877,7 +872,7 @@ bool M68kFrameLowering::restoreCalleeSavedRegisters(
   unsigned Mask = 0;
   for (const auto &Info : CSI) {
     FI = std::max(FI, Info.getFrameIdx());
-    unsigned Reg = Info.getReg();
+    MCRegister Reg = Info.getReg();
     unsigned Shift = MRI.getSpillRegisterOrder(Reg);
     Mask |= 1 << Shift;
   }

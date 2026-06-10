@@ -224,22 +224,22 @@ VSX:
   . isCommutable = 1
     // xsmaddqp
     [(set f128:$vT, (fma f128:$vA, f128:$vB, f128:$vTi))]>,
-    RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+    RegConstraint<"$vTi = $vT">,
     AltVSXFMARel;
 
     // xsmsubqp
     [(set f128:$vT, (fma f128:$vA, f128:$vB, (fneg f128:$vTi)))]>,
-    RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+    RegConstraint<"$vTi = $vT">,
     AltVSXFMARel;
 
     // xsnmaddqp
     [(set f128:$vT, (fneg (fma f128:$vA, f128:$vB, f128:$vTi)))]>,
-    RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+    RegConstraint<"$vTi = $vT">,
     AltVSXFMARel;
 
     // xsnmsubqp
     [(set f128:$vT, (fneg (fma f128:$vA, f128:$vB, (fneg f128:$vTi))))]>,
-    RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+    RegConstraint<"$vTi = $vT">,
     AltVSXFMARel;
 
 - Round to Odd of QP (Negative) Multiply-{Add/Subtract}:
@@ -276,22 +276,22 @@ VSX:
     . isCommutable = 1
       // xsmaddqpo
       [(set f128:$vT, (PPCfmarto f128:$vA, f128:$vB, f128:$vTi))]>,
-      RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+      RegConstraint<"$vTi = $vT">,
       AltVSXFMARel;
 
       // xsmsubqpo
       [(set f128:$vT, (PPCfmarto f128:$vA, f128:$vB, (fneg f128:$vTi)))]>,
-      RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+      RegConstraint<"$vTi = $vT">,
       AltVSXFMARel;
 
       // xsnmaddqpo
       [(set f128:$vT, (fneg (PPCfmarto f128:$vA, f128:$vB, f128:$vTi)))]>,
-      RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+      RegConstraint<"$vTi = $vT">,
       AltVSXFMARel;
 
       // xsnmsubqpo
       [(set f128:$vT, (fneg (PPCfmarto f128:$vA, f128:$vB, (fneg f128:$vTi))))]>,
-      RegConstraint<"$vTi = $vT">, NoEncode<"$vTi">,
+      RegConstraint<"$vTi = $vT">,
       AltVSXFMARel;
 
 - QP Compare Ordered/Unordered: xscmpoqp xscmpuqp
@@ -310,7 +310,7 @@ VSX:
   . I checked existing instruction "XSCMPUDP". They are different in target
     register. "XSCMPUDP" write to CR field, xscmp*dp write to VSX register
 
-  . Use instrinsic:
+  . Use intrinsic:
     (set i128:$XT, (int_ppc_vsx_xscmpeqdp f64:$XA, f64:$XB))
     (set i128:$XT, (int_ppc_vsx_xscmpgedp f64:$XA, f64:$XB))
     (set i128:$XT, (int_ppc_vsx_xscmpgtdp f64:$XA, f64:$XB))
@@ -322,7 +322,7 @@ VSX:
                                  "xvcmpeqdp", "$XT, $XA, $XB", IIC_VecFPCompare,
                                  int_ppc_vsx_xvcmpeqdp, v2i64, v2f64>;
 
-  . So we should use "XX3Form_Rcr" to implement instrinsic
+  . So we should use "XX3Form_Rcr" to implement intrinsic
 
 - Convert DP -> QP: xscvdpqp
   . Similar to XSCVDPSP:
@@ -405,7 +405,7 @@ Fixed Point Facility:
 
     But how to map to it??
     [(set v1f128:$XT, (insertelement v1f128:$XTi, f128:$XB, i4:$UIMM))]>,
-    RegConstraint<"$XTi = $XT">, NoEncode<"$XTi">,
+    RegConstraint<"$XTi = $XT">,
 
   . Or use intrinsic?
     (set v1f128:$XT, (int_ppc_vsx_xxinsertw v1f128:$XTi, f128:$XB, i4:$UIMM))
@@ -578,11 +578,6 @@ Atomic operations (l[dw]at, st[dw]at):
 - Ensure the operands are in the correct register (i.e. RT+1, RT+2)
 - Provide builtins since not all FC's necessarily have an existing LLVM
   atomic operation
-
-Load Doubleword Monitored (ldmx):
-- Investigate whether there are any uses for this. It seems to be related to
-  Garbage Collection so it isn't likely to be all that useful for most
-  languages we deal with.
 
 Move to CR from XER Extended (mcrxrx):
 - Is there a use for this in LLVM?

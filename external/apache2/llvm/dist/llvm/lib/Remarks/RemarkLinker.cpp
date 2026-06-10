@@ -12,13 +12,19 @@
 
 #include "llvm/Remarks/RemarkLinker.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Remarks/BitstreamRemarkContainer.h"
+#include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/SymbolicFile.h"
 #include "llvm/Remarks/RemarkParser.h"
 #include "llvm/Remarks/RemarkSerializer.h"
 #include "llvm/Support/Error.h"
+#include <optional>
 
 using namespace llvm;
 using namespace llvm::remarks;
+
+namespace llvm {
+class raw_ostream;
+}
 
 static Expected<StringRef>
 getRemarksSectionName(const object::ObjectFile &Obj) {
@@ -29,7 +35,7 @@ getRemarksSectionName(const object::ObjectFile &Obj) {
                            "Unsupported file format.");
 }
 
-Expected<Optional<StringRef>>
+Expected<std::optional<StringRef>>
 llvm::remarks::getRemarksSectionContents(const object::ObjectFile &Obj) {
   Expected<StringRef> SectionName = getRemarksSectionName(Obj);
   if (!SectionName)
@@ -47,7 +53,7 @@ llvm::remarks::getRemarksSectionContents(const object::ObjectFile &Obj) {
     else
       return Contents.takeError();
   }
-  return Optional<StringRef>{};
+  return std::optional<StringRef>{};
 }
 
 Remark &RemarkLinker::keep(std::unique_ptr<Remark> Remark) {
@@ -60,22 +66,12 @@ void RemarkLinker::setExternalFilePrependPath(StringRef PrependPathIn) {
   PrependPath = std::string(PrependPathIn);
 }
 
-// Discard remarks with no source location.
-static bool shouldKeepRemark(const Remark &R) { return R.Loc.hasValue(); }
-
-Error RemarkLinker::link(StringRef Buffer, Optional<Format> RemarkFormat) {
-  if (!RemarkFormat) {
-    Expected<Format> ParserFormat = magicToFormat(Buffer);
-    if (!ParserFormat)
-      return ParserFormat.takeError();
-    RemarkFormat = *ParserFormat;
-  }
-
+Error RemarkLinker::link(StringRef Buffer, Format RemarkFormat) {
   Expected<std::unique_ptr<RemarkParser>> MaybeParser =
       createRemarkParserFromMeta(
-          *RemarkFormat, Buffer, /*StrTab=*/None,
-          PrependPath ? Optional<StringRef>(StringRef(*PrependPath))
-                      : Optional<StringRef>(None));
+          RemarkFormat, Buffer,
+          PrependPath ? std::make_optional<StringRef>(*PrependPath)
+                      : std::nullopt);
   if (!MaybeParser)
     return MaybeParser.takeError();
 
@@ -99,20 +95,20 @@ Error RemarkLinker::link(StringRef Buffer, Optional<Format> RemarkFormat) {
   return Error::success();
 }
 
-Error RemarkLinker::link(const object::ObjectFile &Obj,
-                         Optional<Format> RemarkFormat) {
-  Expected<Optional<StringRef>> SectionOrErr = getRemarksSectionContents(Obj);
+Error RemarkLinker::link(const object::ObjectFile &Obj, Format RemarkFormat) {
+  Expected<std::optional<StringRef>> SectionOrErr =
+      getRemarksSectionContents(Obj);
   if (!SectionOrErr)
     return SectionOrErr.takeError();
 
-  if (Optional<StringRef> Section = *SectionOrErr)
+  if (std::optional<StringRef> Section = *SectionOrErr)
     return link(*Section, RemarkFormat);
   return Error::success();
 }
 
 Error RemarkLinker::serialize(raw_ostream &OS, Format RemarksFormat) const {
   Expected<std::unique_ptr<RemarkSerializer>> MaybeSerializer =
-      createRemarkSerializer(RemarksFormat, SerializerMode::Standalone, OS,
+      createRemarkSerializer(RemarksFormat, OS,
                              std::move(const_cast<StringTable &>(StrTab)));
   if (!MaybeSerializer)
     return MaybeSerializer.takeError();

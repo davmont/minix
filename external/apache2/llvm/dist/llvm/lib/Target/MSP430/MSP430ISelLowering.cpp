@@ -13,6 +13,7 @@
 #include "MSP430ISelLowering.h"
 #include "MSP430.h"
 #include "MSP430MachineFunctionInfo.h"
+#include "MSP430SelectionDAGInfo.h"
 #include "MSP430Subtarget.h"
 #include "MSP430TargetMachine.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -25,8 +26,6 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/GlobalAlias.h"
-#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -43,7 +42,7 @@ static cl::opt<bool>MSP430NoLegalImmediate(
 
 MSP430TargetLowering::MSP430TargetLowering(const TargetMachine &TM,
                                            const MSP430Subtarget &STI)
-    : TargetLowering(TM) {
+    : TargetLowering(TM, STI) {
 
   // Set up the register classes.
   addRegisterClass(MVT::i8,  &MSP430::GR8RegClass);
@@ -149,190 +148,9 @@ MSP430TargetLowering::MSP430TargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VACOPY,           MVT::Other, Expand);
   setOperationAction(ISD::JumpTable,        MVT::i16,   Custom);
 
-  // EABI Libcalls - EABI Section 6.2
-  const struct {
-    const RTLIB::Libcall Op;
-    const char * const Name;
-    const ISD::CondCode Cond;
-  } LibraryCalls[] = {
-    // Floating point conversions - EABI Table 6
-    { RTLIB::FPROUND_F64_F32,   "__mspabi_cvtdf",   ISD::SETCC_INVALID },
-    { RTLIB::FPEXT_F32_F64,     "__mspabi_cvtfd",   ISD::SETCC_INVALID },
-    // The following is NOT implemented in libgcc
-    //{ RTLIB::FPTOSINT_F64_I16,  "__mspabi_fixdi", ISD::SETCC_INVALID },
-    { RTLIB::FPTOSINT_F64_I32,  "__mspabi_fixdli",  ISD::SETCC_INVALID },
-    { RTLIB::FPTOSINT_F64_I64,  "__mspabi_fixdlli", ISD::SETCC_INVALID },
-    // The following is NOT implemented in libgcc
-    //{ RTLIB::FPTOUINT_F64_I16,  "__mspabi_fixdu", ISD::SETCC_INVALID },
-    { RTLIB::FPTOUINT_F64_I32,  "__mspabi_fixdul",  ISD::SETCC_INVALID },
-    { RTLIB::FPTOUINT_F64_I64,  "__mspabi_fixdull", ISD::SETCC_INVALID },
-    // The following is NOT implemented in libgcc
-    //{ RTLIB::FPTOSINT_F32_I16,  "__mspabi_fixfi", ISD::SETCC_INVALID },
-    { RTLIB::FPTOSINT_F32_I32,  "__mspabi_fixfli",  ISD::SETCC_INVALID },
-    { RTLIB::FPTOSINT_F32_I64,  "__mspabi_fixflli", ISD::SETCC_INVALID },
-    // The following is NOT implemented in libgcc
-    //{ RTLIB::FPTOUINT_F32_I16,  "__mspabi_fixfu", ISD::SETCC_INVALID },
-    { RTLIB::FPTOUINT_F32_I32,  "__mspabi_fixful",  ISD::SETCC_INVALID },
-    { RTLIB::FPTOUINT_F32_I64,  "__mspabi_fixfull", ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc
-    //{ RTLIB::SINTTOFP_I16_F64,  "__mspabi_fltid", ISD::SETCC_INVALID },
-    { RTLIB::SINTTOFP_I32_F64,  "__mspabi_fltlid",  ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc but is not in the EABI
-    { RTLIB::SINTTOFP_I64_F64,  "__mspabi_fltllid", ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc
-    //{ RTLIB::UINTTOFP_I16_F64,  "__mspabi_fltud", ISD::SETCC_INVALID },
-    { RTLIB::UINTTOFP_I32_F64,  "__mspabi_fltuld",  ISD::SETCC_INVALID },
-    // The following IS implemented in libgcc but is not in the EABI
-    { RTLIB::UINTTOFP_I64_F64,  "__mspabi_fltulld", ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc
-    //{ RTLIB::SINTTOFP_I16_F32,  "__mspabi_fltif", ISD::SETCC_INVALID },
-    { RTLIB::SINTTOFP_I32_F32,  "__mspabi_fltlif",  ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc but is not in the EABI
-    { RTLIB::SINTTOFP_I64_F32,  "__mspabi_fltllif", ISD::SETCC_INVALID },
-    // TODO The following IS implemented in libgcc
-    //{ RTLIB::UINTTOFP_I16_F32,  "__mspabi_fltuf", ISD::SETCC_INVALID },
-    { RTLIB::UINTTOFP_I32_F32,  "__mspabi_fltulf",  ISD::SETCC_INVALID },
-    // The following IS implemented in libgcc but is not in the EABI
-    { RTLIB::UINTTOFP_I64_F32,  "__mspabi_fltullf", ISD::SETCC_INVALID },
-
-    // Floating point comparisons - EABI Table 7
-    { RTLIB::OEQ_F64, "__mspabi_cmpd", ISD::SETEQ },
-    { RTLIB::UNE_F64, "__mspabi_cmpd", ISD::SETNE },
-    { RTLIB::OGE_F64, "__mspabi_cmpd", ISD::SETGE },
-    { RTLIB::OLT_F64, "__mspabi_cmpd", ISD::SETLT },
-    { RTLIB::OLE_F64, "__mspabi_cmpd", ISD::SETLE },
-    { RTLIB::OGT_F64, "__mspabi_cmpd", ISD::SETGT },
-    { RTLIB::OEQ_F32, "__mspabi_cmpf", ISD::SETEQ },
-    { RTLIB::UNE_F32, "__mspabi_cmpf", ISD::SETNE },
-    { RTLIB::OGE_F32, "__mspabi_cmpf", ISD::SETGE },
-    { RTLIB::OLT_F32, "__mspabi_cmpf", ISD::SETLT },
-    { RTLIB::OLE_F32, "__mspabi_cmpf", ISD::SETLE },
-    { RTLIB::OGT_F32, "__mspabi_cmpf", ISD::SETGT },
-
-    // Floating point arithmetic - EABI Table 8
-    { RTLIB::ADD_F64,  "__mspabi_addd", ISD::SETCC_INVALID },
-    { RTLIB::ADD_F32,  "__mspabi_addf", ISD::SETCC_INVALID },
-    { RTLIB::DIV_F64,  "__mspabi_divd", ISD::SETCC_INVALID },
-    { RTLIB::DIV_F32,  "__mspabi_divf", ISD::SETCC_INVALID },
-    { RTLIB::MUL_F64,  "__mspabi_mpyd", ISD::SETCC_INVALID },
-    { RTLIB::MUL_F32,  "__mspabi_mpyf", ISD::SETCC_INVALID },
-    { RTLIB::SUB_F64,  "__mspabi_subd", ISD::SETCC_INVALID },
-    { RTLIB::SUB_F32,  "__mspabi_subf", ISD::SETCC_INVALID },
-    // The following are NOT implemented in libgcc
-    // { RTLIB::NEG_F64,  "__mspabi_negd", ISD::SETCC_INVALID },
-    // { RTLIB::NEG_F32,  "__mspabi_negf", ISD::SETCC_INVALID },
-
-    // Universal Integer Operations - EABI Table 9
-    { RTLIB::SDIV_I16,   "__mspabi_divi", ISD::SETCC_INVALID },
-    { RTLIB::SDIV_I32,   "__mspabi_divli", ISD::SETCC_INVALID },
-    { RTLIB::SDIV_I64,   "__mspabi_divlli", ISD::SETCC_INVALID },
-    { RTLIB::UDIV_I16,   "__mspabi_divu", ISD::SETCC_INVALID },
-    { RTLIB::UDIV_I32,   "__mspabi_divul", ISD::SETCC_INVALID },
-    { RTLIB::UDIV_I64,   "__mspabi_divull", ISD::SETCC_INVALID },
-    { RTLIB::SREM_I16,   "__mspabi_remi", ISD::SETCC_INVALID },
-    { RTLIB::SREM_I32,   "__mspabi_remli", ISD::SETCC_INVALID },
-    { RTLIB::SREM_I64,   "__mspabi_remlli", ISD::SETCC_INVALID },
-    { RTLIB::UREM_I16,   "__mspabi_remu", ISD::SETCC_INVALID },
-    { RTLIB::UREM_I32,   "__mspabi_remul", ISD::SETCC_INVALID },
-    { RTLIB::UREM_I64,   "__mspabi_remull", ISD::SETCC_INVALID },
-
-    // Bitwise Operations - EABI Table 10
-    // TODO: __mspabi_[srli/srai/slli] ARE implemented in libgcc
-    { RTLIB::SRL_I32,    "__mspabi_srll", ISD::SETCC_INVALID },
-    { RTLIB::SRA_I32,    "__mspabi_sral", ISD::SETCC_INVALID },
-    { RTLIB::SHL_I32,    "__mspabi_slll", ISD::SETCC_INVALID },
-    // __mspabi_[srlll/srall/sllll/rlli/rlll] are NOT implemented in libgcc
-
-  };
-
-  for (const auto &LC : LibraryCalls) {
-    setLibcallName(LC.Op, LC.Name);
-    if (LC.Cond != ISD::SETCC_INVALID)
-      setCmpLibcallCC(LC.Op, LC.Cond);
-  }
-
-  if (STI.hasHWMult16()) {
-    const struct {
-      const RTLIB::Libcall Op;
-      const char * const Name;
-    } LibraryCalls[] = {
-      // Integer Multiply - EABI Table 9
-      { RTLIB::MUL_I16,   "__mspabi_mpyi_hw" },
-      { RTLIB::MUL_I32,   "__mspabi_mpyl_hw" },
-      { RTLIB::MUL_I64,   "__mspabi_mpyll_hw" },
-      // TODO The __mspabi_mpysl*_hw functions ARE implemented in libgcc
-      // TODO The __mspabi_mpyul*_hw functions ARE implemented in libgcc
-    };
-    for (const auto &LC : LibraryCalls) {
-      setLibcallName(LC.Op, LC.Name);
-    }
-  } else if (STI.hasHWMult32()) {
-    const struct {
-      const RTLIB::Libcall Op;
-      const char * const Name;
-    } LibraryCalls[] = {
-      // Integer Multiply - EABI Table 9
-      { RTLIB::MUL_I16,   "__mspabi_mpyi_hw" },
-      { RTLIB::MUL_I32,   "__mspabi_mpyl_hw32" },
-      { RTLIB::MUL_I64,   "__mspabi_mpyll_hw32" },
-      // TODO The __mspabi_mpysl*_hw32 functions ARE implemented in libgcc
-      // TODO The __mspabi_mpyul*_hw32 functions ARE implemented in libgcc
-    };
-    for (const auto &LC : LibraryCalls) {
-      setLibcallName(LC.Op, LC.Name);
-    }
-  } else if (STI.hasHWMultF5()) {
-    const struct {
-      const RTLIB::Libcall Op;
-      const char * const Name;
-    } LibraryCalls[] = {
-      // Integer Multiply - EABI Table 9
-      { RTLIB::MUL_I16,   "__mspabi_mpyi_f5hw" },
-      { RTLIB::MUL_I32,   "__mspabi_mpyl_f5hw" },
-      { RTLIB::MUL_I64,   "__mspabi_mpyll_f5hw" },
-      // TODO The __mspabi_mpysl*_f5hw functions ARE implemented in libgcc
-      // TODO The __mspabi_mpyul*_f5hw functions ARE implemented in libgcc
-    };
-    for (const auto &LC : LibraryCalls) {
-      setLibcallName(LC.Op, LC.Name);
-    }
-  } else { // NoHWMult
-    const struct {
-      const RTLIB::Libcall Op;
-      const char * const Name;
-    } LibraryCalls[] = {
-      // Integer Multiply - EABI Table 9
-      { RTLIB::MUL_I16,   "__mspabi_mpyi" },
-      { RTLIB::MUL_I32,   "__mspabi_mpyl" },
-      { RTLIB::MUL_I64,   "__mspabi_mpyll" },
-      // The __mspabi_mpysl* functions are NOT implemented in libgcc
-      // The __mspabi_mpyul* functions are NOT implemented in libgcc
-    };
-    for (const auto &LC : LibraryCalls) {
-      setLibcallName(LC.Op, LC.Name);
-    }
-    setLibcallCallingConv(RTLIB::MUL_I64, CallingConv::MSP430_BUILTIN);
-  }
-
-  // Several of the runtime library functions use a special calling conv
-  setLibcallCallingConv(RTLIB::UDIV_I64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::UREM_I64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::SDIV_I64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::SREM_I64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::ADD_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::SUB_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::MUL_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::DIV_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::OEQ_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::UNE_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::OGE_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::OLT_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::OLE_F64, CallingConv::MSP430_BUILTIN);
-  setLibcallCallingConv(RTLIB::OGT_F64, CallingConv::MSP430_BUILTIN);
-  // TODO: __mspabi_srall, __mspabi_srlll, __mspabi_sllll
-
   setMinFunctionAlignment(Align(2));
   setPrefFunctionAlignment(Align(2));
+  setMaxAtomicSizeInBitsSupported(0);
 }
 
 SDValue MSP430TargetLowering::LowerOperation(SDValue Op,
@@ -458,12 +276,12 @@ static void AnalyzeArguments(CCState &State,
   static const MCPhysReg CRegList[] = {
     MSP430::R12, MSP430::R13, MSP430::R14, MSP430::R15
   };
-  static const unsigned CNbRegs = array_lengthof(CRegList);
+  static const unsigned CNbRegs = std::size(CRegList);
   static const MCPhysReg BuiltinRegList[] = {
     MSP430::R8, MSP430::R9, MSP430::R10, MSP430::R11,
     MSP430::R12, MSP430::R13, MSP430::R14, MSP430::R15
   };
-  static const unsigned BuiltinNbRegs = array_lengthof(BuiltinRegList);
+  static const unsigned BuiltinNbRegs = std::size(BuiltinRegList);
 
   ArrayRef<MCPhysReg> RegList;
   unsigned NbRegs;
@@ -497,6 +315,7 @@ static void AnalyzeArguments(CCState &State,
   for (unsigned i = 0, e = ArgsParts.size(); i != e; i++) {
     MVT ArgVT = Args[ValNo].VT;
     ISD::ArgFlagsTy ArgFlags = Args[ValNo].Flags;
+    Type *OrigTy = Args[ValNo].OrigTy;
     MVT LocVT = ArgVT;
     CCValAssign::LocInfo LocInfo = CCValAssign::Full;
 
@@ -526,22 +345,24 @@ static void AnalyzeArguments(CCState &State,
 
     if (!UsedStack && Parts == 2 && RegsLeft == 1) {
       // Special case for 32-bit register split, see EABI section 3.3.3
-      unsigned Reg = State.AllocateReg(RegList);
+      MCRegister Reg = State.AllocateReg(RegList);
       State.addLoc(CCValAssign::getReg(ValNo++, ArgVT, Reg, LocVT, LocInfo));
       RegsLeft -= 1;
 
       UsedStack = true;
-      CC_MSP430_AssignStack(ValNo++, ArgVT, LocVT, LocInfo, ArgFlags, State);
+      CC_MSP430_AssignStack(ValNo++, ArgVT, LocVT, LocInfo, ArgFlags, OrigTy,
+                            State);
     } else if (Parts <= RegsLeft) {
       for (unsigned j = 0; j < Parts; j++) {
-        unsigned Reg = State.AllocateReg(RegList);
+        MCRegister Reg = State.AllocateReg(RegList);
         State.addLoc(CCValAssign::getReg(ValNo++, ArgVT, Reg, LocVT, LocInfo));
         RegsLeft--;
       }
     } else {
       UsedStack = true;
       for (unsigned j = 0; j < Parts; j++)
-        CC_MSP430_AssignStack(ValNo++, ArgVT, LocVT, LocInfo, ArgFlags, State);
+        CC_MSP430_AssignStack(ValNo++, ArgVT, LocVT, LocInfo, ArgFlags, OrigTy,
+                              State);
     }
   }
 }
@@ -631,7 +452,7 @@ SDValue MSP430TargetLowering::LowerCCCArguments(
 
   // Create frame index for the start of the first vararg value
   if (isVarArg) {
-    unsigned Offset = CCInfo.getNextStackOffset();
+    unsigned Offset = CCInfo.getStackSize();
     FuncInfo->setVarArgsFrameIndex(MFI.CreateFixedObject(1, Offset, true));
   }
 
@@ -645,7 +466,7 @@ SDValue MSP430TargetLowering::LowerCCCArguments(
         {
 #ifndef NDEBUG
           errs() << "LowerFormalArguments Unhandled argument type: "
-               << RegVT.getEVTString() << "\n";
+                 << RegVT << "\n";
 #endif
           llvm_unreachable(nullptr);
         }
@@ -670,23 +491,23 @@ SDValue MSP430TargetLowering::LowerCCCArguments(
         InVals.push_back(ArgValue);
       }
     } else {
-      // Sanity check
+      // Only arguments passed on the stack should make it here.
       assert(VA.isMemLoc());
 
       SDValue InVal;
       ISD::ArgFlagsTy Flags = Ins[i].Flags;
 
       if (Flags.isByVal()) {
+        MVT PtrVT = VA.getLocVT();
         int FI = MFI.CreateFixedObject(Flags.getByValSize(),
                                        VA.getLocMemOffset(), true);
-        InVal = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
+        InVal = DAG.getFrameIndex(FI, PtrVT);
       } else {
         // Load the argument to a virtual register
         unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
         if (ObjSize > 2) {
             errs() << "LowerFormalArguments Unhandled argument type: "
-                << EVT(VA.getLocVT()).getEVTString()
-                << "\n";
+                << VA.getLocVT() << "\n";
         }
         // Create the frame index object for this incoming parameter...
         int FI = MFI.CreateFixedObject(ObjSize, VA.getLocMemOffset(), true);
@@ -705,7 +526,7 @@ SDValue MSP430TargetLowering::LowerCCCArguments(
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     if (Ins[i].Flags.isSRet()) {
-      unsigned Reg = FuncInfo->getSRetReturnReg();
+      Register Reg = FuncInfo->getSRetReturnReg();
       if (!Reg) {
         Reg = MF.getRegInfo().createVirtualRegister(
             getRegClassFor(MVT::i16));
@@ -724,7 +545,8 @@ MSP430TargetLowering::CanLowerReturn(CallingConv::ID CallConv,
                                      MachineFunction &MF,
                                      bool IsVarArg,
                                      const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                     LLVMContext &Context) const {
+                                     LLVMContext &Context,
+                                     const Type *RetTy) const {
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, Context);
   return CCInfo.CheckReturn(Outs, RetCC_MSP430);
@@ -753,7 +575,7 @@ MSP430TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   // Analize return values.
   AnalyzeReturnValues(CCInfo, RVLocs, Outs);
 
-  SDValue Flag;
+  SDValue Glue;
   SmallVector<SDValue, 4> RetOps(1, Chain);
 
   // Copy the result values into the output registers.
@@ -762,38 +584,39 @@ MSP430TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     assert(VA.isRegLoc() && "Can only return in registers!");
 
     Chain = DAG.getCopyToReg(Chain, dl, VA.getLocReg(),
-                             OutVals[i], Flag);
+                             OutVals[i], Glue);
 
     // Guarantee that all emitted copies are stuck together,
     // avoiding something bad.
-    Flag = Chain.getValue(1);
+    Glue = Chain.getValue(1);
     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }
 
   if (MF.getFunction().hasStructRetAttr()) {
     MSP430MachineFunctionInfo *FuncInfo = MF.getInfo<MSP430MachineFunctionInfo>();
-    unsigned Reg = FuncInfo->getSRetReturnReg();
+    Register Reg = FuncInfo->getSRetReturnReg();
 
     if (!Reg)
       llvm_unreachable("sret virtual register not created in entry block");
 
+    MVT PtrVT = getFrameIndexTy(DAG.getDataLayout());
     SDValue Val =
-      DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy(DAG.getDataLayout()));
+      DAG.getCopyFromReg(Chain, dl, Reg, PtrVT);
     unsigned R12 = MSP430::R12;
 
-    Chain = DAG.getCopyToReg(Chain, dl, R12, Val, Flag);
-    Flag = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(R12, getPointerTy(DAG.getDataLayout())));
+    Chain = DAG.getCopyToReg(Chain, dl, R12, Val, Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(R12, PtrVT));
   }
 
   unsigned Opc = (CallConv == CallingConv::MSP430_INTR ?
-                  MSP430ISD::RETI_FLAG : MSP430ISD::RET_FLAG);
+                  MSP430ISD::RETI_GLUE : MSP430ISD::RET_GLUE);
 
   RetOps[0] = Chain;  // Update chain.
 
-  // Add the flag if we have it.
-  if (Flag.getNode())
-    RetOps.push_back(Flag);
+  // Add the glue if we have it.
+  if (Glue.getNode())
+    RetOps.push_back(Glue);
 
   return DAG.getNode(Opc, dl, MVT::Other, RetOps);
 }
@@ -813,8 +636,8 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
   AnalyzeArguments(CCInfo, ArgLocs, Outs);
 
   // Get a count of how many bytes are to be pushed on the stack.
-  unsigned NumBytes = CCInfo.getNextStackOffset();
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  unsigned NumBytes = CCInfo.getStackSize();
+  MVT PtrVT = getFrameIndexTy(DAG.getDataLayout());
 
   Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, dl);
 
@@ -862,11 +685,12 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
 
       if (Flags.isByVal()) {
         SDValue SizeNode = DAG.getConstant(Flags.getByValSize(), dl, MVT::i16);
-        MemOp = DAG.getMemcpy(
-            Chain, dl, PtrOff, Arg, SizeNode, Flags.getNonZeroByValAlign(),
-            /*isVolatile*/ false,
-            /*AlwaysInline=*/true,
-            /*isTailCall=*/false, MachinePointerInfo(), MachinePointerInfo());
+        MemOp = DAG.getMemcpy(Chain, dl, PtrOff, Arg, SizeNode,
+                              Flags.getNonZeroByValAlign(),
+                              /*isVolatile*/ false,
+                              /*AlwaysInline=*/true,
+                              /*CI=*/nullptr, std::nullopt,
+                              MachinePointerInfo(), MachinePointerInfo());
       } else {
         MemOp = DAG.getStore(Chain, dl, Arg, PtrOff, MachinePointerInfo());
       }
@@ -881,13 +705,12 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
     Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, MemOpChains);
 
   // Build a sequence of copy-to-reg nodes chained together with token chain and
-  // flag operands which copy the outgoing args into registers.  The InFlag in
+  // flag operands which copy the outgoing args into registers.  The InGlue in
   // necessary since all emitted instructions must be stuck together.
-  SDValue InFlag;
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i) {
-    Chain = DAG.getCopyToReg(Chain, dl, RegsToPass[i].first,
-                             RegsToPass[i].second, InFlag);
-    InFlag = Chain.getValue(1);
+  SDValue InGlue;
+  for (const auto &[Reg, N] : RegsToPass) {
+    Chain = DAG.getCopyToReg(Chain, dl, Reg, N, InGlue);
+    InGlue = Chain.getValue(1);
   }
 
   // If the callee is a GlobalAddress node (quite common, every direct call is)
@@ -906,24 +729,22 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
 
   // Add argument registers to the end of the list so that they are
   // known live into the call.
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
-    Ops.push_back(DAG.getRegister(RegsToPass[i].first,
-                                  RegsToPass[i].second.getValueType()));
+  for (const auto &[Reg, N] : RegsToPass)
+    Ops.push_back(DAG.getRegister(Reg, N.getValueType()));
 
-  if (InFlag.getNode())
-    Ops.push_back(InFlag);
+  if (InGlue.getNode())
+    Ops.push_back(InGlue);
 
   Chain = DAG.getNode(MSP430ISD::CALL, dl, NodeTys, Ops);
-  InFlag = Chain.getValue(1);
+  InGlue = Chain.getValue(1);
 
   // Create the CALLSEQ_END node.
-  Chain = DAG.getCALLSEQ_END(Chain, DAG.getConstant(NumBytes, dl, PtrVT, true),
-                             DAG.getConstant(0, dl, PtrVT, true), InFlag, dl);
-  InFlag = Chain.getValue(1);
+  Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, InGlue, dl);
+  InGlue = Chain.getValue(1);
 
   // Handle result values, copying them out of physregs into vregs that we
   // return.
-  return LowerCallResult(Chain, InFlag, CallConv, isVarArg, Ins, dl,
+  return LowerCallResult(Chain, InGlue, CallConv, isVarArg, Ins, dl,
                          DAG, InVals);
 }
 
@@ -931,7 +752,7 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
 /// appropriate copies out of appropriate physical registers.
 ///
 SDValue MSP430TargetLowering::LowerCallResult(
-    SDValue Chain, SDValue InFlag, CallingConv::ID CallConv, bool isVarArg,
+    SDValue Chain, SDValue InGlue, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
 
@@ -945,8 +766,8 @@ SDValue MSP430TargetLowering::LowerCallResult(
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
     Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
-                               RVLocs[i].getValVT(), InFlag).getValue(1);
-    InFlag = Chain.getValue(2);
+                               RVLocs[i].getValVT(), InGlue).getValue(1);
+    InGlue = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }
 
@@ -964,7 +785,7 @@ SDValue MSP430TargetLowering::LowerShifts(SDValue Op,
   if (!isa<ConstantSDNode>(N->getOperand(1)))
     return Op;
 
-  uint64_t ShiftAmount = cast<ConstantSDNode>(N->getOperand(1))->getZExtValue();
+  uint64_t ShiftAmount = N->getConstantOperandVal(1);
 
   // Expand the stuff into sequence of shifts.
   SDValue Victim = N->getOperand(0);
@@ -1010,7 +831,7 @@ SDValue MSP430TargetLowering::LowerGlobalAddress(SDValue Op,
                                                  SelectionDAG &DAG) const {
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   int64_t Offset = cast<GlobalAddressSDNode>(Op)->getOffset();
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  EVT PtrVT = Op.getValueType();
 
   // Create the TargetGlobalAddress node, folding in the constant offset.
   SDValue Result = DAG.getTargetGlobalAddress(GV, SDLoc(Op), PtrVT, Offset);
@@ -1021,7 +842,7 @@ SDValue MSP430TargetLowering::LowerExternalSymbol(SDValue Op,
                                                   SelectionDAG &DAG) const {
   SDLoc dl(Op);
   const char *Sym = cast<ExternalSymbolSDNode>(Op)->getSymbol();
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  EVT PtrVT = Op.getValueType();
   SDValue Result = DAG.getTargetExternalSymbol(Sym, PtrVT);
 
   return DAG.getNode(MSP430ISD::Wrapper, dl, PtrVT, Result);
@@ -1030,8 +851,8 @@ SDValue MSP430TargetLowering::LowerExternalSymbol(SDValue Op,
 SDValue MSP430TargetLowering::LowerBlockAddress(SDValue Op,
                                                 SelectionDAG &DAG) const {
   SDLoc dl(Op);
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
+  EVT PtrVT = Op.getValueType();
   SDValue Result = DAG.getTargetBlockAddress(BA, PtrVT);
 
   return DAG.getNode(MSP430ISD::Wrapper, dl, PtrVT, Result);
@@ -1062,7 +883,7 @@ static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
     break;
   case ISD::SETULE:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SETUGE:
     // Turn lhs u>= rhs with lhs constant into rhs u< lhs+1, this allows us to
     // fold constant into instruction.
@@ -1076,7 +897,7 @@ static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
     break;
   case ISD::SETUGT:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SETULT:
     // Turn lhs u< rhs with lhs constant into rhs u>= lhs+1, this allows us to
     // fold constant into instruction.
@@ -1090,7 +911,7 @@ static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
     break;
   case ISD::SETLE:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SETGE:
     // Turn lhs >= rhs with lhs constant into rhs < lhs+1, this allows us to
     // fold constant into instruction.
@@ -1104,7 +925,7 @@ static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
     break;
   case ISD::SETGT:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SETLT:
     // Turn lhs < rhs with lhs constant into rhs >= lhs+1, this allows us to
     // fold constant into instruction.
@@ -1148,15 +969,10 @@ SDValue MSP430TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   // but they are different from CMP.
   // FIXME: since we're doing a post-processing, use a pseudoinstr here, so
   // lowering & isel wouldn't diverge.
-  bool andCC = false;
-  if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS)) {
-    if (RHSC->isNullValue() && LHS.hasOneUse() &&
-        (LHS.getOpcode() == ISD::AND ||
-         (LHS.getOpcode() == ISD::TRUNCATE &&
-          LHS.getOperand(0).getOpcode() == ISD::AND))) {
-      andCC = true;
-    }
-  }
+  bool andCC = isNullConstant(RHS) && LHS.hasOneUse() &&
+               (LHS.getOpcode() == ISD::AND ||
+                (LHS.getOpcode() == ISD::TRUNCATE &&
+                 LHS.getOperand(0).getOpcode() == ISD::AND));
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
   SDValue TargetCC;
   SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
@@ -1168,8 +984,8 @@ SDValue MSP430TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   bool Invert = false;
   bool Shift = false;
   bool Convert = true;
-  switch (cast<ConstantSDNode>(TargetCC)->getZExtValue()) {
-   default:
+  switch (TargetCC->getAsZExtVal()) {
+  default:
     Convert = false;
     break;
    case MSP430CC::COND_HS:
@@ -1193,7 +1009,7 @@ SDValue MSP430TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
      // C = ~Z for AND instruction, thus we can put Res = ~(SR & 1), however,
      // Res = (SR >> 1) & 1 is 1 word shorter.
      break;
-  }
+   }
   EVT VT = Op.getValueType();
   SDValue One  = DAG.getConstant(1, dl, VT);
   if (Convert) {
@@ -1248,11 +1064,11 @@ MSP430TargetLowering::getReturnAddressFrameIndex(SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MSP430MachineFunctionInfo *FuncInfo = MF.getInfo<MSP430MachineFunctionInfo>();
   int ReturnAddrIndex = FuncInfo->getRAIndex();
-  auto PtrVT = getPointerTy(MF.getDataLayout());
+  MVT PtrVT = getFrameIndexTy(MF.getDataLayout());
 
   if (ReturnAddrIndex == 0) {
     // Set up a frame object for the return address.
-    uint64_t SlotSize = MF.getDataLayout().getPointerSize();
+    uint64_t SlotSize = PtrVT.getStoreSize();
     ReturnAddrIndex = MF.getFrameInfo().CreateFixedObject(SlotSize, -SlotSize,
                                                            true);
     FuncInfo->setRAIndex(ReturnAddrIndex);
@@ -1266,17 +1082,14 @@ SDValue MSP430TargetLowering::LowerRETURNADDR(SDValue Op,
   MachineFrameInfo &MFI = DAG.getMachineFunction().getFrameInfo();
   MFI.setReturnAddressIsTaken(true);
 
-  if (verifyReturnAddressArgumentIsConstant(Op, DAG))
-    return SDValue();
-
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+  unsigned Depth = Op.getConstantOperandVal(0);
   SDLoc dl(Op);
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  EVT PtrVT = Op.getValueType();
 
   if (Depth > 0) {
     SDValue FrameAddr = LowerFRAMEADDR(Op, DAG);
     SDValue Offset =
-        DAG.getConstant(DAG.getDataLayout().getPointerSize(), dl, MVT::i16);
+      DAG.getConstant(PtrVT.getStoreSize(), dl, MVT::i16);
     return DAG.getLoad(PtrVT, dl, DAG.getEntryNode(),
                        DAG.getNode(ISD::ADD, dl, PtrVT, FrameAddr, Offset),
                        MachinePointerInfo());
@@ -1295,7 +1108,7 @@ SDValue MSP430TargetLowering::LowerFRAMEADDR(SDValue Op,
 
   EVT VT = Op.getValueType();
   SDLoc dl(Op);  // FIXME probably not meaningful
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+  unsigned Depth = Op.getConstantOperandVal(0);
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
                                          MSP430::R4, VT);
   while (Depth--)
@@ -1308,7 +1121,9 @@ SDValue MSP430TargetLowering::LowerVASTART(SDValue Op,
                                            SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MSP430MachineFunctionInfo *FuncInfo = MF.getInfo<MSP430MachineFunctionInfo>();
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
+
+  SDValue Ptr = Op.getOperand(1);
+  EVT PtrVT = Ptr.getValueType();
 
   // Frame index of first vararg argument
   SDValue FrameIndex =
@@ -1316,14 +1131,14 @@ SDValue MSP430TargetLowering::LowerVASTART(SDValue Op,
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
 
   // Create a store of the frame index to the location operand
-  return DAG.getStore(Op.getOperand(0), SDLoc(Op), FrameIndex, Op.getOperand(1),
+  return DAG.getStore(Op.getOperand(0), SDLoc(Op), FrameIndex, Ptr,
                       MachinePointerInfo(SV));
 }
 
 SDValue MSP430TargetLowering::LowerJumpTable(SDValue Op,
                                              SelectionDAG &DAG) const {
     JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
-    auto PtrVT = getPointerTy(DAG.getDataLayout());
+    EVT PtrVT = Op.getValueType();
     SDValue Result = DAG.getTargetJumpTable(JT->getIndex(), PtrVT);
     return DAG.getNode(MSP430ISD::Wrapper, SDLoc(JT), PtrVT, Result);
 }
@@ -1363,34 +1178,13 @@ bool MSP430TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return false;
 }
 
-
-const char *MSP430TargetLowering::getTargetNodeName(unsigned Opcode) const {
-  switch ((MSP430ISD::NodeType)Opcode) {
-  case MSP430ISD::FIRST_NUMBER:       break;
-  case MSP430ISD::RET_FLAG:           return "MSP430ISD::RET_FLAG";
-  case MSP430ISD::RETI_FLAG:          return "MSP430ISD::RETI_FLAG";
-  case MSP430ISD::RRA:                return "MSP430ISD::RRA";
-  case MSP430ISD::RLA:                return "MSP430ISD::RLA";
-  case MSP430ISD::RRC:                return "MSP430ISD::RRC";
-  case MSP430ISD::RRCL:               return "MSP430ISD::RRCL";
-  case MSP430ISD::CALL:               return "MSP430ISD::CALL";
-  case MSP430ISD::Wrapper:            return "MSP430ISD::Wrapper";
-  case MSP430ISD::BR_CC:              return "MSP430ISD::BR_CC";
-  case MSP430ISD::CMP:                return "MSP430ISD::CMP";
-  case MSP430ISD::SETCC:              return "MSP430ISD::SETCC";
-  case MSP430ISD::SELECT_CC:          return "MSP430ISD::SELECT_CC";
-  case MSP430ISD::DADD:               return "MSP430ISD::DADD";
-  }
-  return nullptr;
-}
-
 bool MSP430TargetLowering::isTruncateFree(Type *Ty1,
                                           Type *Ty2) const {
   if (!Ty1->isIntegerTy() || !Ty2->isIntegerTy())
     return false;
 
-  return (Ty1->getPrimitiveSizeInBits().getFixedSize() >
-          Ty2->getPrimitiveSizeInBits().getFixedSize());
+  return (Ty1->getPrimitiveSizeInBits().getFixedValue() >
+          Ty2->getPrimitiveSizeInBits().getFixedValue());
 }
 
 bool MSP430TargetLowering::isTruncateFree(EVT VT1, EVT VT2) const {
@@ -1402,16 +1196,12 @@ bool MSP430TargetLowering::isTruncateFree(EVT VT1, EVT VT2) const {
 
 bool MSP430TargetLowering::isZExtFree(Type *Ty1, Type *Ty2) const {
   // MSP430 implicitly zero-extends 8-bit results in 16-bit registers.
-  return 0 && Ty1->isIntegerTy(8) && Ty2->isIntegerTy(16);
+  return false && Ty1->isIntegerTy(8) && Ty2->isIntegerTy(16);
 }
 
 bool MSP430TargetLowering::isZExtFree(EVT VT1, EVT VT2) const {
   // MSP430 implicitly zero-extends 8-bit results in 16-bit registers.
-  return 0 && VT1 == MVT::i8 && VT2 == MVT::i16;
-}
-
-bool MSP430TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
-  return isZExtFree(Val.getValueType(), VT2);
+  return false && VT1 == MVT::i8 && VT2 == MVT::i16;
 }
 
 //===----------------------------------------------------------------------===//

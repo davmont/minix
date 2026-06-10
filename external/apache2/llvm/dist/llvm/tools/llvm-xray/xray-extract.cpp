@@ -45,20 +45,19 @@ static cl::opt<bool> ExtractSymbolize("symbolize", cl::value_desc("symbolize"),
                                       cl::sub(Extract));
 static cl::alias ExtractSymbolize2("s", cl::aliasopt(ExtractSymbolize),
                                    cl::desc("alias for -symbolize"));
-static cl::opt<bool> ExtractNoDemangle("no-demangle",
-                                       cl::value_desc("no-demangle"),
-                                       cl::init(false),
-                                       cl::desc("don't demangle symbols"),
-                                       cl::sub(Extract));
+static cl::opt<bool> Demangle("demangle",
+                              cl::desc("demangle symbols (default)"),
+                              cl::sub(Extract));
+static cl::opt<bool> NoDemangle("no-demangle",
+                                cl::desc("don't demangle symbols"),
+                                cl::sub(Extract));
 
-namespace {
-
-void exportAsYAML(const InstrumentationMap &Map, raw_ostream &OS,
-                  FuncIdConversionHelper &FH) {
+static void exportAsYAML(const InstrumentationMap &Map, raw_ostream &OS,
+                         FuncIdConversionHelper &FH) {
   // First we translate the sleds into the YAMLXRaySledEntry objects in a deque.
   std::vector<YAMLXRaySledEntry> YAMLSleds;
   auto Sleds = Map.sleds();
-  YAMLSleds.reserve(std::distance(Sleds.begin(), Sleds.end()));
+  YAMLSleds.reserve(llvm::size(Sleds));
   for (const auto &Sled : Sleds) {
     auto FuncId = Map.getFunctionId(Sled.Function);
     if (!FuncId)
@@ -70,8 +69,6 @@ void exportAsYAML(const InstrumentationMap &Map, raw_ostream &OS,
   Output Out(OS, nullptr, 0);
   Out << YAMLSleds;
 }
-
-} // namespace
 
 static CommandRegistration Unused(&Extract, []() -> Error {
   auto InstrumentationMapOrError = loadInstrumentationMap(ExtractInput);
@@ -90,11 +87,11 @@ static CommandRegistration Unused(&Extract, []() -> Error {
   const auto &FunctionAddresses =
       InstrumentationMapOrError->getFunctionAddresses();
   symbolize::LLVMSymbolizer::Options opts;
-  if (ExtractNoDemangle)
+  if (Demangle.getPosition() < NoDemangle.getPosition())
     opts.Demangle = false;
   symbolize::LLVMSymbolizer Symbolizer(opts);
-  llvm::xray::FuncIdConversionHelper FuncIdHelper(ExtractInput, Symbolizer,
-                                                  FunctionAddresses);
+  FuncIdConversionHelper FuncIdHelper(ExtractInput, Symbolizer,
+                                      FunctionAddresses);
   exportAsYAML(*InstrumentationMapOrError, OS, FuncIdHelper);
   return Error::success();
 });

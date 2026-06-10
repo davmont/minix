@@ -15,12 +15,13 @@
 #include "AMDGPUCallLowering.h"
 #include "AMDGPU.h"
 #include "AMDGPULegalizerInfo.h"
-#include "AMDGPUTargetMachine.h"
 #include "SIMachineFunctionInfo.h"
 #include "SIRegisterInfo.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/PseudoSourceValueManager.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 
 #define DEBUG_TYPE "amdgpu-call-lowering"
@@ -31,7 +32,7 @@ namespace {
 
 /// Wrapper around extendRegister to ensure we extend to a full 32-bit register.
 static Register extendRegisterMin32(CallLowering::ValueHandler &Handler,
-                                    Register ValVReg, CCValAssign &VA) {
+                                    Register ValVReg, const CCValAssign &VA) {
   if (VA.getLocVT().getSizeInBits() < 32) {
     // 16-bit types are reported as legal for 32-bit registers. We need to
     // extend and do a 32-bit copy to avoid the verifier complaining about it.
@@ -54,13 +55,14 @@ struct AMDGPUOutgoingValueHandler : public CallLowering::OutgoingValueHandler {
     llvm_unreachable("not implemented");
   }
 
-  void assignValueToAddress(Register ValVReg, Register Addr, uint64_t Size,
-                            MachinePointerInfo &MPO, CCValAssign &VA) override {
+  void assignValueToAddress(Register ValVReg, Register Addr, LLT MemTy,
+                            const MachinePointerInfo &MPO,
+                            const CCValAssign &VA) override {
     llvm_unreachable("not implemented");
   }
 
   void assignValueToReg(Register ValVReg, Register PhysReg,
-                        CCValAssign &VA) override {
+                        const CCValAssign &VA) override {
     Register ExtReg = extendRegisterMin32(*this, ValVReg, VA);
 
     // If this is a scalar return, insert a readfirstlane just in case the value
@@ -69,9 +71,22 @@ struct AMDGPUOutgoingValueHandler : public CallLowering::OutgoingValueHandler {
     const SIRegisterInfo *TRI
       = static_cast<const SIRegisterInfo *>(MRI.getTargetRegisterInfo());
     if (TRI->isSGPRReg(MRI, PhysReg)) {
-      auto ToSGPR = MIRBuilder.buildIntrinsic(Intrinsic::amdgcn_readfirstlane,
-                                              {MRI.getType(ExtReg)}, false)
-        .addReg(ExtReg);
+      LLT Ty = MRI.getType(ExtReg);
+      LLT S32 = LLT::scalar(32);
+      if (Ty != S32) {
+        // FIXME: We should probably support readfirstlane intrinsics with all
+        // legal 32-bit types.
+        assert(Ty.getSizeInBits() == 32);
+        if (Ty.isPointer())
+          ExtReg = MIRBuilder.buildPtrToInt(S32, ExtReg).getReg(0);
+        else
+          ExtReg = MIRBuilder.buildBitcast(S32, ExtReg).getReg(0);
+      }
+
+      auto ToSGPR = MIRBuilder
+                        .buildIntrinsic(Intrinsic::amdgcn_readfirstlane,
+                                        {MRI.getType(ExtReg)})
+                        .addReg(ExtReg);
       ExtReg = ToSGPR.getReg(0);
     }
 
@@ -103,7 +118,7 @@ struct AMDGPUIncomingArgHandler : public CallLowering::IncomingValueHandler {
   }
 
   void assignValueToReg(Register ValVReg, Register PhysReg,
-                        CCValAssign &VA) override {
+                        const CCValAssign &VA) override {
     markPhysRegUsed(PhysReg);
 
     if (VA.getLocVT().getSizeInBits() < 32) {
@@ -122,17 +137,13 @@ struct AMDGPUIncomingArgHandler : public CallLowering::IncomingValueHandler {
     IncomingValueHandler::assignValueToReg(ValVReg, PhysReg, VA);
   }
 
-  void assignValueToAddress(Register ValVReg, Register Addr, uint64_t MemSize,
-                            MachinePointerInfo &MPO, CCValAssign &VA) override {
+  void assignValueToAddress(Register ValVReg, Register Addr, LLT MemTy,
+                            const MachinePointerInfo &MPO,
+                            const CCValAssign &VA) override {
     MachineFunction &MF = MIRBuilder.getMF();
 
-    // The reported memory location may be wider than the value.
-    const LLT RegTy = MRI.getType(ValVReg);
-    MemSize = std::min(static_cast<uint64_t>(RegTy.getSizeInBytes()), MemSize);
-
-    // FIXME: Get alignment
-    auto MMO = MF.getMachineMemOperand(
-        MPO, MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant, MemSize,
+    auto *MMO = MF.getMachineMemOperand(
+        MPO, MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant, MemTy,
         inferAlignFromPtrInfo(MF, MPO));
     MIRBuilder.buildLoad(ValVReg, Addr, *MMO);
   }
@@ -197,8 +208,20 @@ struct AMDGPUOutgoingArgHandler : public AMDGPUOutgoingValueHandler {
 
     const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
 
-    if (!SPReg)
-      SPReg = MIRBuilder.buildCopy(PtrTy, MFI->getStackPtrOffsetReg()).getReg(0);
+    if (!SPReg) {
+      const GCNSubtarget &ST = MIRBuilder.getMF().getSubtarget<GCNSubtarget>();
+      if (ST.enableFlatScratch()) {
+        // The stack is accessed unswizzled, so we can use a regular copy.
+        SPReg = MIRBuilder.buildCopy(PtrTy,
+                                     MFI->getStackPtrOffsetReg()).getReg(0);
+      } else {
+        // The address we produce here, without knowing the use context, is going
+        // to be interpreted as a vector address, so we need to convert to a
+        // swizzled address.
+        SPReg = MIRBuilder.buildInstr(AMDGPU::G_AMDGPU_WAVE_ADDRESS, {PtrTy},
+                                      {MFI->getStackPtrOffsetReg()}).getReg(0);
+      }
+    }
 
     auto OffsetReg = MIRBuilder.buildConstant(S32, Offset);
 
@@ -207,48 +230,36 @@ struct AMDGPUOutgoingArgHandler : public AMDGPUOutgoingValueHandler {
     return AddrReg.getReg(0);
   }
 
-  void assignValueToReg(Register ValVReg, Register PhysReg,
-                        CCValAssign &VA) override {
-    MIB.addUse(PhysReg, RegState::Implicit);
-    Register ExtReg = extendRegisterMin32(*this, ValVReg, VA);
-    MIRBuilder.buildCopy(PhysReg, ExtReg);
-  }
-
-  void assignValueToAddress(Register ValVReg, Register Addr, uint64_t Size,
-                            MachinePointerInfo &MPO, CCValAssign &VA) override {
+  void assignValueToAddress(Register ValVReg, Register Addr, LLT MemTy,
+                            const MachinePointerInfo &MPO,
+                            const CCValAssign &VA) override {
     MachineFunction &MF = MIRBuilder.getMF();
     uint64_t LocMemOffset = VA.getLocMemOffset();
     const auto &ST = MF.getSubtarget<GCNSubtarget>();
 
-    auto MMO = MF.getMachineMemOperand(
-      MPO, MachineMemOperand::MOStore, Size,
-      commonAlignment(ST.getStackAlignment(), LocMemOffset));
+    auto *MMO = MF.getMachineMemOperand(
+        MPO, MachineMemOperand::MOStore, MemTy,
+        commonAlignment(ST.getStackAlignment(), LocMemOffset));
     MIRBuilder.buildStore(ValVReg, Addr, *MMO);
   }
 
   void assignValueToAddress(const CallLowering::ArgInfo &Arg,
-                            unsigned ValRegIndex, Register Addr,
-                            uint64_t MemSize, MachinePointerInfo &MPO,
-                            CCValAssign &VA) override {
+                            unsigned ValRegIndex, Register Addr, LLT MemTy,
+                            const MachinePointerInfo &MPO,
+                            const CCValAssign &VA) override {
     Register ValVReg = VA.getLocInfo() != CCValAssign::LocInfo::FPExt
                            ? extendRegister(Arg.Regs[ValRegIndex], VA)
                            : Arg.Regs[ValRegIndex];
-
-    // If we extended the value type we might need to adjust the MMO's
-    // Size. This happens if ComputeValueVTs widened a small type value to a
-    // legal register type (e.g. s8->s16)
-    const LLT RegTy = MRI.getType(ValVReg);
-    MemSize = std::min(MemSize, (uint64_t)RegTy.getSizeInBytes());
-    assignValueToAddress(ValVReg, Addr, MemSize, MPO, VA);
+    assignValueToAddress(ValVReg, Addr, MemTy, MPO, VA);
   }
 };
-}
+} // anonymous namespace
 
 AMDGPUCallLowering::AMDGPUCallLowering(const AMDGPUTargetLowering &TLI)
   : CallLowering(&TLI) {
 }
 
-// FIXME: Compatability shim
+// FIXME: Compatibility shim
 static ISD::NodeType extOpcodeToISDExtOpcode(unsigned MIOpc) {
   switch (MIOpc) {
   case TargetOpcode::G_SEXT:
@@ -305,7 +316,7 @@ bool AMDGPUCallLowering::lowerReturnVal(MachineIRBuilder &B,
   for (unsigned i = 0; i < SplitEVTs.size(); ++i) {
     EVT VT = SplitEVTs[i];
     Register Reg = VRegs[i];
-    ArgInfo RetInfo(Reg, VT.getTypeForEVT(Ctx));
+    ArgInfo RetInfo(Reg, VT.getTypeForEVT(Ctx), 0);
     setArgFlags(RetInfo, AttributeList::ReturnIndex, DL, F);
 
     if (VT.isScalarInteger()) {
@@ -349,7 +360,6 @@ bool AMDGPUCallLowering::lowerReturn(MachineIRBuilder &B, const Value *Val,
                                      FunctionLoweringInfo &FLI) const {
 
   MachineFunction &MF = B.getMF();
-  MachineRegisterInfo &MRI = MF.getRegInfo();
   SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
   MFI->setIfReturnsVoid(!Val);
 
@@ -365,29 +375,19 @@ bool AMDGPUCallLowering::lowerReturn(MachineIRBuilder &B, const Value *Val,
     return true;
   }
 
-  auto const &ST = MF.getSubtarget<GCNSubtarget>();
-
-  unsigned ReturnOpc =
-      IsShader ? AMDGPU::SI_RETURN_TO_EPILOG : AMDGPU::S_SETPC_B64_return;
-
+  const bool IsWholeWave = MFI->isWholeWaveFunction();
+  unsigned ReturnOpc = IsWholeWave ? AMDGPU::G_AMDGPU_WHOLE_WAVE_FUNC_RETURN
+                       : IsShader  ? AMDGPU::SI_RETURN_TO_EPILOG
+                                   : AMDGPU::SI_RETURN;
   auto Ret = B.buildInstrNoInsert(ReturnOpc);
-  Register ReturnAddrVReg;
-  if (ReturnOpc == AMDGPU::S_SETPC_B64_return) {
-    ReturnAddrVReg = MRI.createVirtualRegister(&AMDGPU::CCR_SGPR_64RegClass);
-    Ret.addUse(ReturnAddrVReg);
-  }
 
   if (!FLI.CanLowerReturn)
     insertSRetStores(B, Val->getType(), VRegs, FLI.DemoteRegister);
   else if (!lowerReturnVal(B, Val, VRegs, Ret))
     return false;
 
-  if (ReturnOpc == AMDGPU::S_SETPC_B64_return) {
-    const SIRegisterInfo *TRI = ST.getRegisterInfo();
-    Register LiveInReturn = MF.addLiveIn(TRI->getReturnAddressReg(MF),
-                                         &AMDGPU::SGPR_64RegClass);
-    B.buildCopy(ReturnAddrVReg, LiveInReturn);
-  }
+  if (IsWholeWave)
+    addOriginalExecToReturn(B.getMF(), Ret);
 
   // TODO: Handle CalleeSavedRegsViaCopy.
 
@@ -396,7 +396,6 @@ bool AMDGPUCallLowering::lowerReturn(MachineIRBuilder &B, const Value *Val,
 }
 
 void AMDGPUCallLowering::lowerParameterPtr(Register DstReg, MachineIRBuilder &B,
-                                           Type *ParamTy,
                                            uint64_t Offset) const {
   MachineFunction &MF = B.getMF();
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
@@ -410,26 +409,46 @@ void AMDGPUCallLowering::lowerParameterPtr(Register DstReg, MachineIRBuilder &B,
   B.buildPtrAdd(DstReg, KernArgSegmentVReg, OffsetReg);
 }
 
-void AMDGPUCallLowering::lowerParameter(MachineIRBuilder &B, Type *ParamTy,
-                                        uint64_t Offset, Align Alignment,
-                                        Register DstReg) const {
+void AMDGPUCallLowering::lowerParameter(MachineIRBuilder &B, ArgInfo &OrigArg,
+                                        uint64_t Offset,
+                                        Align Alignment) const {
   MachineFunction &MF = B.getMF();
   const Function &F = MF.getFunction();
-  const DataLayout &DL = F.getParent()->getDataLayout();
-  MachinePointerInfo PtrInfo(AMDGPUAS::CONSTANT_ADDRESS);
-  unsigned TypeSize = DL.getTypeStoreSize(ParamTy);
+  const DataLayout &DL = F.getDataLayout();
+  const SITargetLowering &TLI = *getTLI<SITargetLowering>();
+  MachinePointerInfo PtrInfo = TLI.getKernargSegmentPtrInfo(MF);
 
   LLT PtrTy = LLT::pointer(AMDGPUAS::CONSTANT_ADDRESS, 64);
-  Register PtrReg = B.getMRI()->createGenericVirtualRegister(PtrTy);
-  lowerParameterPtr(PtrReg, B, ParamTy, Offset);
 
-  MachineMemOperand *MMO = MF.getMachineMemOperand(
-      PtrInfo,
-      MachineMemOperand::MOLoad | MachineMemOperand::MODereferenceable |
-          MachineMemOperand::MOInvariant,
-      TypeSize, Alignment);
+  SmallVector<ArgInfo, 32> SplitArgs;
+  SmallVector<uint64_t> FieldOffsets;
+  splitToValueTypes(OrigArg, SplitArgs, DL, F.getCallingConv(), &FieldOffsets);
 
-  B.buildLoad(DstReg, PtrReg, *MMO);
+  unsigned Idx = 0;
+  for (ArgInfo &SplitArg : SplitArgs) {
+    Register PtrReg = B.getMRI()->createGenericVirtualRegister(PtrTy);
+    lowerParameterPtr(PtrReg, B, Offset + FieldOffsets[Idx]);
+
+    LLT ArgTy = getLLTForType(*SplitArg.Ty, DL);
+    if (SplitArg.Flags[0].isPointer()) {
+      // Compensate for losing pointeriness in splitValueTypes.
+      LLT PtrTy = LLT::pointer(SplitArg.Flags[0].getPointerAddrSpace(),
+                               ArgTy.getScalarSizeInBits());
+      ArgTy = ArgTy.isVector() ? LLT::vector(ArgTy.getElementCount(), PtrTy)
+                               : PtrTy;
+    }
+
+    MachineMemOperand *MMO = MF.getMachineMemOperand(
+        PtrInfo,
+        MachineMemOperand::MOLoad | MachineMemOperand::MODereferenceable |
+            MachineMemOperand::MOInvariant,
+        ArgTy, commonAlignment(Alignment, FieldOffsets[Idx]));
+
+    assert(SplitArg.Regs.size() == 1);
+
+    B.buildLoad(SplitArg.Regs[0], PtrReg, *MMO);
+    ++Idx;
+  }
 }
 
 // Allocate special inputs passed in user SGPRs.
@@ -439,25 +458,26 @@ static void allocateHSAUserSGPRs(CCState &CCInfo,
                                  const SIRegisterInfo &TRI,
                                  SIMachineFunctionInfo &Info) {
   // FIXME: How should these inputs interact with inreg / custom SGPR inputs?
-  if (Info.hasPrivateSegmentBuffer()) {
+  const GCNUserSGPRUsageInfo &UserSGPRInfo = Info.getUserSGPRInfo();
+  if (UserSGPRInfo.hasPrivateSegmentBuffer()) {
     Register PrivateSegmentBufferReg = Info.addPrivateSegmentBuffer(TRI);
     MF.addLiveIn(PrivateSegmentBufferReg, &AMDGPU::SGPR_128RegClass);
     CCInfo.AllocateReg(PrivateSegmentBufferReg);
   }
 
-  if (Info.hasDispatchPtr()) {
+  if (UserSGPRInfo.hasDispatchPtr()) {
     Register DispatchPtrReg = Info.addDispatchPtr(TRI);
     MF.addLiveIn(DispatchPtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(DispatchPtrReg);
   }
 
-  if (Info.hasQueuePtr()) {
+  if (UserSGPRInfo.hasQueuePtr()) {
     Register QueuePtrReg = Info.addQueuePtr(TRI);
     MF.addLiveIn(QueuePtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(QueuePtrReg);
   }
 
-  if (Info.hasKernargSegmentPtr()) {
+  if (UserSGPRInfo.hasKernargSegmentPtr()) {
     MachineRegisterInfo &MRI = MF.getRegInfo();
     Register InputPtrReg = Info.addKernargSegmentPtr(TRI);
     const LLT P4 = LLT::pointer(AMDGPUAS::CONSTANT_ADDRESS, 64);
@@ -468,16 +488,22 @@ static void allocateHSAUserSGPRs(CCState &CCInfo,
     CCInfo.AllocateReg(InputPtrReg);
   }
 
-  if (Info.hasDispatchID()) {
+  if (UserSGPRInfo.hasDispatchID()) {
     Register DispatchIDReg = Info.addDispatchID(TRI);
     MF.addLiveIn(DispatchIDReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(DispatchIDReg);
   }
 
-  if (Info.hasFlatScratchInit()) {
+  if (UserSGPRInfo.hasFlatScratchInit()) {
     Register FlatScratchInitReg = Info.addFlatScratchInit(TRI);
     MF.addLiveIn(FlatScratchInitReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(FlatScratchInitReg);
+  }
+
+  if (UserSGPRInfo.hasPrivateSegmentSize()) {
+    Register PrivateSegmentSizeReg = Info.addPrivateSegmentSize(TRI);
+    MF.addLiveIn(PrivateSegmentSizeReg, &AMDGPU::SGPR_32RegClass);
+    CCInfo.AllocateReg(PrivateSegmentSizeReg);
   }
 
   // TODO: Add GridWorkGroupCount user SGPRs when used. For now with HSA we read
@@ -493,9 +519,7 @@ bool AMDGPUCallLowering::lowerFormalArgumentsKernel(
   SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
   const SIRegisterInfo *TRI = Subtarget->getRegisterInfo();
   const SITargetLowering &TLI = *getTLI<SITargetLowering>();
-  const DataLayout &DL = F.getParent()->getDataLayout();
-
-  Info->allocateModuleLDSGlobal(F.getParent());
+  const DataLayout &DL = F.getDataLayout();
 
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(F.getCallingConv(), F.isVarArg(), MF, ArgLocs, F.getContext());
@@ -504,20 +528,25 @@ bool AMDGPUCallLowering::lowerFormalArgumentsKernel(
 
   unsigned i = 0;
   const Align KernArgBaseAlign(16);
-  const unsigned BaseOffset = Subtarget->getExplicitKernelArgOffset(F);
+  const unsigned BaseOffset = Subtarget->getExplicitKernelArgOffset();
   uint64_t ExplicitArgOffset = 0;
 
   // TODO: Align down to dword alignment and extract bits for extending loads.
   for (auto &Arg : F.args()) {
+    // TODO: Add support for kernarg preload.
+    if (Arg.hasAttribute("amdgpu-hidden-argument")) {
+      LLVM_DEBUG(dbgs() << "Preloading hidden arguments is not supported\n");
+      return false;
+    }
+
     const bool IsByRef = Arg.hasByRefAttr();
     Type *ArgTy = IsByRef ? Arg.getParamByRefType() : Arg.getType();
     unsigned AllocSize = DL.getTypeAllocSize(ArgTy);
     if (AllocSize == 0)
       continue;
 
-    MaybeAlign ABIAlign = IsByRef ? Arg.getParamAlign() : None;
-    if (!ABIAlign)
-      ABIAlign = DL.getABITypeAlign(ArgTy);
+    MaybeAlign ParamAlign = IsByRef ? Arg.getParamAlign() : std::nullopt;
+    Align ABIAlign = DL.getValueOrABITypeAlignment(ParamAlign, ArgTy);
 
     uint64_t ArgOffset = alignTo(ExplicitArgOffset, ABIAlign) + BaseOffset;
     ExplicitArgOffset = alignTo(ExplicitArgOffset, ABIAlign) + AllocSize;
@@ -535,28 +564,26 @@ bool AMDGPUCallLowering::lowerFormalArgumentsKernel(
       assert(VRegs[i].size() == 1 &&
              "expected only one register for byval pointers");
       if (ByRefAS == AMDGPUAS::CONSTANT_ADDRESS) {
-        lowerParameterPtr(VRegs[i][0], B, ArgTy, ArgOffset);
+        lowerParameterPtr(VRegs[i][0], B, ArgOffset);
       } else {
         const LLT ConstPtrTy = LLT::pointer(AMDGPUAS::CONSTANT_ADDRESS, 64);
         Register PtrReg = MRI.createGenericVirtualRegister(ConstPtrTy);
-        lowerParameterPtr(PtrReg, B, ArgTy, ArgOffset);
+        lowerParameterPtr(PtrReg, B, ArgOffset);
 
         B.buildAddrSpaceCast(VRegs[i][0], PtrReg);
       }
     } else {
-      ArrayRef<Register> OrigArgRegs = VRegs[i];
-      Register ArgReg =
-        OrigArgRegs.size() == 1
-        ? OrigArgRegs[0]
-        : MRI.createGenericVirtualRegister(getLLTForType(*ArgTy, DL));
-
-      lowerParameter(B, ArgTy, ArgOffset, Alignment, ArgReg);
-      if (OrigArgRegs.size() > 1)
-        unpackRegs(OrigArgRegs, ArgReg, ArgTy, B);
+      ArgInfo OrigArg(VRegs[i], Arg, i);
+      const unsigned OrigArgIdx = i + AttributeList::FirstArgIndex;
+      setArgFlags(OrigArg, OrigArgIdx, DL, F);
+      lowerParameter(B, OrigArg, ArgOffset, Alignment);
     }
 
     ++i;
   }
+
+  if (Info->getNumKernargPreloadedSGPRs())
+    Info->setNumWaveDispatchSGPRs(Info->getNumUserSGPRs());
 
   TLI.allocateSpecialEntryInputVGPRs(CCInfo, MF, *TRI, *Info);
   TLI.allocateSystemSGPRs(CCInfo, MF, *Info, F.getCallingConv(), false);
@@ -583,25 +610,23 @@ bool AMDGPUCallLowering::lowerFormalArguments(
   SIMachineFunctionInfo *Info = MF.getInfo<SIMachineFunctionInfo>();
   const GCNSubtarget &Subtarget = MF.getSubtarget<GCNSubtarget>();
   const SIRegisterInfo *TRI = Subtarget.getRegisterInfo();
-  const DataLayout &DL = F.getParent()->getDataLayout();
-
-  Info->allocateModuleLDSGlobal(F.getParent());
+  const DataLayout &DL = F.getDataLayout();
 
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CC, F.isVarArg(), MF, ArgLocs, F.getContext());
+  const GCNUserSGPRUsageInfo &UserSGPRInfo = Info->getUserSGPRInfo();
 
-  if (!IsEntryFunc) {
-    Register ReturnAddrReg = TRI->getReturnAddressReg(MF);
-    Register LiveInReturn = MF.addLiveIn(ReturnAddrReg,
-                                         &AMDGPU::SGPR_64RegClass);
-    MBB.addLiveIn(ReturnAddrReg);
-    B.buildCopy(LiveInReturn, ReturnAddrReg);
-  }
-
-  if (Info->hasImplicitBufferPtr()) {
+  if (UserSGPRInfo.hasImplicitBufferPtr()) {
     Register ImplicitBufferPtrReg = Info->addImplicitBufferPtr(*TRI);
     MF.addLiveIn(ImplicitBufferPtrReg, &AMDGPU::SGPR_64RegClass);
     CCInfo.AllocateReg(ImplicitBufferPtrReg);
+  }
+
+  // FIXME: This probably isn't defined for mesa
+  if (UserSGPRInfo.hasFlatScratchInit() && !Subtarget.isAmdPalOS()) {
+    Register FlatScratchInitReg = Info->addFlatScratchInit(*TRI);
+    MF.addLiveIn(FlatScratchInitReg, &AMDGPU::SGPR_64RegClass);
+    CCInfo.AllocateReg(FlatScratchInitReg);
   }
 
   SmallVector<ArgInfo, 32> SplitArgs;
@@ -617,11 +642,18 @@ bool AMDGPUCallLowering::lowerFormalArguments(
     if (DL.getTypeStoreSize(Arg.getType()) == 0)
       continue;
 
-    const bool InReg = Arg.hasAttribute(Attribute::InReg);
+    if (Info->isWholeWaveFunction() && Idx == 0) {
+      assert(VRegs[Idx].size() == 1 && "Expected only one register");
 
-    // SGPR arguments to functions not implemented.
-    if (!IsGraphics && InReg)
-      return false;
+      // The first argument for whole wave functions is the original EXEC value.
+      B.buildInstr(AMDGPU::G_AMDGPU_WHOLE_WAVE_FUNC_SETUP)
+          .addDef(VRegs[Idx][0]);
+
+      ++Idx;
+      continue;
+    }
+
+    const bool InReg = Arg.hasAttribute(Attribute::InReg);
 
     if (Arg.hasAttribute(Attribute::SwiftSelf) ||
         Arg.hasAttribute(Attribute::SwiftError) ||
@@ -641,15 +673,15 @@ bool AMDGPUCallLowering::lowerFormalArguments(
       ++PSInputNum;
 
       if (SkipArg) {
-        for (int I = 0, E = VRegs[Idx].size(); I != E; ++I)
-          B.buildUndef(VRegs[Idx][I]);
+        for (Register R : VRegs[Idx])
+          B.buildUndef(R);
 
         ++Idx;
         continue;
       }
     }
 
-    ArgInfo OrigArg(VRegs[Idx], Arg);
+    ArgInfo OrigArg(VRegs[Idx], Arg, Idx);
     const unsigned OrigArgIdx = Idx + AttributeList::FirstArgIndex;
     setArgFlags(OrigArg, OrigArgIdx, DL, F);
 
@@ -693,8 +725,7 @@ bool AMDGPUCallLowering::lowerFormalArguments(
       if ((PsInputBits & 0x7F) == 0 ||
           ((PsInputBits & 0xF) == 0 &&
            (PsInputBits >> 11 & 1)))
-        Info->markPSInputEnabled(
-          countTrailingZeros(Info->getPSInputAddr(), ZB_Undefined));
+        Info->markPSInputEnabled(llvm::countr_zero(Info->getPSInputAddr()));
     }
   }
 
@@ -704,41 +735,43 @@ bool AMDGPUCallLowering::lowerFormalArguments(
   if (!MBB.empty())
     B.setInstr(*MBB.begin());
 
-  if (!IsEntryFunc) {
+  if (!IsEntryFunc && !IsGraphics) {
     // For the fixed ABI, pass workitem IDs in the last argument register.
-    if (AMDGPUTargetMachine::EnableFixedFunctionABI)
-      TLI.allocateSpecialInputVGPRsFixed(CCInfo, MF, *TRI, *Info);
+    TLI.allocateSpecialInputVGPRsFixed(CCInfo, MF, *TRI, *Info);
+
+    if (!Subtarget.enableFlatScratch())
+      CCInfo.AllocateReg(Info->getScratchRSrcReg());
+    TLI.allocateSpecialInputSGPRs(CCInfo, MF, *TRI, *Info);
   }
 
   IncomingValueAssigner Assigner(AssignFn);
   if (!determineAssignments(Assigner, SplitArgs, CCInfo))
     return false;
 
+  if (IsEntryFunc) {
+    // This assumes the registers are allocated by CCInfo in ascending order
+    // with no gaps.
+    Info->setNumWaveDispatchSGPRs(
+        CCInfo.getFirstUnallocated(AMDGPU::SGPR_32RegClass.getRegisters()));
+    Info->setNumWaveDispatchVGPRs(
+        CCInfo.getFirstUnallocated(AMDGPU::VGPR_32RegClass.getRegisters()));
+  }
+
   FormalArgHandler Handler(B, MRI);
   if (!handleAssignments(Handler, SplitArgs, CCInfo, ArgLocs, B))
     return false;
 
-  uint64_t StackOffset = Assigner.StackOffset;
-
-  if (!IsEntryFunc && !AMDGPUTargetMachine::EnableFixedFunctionABI) {
-    // Special inputs come after user arguments.
-    TLI.allocateSpecialInputVGPRs(CCInfo, MF, *TRI, *Info);
-  }
+  uint64_t StackSize = Assigner.StackSize;
 
   // Start adding system SGPRs.
-  if (IsEntryFunc) {
+  if (IsEntryFunc)
     TLI.allocateSystemSGPRs(CCInfo, MF, *Info, CC, IsGraphics);
-  } else {
-    if (!Subtarget.enableFlatScratch())
-      CCInfo.AllocateReg(Info->getScratchRSrcReg());
-    TLI.allocateSpecialInputSGPRs(CCInfo, MF, *TRI, *Info);
-  }
 
   // When we tail call, we need to check if the callee's arguments will fit on
   // the caller's stack. So, whenever we lower formal arguments, we should keep
   // track of this information, since we might lower a tail call in this
   // function later.
-  Info->setBytesInStackArgArea(StackOffset);
+  Info->setBytesInStackArgArea(StackSize);
 
   // Move back to the end of the basic block.
   B.setMBB(MBB);
@@ -751,6 +784,11 @@ bool AMDGPUCallLowering::passSpecialInputs(MachineIRBuilder &MIRBuilder,
                                            SmallVectorImpl<std::pair<MCRegister, Register>> &ArgRegs,
                                            CallLoweringInfo &Info) const {
   MachineFunction &MF = MIRBuilder.getMF();
+
+  // If there's no call site, this doesn't correspond to a call from the IR and
+  // doesn't need implicit inputs.
+  if (!Info.CB)
+    return true;
 
   const AMDGPUFunctionArgInfo *CalleeArgInfo
     = &AMDGPUArgumentUsageInfo::FixedABIFunctionInfo;
@@ -769,7 +807,19 @@ bool AMDGPUCallLowering::passSpecialInputs(MachineIRBuilder &MIRBuilder,
     AMDGPUFunctionArgInfo::DISPATCH_ID,
     AMDGPUFunctionArgInfo::WORKGROUP_ID_X,
     AMDGPUFunctionArgInfo::WORKGROUP_ID_Y,
-    AMDGPUFunctionArgInfo::WORKGROUP_ID_Z
+    AMDGPUFunctionArgInfo::WORKGROUP_ID_Z,
+    AMDGPUFunctionArgInfo::LDS_KERNEL_ID,
+  };
+
+  static constexpr StringLiteral ImplicitAttrNames[][2] = {
+      {"amdgpu-no-dispatch-ptr", ""},
+      {"amdgpu-no-queue-ptr", ""},
+      {"amdgpu-no-implicitarg-ptr", ""},
+      {"amdgpu-no-dispatch-id", ""},
+      {"amdgpu-no-workgroup-id-x", "amdgpu-no-cluster-id-x"},
+      {"amdgpu-no-workgroup-id-y", "amdgpu-no-cluster-id-y"},
+      {"amdgpu-no-workgroup-id-z", "amdgpu-no-cluster-id-z"},
+      {"amdgpu-no-lds-kernel-id", ""},
   };
 
   MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -778,10 +828,17 @@ bool AMDGPUCallLowering::passSpecialInputs(MachineIRBuilder &MIRBuilder,
   const AMDGPULegalizerInfo *LI
     = static_cast<const AMDGPULegalizerInfo*>(ST.getLegalizerInfo());
 
+  unsigned I = 0;
   for (auto InputID : InputRegs) {
     const ArgDescriptor *OutgoingArg;
     const TargetRegisterClass *ArgRC;
     LLT ArgTy;
+
+    // If the callee does not use the attribute value, skip copying the value.
+    if (all_of(ImplicitAttrNames[I++], [&](StringRef AttrName) {
+          return AttrName.empty() || Info.CB->hasFnAttr(AttrName);
+        }))
+      continue;
 
     std::tie(OutgoingArg, ArgRC, ArgTy) =
         CalleeArgInfo->getPreloadedValue(InputID);
@@ -797,10 +854,21 @@ bool AMDGPUCallLowering::passSpecialInputs(MachineIRBuilder &MIRBuilder,
     Register InputReg = MRI.createGenericVirtualRegister(ArgTy);
 
     if (IncomingArg) {
-      LI->loadInputValue(InputReg, MIRBuilder, IncomingArg, ArgRC, ArgTy);
-    } else {
-      assert(InputID == AMDGPUFunctionArgInfo::IMPLICIT_ARG_PTR);
+      LI->buildLoadInputValue(InputReg, MIRBuilder, IncomingArg, ArgRC, ArgTy);
+    } else if (InputID == AMDGPUFunctionArgInfo::IMPLICIT_ARG_PTR) {
       LI->getImplicitArgPtr(InputReg, MRI, MIRBuilder);
+    } else if (InputID == AMDGPUFunctionArgInfo::LDS_KERNEL_ID) {
+      std::optional<uint32_t> Id =
+          AMDGPUMachineFunction::getLDSKernelIdMetadata(MF.getFunction());
+      if (Id) {
+        MIRBuilder.buildConstant(InputReg, *Id);
+      } else {
+        MIRBuilder.buildUndef(InputReg);
+      }
+    } else {
+      // We may have proven the input wasn't needed, although the ABI is
+      // requiring it. We just need to allocate the register appropriately.
+      MIRBuilder.buildUndef(InputReg);
     }
 
     if (OutgoingArg->isRegister()) {
@@ -842,47 +910,69 @@ bool AMDGPUCallLowering::passSpecialInputs(MachineIRBuilder &MIRBuilder,
   const ArgDescriptor *IncomingArgZ = std::get<0>(WorkitemIDZ);
   const LLT S32 = LLT::scalar(32);
 
+  const bool NeedWorkItemIDX = !Info.CB->hasFnAttr("amdgpu-no-workitem-id-x");
+  const bool NeedWorkItemIDY = !Info.CB->hasFnAttr("amdgpu-no-workitem-id-y");
+  const bool NeedWorkItemIDZ = !Info.CB->hasFnAttr("amdgpu-no-workitem-id-z");
+
   // If incoming ids are not packed we need to pack them.
   // FIXME: Should consider known workgroup size to eliminate known 0 cases.
   Register InputReg;
-  if (IncomingArgX && !IncomingArgX->isMasked() && CalleeArgInfo->WorkItemIDX) {
-    InputReg = MRI.createGenericVirtualRegister(S32);
-    LI->loadInputValue(InputReg, MIRBuilder, IncomingArgX,
-                       std::get<1>(WorkitemIDX), std::get<2>(WorkitemIDX));
+  if (IncomingArgX && !IncomingArgX->isMasked() && CalleeArgInfo->WorkItemIDX &&
+      NeedWorkItemIDX) {
+    if (ST.getMaxWorkitemID(MF.getFunction(), 0) != 0) {
+      InputReg = MRI.createGenericVirtualRegister(S32);
+      LI->buildLoadInputValue(InputReg, MIRBuilder, IncomingArgX,
+                              std::get<1>(WorkitemIDX),
+                              std::get<2>(WorkitemIDX));
+    } else {
+      InputReg = MIRBuilder.buildConstant(S32, 0).getReg(0);
+    }
   }
 
-  if (IncomingArgY && !IncomingArgY->isMasked() && CalleeArgInfo->WorkItemIDY) {
+  if (IncomingArgY && !IncomingArgY->isMasked() && CalleeArgInfo->WorkItemIDY &&
+      NeedWorkItemIDY && ST.getMaxWorkitemID(MF.getFunction(), 1) != 0) {
     Register Y = MRI.createGenericVirtualRegister(S32);
-    LI->loadInputValue(Y, MIRBuilder, IncomingArgY, std::get<1>(WorkitemIDY),
-                       std::get<2>(WorkitemIDY));
+    LI->buildLoadInputValue(Y, MIRBuilder, IncomingArgY,
+                            std::get<1>(WorkitemIDY), std::get<2>(WorkitemIDY));
 
     Y = MIRBuilder.buildShl(S32, Y, MIRBuilder.buildConstant(S32, 10)).getReg(0);
     InputReg = InputReg ? MIRBuilder.buildOr(S32, InputReg, Y).getReg(0) : Y;
   }
 
-  if (IncomingArgZ && !IncomingArgZ->isMasked() && CalleeArgInfo->WorkItemIDZ) {
+  if (IncomingArgZ && !IncomingArgZ->isMasked() && CalleeArgInfo->WorkItemIDZ &&
+      NeedWorkItemIDZ && ST.getMaxWorkitemID(MF.getFunction(), 2) != 0) {
     Register Z = MRI.createGenericVirtualRegister(S32);
-    LI->loadInputValue(Z, MIRBuilder, IncomingArgZ, std::get<1>(WorkitemIDZ),
-                       std::get<2>(WorkitemIDZ));
+    LI->buildLoadInputValue(Z, MIRBuilder, IncomingArgZ,
+                            std::get<1>(WorkitemIDZ), std::get<2>(WorkitemIDZ));
 
     Z = MIRBuilder.buildShl(S32, Z, MIRBuilder.buildConstant(S32, 20)).getReg(0);
     InputReg = InputReg ? MIRBuilder.buildOr(S32, InputReg, Z).getReg(0) : Z;
   }
 
-  if (!InputReg) {
+  if (!InputReg &&
+      (NeedWorkItemIDX || NeedWorkItemIDY || NeedWorkItemIDZ)) {
     InputReg = MRI.createGenericVirtualRegister(S32);
-
-    // Workitem ids are already packed, any of present incoming arguments will
-    // carry all required fields.
-    ArgDescriptor IncomingArg = ArgDescriptor::createArg(
-      IncomingArgX ? *IncomingArgX :
+    if (!IncomingArgX && !IncomingArgY && !IncomingArgZ) {
+      // We're in a situation where the outgoing function requires the workitem
+      // ID, but the calling function does not have it (e.g a graphics function
+      // calling a C calling convention function). This is illegal, but we need
+      // to produce something.
+      MIRBuilder.buildUndef(InputReg);
+    } else {
+      // Workitem ids are already packed, any of present incoming arguments will
+      // carry all required fields.
+      ArgDescriptor IncomingArg = ArgDescriptor::createArg(
+        IncomingArgX ? *IncomingArgX :
         IncomingArgY ? *IncomingArgY : *IncomingArgZ, ~0u);
-    LI->loadInputValue(InputReg, MIRBuilder, &IncomingArg,
-                       &AMDGPU::VGPR_32RegClass, S32);
+      LI->buildLoadInputValue(InputReg, MIRBuilder, &IncomingArg,
+                              &AMDGPU::VGPR_32RegClass, S32);
+    }
   }
 
   if (OutgoingArg->isRegister()) {
-    ArgRegs.emplace_back(OutgoingArg->getRegister(), InputReg);
+    if (InputReg)
+      ArgRegs.emplace_back(OutgoingArg->getRegister(), InputReg);
+
     if (!CCInfo.AllocateReg(OutgoingArg->getRegister()))
       report_fatal_error("failed to allocate implicit input argument");
   } else {
@@ -901,14 +991,38 @@ getAssignFnsForCC(CallingConv::ID CC, const SITargetLowering &TLI) {
 }
 
 static unsigned getCallOpcode(const MachineFunction &CallerF, bool IsIndirect,
-                              bool IsTailCall) {
-  return IsTailCall ? AMDGPU::SI_TCRETURN : AMDGPU::SI_CALL;
+                              bool IsTailCall, bool IsWave32,
+                              CallingConv::ID CC,
+                              bool IsDynamicVGPRChainCall = false) {
+  // For calls to amdgpu_cs_chain functions, the address is known to be uniform.
+  assert((AMDGPU::isChainCC(CC) || !IsIndirect || !IsTailCall) &&
+         "Indirect calls can't be tail calls, "
+         "because the address can be divergent");
+  if (!IsTailCall)
+    return AMDGPU::G_SI_CALL;
+
+  if (AMDGPU::isChainCC(CC)) {
+    if (IsDynamicVGPRChainCall)
+      return IsWave32 ? AMDGPU::SI_CS_CHAIN_TC_W32_DVGPR
+                      : AMDGPU::SI_CS_CHAIN_TC_W64_DVGPR;
+    return IsWave32 ? AMDGPU::SI_CS_CHAIN_TC_W32 : AMDGPU::SI_CS_CHAIN_TC_W64;
+  }
+
+  if (CallerF.getFunction().getCallingConv() ==
+      CallingConv::AMDGPU_Gfx_WholeWave)
+    return AMDGPU::SI_TCRETURN_GFX_WholeWave;
+
+  if (CC == CallingConv::AMDGPU_Gfx || CC == CallingConv::AMDGPU_Gfx_WholeWave)
+    return AMDGPU::SI_TCRETURN_GFX;
+
+  return AMDGPU::SI_TCRETURN;
 }
 
 // Add operands to call instruction to track the callee.
 static bool addCallTargetOperands(MachineInstrBuilder &CallInst,
                                   MachineIRBuilder &MIRBuilder,
-                                  AMDGPUCallLowering::CallLoweringInfo &Info) {
+                                  AMDGPUCallLowering::CallLoweringInfo &Info,
+                                  bool IsDynamicVGPRChainCall = false) {
   if (Info.Callee.isReg()) {
     CallInst.addReg(Info.Callee.getReg());
     CallInst.addImm(0);
@@ -919,7 +1033,12 @@ static bool addCallTargetOperands(MachineInstrBuilder &CallInst,
     auto Ptr = MIRBuilder.buildGlobalValue(
       LLT::pointer(GV->getAddressSpace(), 64), GV);
     CallInst.addReg(Ptr.getReg(0));
-    CallInst.add(Info.Callee);
+
+    if (IsDynamicVGPRChainCall) {
+      // DynamicVGPR chain calls are always indirect.
+      CallInst.addImm(0);
+    } else
+      CallInst.add(Info.Callee);
   } else
     return false;
 
@@ -940,7 +1059,7 @@ bool AMDGPUCallLowering::doCallerAndCalleePassArgsTheSameWay(
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
 
   // Make sure that the caller and callee preserve all of the same registers.
-  auto TRI = ST.getRegisterInfo();
+  const auto *TRI = ST.getRegisterInfo();
 
   const uint32_t *CallerPreserved = TRI->getCallPreservedMask(MF, CallerCC);
   const uint32_t *CalleePreserved = TRI->getCallPreservedMask(MF, CalleeCC);
@@ -996,7 +1115,7 @@ bool AMDGPUCallLowering::areCalleeOutgoingArgsTailCallable(
 
   // Make sure that they can fit on the caller's stack.
   const SIMachineFunctionInfo *FuncInfo = MF.getInfo<SIMachineFunctionInfo>();
-  if (OutInfo.getNextStackOffset() > FuncInfo->getBytesInStackArgArea()) {
+  if (OutInfo.getStackSize() > FuncInfo->getBytesInStackArgArea()) {
     LLVM_DEBUG(dbgs() << "... Cannot fit call operands on caller's stack.\n");
     return false;
   }
@@ -1009,27 +1128,16 @@ bool AMDGPUCallLowering::areCalleeOutgoingArgsTailCallable(
   return parametersInCSRMatch(MRI, CallerPreservedMask, OutLocs, OutArgs);
 }
 
-/// Return true if the calling convention is one that we can guarantee TCO for.
-static bool canGuaranteeTCO(CallingConv::ID CC) {
-  return CC == CallingConv::Fast;
-}
-
-/// Return true if we might ever do TCO for calls with this calling convention.
-static bool mayTailCallThisCC(CallingConv::ID CC) {
-  switch (CC) {
-  case CallingConv::C:
-  case CallingConv::AMDGPU_Gfx:
-    return true;
-  default:
-    return canGuaranteeTCO(CC);
-  }
-}
-
 bool AMDGPUCallLowering::isEligibleForTailCallOptimization(
     MachineIRBuilder &B, CallLoweringInfo &Info,
     SmallVectorImpl<ArgInfo> &InArgs, SmallVectorImpl<ArgInfo> &OutArgs) const {
   // Must pass all target-independent checks in order to tail call optimize.
   if (!Info.IsTailCall)
+    return false;
+
+  // Indirect calls can't be tail calls, because the address can be divergent.
+  // TODO Check divergence info if the call really is divergent.
+  if (Info.Callee.isReg())
     return false;
 
   MachineFunction &MF = B.getMF();
@@ -1044,7 +1152,7 @@ bool AMDGPUCallLowering::isEligibleForTailCallOptimization(
   if (!CallerPreserved)
     return false;
 
-  if (!mayTailCallThisCC(CalleeCC)) {
+  if (!AMDGPU::mayTailCallThisCC(CalleeCC)) {
     LLVM_DEBUG(dbgs() << "... Calling convention cannot be tail called.\n");
     return false;
   }
@@ -1058,8 +1166,10 @@ bool AMDGPUCallLowering::isEligibleForTailCallOptimization(
   }
 
   // If we have -tailcallopt, then we're done.
-  if (MF.getTarget().Options.GuaranteedTailCallOpt)
-    return canGuaranteeTCO(CalleeCC) && CalleeCC == CallerF.getCallingConv();
+  if (MF.getTarget().Options.GuaranteedTailCallOpt) {
+    return AMDGPU::canGuaranteeTCO(CalleeCC) &&
+           CalleeCC == CallerF.getCallingConv();
+  }
 
   // Verify that the incoming and outgoing arguments from the callee are
   // safe to tail call.
@@ -1070,6 +1180,9 @@ bool AMDGPUCallLowering::isEligibleForTailCallOptimization(
     return false;
   }
 
+  // FIXME: We need to check if any arguments passed in SGPR are uniform. If
+  // they are not, this cannot be a tail call. If they are uniform, but may be
+  // VGPR, we need to insert readfirstlanes.
   if (!areCalleeOutgoingArgsTailCallable(Info, MF, OutArgs))
     return false;
 
@@ -1083,14 +1196,20 @@ bool AMDGPUCallLowering::isEligibleForTailCallOptimization(
 void AMDGPUCallLowering::handleImplicitCallArguments(
     MachineIRBuilder &MIRBuilder, MachineInstrBuilder &CallInst,
     const GCNSubtarget &ST, const SIMachineFunctionInfo &FuncInfo,
+    CallingConv::ID CalleeCC,
     ArrayRef<std::pair<MCRegister, Register>> ImplicitArgRegs) const {
   if (!ST.enableFlatScratch()) {
     // Insert copies for the SRD. In the HSA case, this should be an identity
     // copy.
-    auto ScratchRSrcReg =
-        MIRBuilder.buildCopy(LLT::vector(4, 32), FuncInfo.getScratchRSrcReg());
-    MIRBuilder.buildCopy(AMDGPU::SGPR0_SGPR1_SGPR2_SGPR3, ScratchRSrcReg);
-    CallInst.addReg(AMDGPU::SGPR0_SGPR1_SGPR2_SGPR3, RegState::Implicit);
+    auto ScratchRSrcReg = MIRBuilder.buildCopy(LLT::fixed_vector(4, 32),
+                                               FuncInfo.getScratchRSrcReg());
+
+    auto CalleeRSrcReg = AMDGPU::isChainCC(CalleeCC)
+                             ? AMDGPU::SGPR48_SGPR49_SGPR50_SGPR51
+                             : AMDGPU::SGPR0_SGPR1_SGPR2_SGPR3;
+
+    MIRBuilder.buildCopy(CalleeRSrcReg, ScratchRSrcReg);
+    CallInst.addReg(CalleeRSrcReg, RegState::Implicit);
   }
 
   for (std::pair<MCRegister, Register> ArgReg : ImplicitArgRegs) {
@@ -1098,6 +1217,18 @@ void AMDGPUCallLowering::handleImplicitCallArguments(
     CallInst.addReg(ArgReg.first, RegState::Implicit);
   }
 }
+
+namespace {
+// Chain calls have special arguments that we need to handle. These have the
+// same index as they do in the llvm.amdgcn.cs.chain intrinsic.
+enum ChainCallArgIdx {
+  Exec = 1,
+  Flags = 4,
+  NumVGPRs = 5,
+  FallbackExec = 6,
+  FallbackCallee = 7,
+};
+} // anonymous namespace
 
 bool AMDGPUCallLowering::lowerTailCall(
     MachineIRBuilder &MIRBuilder, CallLoweringInfo &Info,
@@ -1107,6 +1238,8 @@ bool AMDGPUCallLowering::lowerTailCall(
   SIMachineFunctionInfo *FuncInfo = MF.getInfo<SIMachineFunctionInfo>();
   const Function &F = MF.getFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
+  const SIInstrInfo *TII = ST.getInstrInfo();
+  const SIRegisterInfo *TRI = ST.getRegisterInfo();
   const SITargetLowering &TLI = *getTLI<SITargetLowering>();
 
   // True when we're tail calling, but without -tailcallopt.
@@ -1122,17 +1255,89 @@ bool AMDGPUCallLowering::lowerTailCall(
   if (!IsSibCall)
     CallSeqStart = MIRBuilder.buildInstr(AMDGPU::ADJCALLSTACKUP);
 
-  unsigned Opc = getCallOpcode(MF, Info.Callee.isReg(), true);
+  bool IsChainCall = AMDGPU::isChainCC(Info.CallConv);
+  bool IsDynamicVGPRChainCall = false;
+
+  if (IsChainCall) {
+    ArgInfo FlagsArg = Info.OrigArgs[ChainCallArgIdx::Flags];
+    const APInt &FlagsValue = cast<ConstantInt>(FlagsArg.OrigValue)->getValue();
+    if (FlagsValue.isZero()) {
+      if (Info.OrigArgs.size() != 5) {
+        LLVM_DEBUG(dbgs() << "No additional args allowed if flags == 0\n");
+        return false;
+      }
+    } else if (FlagsValue.isOneBitSet(0)) {
+      IsDynamicVGPRChainCall = true;
+
+      if (Info.OrigArgs.size() != 8) {
+        LLVM_DEBUG(dbgs() << "Expected 3 additional args\n");
+        return false;
+      }
+
+      // On GFX12, we can only change the VGPR allocation for wave32.
+      if (!ST.isWave32()) {
+        F.getContext().diagnose(DiagnosticInfoUnsupported(
+            F, "dynamic VGPR mode is only supported for wave32"));
+        return false;
+      }
+
+      ArgInfo FallbackExecArg = Info.OrigArgs[ChainCallArgIdx::FallbackExec];
+      assert(FallbackExecArg.Regs.size() == 1 &&
+             "Expected single register for fallback EXEC");
+      if (!FallbackExecArg.Ty->isIntegerTy(ST.getWavefrontSize())) {
+        LLVM_DEBUG(dbgs() << "Bad type for fallback EXEC\n");
+        return false;
+      }
+    }
+  }
+
+  unsigned Opc = getCallOpcode(MF, Info.Callee.isReg(), /*IsTailCall*/ true,
+                               ST.isWave32(), CalleeCC, IsDynamicVGPRChainCall);
   auto MIB = MIRBuilder.buildInstrNoInsert(Opc);
-  if (!addCallTargetOperands(MIB, MIRBuilder, Info))
+
+  if (FuncInfo->isWholeWaveFunction())
+    addOriginalExecToReturn(MF, MIB);
+
+  // Keep track of the index of the next operand to be added to the call
+  unsigned CalleeIdx = MIB->getNumOperands();
+
+  if (!addCallTargetOperands(MIB, MIRBuilder, Info, IsDynamicVGPRChainCall))
     return false;
 
   // Byte offset for the tail call. When we are sibcalling, this will always
   // be 0.
   MIB.addImm(0);
 
+  // If this is a chain call, we need to pass in the EXEC mask as well as any
+  // other special args.
+  if (IsChainCall) {
+    auto AddRegOrImm = [&](const ArgInfo &Arg) {
+      if (auto CI = dyn_cast<ConstantInt>(Arg.OrigValue)) {
+        MIB.addImm(CI->getSExtValue());
+      } else {
+        MIB.addReg(Arg.Regs[0]);
+        unsigned Idx = MIB->getNumOperands() - 1;
+        MIB->getOperand(Idx).setReg(constrainOperandRegClass(
+            MF, *TRI, MRI, *TII, *ST.getRegBankInfo(), *MIB, MIB->getDesc(),
+            MIB->getOperand(Idx), Idx));
+      }
+    };
+
+    ArgInfo ExecArg = Info.OrigArgs[ChainCallArgIdx::Exec];
+    assert(ExecArg.Regs.size() == 1 && "Too many regs for EXEC");
+
+    if (!ExecArg.Ty->isIntegerTy(ST.getWavefrontSize())) {
+      LLVM_DEBUG(dbgs() << "Bad type for EXEC");
+      return false;
+    }
+
+    AddRegOrImm(ExecArg);
+    if (IsDynamicVGPRChainCall)
+      std::for_each(Info.OrigArgs.begin() + ChainCallArgIdx::NumVGPRs,
+                    Info.OrigArgs.end(), AddRegOrImm);
+  }
+
   // Tell the call which registers are clobbered.
-  const SIRegisterInfo *TRI = ST.getRegisterInfo();
   const uint32_t *Mask = TRI->getCallPreservedMask(MF, CalleeCC);
   MIB.addRegMask(Mask);
 
@@ -1162,7 +1367,7 @@ bool AMDGPUCallLowering::lowerTailCall(
 
     // The callee will pop the argument stack as a tail call. Thus, we must
     // keep it 16-byte aligned.
-    NumBytes = alignTo(OutInfo.getNextStackOffset(), ST.getStackAlignment());
+    NumBytes = alignTo(OutInfo.getStackSize(), ST.getStackAlignment());
 
     // FPDiff will be negative if this tail call requires more space than we
     // would automatically have in our incoming argument space. Positive if we
@@ -1186,8 +1391,9 @@ bool AMDGPUCallLowering::lowerTailCall(
   // after the ordinary user argument registers.
   SmallVector<std::pair<MCRegister, Register>, 12> ImplicitArgRegs;
 
-  if (AMDGPUTargetMachine::EnableFixedFunctionABI &&
-      Info.CallConv != CallingConv::AMDGPU_Gfx) {
+  if (Info.CallConv != CallingConv::AMDGPU_Gfx &&
+      Info.CallConv != CallingConv::AMDGPU_Gfx_WholeWave &&
+      !AMDGPU::isChainCC(Info.CallConv)) {
     // With a fixed ABI, allocate fixed registers before user arguments.
     if (!passSpecialInputs(MIRBuilder, CCInfo, ImplicitArgRegs, Info))
       return false;
@@ -1203,12 +1409,16 @@ bool AMDGPUCallLowering::lowerTailCall(
   if (!handleAssignments(Handler, OutArgs, CCInfo, ArgLocs, MIRBuilder))
     return false;
 
-  handleImplicitCallArguments(MIRBuilder, MIB, ST, *FuncInfo, ImplicitArgRegs);
+  if (Info.ConvergenceCtrlToken) {
+    MIB.addUse(Info.ConvergenceCtrlToken, RegState::Implicit);
+  }
+  handleImplicitCallArguments(MIRBuilder, MIB, ST, *FuncInfo, CalleeCC,
+                              ImplicitArgRegs);
 
   // If we have -tailcallopt, we need to adjust the stack. We'll do the call
   // sequence start and end here.
   if (!IsSibCall) {
-    MIB->getOperand(1).setImm(FPDiff);
+    MIB->getOperand(CalleeIdx + 1).setImm(FPDiff);
     CallSeqStart.addImm(NumBytes).addImm(0);
     // End the call sequence *before* emitting the call. Normally, we would
     // tidy the frame up after the call. However, here, we've laid out the
@@ -1220,16 +1430,24 @@ bool AMDGPUCallLowering::lowerTailCall(
   // Now we can add the actual call instruction to the correct basic block.
   MIRBuilder.insertInstr(MIB);
 
+  // If this is a whole wave tail call, we need to constrain the register for
+  // the original EXEC.
+  if (MIB->getOpcode() == AMDGPU::SI_TCRETURN_GFX_WholeWave) {
+    MIB->getOperand(0).setReg(
+        constrainOperandRegClass(MF, *TRI, MRI, *TII, *ST.getRegBankInfo(),
+                                 *MIB, MIB->getDesc(), MIB->getOperand(0), 0));
+  }
+
   // If Callee is a reg, since it is used by a target specific
   // instruction, it must have a register class matching the
   // constraint of that instruction.
 
   // FIXME: We should define regbankselectable call instructions to handle
   // divergent call targets.
-  if (MIB->getOperand(0).isReg()) {
-    MIB->getOperand(0).setReg(constrainOperandRegClass(
-        MF, *TRI, MRI, *ST.getInstrInfo(), *ST.getRegBankInfo(), *MIB,
-        MIB->getDesc(), MIB->getOperand(0), 0));
+  if (MIB->getOperand(CalleeIdx).isReg()) {
+    MIB->getOperand(CalleeIdx).setReg(constrainOperandRegClass(
+        MF, *TRI, MRI, *TII, *ST.getRegBankInfo(), *MIB, MIB->getDesc(),
+        MIB->getOperand(CalleeIdx), CalleeIdx));
   }
 
   MF.getFrameInfo().setHasTailCall();
@@ -1237,8 +1455,70 @@ bool AMDGPUCallLowering::lowerTailCall(
   return true;
 }
 
+/// Lower a call to the @llvm.amdgcn.cs.chain intrinsic.
+bool AMDGPUCallLowering::lowerChainCall(MachineIRBuilder &MIRBuilder,
+                                        CallLoweringInfo &Info) const {
+  ArgInfo Callee = Info.OrigArgs[0];
+  ArgInfo SGPRArgs = Info.OrigArgs[2];
+  ArgInfo VGPRArgs = Info.OrigArgs[3];
+
+  MachineFunction &MF = MIRBuilder.getMF();
+  const Function &F = MF.getFunction();
+  const DataLayout &DL = F.getDataLayout();
+
+  // The function to jump to is actually the first argument, so we'll change the
+  // Callee and other info to match that before using our existing helper.
+  const Value *CalleeV = Callee.OrigValue->stripPointerCasts();
+  if (const Function *F = dyn_cast<Function>(CalleeV)) {
+    Info.Callee = MachineOperand::CreateGA(F, 0);
+    Info.CallConv = F->getCallingConv();
+  } else {
+    assert(Callee.Regs.size() == 1 && "Too many regs for the callee");
+    Info.Callee = MachineOperand::CreateReg(Callee.Regs[0], false);
+    Info.CallConv = CallingConv::AMDGPU_CS_Chain; // amdgpu_cs_chain_preserve
+                                                  // behaves the same here.
+  }
+
+  // The function that we're calling cannot be vararg (only the intrinsic is).
+  Info.IsVarArg = false;
+
+  assert(
+      all_of(SGPRArgs.Flags, [](ISD::ArgFlagsTy F) { return F.isInReg(); }) &&
+      "SGPR arguments should be marked inreg");
+  assert(
+      none_of(VGPRArgs.Flags, [](ISD::ArgFlagsTy F) { return F.isInReg(); }) &&
+      "VGPR arguments should not be marked inreg");
+
+  SmallVector<ArgInfo, 8> OutArgs;
+  splitToValueTypes(SGPRArgs, OutArgs, DL, Info.CallConv);
+  splitToValueTypes(VGPRArgs, OutArgs, DL, Info.CallConv);
+
+  Info.IsMustTailCall = true;
+  return lowerTailCall(MIRBuilder, Info, OutArgs);
+}
+
 bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
                                    CallLoweringInfo &Info) const {
+  if (Function *F = Info.CB->getCalledFunction())
+    if (F->isIntrinsic()) {
+      switch (F->getIntrinsicID()) {
+      case Intrinsic::amdgcn_cs_chain:
+        return lowerChainCall(MIRBuilder, Info);
+      case Intrinsic::amdgcn_call_whole_wave:
+        Info.CallConv = CallingConv::AMDGPU_Gfx_WholeWave;
+
+        // Get the callee from the original instruction, so it doesn't look like
+        // this is an indirect call.
+        Info.Callee = MachineOperand::CreateGA(
+            cast<GlobalValue>(Info.CB->getOperand(0)), /*Offset=*/0);
+        Info.OrigArgs.erase(Info.OrigArgs.begin());
+        Info.IsVarArg = false;
+        break;
+      default:
+        llvm_unreachable("Unexpected intrinsic call");
+      }
+    }
+
   if (Info.IsVarArg) {
     LLVM_DEBUG(dbgs() << "Variadic functions not implemented\n");
     return false;
@@ -1251,19 +1531,7 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   const Function &F = MF.getFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   const SITargetLowering &TLI = *getTLI<SITargetLowering>();
-  const DataLayout &DL = F.getParent()->getDataLayout();
-  CallingConv::ID CallConv = F.getCallingConv();
-
-  if (!AMDGPUTargetMachine::EnableFixedFunctionABI &&
-      CallConv != CallingConv::AMDGPU_Gfx) {
-    LLVM_DEBUG(dbgs() << "Variable function ABI not implemented\n");
-    return false;
-  }
-
-  if (AMDGPU::isShader(CallConv)) {
-    LLVM_DEBUG(dbgs() << "Unhandled call from graphics shader\n");
-    return false;
-  }
+  const DataLayout &DL = F.getDataLayout();
 
   SmallVector<ArgInfo, 8> OutArgs;
   for (auto &OrigArg : Info.OrigArgs)
@@ -1283,6 +1551,7 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
     return false;
   }
 
+  Info.IsTailCall = CanTailCallOpt;
   if (CanTailCallOpt)
     return lowerTailCall(MIRBuilder, Info, OutArgs);
 
@@ -1298,10 +1567,14 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
 
   // Create a temporarily-floating call instruction so we can add the implicit
   // uses of arg registers.
-  unsigned Opc = getCallOpcode(MF, Info.Callee.isReg(), false);
+  unsigned Opc = getCallOpcode(MF, Info.Callee.isReg(), false, ST.isWave32(),
+                               Info.CallConv);
 
   auto MIB = MIRBuilder.buildInstrNoInsert(Opc);
   MIB.addDef(TRI->getReturnAddressReg(MF));
+
+  if (!Info.IsConvergent)
+    MIB.setMIFlag(MachineInstr::NoConvergent);
 
   if (!addCallTargetOperands(MIB, MIRBuilder, Info))
     return false;
@@ -1318,16 +1591,14 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   // after the ordinary user argument registers.
   SmallVector<std::pair<MCRegister, Register>, 12> ImplicitArgRegs;
 
-  if (AMDGPUTargetMachine::EnableFixedFunctionABI &&
-      Info.CallConv != CallingConv::AMDGPU_Gfx) {
+  if (Info.CallConv != CallingConv::AMDGPU_Gfx &&
+      Info.CallConv != CallingConv::AMDGPU_Gfx_WholeWave) {
     // With a fixed ABI, allocate fixed registers before user arguments.
     if (!passSpecialInputs(MIRBuilder, CCInfo, ImplicitArgRegs, Info))
       return false;
   }
 
   // Do the actual argument marshalling.
-  SmallVector<Register, 8> PhysRegs;
-
   OutgoingValueAssigner Assigner(AssignFnFixed, AssignFnVarArg);
   if (!determineAssignments(Assigner, OutArgs, CCInfo))
     return false;
@@ -1338,10 +1609,14 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
 
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
 
-  handleImplicitCallArguments(MIRBuilder, MIB, ST, *MFI, ImplicitArgRegs);
+  if (Info.ConvergenceCtrlToken) {
+    MIB.addUse(Info.ConvergenceCtrlToken, RegState::Implicit);
+  }
+  handleImplicitCallArguments(MIRBuilder, MIB, ST, *MFI, Info.CallConv,
+                              ImplicitArgRegs);
 
   // Get a count of how many bytes are to be pushed on the stack.
-  unsigned NumBytes = CCInfo.getNextStackOffset();
+  unsigned NumBytes = CCInfo.getStackSize();
 
   // If Callee is a reg, since it is used by a target specific
   // instruction, it must have a register class matching the
@@ -1365,7 +1640,7 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   if (Info.CanLowerReturn && !Info.OrigRet.Ty->isVoidTy()) {
     CCAssignFn *RetAssignFn = TLI.CCAssignFnForReturn(Info.CallConv,
                                                       Info.IsVarArg);
-    OutgoingValueAssigner Assigner(RetAssignFn);
+    IncomingValueAssigner Assigner(RetAssignFn);
     CallReturnHandler Handler(MIRBuilder, MRI, MIB);
     if (!determineAndHandleAssignments(Handler, Assigner, InArgs, MIRBuilder,
                                        Info.CallConv, Info.IsVarArg))
@@ -1384,4 +1659,12 @@ bool AMDGPUCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   }
 
   return true;
+}
+
+void AMDGPUCallLowering::addOriginalExecToReturn(
+    MachineFunction &MF, MachineInstrBuilder &Ret) const {
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
+  const SIInstrInfo *TII = ST.getInstrInfo();
+  const MachineInstr *Setup = TII->getWholeWaveFunctionSetup(MF);
+  Ret.addReg(Setup->getOperand(0).getReg());
 }

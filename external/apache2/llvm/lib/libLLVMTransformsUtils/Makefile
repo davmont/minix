@@ -6,11 +6,10 @@ LIB=	LLVMTransformsUtils
 
 .PATH: ${LLVM_SRCDIR}/lib/Transforms/Utils
 
-SRCS+=	AddDiscriminators.cpp \
-	AMDGPUEmitPrintf.cpp \
+SRCS+=	AMDGPUEmitPrintf.cpp \
 	ASanStackFrameLayout.cpp \
+	AddDiscriminators.cpp \
 	AssumeBundleBuilder.cpp \
-	AutoInitRemark.cpp \
 	BasicBlockUtils.cpp \
 	BreakCriticalEdges.cpp \
 	BuildLibCalls.cpp \
@@ -22,9 +21,15 @@ SRCS+=	AddDiscriminators.cpp \
 	CloneFunction.cpp \
 	CloneModule.cpp \
 	CodeExtractor.cpp \
+	CodeLayout.cpp \
 	CodeMoverUtils.cpp \
+	ControlFlowUtils.cpp \
+	CountVisits.cpp \
 	CtorUtils.cpp \
+	DXILUpgrade.cpp \
+	DebugSSAUpdater.cpp \
 	Debugify.cpp \
+	DeclareRuntimeLibcalls.cpp \
 	DemoteRegToStack.cpp \
 	EntryExitInstrumenter.cpp \
 	EscapeEnumerator.cpp \
@@ -36,51 +41,65 @@ SRCS+=	AddDiscriminators.cpp \
 	GlobalStatus.cpp \
 	GuardUtils.cpp \
 	HelloWorld.cpp \
+	IRNormalizer.cpp \
 	InjectTLIMappings.cpp \
 	InlineFunction.cpp \
 	InstructionNamer.cpp \
+	Instrumentation.cpp \
 	IntegerDivision.cpp \
 	LCSSA.cpp \
 	LibCallsShrinkWrap.cpp \
 	Local.cpp \
+	LoopConstrainer.cpp \
 	LoopPeel.cpp \
 	LoopRotationUtils.cpp \
 	LoopSimplify.cpp \
-	LoopUnrollAndJam.cpp \
 	LoopUnroll.cpp \
+	LoopUnrollAndJam.cpp \
 	LoopUnrollRuntime.cpp \
 	LoopUtils.cpp \
 	LoopVersioning.cpp \
+	LowerAtomic.cpp \
+	LowerGlobalDtors.cpp \
+	LowerIFunc.cpp \
 	LowerInvoke.cpp \
 	LowerMemIntrinsics.cpp \
 	LowerSwitch.cpp \
+	LowerVectorIntrinsics.cpp \
 	MatrixUtils.cpp \
 	Mem2Reg.cpp \
+	MemoryOpRemark.cpp \
+	MemoryTaggingSupport.cpp \
 	MetaRenamer.cpp \
+	MisExpect.cpp \
 	ModuleUtils.cpp \
+	MoveAutoInit.cpp \
 	NameAnonGlobals.cpp \
 	PredicateInfo.cpp \
+	ProfileVerify.cpp \
 	PromoteMemoryToRegister.cpp \
 	RelLookupTableConverter.cpp \
+	SCCPSolver.cpp \
+	SSAUpdater.cpp \
+	SSAUpdaterBulk.cpp \
+	SampleProfileInference.cpp \
 	SampleProfileLoaderBaseUtil.cpp \
 	SanitizerStats.cpp \
 	ScalarEvolutionExpander.cpp \
-	SCCPSolver.cpp \
 	SimplifyCFG.cpp \
 	SimplifyIndVar.cpp \
 	SimplifyLibCalls.cpp \
 	SizeOpts.cpp \
 	SplitModule.cpp \
-	SSAUpdaterBulk.cpp \
-	SSAUpdater.cpp \
+	SplitModuleByCategory.cpp \
 	StripGCRelocates.cpp \
 	StripNonLineTableDebugInfo.cpp \
 	SymbolRewriter.cpp \
 	UnifyFunctionExitNodes.cpp \
 	UnifyLoopExits.cpp \
 	Utils.cpp \
-	ValueMapper.cpp \
-	VNCoercion.cpp
+	VNCoercion.cpp \
+	ValueMapper.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

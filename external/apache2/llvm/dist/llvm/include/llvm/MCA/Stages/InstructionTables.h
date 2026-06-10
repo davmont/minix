@@ -21,18 +21,19 @@
 #include "llvm/MCA/HardwareUnits/Scheduler.h"
 #include "llvm/MCA/Stages/Stage.h"
 #include "llvm/MCA/Support.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 namespace mca {
 
-class InstructionTables final : public Stage {
+class LLVM_ABI InstructionTables final : public Stage {
   const MCSchedModel &SM;
-  SmallVector<std::pair<ResourceRef, ResourceCycles>, 4> UsedResources;
+  SmallVector<ResourceUse, 4> UsedResources;
   SmallVector<uint64_t, 8> Masks;
 
 public:
   InstructionTables(const MCSchedModel &Model)
-      : Stage(), SM(Model), Masks(Model.getNumProcResourceKinds()) {
+      : SM(Model), Masks(Model.getNumProcResourceKinds()) {
     computeProcResourceMasks(Model, Masks);
   }
 

@@ -13,34 +13,81 @@
 #define LLVM_PROFILEDATA_SAMPLEPROFWRITER_H
 
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/IR/ProfileSummary.h"
 #include "llvm/ProfileData/SampleProf.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <set>
 #include <system_error>
-#include <unordered_set>
 
 namespace llvm {
 namespace sampleprof {
 
 enum SectionLayout {
   DefaultLayout,
-  // The layout splits profile with context information from profile without
-  // context information. When Thinlto is enabled, ThinLTO postlink phase only
-  // has to load profile with context information and can skip the other part.
+  // The layout splits profile with inlined functions from profile without
+  // inlined functions. When Thinlto is enabled, ThinLTO postlink phase only
+  // has to load profile with inlined functions and can skip the other part.
   CtxSplitLayout,
   NumOfLayout,
 };
 
+/// When writing a profile with size limit, user may want to use a different
+/// strategy to reduce function count other than dropping functions with fewest
+/// samples first. In this case a class implementing the same interfaces should
+/// be provided to SampleProfileWriter::writeWithSizeLimit().
+class FunctionPruningStrategy {
+protected:
+  SampleProfileMap &ProfileMap;
+  size_t OutputSizeLimit;
+
+public:
+  /// \p ProfileMap A reference to the original profile map. It will be modified
+  /// by Erase().
+  /// \p OutputSizeLimit Size limit in bytes of the output profile. This is
+  /// necessary to estimate how many functions to remove.
+  FunctionPruningStrategy(SampleProfileMap &ProfileMap, size_t OutputSizeLimit)
+      : ProfileMap(ProfileMap), OutputSizeLimit(OutputSizeLimit) {}
+
+  virtual ~FunctionPruningStrategy() = default;
+
+  /// SampleProfileWriter::writeWithSizeLimit() calls this after every write
+  /// iteration if the output size still exceeds the limit. This function
+  /// should erase some functions from the profile map so that the writer tries
+  /// to write the profile again with fewer functions. At least 1 entry from the
+  /// profile map must be erased.
+  ///
+  /// \p CurrentOutputSize Number of bytes in the output if current profile map
+  /// is written.
+  virtual void Erase(size_t CurrentOutputSize) = 0;
+};
+
+class LLVM_ABI DefaultFunctionPruningStrategy : public FunctionPruningStrategy {
+  std::vector<NameFunctionSamples> SortedFunctions;
+
+public:
+  DefaultFunctionPruningStrategy(SampleProfileMap &ProfileMap,
+                                 size_t OutputSizeLimit);
+
+  /// In this default implementation, functions with fewest samples are dropped
+  /// first. Since the exact size of the output cannot be easily calculated due
+  /// to compression, we use a heuristic to remove as many functions as
+  /// necessary but not too many, aiming to minimize the number of write
+  /// iterations.
+  /// Empirically, functions with larger total sample count contain linearly
+  /// more sample entries, meaning it takes linearly more space to write them.
+  /// The cumulative length is therefore quadratic if all functions are sorted
+  /// by total sample count.
+  /// TODO: Find better heuristic.
+  void Erase(size_t CurrentOutputSize) override;
+};
+
 /// Sample-based profile writer. Base class.
-class SampleProfileWriter {
+class LLVM_ABI SampleProfileWriter {
 public:
   virtual ~SampleProfileWriter() = default;
 
@@ -52,7 +99,18 @@ public:
   /// Write all the sample profiles in the given map of samples.
   ///
   /// \returns status code of the file update operation.
-  virtual std::error_code write(const StringMap<FunctionSamples> &ProfileMap);
+  virtual std::error_code write(const SampleProfileMap &ProfileMap);
+
+  /// Write sample profiles up to given size limit, using the pruning strategy
+  /// to drop some functions if necessary.
+  ///
+  /// \returns status code of the file update operation.
+  template <typename FunctionPruningStrategy = DefaultFunctionPruningStrategy>
+  std::error_code writeWithSizeLimit(SampleProfileMap &ProfileMap,
+                                     size_t OutputSizeLimit) {
+    FunctionPruningStrategy Strategy(ProfileMap, OutputSizeLimit);
+    return writeWithSizeLimitInternal(ProfileMap, OutputSizeLimit, &Strategy);
+  }
 
   raw_ostream &getOutputStream() { return *OutputStream; }
 
@@ -71,19 +129,26 @@ public:
   virtual void setToCompressAllSections() {}
   virtual void setUseMD5() {}
   virtual void setPartialProfile() {}
-  virtual void resetSecLayout(SectionLayout SL) {}
+  virtual void setUseCtxSplitLayout() {}
 
 protected:
   SampleProfileWriter(std::unique_ptr<raw_ostream> &OS)
       : OutputStream(std::move(OS)) {}
 
   /// Write a file header for the profile file.
-  virtual std::error_code
-  writeHeader(const StringMap<FunctionSamples> &ProfileMap) = 0;
+  virtual std::error_code writeHeader(const SampleProfileMap &ProfileMap) = 0;
 
   // Write function profiles to the profile file.
-  virtual std::error_code
-  writeFuncProfiles(const StringMap<FunctionSamples> &ProfileMap);
+  virtual std::error_code writeFuncProfiles(const SampleProfileMap &ProfileMap);
+
+  std::error_code writeWithSizeLimitInternal(SampleProfileMap &ProfileMap,
+                                             size_t OutputSizeLimit,
+                                             FunctionPruningStrategy *Strategy);
+
+  /// For writeWithSizeLimit in text mode, each newline takes 1 additional byte
+  /// on Windows when actually written to the file, but not written to a memory
+  /// buffer. This needs to be accounted for when rewriting the profile.
+  size_t LineCount;
 
   /// Output stream where to emit the profile to.
   std::unique_ptr<raw_ostream> OutputStream;
@@ -92,63 +157,82 @@ protected:
   std::unique_ptr<ProfileSummary> Summary;
 
   /// Compute summary for this profile.
-  void computeSummary(const StringMap<FunctionSamples> &ProfileMap);
+  void computeSummary(const SampleProfileMap &ProfileMap);
 
   /// Profile format.
   SampleProfileFormat Format = SPF_None;
 };
 
 /// Sample-based profile writer (text format).
-class SampleProfileWriterText : public SampleProfileWriter {
+class LLVM_ABI SampleProfileWriterText : public SampleProfileWriter {
 public:
   std::error_code writeSample(const FunctionSamples &S) override;
 
 protected:
   SampleProfileWriterText(std::unique_ptr<raw_ostream> &OS)
-      : SampleProfileWriter(OS), Indent(0) {}
+      : SampleProfileWriter(OS) {}
 
-  std::error_code
-  writeHeader(const StringMap<FunctionSamples> &ProfileMap) override {
+  std::error_code writeHeader(const SampleProfileMap &ProfileMap) override {
+    LineCount = 0;
     return sampleprof_error::success;
+  }
+
+  void setUseCtxSplitLayout() override {
+    MarkFlatProfiles = true;
   }
 
 private:
   /// Indent level to use when writing.
   ///
   /// This is used when printing inlined callees.
-  unsigned Indent;
+  unsigned Indent = 0;
 
-  friend ErrorOr<std::unique_ptr<SampleProfileWriter>>
+  /// If set, writes metadata "!Flat" to functions without inlined functions.
+  /// This flag is for manual inspection only, it has no effect for the profile
+  /// reader because a text sample profile is read sequentially and functions
+  /// cannot be skipped.
+  bool MarkFlatProfiles = false;
+
+  LLVM_ABI friend ErrorOr<std::unique_ptr<SampleProfileWriter>>
   SampleProfileWriter::create(std::unique_ptr<raw_ostream> &OS,
                               SampleProfileFormat Format);
 };
 
 /// Sample-based profile writer (binary format).
-class SampleProfileWriterBinary : public SampleProfileWriter {
+class LLVM_ABI SampleProfileWriterBinary : public SampleProfileWriter {
 public:
   SampleProfileWriterBinary(std::unique_ptr<raw_ostream> &OS)
       : SampleProfileWriter(OS) {}
 
-  virtual std::error_code writeSample(const FunctionSamples &S) override;
+  std::error_code writeSample(const FunctionSamples &S) override;
 
 protected:
+  virtual MapVector<FunctionId, uint32_t> &getNameTable() { return NameTable; }
   virtual std::error_code writeMagicIdent(SampleProfileFormat Format);
   virtual std::error_code writeNameTable();
-  virtual std::error_code
-  writeHeader(const StringMap<FunctionSamples> &ProfileMap) override;
+  std::error_code writeHeader(const SampleProfileMap &ProfileMap) override;
   std::error_code writeSummary();
-  std::error_code writeNameIdx(StringRef FName, bool IsContextName = false);
+  virtual std::error_code writeContextIdx(const SampleContext &Context);
+  std::error_code writeNameIdx(FunctionId FName);
   std::error_code writeBody(const FunctionSamples &S);
-  inline void stablizeNameTable(std::set<StringRef> &V);
+  inline void stablizeNameTable(MapVector<FunctionId, uint32_t> &NameTable,
+                                std::set<FunctionId> &V);
 
-  MapVector<StringRef, uint32_t> NameTable;
-  std::unordered_set<std::string> BracketedContextStr;
+  MapVector<FunctionId, uint32_t> NameTable;
 
-  void addName(StringRef FName, bool IsContextName = false);
+  void addName(FunctionId FName);
+  virtual void addContext(const SampleContext &Context);
   void addNames(const FunctionSamples &S);
 
+  /// Write \p CallsiteTypeMap to the output stream \p OS.
+  std::error_code
+  writeCallsiteVTableProf(const CallsiteTypeMap &CallsiteTypeMap,
+                          raw_ostream &OS);
+
+  bool WriteVTableProf = false;
+
 private:
-  friend ErrorOr<std::unique_ptr<SampleProfileWriter>>
+  LLVM_ABI friend ErrorOr<std::unique_ptr<SampleProfileWriter>>
   SampleProfileWriter::create(std::unique_ptr<raw_ostream> &OS,
                               SampleProfileFormat Format);
 };
@@ -168,6 +252,7 @@ const std::array<SmallVector<SecHdrTableEntry, 8>, NumOfLayout>
         // DefaultLayout
         SmallVector<SecHdrTableEntry, 8>({{SecProfSummary, 0, 0, 0, 0},
                                           {SecNameTable, 0, 0, 0, 0},
+                                          {SecCSNameTable, 0, 0, 0, 0},
                                           {SecFuncOffsetTable, 0, 0, 0, 0},
                                           {SecLBRProfile, 0, 0, 0, 0},
                                           {SecProfileSymbolList, 0, 0, 0, 0},
@@ -175,11 +260,11 @@ const std::array<SmallVector<SecHdrTableEntry, 8>, NumOfLayout>
         // CtxSplitLayout
         SmallVector<SecHdrTableEntry, 8>({{SecProfSummary, 0, 0, 0, 0},
                                           {SecNameTable, 0, 0, 0, 0},
-                                          // profile with context
+                                          // profile with inlined functions
                                           // for next two sections
                                           {SecFuncOffsetTable, 0, 0, 0, 0},
                                           {SecLBRProfile, 0, 0, 0, 0},
-                                          // profile without context
+                                          // profile without inlined functions
                                           // for next two sections
                                           {SecFuncOffsetTable, 0, 0, 0, 0},
                                           {SecLBRProfile, 0, 0, 0, 0},
@@ -187,18 +272,18 @@ const std::array<SmallVector<SecHdrTableEntry, 8>, NumOfLayout>
                                           {SecFuncMetadata, 0, 0, 0, 0}}),
 };
 
-class SampleProfileWriterExtBinaryBase : public SampleProfileWriterBinary {
+class LLVM_ABI SampleProfileWriterExtBinaryBase
+    : public SampleProfileWriterBinary {
   using SampleProfileWriterBinary::SampleProfileWriterBinary;
 public:
-  virtual std::error_code
-  write(const StringMap<FunctionSamples> &ProfileMap) override;
+  std::error_code write(const SampleProfileMap &ProfileMap) override;
 
-  virtual void setToCompressAllSections() override;
+  void setToCompressAllSections() override;
   void setToCompressSection(SecType Type);
-  virtual std::error_code writeSample(const FunctionSamples &S) override;
+  std::error_code writeSample(const FunctionSamples &S) override;
 
   // Set to use MD5 to represent string in NameTable.
-  virtual void setUseMD5() override {
+  void setUseMD5() override {
     UseMD5 = true;
     addSectionFlag(SecNameTable, SecNameTableFlags::SecFlagMD5Name);
     // MD5 will be stored as plain uint64_t instead of variable-length
@@ -209,15 +294,19 @@ public:
   // Set the profile to be partial. It means the profile is for
   // common/shared code. The common profile is usually merged from
   // profiles collected from running other targets.
-  virtual void setPartialProfile() override {
+  void setPartialProfile() override {
     addSectionFlag(SecProfSummary, SecProfSummaryFlags::SecFlagPartial);
   }
 
-  virtual void setProfileSymbolList(ProfileSymbolList *PSL) override {
+  void setProfileSymbolList(ProfileSymbolList *PSL) override {
     ProfSymList = PSL;
   };
 
-  virtual void resetSecLayout(SectionLayout SL) override {
+  void setUseCtxSplitLayout() override {
+    resetSecLayout(SectionLayout::CtxSplitLayout);
+  }
+
+  void resetSecLayout(SectionLayout SL) {
     verifySecLayout(SL);
 #ifndef NDEBUG
     // Make sure resetSecLayout is called before any flag setting.
@@ -246,29 +335,32 @@ protected:
     addSecFlag(SectionHdrLayout[SectionIdx], Flag);
   }
 
+  void addContext(const SampleContext &Context) override;
+
   // placeholder for subclasses to dispatch their own section writers.
   virtual std::error_code writeCustomSection(SecType Type) = 0;
   // Verify the SecLayout is supported by the format.
   virtual void verifySecLayout(SectionLayout SL) = 0;
 
   // specify the order to write sections.
-  virtual std::error_code
-  writeSections(const StringMap<FunctionSamples> &ProfileMap) = 0;
+  virtual std::error_code writeSections(const SampleProfileMap &ProfileMap) = 0;
 
   // Dispatch section writer for each section. \p LayoutIdx is the sequence
   // number indicating where the section is located in SectionHdrLayout.
-  virtual std::error_code
-  writeOneSection(SecType Type, uint32_t LayoutIdx,
-                  const StringMap<FunctionSamples> &ProfileMap);
+  virtual std::error_code writeOneSection(SecType Type, uint32_t LayoutIdx,
+                                          const SampleProfileMap &ProfileMap);
 
   // Helper function to write name table.
-  virtual std::error_code writeNameTable() override;
+  std::error_code writeNameTable() override;
+  std::error_code writeContextIdx(const SampleContext &Context) override;
+  std::error_code writeCSNameIdx(const SampleContext &Context);
+  std::error_code writeCSNameTableSection();
 
-  std::error_code writeFuncMetadata(const StringMap<FunctionSamples> &Profiles);
+  std::error_code writeFuncMetadata(const SampleProfileMap &Profiles);
+  std::error_code writeFuncMetadata(const FunctionSamples &Profile);
 
   // Functions to write various kinds of sections.
-  std::error_code
-  writeNameTableSection(const StringMap<FunctionSamples> &ProfileMap);
+  std::error_code writeNameTableSection(const SampleProfileMap &ProfileMap);
   std::error_code writeFuncOffsetTable();
   std::error_code writeProfileSymbolListSection();
 
@@ -288,8 +380,7 @@ protected:
 private:
   void allocSecHdrTable();
   std::error_code writeSecHdrTable();
-  virtual std::error_code
-  writeHeader(const StringMap<FunctionSamples> &ProfileMap) override;
+  std::error_code writeHeader(const SampleProfileMap &ProfileMap) override;
   std::error_code compressAndOutput();
 
   // We will swap the raw_ostream held by LocalBufStream and that
@@ -312,88 +403,38 @@ private:
   // be read.
   std::vector<SecHdrTableEntry> SecHdrTable;
 
-  // FuncOffsetTable maps function name to its profile offset in SecLBRProfile
-  // section. It is used to load function profile on demand.
-  MapVector<StringRef, uint64_t> FuncOffsetTable;
+  // FuncOffsetTable maps function context to its profile offset in
+  // SecLBRProfile section. It is used to load function profile on demand.
+  MapVector<SampleContext, uint64_t> FuncOffsetTable;
   // Whether to use MD5 to represent string.
   bool UseMD5 = false;
+
+  /// CSNameTable maps function context to its offset in SecCSNameTable section.
+  /// The offset will be used everywhere where the context is referenced.
+  MapVector<SampleContext, uint32_t> CSNameTable;
 
   ProfileSymbolList *ProfSymList = nullptr;
 };
 
-class SampleProfileWriterExtBinary : public SampleProfileWriterExtBinaryBase {
+class LLVM_ABI SampleProfileWriterExtBinary
+    : public SampleProfileWriterExtBinaryBase {
 public:
-  SampleProfileWriterExtBinary(std::unique_ptr<raw_ostream> &OS)
-      : SampleProfileWriterExtBinaryBase(OS) {}
+  SampleProfileWriterExtBinary(std::unique_ptr<raw_ostream> &OS);
 
 private:
-  std::error_code
-  writeDefaultLayout(const StringMap<FunctionSamples> &ProfileMap);
-  std::error_code
-  writeCtxSplitLayout(const StringMap<FunctionSamples> &ProfileMap);
+  std::error_code writeDefaultLayout(const SampleProfileMap &ProfileMap);
+  std::error_code writeCtxSplitLayout(const SampleProfileMap &ProfileMap);
 
-  virtual std::error_code
-  writeSections(const StringMap<FunctionSamples> &ProfileMap) override;
+  std::error_code writeSections(const SampleProfileMap &ProfileMap) override;
 
-  virtual std::error_code writeCustomSection(SecType Type) override {
+  std::error_code writeCustomSection(SecType Type) override {
     return sampleprof_error::success;
   };
 
-  virtual void verifySecLayout(SectionLayout SL) override {
+  void verifySecLayout(SectionLayout SL) override {
     assert((SL == DefaultLayout || SL == CtxSplitLayout) &&
            "Unsupported layout");
   }
-};
-
-// CompactBinary is a compact format of binary profile which both reduces
-// the profile size and the load time needed when compiling. It has two
-// major difference with Binary format.
-// 1. It represents all the strings in name table using md5 hash.
-// 2. It saves a function offset table which maps function name index to
-// the offset of its function profile to the start of the binary profile,
-// so by using the function offset table, for those function profiles which
-// will not be needed when compiling a module, the profile reader does't
-// have to read them and it saves compile time if the profile size is huge.
-// The layout of the compact format is shown as follows:
-//
-//    Part1: Profile header, the same as binary format, containing magic
-//           number, version, summary, name table...
-//    Part2: Function Offset Table Offset, which saves the position of
-//           Part4.
-//    Part3: Function profile collection
-//             function1 profile start
-//                 ....
-//             function2 profile start
-//                 ....
-//             function3 profile start
-//                 ....
-//                ......
-//    Part4: Function Offset Table
-//             function1 name index --> function1 profile start
-//             function2 name index --> function2 profile start
-//             function3 name index --> function3 profile start
-//
-// We need Part2 because profile reader can use it to find out and read
-// function offset table without reading Part3 first.
-class SampleProfileWriterCompactBinary : public SampleProfileWriterBinary {
-  using SampleProfileWriterBinary::SampleProfileWriterBinary;
-
-public:
-  virtual std::error_code writeSample(const FunctionSamples &S) override;
-  virtual std::error_code
-  write(const StringMap<FunctionSamples> &ProfileMap) override;
-
-protected:
-  /// The table mapping from function name to the offset of its FunctionSample
-  /// towards profile start.
-  MapVector<StringRef, uint64_t> FuncOffsetTable;
-  /// The offset of the slot to be filled with the offset of FuncOffsetTable
-  /// towards profile start.
-  uint64_t TableOffset;
-  virtual std::error_code writeNameTable() override;
-  virtual std::error_code
-  writeHeader(const StringMap<FunctionSamples> &ProfileMap) override;
-  std::error_code writeFuncOffsetTable();
 };
 
 } // end namespace sampleprof

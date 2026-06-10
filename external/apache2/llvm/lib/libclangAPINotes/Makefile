@@ -6,7 +6,10 @@ LIB=	clangAPINotes
 
 .PATH: ${CLANG_SRCDIR}/lib/APINotes
 
-SRCS+=	APINotesTypes.cpp \
+SRCS+=	APINotesManager.cpp \
+	APINotesReader.cpp \
+	APINotesTypes.cpp \
+	APINotesWriter.cpp \
 	APINotesYAMLCompiler.cpp
 
 .if defined(HOSTLIB)

@@ -16,29 +16,21 @@
 #include "llvm/Transforms/Scalar/LoopSimplifyCFG.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/AssumptionCache.h"
-#include "llvm/Analysis/BasicAliasAnalysis.h"
-#include "llvm/Analysis/DependenceAnalysis.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
-#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopIterator.h"
-#include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Analysis/ScalarEvolution.h"
-#include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/InitializePasses.h"
+#include "llvm/IR/ProfDataUtils.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/LoopPassManager.h"
-#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
+#include <optional>
 using namespace llvm;
 
 #define DEBUG_TYPE "loop-simplifycfg"
@@ -137,6 +129,8 @@ private:
   // from any other block. So this variable set to true means that loop's latch
   // has become unreachable from loop header.
   bool DeleteCurrentLoop = false;
+  // Whether or not we enter the loop through an indirectbr.
+  bool HasIndirectEntry = false;
 
   // The blocks of the original loop that will still be reachable from entry
   // after the constant folding.
@@ -225,6 +219,19 @@ private:
       return;
     }
 
+    // We need a loop preheader to split in handleDeadExits(). If LoopSimplify
+    // wasn't able to form one because the loop can be entered through an
+    // indirectbr we cannot continue.
+    if (!L.getLoopPreheader()) {
+      assert(any_of(predecessors(L.getHeader()),
+                    [&](BasicBlock *Pred) {
+                      return isa<IndirectBrInst>(Pred->getTerminator());
+                    }) &&
+             "Loop should have preheader if it is not entered indirectly");
+      HasIndirectEntry = true;
+      return;
+    }
+
     // Collect live and dead loop blocks and exits.
     LiveLoopBlocks.insert(L.getHeader());
     for (auto I = DFS.beginRPO(), E = DFS.endRPO(); I != E; ++I) {
@@ -256,18 +263,22 @@ private:
         }
     }
 
-    // Sanity check: amount of dead and live loop blocks should match the total
-    // number of blocks in loop.
+    // Amount of dead and live loop blocks should match the total number of
+    // blocks in loop.
     assert(L.getNumBlocks() == LiveLoopBlocks.size() + DeadLoopBlocks.size() &&
            "Malformed block sets?");
 
-    // Now, all exit blocks that are not marked as live are dead.
+    // Now, all exit blocks that are not marked as live are dead, if all their
+    // predecessors are in the loop. This may not be the case, as the input loop
+    // may not by in loop-simplify/canonical form.
     SmallVector<BasicBlock *, 8> ExitBlocks;
     L.getExitBlocks(ExitBlocks);
     SmallPtrSet<BasicBlock *, 8> UniqueDeadExits;
     for (auto *ExitBlock : ExitBlocks)
       if (!LiveExitBlocks.count(ExitBlock) &&
-          UniqueDeadExits.insert(ExitBlock).second)
+          UniqueDeadExits.insert(ExitBlock).second &&
+          all_of(predecessors(ExitBlock),
+                 [this](BasicBlock *Pred) { return L.contains(Pred); }))
         DeadExitBlocks.push_back(ExitBlock);
 
     // Whether or not the edge From->To will still be present in graph after the
@@ -305,7 +316,6 @@ private:
         BlocksInLoopAfterFolding.insert(BB);
     }
 
-    // Sanity check: header must be in loop.
     assert(BlocksInLoopAfterFolding.count(L.getHeader()) &&
            "Header not in loop?");
     assert(BlocksInLoopAfterFolding.size() <= LiveLoopBlocks.size() &&
@@ -367,15 +377,15 @@ private:
     for (BasicBlock *BB : DeadExitBlocks) {
       // Eliminate all Phis and LandingPads from dead exits.
       // TODO: Consider removing all instructions in this dead block.
-      SmallVector<Instruction *, 4> DeadInstructions;
-      for (auto &PN : BB->phis())
-        DeadInstructions.push_back(&PN);
+      SmallVector<Instruction *, 4> DeadInstructions(
+          llvm::make_pointer_range(BB->phis()));
 
-      if (auto *LandingPad = dyn_cast<LandingPadInst>(BB->getFirstNonPHI()))
+      if (auto *LandingPad = dyn_cast<LandingPadInst>(BB->getFirstNonPHIIt()))
         DeadInstructions.emplace_back(LandingPad);
 
       for (Instruction *I : DeadInstructions) {
-        I->replaceAllUsesWith(UndefValue::get(I->getType()));
+        SE.forgetValue(I);
+        I->replaceAllUsesWith(PoisonValue::get(I->getType()));
         I->eraseFromParent();
       }
 
@@ -383,6 +393,17 @@ private:
       DummySwitch->addCase(Builder.getInt32(DummyIdx++), BB);
       DTUpdates.push_back({DominatorTree::Insert, Preheader, BB});
       ++NumLoopExitsDeleted;
+    }
+    // We don't really need to add branch weights to DummySwitch, because all
+    // but one branches are just a temporary artifact - see the comment on top
+    // of this function. But, it's easy to estimate the weights, and it helps
+    // maintain a property of the overall compiler - that the branch weights
+    // don't "just get dropped" accidentally (i.e. profcheck)
+    if (DummySwitch->getParent()->getParent()->hasProfileData()) {
+      SmallVector<uint32_t> DummyBranchWeights(1 + DummySwitch->getNumCases());
+      // default. 100% probability, the rest are dead.
+      DummyBranchWeights[0] = 1;
+      setBranchWeights(*DummySwitch, DummyBranchWeights, /*IsExpected=*/false);
     }
 
     assert(L.getLoopPreheader() == NewPreheader && "Malformed CFG?");
@@ -420,6 +441,7 @@ private:
           DTU.applyUpdates(DTUpdates);
         DTUpdates.clear();
         formLCSSARecursively(*FixLCSSALoop, DT, &LI, &SE);
+        SE.forgetBlockAndLoopDispositions();
       }
     }
 
@@ -469,7 +491,7 @@ private:
       LI.removeBlock(BB);
     }
 
-    DetatchDeadBlocks(DeadLoopBlocks, &DTUpdates, /*KeepOneInputPHIs*/true);
+    detachDeadBlocks(DeadLoopBlocks, &DTUpdates, /*KeepOneInputPHIs*/true);
     DTU.applyUpdates(DTUpdates);
     DTUpdates.clear();
     for (auto *BB : DeadLoopBlocks)
@@ -478,7 +500,7 @@ private:
     NumLoopBlocksDeleted += DeadLoopBlocks.size();
   }
 
-  /// Constant-fold terminators of blocks acculumated in FoldCandidates into the
+  /// Constant-fold terminators of blocks accumulated in FoldCandidates into the
   /// unconditional branches.
   void foldTerminators() {
     for (BasicBlock *BB : FoldCandidates) {
@@ -551,6 +573,12 @@ public:
       return false;
     }
 
+    if (HasIndirectEntry) {
+      LLVM_DEBUG(dbgs() << "Loops which can be entered indirectly are not"
+                           " supported!\n");
+      return false;
+    }
+
     // Nothing to constant-fold.
     if (FoldCandidates.empty()) {
       LLVM_DEBUG(
@@ -580,12 +608,27 @@ public:
       return false;
     }
 
+    // TODO: Tokens may breach LCSSA form by default. However, the transform for
+    // dead exit blocks requires LCSSA form to be maintained for all values,
+    // tokens included, otherwise it may break use-def dominance (see PR56243).
+    if (!DeadExitBlocks.empty() && !L.isLCSSAForm(DT, /*IgnoreTokens*/ false)) {
+      assert(L.isLCSSAForm(DT, /*IgnoreTokens*/ true) &&
+             "LCSSA broken not by tokens?");
+      LLVM_DEBUG(dbgs() << "Give up constant terminator folding in loop "
+                        << Header->getName()
+                        << ": tokens uses potentially break LCSSA form.\n");
+      return false;
+    }
+
     SE.forgetTopmostLoop(&L);
     // Dump analysis results.
     LLVM_DEBUG(dump());
 
     LLVM_DEBUG(dbgs() << "Constant-folding " << FoldCandidates.size()
                       << " terminators in loop " << Header->getName() << "\n");
+
+    if (!DeadLoopBlocks.empty())
+      SE.forgetBlockAndLoopDispositions();
 
     // Make the actual transforms.
     handleDeadExits();
@@ -647,7 +690,8 @@ static bool constantFoldTerminators(Loop &L, DominatorTree &DT, LoopInfo &LI,
 }
 
 static bool mergeBlocksIntoPredecessors(Loop &L, DominatorTree &DT,
-                                        LoopInfo &LI, MemorySSAUpdater *MSSAU) {
+                                        LoopInfo &LI, MemorySSAUpdater *MSSAU,
+                                        ScalarEvolution &SE) {
   bool Changed = false;
   DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
   // Copy blocks into a temporary array to avoid iterator invalidation issues
@@ -674,6 +718,9 @@ static bool mergeBlocksIntoPredecessors(Loop &L, DominatorTree &DT,
     Changed = true;
   }
 
+  if (Changed)
+    SE.forgetBlockAndLoopDispositions();
+
   return Changed;
 }
 
@@ -689,7 +736,7 @@ static bool simplifyLoopCFG(Loop &L, DominatorTree &DT, LoopInfo &LI,
     return true;
 
   // Eliminate unconditional branches by merging blocks into their predecessors.
-  Changed |= mergeBlocksIntoPredecessors(L, DT, LI, MSSAU);
+  Changed |= mergeBlocksIntoPredecessors(L, DT, LI, MSSAU, SE);
 
   if (Changed)
     SE.forgetTopmostLoop(&L);
@@ -700,12 +747,11 @@ static bool simplifyLoopCFG(Loop &L, DominatorTree &DT, LoopInfo &LI,
 PreservedAnalyses LoopSimplifyCFGPass::run(Loop &L, LoopAnalysisManager &AM,
                                            LoopStandardAnalysisResults &AR,
                                            LPMUpdater &LPMU) {
-  Optional<MemorySSAUpdater> MSSAU;
+  std::optional<MemorySSAUpdater> MSSAU;
   if (AR.MSSA)
     MSSAU = MemorySSAUpdater(AR.MSSA);
   bool DeleteCurrentLoop = false;
-  if (!simplifyLoopCFG(L, AR.DT, AR.LI, AR.SE,
-                       MSSAU.hasValue() ? MSSAU.getPointer() : nullptr,
+  if (!simplifyLoopCFG(L, AR.DT, AR.LI, AR.SE, MSSAU ? &*MSSAU : nullptr,
                        DeleteCurrentLoop))
     return PreservedAnalyses::all();
 
@@ -716,58 +762,4 @@ PreservedAnalyses LoopSimplifyCFGPass::run(Loop &L, LoopAnalysisManager &AM,
   if (AR.MSSA)
     PA.preserve<MemorySSAAnalysis>();
   return PA;
-}
-
-namespace {
-class LoopSimplifyCFGLegacyPass : public LoopPass {
-public:
-  static char ID; // Pass ID, replacement for typeid
-  LoopSimplifyCFGLegacyPass() : LoopPass(ID) {
-    initializeLoopSimplifyCFGLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnLoop(Loop *L, LPPassManager &LPM) override {
-    if (skipLoop(L))
-      return false;
-
-    DominatorTree &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-    LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
-    Optional<MemorySSAUpdater> MSSAU;
-    if (EnableMSSALoopDependency) {
-      MemorySSA *MSSA = &getAnalysis<MemorySSAWrapperPass>().getMSSA();
-      MSSAU = MemorySSAUpdater(MSSA);
-      if (VerifyMemorySSA)
-        MSSA->verifyMemorySSA();
-    }
-    bool DeleteCurrentLoop = false;
-    bool Changed = simplifyLoopCFG(
-        *L, DT, LI, SE, MSSAU.hasValue() ? MSSAU.getPointer() : nullptr,
-        DeleteCurrentLoop);
-    if (DeleteCurrentLoop)
-      LPM.markLoopAsDeleted(*L);
-    return Changed;
-  }
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    if (EnableMSSALoopDependency) {
-      AU.addRequired<MemorySSAWrapperPass>();
-      AU.addPreserved<MemorySSAWrapperPass>();
-    }
-    AU.addPreserved<DependenceAnalysisWrapperPass>();
-    getLoopAnalysisUsage(AU);
-  }
-};
-} // end namespace
-
-char LoopSimplifyCFGLegacyPass::ID = 0;
-INITIALIZE_PASS_BEGIN(LoopSimplifyCFGLegacyPass, "loop-simplifycfg",
-                      "Simplify loop CFG", false, false)
-INITIALIZE_PASS_DEPENDENCY(LoopPass)
-INITIALIZE_PASS_DEPENDENCY(MemorySSAWrapperPass)
-INITIALIZE_PASS_END(LoopSimplifyCFGLegacyPass, "loop-simplifycfg",
-                    "Simplify loop CFG", false, false)
-
-Pass *llvm::createLoopSimplifyCFGPass() {
-  return new LoopSimplifyCFGLegacyPass();
 }

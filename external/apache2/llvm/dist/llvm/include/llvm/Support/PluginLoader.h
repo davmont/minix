@@ -16,6 +16,8 @@
 #ifndef LLVM_SUPPORT_PLUGINLOADER_H
 #define LLVM_SUPPORT_PLUGINLOADER_H
 
+#include "llvm/Support/Compiler.h"
+
 #ifndef DONT_GET_PLUGIN_LOADER_OPTION
 #include "llvm/Support/CommandLine.h"
 #endif
@@ -24,16 +26,16 @@
 
 namespace llvm {
   struct PluginLoader {
-    void operator=(const std::string &Filename);
-    static unsigned getNumPlugins();
-    static std::string& getPlugin(unsigned num);
+    LLVM_ABI void operator=(const std::string &Filename);
+    LLVM_ABI static unsigned getNumPlugins();
+    LLVM_ABI static std::string &getPlugin(unsigned num);
   };
 
 #ifndef DONT_GET_PLUGIN_LOADER_OPTION
   // This causes operator= above to be invoked for every -load option.
-  static cl::opt<PluginLoader, false, cl::parser<std::string> >
-    LoadOpt("load", cl::ZeroOrMore, cl::value_desc("pluginfilename"),
-            cl::desc("Load the specified plugin"));
+  static cl::opt<PluginLoader, false, cl::parser<std::string>>
+      LoadOpt("load", cl::value_desc("pluginfilename"),
+              cl::desc("Load the specified plugin"));
 #endif
 }
 

@@ -11,13 +11,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "NVPTXAtomicLower.h"
+#include "NVPTX.h"
 #include "llvm/CodeGen/StackProtector.h"
-#include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/Transforms/Scalar/LowerAtomic.h"
+#include "llvm/Transforms/Utils/LowerAtomic.h"
 
 #include "MCTargetDesc/NVPTXBaseInfo.h"
 using namespace llvm;
@@ -56,10 +55,6 @@ bool NVPTXAtomicLower::runOnFunction(Function &F) {
 }
 
 char NVPTXAtomicLower::ID = 0;
-
-namespace llvm {
-void initializeNVPTXAtomicLowerPass(PassRegistry &);
-}
 
 INITIALIZE_PASS(NVPTXAtomicLower, "nvptx-atomic-lower",
                 "Lower atomics of local memory to simple load/stores", false,

@@ -9,7 +9,6 @@
 
 #include "ARM.h"
 #include "ARMInstrInfo.h"
-#include "ARMMachineFunctionInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 using namespace llvm;
@@ -27,8 +26,7 @@ public:
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
   MachineFunctionProperties getRequiredProperties() const override {
-    return MachineFunctionProperties().set(
-        MachineFunctionProperties::Property::NoVRegs);
+    return MachineFunctionProperties().setNoVRegs();
   }
 
   StringRef getPassName() const override { return "optimise barriers pass"; }
@@ -89,7 +87,7 @@ bool ARMOptimizeBarriersPass::runOnMachineFunction(MachineFunction &MF) {
   }
   bool Changed = false;
   // Remove the tagged DMB
-  for (auto MI : ToRemove) {
+  for (auto *MI : ToRemove) {
     MI->eraseFromParent();
     ++NumDMBsRemoved;
     Changed = true;

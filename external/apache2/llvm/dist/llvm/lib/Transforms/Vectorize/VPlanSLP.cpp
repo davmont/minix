@@ -14,17 +14,14 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "VPlanSLP.h"
 #include "VPlan.h"
-#include "llvm/ADT/DepthFirstIterator.h"
-#include "llvm/ADT/PostOrderIterator.h"
+#include "VPlanCFG.h"
+#include "VPlanValue.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/VectorUtils.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/CFG.h"
-#include "llvm/IR/Dominators.h"
-#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Type.h"
@@ -32,13 +29,11 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include <algorithm>
 #include <cassert>
-#include <iterator>
-#include <string>
-#include <vector>
+#include <optional>
+#include <utility>
 
 using namespace llvm;
 
@@ -46,6 +41,59 @@ using namespace llvm;
 
 // Number of levels to look ahead when re-ordering multi node operands.
 static unsigned LookaheadMaxDepth = 5;
+
+void VPInterleavedAccessInfo::visitRegion(VPRegionBlock *Region,
+                                          Old2NewTy &Old2New,
+                                          InterleavedAccessInfo &IAI) {
+  ReversePostOrderTraversal<VPBlockShallowTraversalWrapper<VPBlockBase *>> RPOT(
+      Region->getEntry());
+  for (VPBlockBase *Base : RPOT) {
+    visitBlock(Base, Old2New, IAI);
+  }
+}
+
+void VPInterleavedAccessInfo::visitBlock(VPBlockBase *Block, Old2NewTy &Old2New,
+                                         InterleavedAccessInfo &IAI) {
+  if (VPBasicBlock *VPBB = dyn_cast<VPBasicBlock>(Block)) {
+    for (VPRecipeBase &VPI : *VPBB) {
+      if (isa<VPWidenPHIRecipe>(&VPI))
+        continue;
+      auto *VPInst = dyn_cast<VPInstruction>(&VPI);
+      if (!VPInst)
+        continue;
+      auto *Inst = dyn_cast_or_null<Instruction>(VPInst->getUnderlyingValue());
+      if (!Inst)
+        continue;
+      auto *IG = IAI.getInterleaveGroup(Inst);
+      if (!IG)
+        continue;
+
+      auto NewIGIter = Old2New.find(IG);
+      if (NewIGIter == Old2New.end())
+        Old2New[IG] = new InterleaveGroup<VPInstruction>(
+            IG->getFactor(), IG->isReverse(), IG->getAlign());
+
+      if (Inst == IG->getInsertPos())
+        Old2New[IG]->setInsertPos(VPInst);
+
+      InterleaveGroupMap[VPInst] = Old2New[IG];
+      InterleaveGroupMap[VPInst]->insertMember(
+          VPInst, IG->getIndex(Inst),
+          Align(IG->isReverse() ? (-1) * int(IG->getFactor())
+                                : IG->getFactor()));
+    }
+  } else if (VPRegionBlock *Region = dyn_cast<VPRegionBlock>(Block)) {
+    visitRegion(Region, Old2New, IAI);
+  } else {
+    llvm_unreachable("Unsupported kind of VPBlock.");
+  }
+}
+
+VPInterleavedAccessInfo::VPInterleavedAccessInfo(VPlan &Plan,
+                                                 InterleavedAccessInfo &IAI) {
+  Old2NewTy Old2New;
+  visitRegion(Plan.getVectorLoopRegion(), Old2New, IAI);
+}
 
 VPInstruction *VPlanSlp::markFailed() {
   // FIXME: Currently this is used to signal we hit instructions we cannot
@@ -121,10 +169,10 @@ bool VPlanSlp::areVectorizable(ArrayRef<VPValue *> Operands) const {
   if (Opcode == Instruction::Load) {
     unsigned LoadsSeen = 0;
     VPBasicBlock *Parent = cast<VPInstruction>(Operands[0])->getParent();
-    for (auto &I : *Parent) {
+    for (auto &I : make_range(Parent->getFirstNonPhi(), Parent->end())) {
       auto *VPI = dyn_cast<VPInstruction>(&I);
       if (!VPI)
-        break;
+        return false;
       if (VPI->getOpcode() == Instruction::Load &&
           llvm::is_contained(Operands, VPI))
         LoadsSeen++;
@@ -196,12 +244,12 @@ getOperands(ArrayRef<VPValue *> Values) {
 }
 
 /// Returns the opcode of Values or ~0 if they do not all agree.
-static Optional<unsigned> getOpcode(ArrayRef<VPValue *> Values) {
+static std::optional<unsigned> getOpcode(ArrayRef<VPValue *> Values) {
   unsigned Opcode = cast<VPInstruction>(Values[0])->getOpcode();
   if (any_of(Values, [Opcode](VPValue *V) {
         return cast<VPInstruction>(V)->getOpcode() != Opcode;
       }))
-    return None;
+    return std::nullopt;
   return {Opcode};
 }
 
@@ -352,7 +400,7 @@ SmallVector<VPlanSlp::MultiNodeOpTy, 4> VPlanSlp::reorderMultiNodeOps() {
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void VPlanSlp::dumpBundle(ArrayRef<VPValue *> Values) {
   dbgs() << " Ops: ";
-  for (auto Op : Values) {
+  for (auto *Op : Values) {
     if (auto *VPInstr = cast_or_null<VPInstruction>(Op))
       if (auto *Instr = VPInstr->getUnderlyingInstr()) {
         dbgs() << *Instr << " | ";
@@ -396,7 +444,7 @@ VPInstruction *VPlanSlp::buildGraph(ArrayRef<VPValue *> Values) {
     return markFailed();
 
   assert(getOpcode(Values) && "Opcodes for all values must match");
-  unsigned ValuesOpcode = getOpcode(Values).getValue();
+  unsigned ValuesOpcode = *getOpcode(Values);
 
   SmallVector<VPValue *, 4> CombinedOperands;
   if (areCommutative(Values)) {
@@ -416,7 +464,8 @@ VPInstruction *VPlanSlp::buildGraph(ArrayRef<VPValue *> Values) {
         LLVM_DEBUG(dbgs() << "    Adding multinode Ops\n");
         // Create dummy VPInstruction, which will we replace later by the
         // re-ordered operand.
-        VPInstruction *Op = new VPInstruction(0, {});
+        VPInstruction *Op =
+            new VPInstruction(VPInstruction::Broadcast, {Values[0]});
         CombinedOperands.push_back(Op);
         MultiNodeOps.emplace_back(Op, Operands);
       }
@@ -467,11 +516,12 @@ VPInstruction *VPlanSlp::buildGraph(ArrayRef<VPValue *> Values) {
     return markFailed();
 
   assert(CombinedOperands.size() > 0 && "Need more some operands");
-  auto *VPI = new VPInstruction(Opcode, CombinedOperands);
-  VPI->setUnderlyingInstr(cast<VPInstruction>(Values[0])->getUnderlyingInstr());
+  auto *Inst = cast<VPInstruction>(Values[0])->getUnderlyingInstr();
+  auto *VPI =
+      new VPInstruction(Opcode, CombinedOperands, {}, {}, Inst->getDebugLoc());
 
-  LLVM_DEBUG(dbgs() << "Create VPInstruction " << *VPI << " "
-                    << *cast<VPInstruction>(Values[0]) << "\n");
+  LLVM_DEBUG(dbgs() << "Create VPInstruction " << *VPI << " " << Values[0]
+                    << "\n");
   addCombined(Values, VPI);
   return VPI;
 }

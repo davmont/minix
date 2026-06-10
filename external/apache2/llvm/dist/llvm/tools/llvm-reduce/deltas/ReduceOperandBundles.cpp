@@ -12,17 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "ReduceOperandBundles.h"
-#include "Delta.h"
-#include "TestRunner.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
-#include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 #include <iterator>
 #include <vector>
 
@@ -34,16 +29,22 @@ using namespace llvm;
 
 namespace {
 
+/// Return true if stripping the bundle from a call will result in invalid IR.
+static bool shouldKeepBundleTag(uint32_t BundleTagID) {
+  // In convergent functions using convergencectrl bundles, all convergent calls
+  // must use the convergence bundles so don't try to remove them.
+  return BundleTagID == LLVMContext::OB_convergencectrl;
+}
+
 /// Given ChunksToKeep, produce a map of calls and indexes of operand bundles
 /// to be preserved for each call.
 class OperandBundleRemapper : public InstVisitor<OperandBundleRemapper> {
-  Oracle O;
+  Oracle &O;
 
 public:
   DenseMap<CallBase *, std::vector<unsigned>> CallsToRefine;
 
-  explicit OperandBundleRemapper(ArrayRef<Chunk> ChunksToKeep)
-      : O(ChunksToKeep) {}
+  explicit OperandBundleRemapper(Oracle &O) : O(O) {}
 
   /// So far only CallBase sub-classes can have operand bundles.
   /// Let's see which of the operand bundles of this call are to be kept.
@@ -56,9 +57,12 @@ public:
     OperandBundlesToKeepIndexes.reserve(Call.getNumOperandBundles());
 
     // Enumerate every operand bundle on this call.
-    for (unsigned BundleIndex : seq(0U, Call.getNumOperandBundles()))
-      if (O.shouldKeep()) // Should we keep this one?
+    for (unsigned BundleIndex : seq(Call.getNumOperandBundles())) {
+      if (shouldKeepBundleTag(
+              Call.getOperandBundleAt(BundleIndex).getTagID()) ||
+          O.shouldKeep()) // Should we keep this one?
         OperandBundlesToKeepIndexes.emplace_back(BundleIndex);
+    }
   }
 };
 
@@ -90,35 +94,18 @@ static void maybeRewriteCallWithDifferentBundles(
             });
 
   // Finally actually replace the bundles on the call.
-  CallBase *NewCall = CallBase::Create(OrigCall, NewBundles, OrigCall);
+  CallBase *NewCall =
+      CallBase::Create(OrigCall, NewBundles, OrigCall->getIterator());
   OrigCall->replaceAllUsesWith(NewCall);
   OrigCall->eraseFromParent();
 }
 
 /// Removes out-of-chunk operand bundles from calls.
-static void extractOperandBundesFromModule(std::vector<Chunk> ChunksToKeep,
-                                           Module *Program) {
-  OperandBundleRemapper R(ChunksToKeep);
+void llvm::reduceOperandBundesDeltaPass(Oracle &O, ReducerWorkItem &WorkItem) {
+  Module &Program = WorkItem.getModule();
+  OperandBundleRemapper R(O);
   R.visit(Program);
 
   for (const auto &I : R.CallsToRefine)
     maybeRewriteCallWithDifferentBundles(I.first, I.second);
-}
-
-/// Counts the amount of operand bundles.
-static int countOperandBundes(Module *Program) {
-  OperandBundleCounter C;
-
-  // TODO: Silence index with --quiet flag
-  outs() << "----------------------------\n";
-  C.visit(Program);
-  outs() << "Number of operand bundles: " << C.OperandBundeCount << "\n";
-
-  return C.OperandBundeCount;
-}
-
-void llvm::reduceOperandBundesDeltaPass(TestRunner &Test) {
-  outs() << "*** Reducing OperandBundes...\n";
-  int OperandBundeCount = countOperandBundes(Test.getProgram());
-  runDeltaPass(Test, OperandBundeCount, extractOperandBundesFromModule);
 }

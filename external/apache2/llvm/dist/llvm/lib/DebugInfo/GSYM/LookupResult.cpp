@@ -8,10 +8,9 @@
 
 #include "llvm/DebugInfo/GSYM/LookupResult.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/Support/Format.h"
+#include "llvm/DebugInfo/GSYM/ExtractRanges.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
-#include <ciso646>
 
 using namespace llvm;
 using namespace gsym;
@@ -42,7 +41,7 @@ raw_ostream &llvm::gsym::operator<<(raw_ostream &OS, const SourceLocation &SL) {
     OS << " @ ";
     if (!SL.Dir.empty()) {
       OS << SL.Dir;
-      if (SL.Dir.contains('\\') and not SL.Dir.contains('/'))
+      if (SL.Dir.contains('\\') && !SL.Dir.contains('/'))
         OS << '\\';
       else
         OS << '/';
@@ -69,6 +68,16 @@ raw_ostream &llvm::gsym::operator<<(raw_ostream &OS, const LookupResult &LR) {
     if (IsInlined)
       OS << " [inlined]";
   }
+
+  if (!LR.CallSiteFuncRegex.empty()) {
+    OS << "\n      CallSites: ";
+    for (size_t i = 0; i < LR.CallSiteFuncRegex.size(); ++i) {
+      if (i > 0)
+        OS << ", ";
+      OS << LR.CallSiteFuncRegex[i];
+    }
+  }
+
   OS << '\n';
   return OS;
 }

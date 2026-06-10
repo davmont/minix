@@ -17,7 +17,11 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/Register.h"
+#include "llvm/IR/TrackingMDRef.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/SMLoc.h"
+#include <map>
+#include <utility>
 
 namespace llvm {
 
@@ -33,9 +37,7 @@ class TargetRegisterClass;
 class TargetSubtargetInfo;
 
 struct VRegInfo {
-  enum uint8_t {
-    UNKNOWN, NORMAL, GENERIC, REGBANK
-  } Kind = UNKNOWN;
+  enum : uint8_t { UNKNOWN, NORMAL, GENERIC, REGBANK } Kind = UNKNOWN;
   bool Explicit = false; ///< VReg was explicitly specified in the .mir file.
   union {
     const TargetRegisterClass *RC;
@@ -43,6 +45,7 @@ struct VRegInfo {
   } D;
   Register VReg;
   Register PreferredReg;
+  uint8_t Flags = 0;
 };
 
 using Name2RegClassMap = StringMap<const TargetRegisterClass *>;
@@ -146,6 +149,8 @@ public:
   /// Return null if the name isn't a register bank.
   const RegisterBank *getRegBank(StringRef Name);
 
+  bool getVRegFlagValue(StringRef FlagName, uint8_t &FlagValue) const;
+
   PerTargetMIParsingState(const TargetSubtargetInfo &STI)
     : Subtarget(STI) {
     initNames2RegClasses();
@@ -163,6 +168,9 @@ struct PerFunctionMIParsingState {
   SourceMgr *SM;
   const SlotMapping &IRSlots;
   PerTargetMIParsingState &Target;
+
+  std::map<unsigned, TrackingMDNodeRef> MachineMetadataNodes;
+  std::map<unsigned, std::pair<TempMDTuple, SMLoc>> MachineForwardRefMDNodes;
 
   DenseMap<unsigned, MachineBasicBlock *> MBBSlots;
   DenseMap<Register, VRegInfo *> VRegInfos;
@@ -232,6 +240,9 @@ bool parseStackObjectReference(PerFunctionMIParsingState &PFS, int &FI,
 
 bool parseMDNode(PerFunctionMIParsingState &PFS, MDNode *&Node, StringRef Src,
                  SMDiagnostic &Error);
+
+bool parseMachineMetadata(PerFunctionMIParsingState &PFS, StringRef Src,
+                          SMRange SourceRange, SMDiagnostic &Error);
 
 } // end namespace llvm
 

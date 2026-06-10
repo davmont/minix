@@ -9,7 +9,6 @@
 #include "Hexagon.h"
 #include "MCTargetDesc/HexagonMCTargetDesc.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -25,13 +24,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "hexagon_cfg"
 
-namespace llvm {
-
-FunctionPass *createHexagonCFGOptimizer();
-void initializeHexagonCFGOptimizerPass(PassRegistry&);
-
-} // end namespace llvm
-
 namespace {
 
 class HexagonCFGOptimizer : public MachineFunctionPass {
@@ -42,16 +34,13 @@ private:
 public:
   static char ID;
 
-  HexagonCFGOptimizer() : MachineFunctionPass(ID) {
-    initializeHexagonCFGOptimizerPass(*PassRegistry::getPassRegistry());
-  }
+  HexagonCFGOptimizer() : MachineFunctionPass(ID) {}
 
   StringRef getPassName() const override { return "Hexagon CFG Optimizer"; }
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
   MachineFunctionProperties getRequiredProperties() const override {
-    return MachineFunctionProperties().set(
-        MachineFunctionProperties::Property::NoVRegs);
+    return MachineFunctionProperties().setNoVRegs();
   }
 };
 
@@ -118,13 +107,10 @@ bool HexagonCFGOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     return false;
 
   // Loop over all of the basic blocks.
-  for (MachineFunction::iterator MBBb = Fn.begin(), MBBe = Fn.end();
-       MBBb != MBBe; ++MBBb) {
-    MachineBasicBlock *MBB = &*MBBb;
-
+  for (MachineBasicBlock &MBB : Fn) {
     // Traverse the basic block.
-    MachineBasicBlock::iterator MII = MBB->getFirstTerminator();
-    if (MII != MBB->end()) {
+    MachineBasicBlock::iterator MII = MBB.getFirstTerminator();
+    if (MII != MBB.end()) {
       MachineInstr &MI = *MII;
       int Opc = MI.getOpcode();
       if (IsConditionalBranch(Opc)) {
@@ -155,17 +141,17 @@ bool HexagonCFGOptimizer::runOnMachineFunction(MachineFunction &Fn) {
         //   Remove BB2
         //   BB3: ...
         //   BB4: ...
-        unsigned NumSuccs = MBB->succ_size();
-        MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
+        unsigned NumSuccs = MBB.succ_size();
+        MachineBasicBlock::succ_iterator SI = MBB.succ_begin();
         MachineBasicBlock* FirstSucc = *SI;
         MachineBasicBlock* SecondSucc = *(++SI);
         MachineBasicBlock* LayoutSucc = nullptr;
         MachineBasicBlock* JumpAroundTarget = nullptr;
 
-        if (MBB->isLayoutSuccessor(FirstSucc)) {
+        if (MBB.isLayoutSuccessor(FirstSucc)) {
           LayoutSucc = FirstSucc;
           JumpAroundTarget = SecondSucc;
-        } else if (MBB->isLayoutSuccessor(SecondSucc)) {
+        } else if (MBB.isLayoutSuccessor(SecondSucc)) {
           LayoutSucc = SecondSucc;
           JumpAroundTarget = FirstSucc;
         } else {
@@ -201,7 +187,7 @@ bool HexagonCFGOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
             if (case1 || case2) {
               InvertAndChangeJumpTarget(MI, UncondTarget);
-              MBB->replaceSuccessor(JumpAroundTarget, UncondTarget);
+              MBB.replaceSuccessor(JumpAroundTarget, UncondTarget);
 
               // Remove the unconditional branch in LayoutSucc.
               LayoutSucc->erase(LayoutSucc->begin());

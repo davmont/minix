@@ -16,10 +16,13 @@ SRCS+=	ASTCommon.cpp \
 	GeneratePCH.cpp \
 	GlobalModuleIndex.cpp \
 	InMemoryModuleCache.cpp \
+	ModuleCache.cpp \
 	ModuleFile.cpp \
 	ModuleFileExtension.cpp \
 	ModuleManager.cpp \
-	PCHContainerOperations.cpp
+	ObjectFilePCHContainerReader.cpp \
+	PCHContainerOperations.cpp \
+	TemplateArgumentHasher.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   mir
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 1.1.1.1 $
+" Version:      $Revision$
 
 if version < 600
   syntax clear
@@ -43,6 +43,8 @@ if version >= 508 || !exists("did_c_syn_inits")
   endif
 
   HiLink mirSpecialComment SpecialComment
+
+  delcommand HiLink
 endif
 
 let b:current_syntax = "mir"

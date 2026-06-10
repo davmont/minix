@@ -15,11 +15,10 @@ SRCS+=	ARMAsmBackend.cpp \
 	ARMInstPrinter.cpp \
 	ARMMCAsmInfo.cpp \
 	ARMMCCodeEmitter.cpp \
-	ARMMCExpr.cpp \
 	ARMMCTargetDesc.cpp \
-	ARMTargetStreamer.cpp \
 	ARMMachORelocationInfo.cpp \
 	ARMMachObjectWriter.cpp \
+	ARMTargetStreamer.cpp \
 	ARMUnwindOpAsm.cpp \
 	ARMWinCOFFObjectWriter.cpp \
 	ARMWinCOFFStreamer.cpp
