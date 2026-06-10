@@ -48,6 +48,12 @@ DPADD+=	${LIBZ}
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Option \
+	TargetParser \
+	IRReader \
+	AsmParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

@@ -11,6 +11,106 @@ SRCS=	ClangRepl.cpp
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	X86CodeGen \
+	X86AsmParser \
+	X86MCTargetDesc \
+	X86Disassembler \
+	X86TargetInfo \
+	PowerPCCodeGen \
+	PowerPCAsmParser \
+	PowerPCMCTargetDesc \
+	PowerPCDisassembler \
+	PowerPCTargetInfo \
+	SparcCodeGen \
+	SparcAsmParser \
+	SparcMCTargetDesc \
+	SparcDisassembler \
+	SparcTargetInfo \
+	AArch64CodeGen \
+	AArch64AsmParser \
+	AArch64MCTargetDesc \
+	AArch64Disassembler \
+	AArch64TargetInfo \
+	AArch64Utils \
+	ARMCodeGen \
+	ARMAsmParser \
+	ARMMCTargetDesc \
+	ARMDisassembler \
+	ARMTargetInfo \
+	ARMUtils \
+	MipsCodeGen \
+	MipsAsmParser \
+	MipsMCTargetDesc \
+	MipsDisassembler \
+	MipsTargetInfo \
+	AMDGPUCodeGen \
+	AMDGPUAsmParser \
+	AMDGPUMCTargetDesc \
+	AMDGPUDisassembler \
+	AMDGPUTargetInfo \
+	AMDGPUUtils \
+	IR \
+	Option \
+	Support \
+	MIRParser \
+	AsmPrinter \
+	MCDisassembler \
+	ProfileDataCoverage \
+	FrontendDriver \
+	LTO \
+	Extensions \
+	TextAPI \
+	Plugins \
+	Passes \
+	TransformsCFGuard \
+	GlobalISel \
+	SelectionDAG \
+	CodeGen \
+	CGData \
+	CodeGenTypes \
+	IRPrinter \
+	ObjCARC \
+	HipStdPar \
+	TransformsCoroutines \
+	ipo \
+	Instrumentation \
+	Vectorize \
+	SandboxIR \
+	FrontendOpenMP \
+	ScalarOpts \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	TransformsAggressiveInstCombine \
+	InstCombine \
+	Linker \
+	TransformsUtils \
+	BitWriter \
+	Target \
+	Analysis \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	FrontendHLSL \
+	WindowsDriver \
+	DebugInfoDWARF \
+	Object \
+	MCParser \
+	MC \
+	IRReader \
+	BitReader \
+	AsmParser \
+	Remarks \
+	BitstreamReader \
+	BinaryFormat \
+	Demangle
+
 .include "${.PARSEDIR}/../../link.mk"
 
 CLANG_LIBS+= \

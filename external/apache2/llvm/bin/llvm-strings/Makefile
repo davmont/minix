@@ -15,6 +15,21 @@ LLVM_LIBS+= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	IR \
+	Object \
+	Option \
+	IRReader \
+	BitReader \
+	AsmParser \
+	Remarks \
+	BitstreamReader \
+	MCParser \
+	MC \
+	DebugInfoDWARF \
+	TextAPI \
+	BinaryFormat
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

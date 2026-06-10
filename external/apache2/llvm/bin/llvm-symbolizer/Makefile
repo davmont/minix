@@ -42,6 +42,14 @@ TABLEGEN_OUTPUT.Opts.td= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Debuginfod \
+	DebugInfoGSYM \
+	DebugInfoBTF \
+	IRReader \
+	AsmParser \
+	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

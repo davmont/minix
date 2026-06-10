@@ -25,6 +25,9 @@ LLVM_LIBS+= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Diff
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

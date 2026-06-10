@@ -92,6 +92,28 @@ DPADD+=	${LIBZ}
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Extensions \
+	ipo \
+	IRPrinter \
+	Plugins \
+	TargetParser \
+	OptDriver \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	SandboxIR \
+	CGData \
+	CodeGenTypes \
+	HipStdPar \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoBTF \
+	TextAPI \
+	FrontendHLSL
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

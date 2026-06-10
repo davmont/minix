@@ -57,6 +57,36 @@ DPADD+=	${LIBZ}
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Passes \
+	TargetParser \
+	X86Disassembler \
+	TransformsCoroutines \
+	HipStdPar \
+	ipo \
+	FrontendOpenMP \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	Linker \
+	Vectorize \
+	SandboxIR \
+	WindowsDriver \
+	Option \
+	IRPrinter \
+	CGData \
+	ObjCARC \
+	TransformsAggressiveInstCombine \
+	InstCombine \
+	FrontendHLSL \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	CodeGenTypes
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

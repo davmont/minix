@@ -18,6 +18,10 @@ LLVM_LIBS+= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Option \
+	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

@@ -61,6 +61,18 @@ DPADD+=	${LIBZ}
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	Option \
+	TargetParser \
+	CodeGenTypes \
+	Analysis \
+	FrontendHLSL \
+	ProfileData \
+	DebugInfoGSYM \
+	DebugInfoBTF \
+	IRReader \
+	AsmParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

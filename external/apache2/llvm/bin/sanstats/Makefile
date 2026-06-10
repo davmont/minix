@@ -29,6 +29,12 @@ LLVM_LIBS+= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	DebugInfoGSYM \
+	DebugInfoBTF \
+	IRReader \
+	AsmParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 LDADD+=	-lz

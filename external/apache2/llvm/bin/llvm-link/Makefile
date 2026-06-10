@@ -31,6 +31,30 @@ LLVM_LIBS+= \
 
 LLVM_LIBS+=	TargetParser
 
+LLVM_LIBS+= \
+	ipo \
+	FrontendOpenMP \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	ScalarOpts \
+	TransformsAggressiveInstCombine \
+	InstCombine \
+	Vectorize \
+	SandboxIR \
+	Instrumentation \
+	FrontendHLSL \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	DebugInfoDWARF \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>
