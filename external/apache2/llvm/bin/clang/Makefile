@@ -15,7 +15,14 @@ SYMLINKS+=	clang ${BINDIR}/clang-cpp
 SRCS=	driver.cpp \
 	cc1_main.cpp \
 	cc1as_main.cpp \
-	cc1gen_reproducer_main.cpp
+	cc1gen_reproducer_main.cpp \
+	clang-driver.cpp
+
+# LLVM 22 moved the tool's main() into a generated wrapper that calls
+# clang_main(); produce it from the shared llvm-driver template.
+CLEANFILES+=	clang-driver.cpp
+clang-driver.cpp: ${LLVM_SRCDIR}/cmake/modules/llvm-driver-template.cpp.in
+	${TOOL_SED} -e 's/@TOOL_NAME@/clang/g' < ${.ALLSRC} > ${.TARGET}
 
 # LLVM 22 reconciled link library set (from CMake clang link order,
 # reachover names). Wrapped in --start-group by link.mk for ordering.
