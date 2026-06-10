@@ -5,23 +5,23 @@ LIB=	LLVMDWARFLinker
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/DWARFLinker
+.PATH: ${LLVM_SRCDIR}/lib/DWARFLinker/Classic
+.PATH: ${LLVM_SRCDIR}/lib/DWARFLinker/Parallel
 
-SRCS+=	Classic/DWARFLinker.cpp \
-	Classic/DWARFLinkerCompileUnit.cpp \
-	Classic/DWARFLinkerDeclContext.cpp \
-	Classic/DWARFStreamer.cpp \
+SRCS+=	AcceleratorRecordsSaver.cpp \
+	DIEAttributeCloner.cpp \
+	DWARFEmitterImpl.cpp \
+	DWARFLinker.cpp \
 	DWARFLinkerBase.cpp \
-	Parallel/AcceleratorRecordsSaver.cpp \
-	Parallel/DIEAttributeCloner.cpp \
-	Parallel/DWARFEmitterImpl.cpp \
-	Parallel/DWARFLinker.cpp \
-	Parallel/DWARFLinkerCompileUnit.cpp \
-	Parallel/DWARFLinkerImpl.cpp \
-	Parallel/DWARFLinkerTypeUnit.cpp \
-	Parallel/DWARFLinkerUnit.cpp \
-	Parallel/DependencyTracker.cpp \
-	Parallel/OutputSections.cpp \
-	Parallel/SyntheticTypeNameBuilder.cpp \
+	DWARFLinkerCompileUnit.cpp \
+	DWARFLinkerDeclContext.cpp \
+	DWARFLinkerImpl.cpp \
+	DWARFLinkerTypeUnit.cpp \
+	DWARFLinkerUnit.cpp \
+	DWARFStreamer.cpp \
+	DependencyTracker.cpp \
+	OutputSections.cpp \
+	SyntheticTypeNameBuilder.cpp \
 	Utils.cpp
 
 .if defined(HOSTLIB)

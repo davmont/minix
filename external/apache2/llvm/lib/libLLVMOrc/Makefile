@@ -5,6 +5,7 @@ LIB=	LLVMOrc
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc
+.PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc/Debugging
 
 SRCS+=	AbsoluteSymbols.cpp \
 	BacktraceTools.cpp \
@@ -14,15 +15,12 @@ SRCS+=	AbsoluteSymbols.cpp \
 	CompileOnDemandLayer.cpp \
 	CompileUtils.cpp \
 	Core.cpp \
+	DebugInfoSupport.cpp \
 	DebugUtils.cpp \
-	Debugging/DebugInfoSupport.cpp \
-	Debugging/DebuggerSupport.cpp \
-	Debugging/DebuggerSupportPlugin.cpp \
-	Debugging/ELFDebugObjectPlugin.cpp \
-	Debugging/LLJITUtilsCBindings.cpp \
-	Debugging/PerfSupportPlugin.cpp \
-	Debugging/VTuneSupportPlugin.cpp \
+	DebuggerSupport.cpp \
+	DebuggerSupportPlugin.cpp \
 	EHFrameRegistrationPlugin.cpp \
+	ELFDebugObjectPlugin.cpp \
 	ELFNixPlatform.cpp \
 	EPCDynamicLibrarySearchGenerator.cpp \
 	EPCGenericDylibManager.cpp \
@@ -41,6 +39,7 @@ SRCS+=	AbsoluteSymbols.cpp \
 	JITLinkReentryTrampolines.cpp \
 	JITTargetMachineBuilder.cpp \
 	LLJIT.cpp \
+	LLJITUtilsCBindings.cpp \
 	Layer.cpp \
 	LazyObjectLinkingLayer.cpp \
 	LazyReexports.cpp \
@@ -58,6 +57,7 @@ SRCS+=	AbsoluteSymbols.cpp \
 	ObjectTransformLayer.cpp \
 	OrcABISupport.cpp \
 	OrcV2CBindings.cpp \
+	PerfSupportPlugin.cpp \
 	RTDyldObjectLinkingLayer.cpp \
 	ReOptimizeLayer.cpp \
 	RedirectionManager.cpp \
@@ -69,6 +69,7 @@ SRCS+=	AbsoluteSymbols.cpp \
 	Speculation.cpp \
 	TaskDispatch.cpp \
 	ThreadSafeModule.cpp \
-	UnwindInfoRegistrationPlugin.cpp
+	UnwindInfoRegistrationPlugin.cpp \
+	VTuneSupportPlugin.cpp
 
 .include <bsd.lib.mk>

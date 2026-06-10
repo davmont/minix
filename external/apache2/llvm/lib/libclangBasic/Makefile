@@ -5,6 +5,7 @@ LIB=	clangBasic
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Basic
+.PATH: ${CLANG_SRCDIR}/lib/Basic/Targets
 
 SRCS+=	AArch64.cpp \
 	AMDGPU.cpp \
@@ -80,7 +81,6 @@ SRCS+=	AArch64.cpp \
 	XRayLists.cpp \
 	Xtensa.cpp
 
-.PATH: ${CLANG_SRCDIR}/lib/Basic/Targets
 
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Basic -I.

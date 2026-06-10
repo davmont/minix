@@ -4,7 +4,11 @@ LIB=	LLVMSupport
 
 .include <bsd.init.mk>
 
+CPPFLAGS+=	-I${LLVM_SRCDIR}/../third-party/siphash/include
+
 .PATH: ${LLVM_SRCDIR}/lib/Support
+.PATH: ${LLVM_SRCDIR}/lib/Support/BLAKE3
+.PATH: ${LLVM_SRCDIR}/lib/Support/LSP
 
 SRCS+=	AArch64AttributeParser.cpp \
 	AArch64BuildAttributes.cpp \
@@ -21,10 +25,6 @@ SRCS+=	AArch64AttributeParser.cpp \
 	Allocator.cpp \
 	Atomic.cpp \
 	AutoConvert.cpp \
-	BLAKE3/blake3.c \
-	BLAKE3/blake3_dispatch.c \
-	BLAKE3/blake3_neon.c \
-	BLAKE3/blake3_portable.c \
 	BalancedPartitioning.cpp \
 	Base64.cpp \
 	BinaryStreamError.cpp \
@@ -89,12 +89,10 @@ SRCS+=	AArch64AttributeParser.cpp \
 	KnownBits.cpp \
 	KnownFPClass.cpp \
 	LEB128.cpp \
-	LSP/Logging.cpp \
-	LSP/Protocol.cpp \
-	LSP/Transport.cpp \
 	LineIterator.cpp \
 	Locale.cpp \
 	LockFileManager.cpp \
+	Logging.cpp \
 	MD5.cpp \
 	MSP430AttributeParser.cpp \
 	MSP430Attributes.cpp \
@@ -118,6 +116,7 @@ SRCS+=	AArch64AttributeParser.cpp \
 	Process.cpp \
 	Program.cpp \
 	ProgramStack.cpp \
+	Protocol.cpp \
 	RISCVAttributeParser.cpp \
 	RISCVAttributes.cpp \
 	RISCVISAUtils.cpp \
@@ -153,6 +152,7 @@ SRCS+=	AArch64AttributeParser.cpp \
 	TimeProfiler.cpp \
 	Timer.cpp \
 	ToolOutputFile.cpp \
+	Transport.cpp \
 	TrieRawHashMap.cpp \
 	Twine.cpp \
 	Unicode.cpp \
@@ -172,6 +172,10 @@ SRCS+=	AArch64AttributeParser.cpp \
 	YAMLParser.cpp \
 	YAMLTraits.cpp \
 	Z3Solver.cpp \
+	blake3.c \
+	blake3_dispatch.c \
+	blake3_neon.c \
+	blake3_portable.c \
 	circular_raw_ostream.cpp \
 	raw_os_ostream.cpp \
 	raw_ostream.cpp \
@@ -186,7 +190,6 @@ SRCS+=	AArch64AttributeParser.cpp \
 	zOSLibFunctions.cpp
 
 
-.PATH: ${LLVM_SRCDIR}/lib/Support/Unix
 
 
 .for src in ${SRCS:M*.c}

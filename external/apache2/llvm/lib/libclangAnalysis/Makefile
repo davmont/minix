@@ -5,76 +5,84 @@ LIB=	clangAnalysis
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Analysis
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/FlowSensitive
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/FlowSensitive/Models
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/LifetimeSafety
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/Scalable
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/Scalable/Model
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/plugins/CheckerDependencyHandling
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/plugins/CheckerOptionHandling
+.PATH: ${CLANG_SRCDIR}/lib/Analysis/plugins/SampleAnalyzer
 
-SRCS+=	AnalysisDeclContext.cpp \
+SRCS+=	ASTEntityMapping.cpp \
+	ASTOps.cpp \
+	AdornedCFG.cpp \
+	AnalysisDeclContext.cpp \
+	Arena.cpp \
 	BodyFarm.cpp \
+	BuildNamespace.cpp \
 	CFG.cpp \
 	CFGReachabilityAnalysis.cpp \
 	CFGStmtMap.cpp \
+	CNFFormula.cpp \
 	CallGraph.cpp \
 	CalledOnceCheck.cpp \
+	Checker.cpp \
+	CheckerDependencyHandling.cpp \
+	CheckerOptionHandling.cpp \
+	ChromiumCheckModel.cpp \
 	CloneDetection.cpp \
 	CocoaConventions.cpp \
 	CodeInjector.cpp \
 	ConstructionContext.cpp \
 	Consumed.cpp \
+	DataflowAnalysisContext.cpp \
+	DataflowEnvironment.cpp \
+	DebugSupport.cpp \
 	Dominators.cpp \
+	EntityIdTable.cpp \
+	EntityName.cpp \
 	ExprMutationAnalyzer.cpp \
+	Facts.cpp \
+	FactsGenerator.cpp \
 	FixitUtil.cpp \
-	FlowSensitive/ASTOps.cpp \
-	FlowSensitive/AdornedCFG.cpp \
-	FlowSensitive/Arena.cpp \
-	FlowSensitive/CNFFormula.cpp \
-	FlowSensitive/DataflowAnalysisContext.cpp \
-	FlowSensitive/DataflowEnvironment.cpp \
-	FlowSensitive/DebugSupport.cpp \
-	FlowSensitive/Formula.cpp \
-	FlowSensitive/FormulaSerialization.cpp \
-	FlowSensitive/HTMLLogger.cpp \
-	FlowSensitive/Logger.cpp \
-	FlowSensitive/Models/ChromiumCheckModel.cpp \
-	FlowSensitive/Models/UncheckedOptionalAccessModel.cpp \
-	FlowSensitive/Models/UncheckedStatusOrAccessModel.cpp \
-	FlowSensitive/RecordOps.cpp \
-	FlowSensitive/SimplifyConstraints.cpp \
-	FlowSensitive/SmartPointerAccessorCaching.cpp \
-	FlowSensitive/Transfer.cpp \
-	FlowSensitive/TypeErasedDataflowAnalysis.cpp \
-	FlowSensitive/Value.cpp \
-	FlowSensitive/WatchedLiteralsSolver.cpp \
+	Formula.cpp \
+	FormulaSerialization.cpp \
+	HTMLLogger.cpp \
 	IntervalPartition.cpp \
 	IssueHash.cpp \
-	LifetimeSafety/Checker.cpp \
-	LifetimeSafety/Facts.cpp \
-	LifetimeSafety/FactsGenerator.cpp \
-	LifetimeSafety/LifetimeAnnotations.cpp \
-	LifetimeSafety/LifetimeSafety.cpp \
-	LifetimeSafety/LifetimeStats.cpp \
-	LifetimeSafety/LiveOrigins.cpp \
-	LifetimeSafety/LoanPropagation.cpp \
-	LifetimeSafety/Loans.cpp \
-	LifetimeSafety/Origins.cpp \
+	LifetimeAnnotations.cpp \
+	LifetimeSafety.cpp \
+	LifetimeStats.cpp \
+	LiveOrigins.cpp \
 	LiveVariables.cpp \
+	LoanPropagation.cpp \
+	Loans.cpp \
+	Logger.cpp \
 	MacroExpansionContext.cpp \
+	MainCallChecker.cpp \
 	ObjCNoReturn.cpp \
+	Origins.cpp \
 	PathDiagnostic.cpp \
 	PostOrderCFGView.cpp \
 	ProgramPoint.cpp \
 	ReachableCode.cpp \
+	RecordOps.cpp \
 	RetainSummaryManager.cpp \
-	Scalable/ASTEntityMapping.cpp \
-	Scalable/Model/BuildNamespace.cpp \
-	Scalable/Model/EntityIdTable.cpp \
-	Scalable/Model/EntityName.cpp \
+	SimplifyConstraints.cpp \
+	SmartPointerAccessorCaching.cpp \
 	ThreadSafety.cpp \
 	ThreadSafetyCommon.cpp \
 	ThreadSafetyLogical.cpp \
 	ThreadSafetyTIL.cpp \
+	Transfer.cpp \
+	TypeErasedDataflowAnalysis.cpp \
+	UncheckedOptionalAccessModel.cpp \
+	UncheckedStatusOrAccessModel.cpp \
 	UninitializedValues.cpp \
 	UnsafeBufferUsage.cpp \
-	plugins/CheckerDependencyHandling/CheckerDependencyHandling.cpp \
-	plugins/CheckerOptionHandling/CheckerOptionHandling.cpp \
-	plugins/SampleAnalyzer/MainCallChecker.cpp
+	Value.cpp \
+	WatchedLiteralsSolver.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

@@ -5,9 +5,10 @@ LIB=	clangDirectoryWatcher
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher
+.PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher/linux
 
 SRCS+=	DirectoryScanner.cpp \
-	linux/DirectoryWatcher-linux.cpp
+	DirectoryWatcher-linux.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

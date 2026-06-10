@@ -5,26 +5,28 @@ LIB=	LLVMDebugInfoLogicalView
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/LogicalView
+.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/LogicalView/Core
+.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/LogicalView/Readers
 
-SRCS+=	Core/LVCompare.cpp \
-	Core/LVElement.cpp \
-	Core/LVLine.cpp \
-	Core/LVLocation.cpp \
-	Core/LVObject.cpp \
-	Core/LVOptions.cpp \
-	Core/LVRange.cpp \
-	Core/LVReader.cpp \
-	Core/LVScope.cpp \
-	Core/LVSort.cpp \
-	Core/LVSourceLanguage.cpp \
-	Core/LVSupport.cpp \
-	Core/LVSymbol.cpp \
-	Core/LVType.cpp \
+SRCS+=	LVBinaryReader.cpp \
+	LVCodeViewReader.cpp \
+	LVCodeViewVisitor.cpp \
+	LVCompare.cpp \
+	LVDWARFReader.cpp \
+	LVElement.cpp \
+	LVLine.cpp \
+	LVLocation.cpp \
+	LVObject.cpp \
+	LVOptions.cpp \
+	LVRange.cpp \
+	LVReader.cpp \
 	LVReaderHandler.cpp \
-	Readers/LVBinaryReader.cpp \
-	Readers/LVCodeViewReader.cpp \
-	Readers/LVCodeViewVisitor.cpp \
-	Readers/LVDWARFReader.cpp
+	LVScope.cpp \
+	LVSort.cpp \
+	LVSourceLanguage.cpp \
+	LVSupport.cpp \
+	LVSymbol.cpp \
+	LVType.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

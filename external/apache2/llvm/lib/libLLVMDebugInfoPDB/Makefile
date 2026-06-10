@@ -5,6 +5,7 @@ LIB=	LLVMDebugInfoPDB
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB
+.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB/Native
 
 SRCS+=	DbiModuleDescriptor.cpp \
 	DbiModuleDescriptorBuilder.cpp \
@@ -100,7 +101,6 @@ SRCS+=	DbiModuleDescriptor.cpp \
 	TpiStreamBuilder.cpp \
 	UDTLayout.cpp
 
-.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB/Native
 
 
 

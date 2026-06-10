@@ -7,6 +7,7 @@ LIB=	LLVMAMDGPUCodeGen
 CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/AMDGPU
+.PATH: ${LLVM_SRCDIR}/lib/Target/AMDGPU/MCA
 
 SRCS+=	AMDGPUAliasAnalysis.cpp \
 	AMDGPUAlwaysInlinePass.cpp \
@@ -21,6 +22,7 @@ SRCS+=	AMDGPUAliasAnalysis.cpp \
 	AMDGPUCodeGenPrepare.cpp \
 	AMDGPUCombinerHelper.cpp \
 	AMDGPUCtorDtorLowering.cpp \
+	AMDGPUCustomBehaviour.cpp \
 	AMDGPUExportClustering.cpp \
 	AMDGPUExportKernelRuntimeHandles.cpp \
 	AMDGPUFrameLowering.cpp \
@@ -100,7 +102,6 @@ SRCS+=	AMDGPUAliasAnalysis.cpp \
 	GCNSchedStrategy.cpp \
 	GCNSubtarget.cpp \
 	GCNVOPDUtils.cpp \
-	MCA/AMDGPUCustomBehaviour.cpp \
 	R600AsmPrinter.cpp \
 	R600ClauseMergePass.cpp \
 	R600ControlFlowFinalizer.cpp \

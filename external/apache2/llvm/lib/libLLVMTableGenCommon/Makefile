@@ -5,8 +5,11 @@ LIB=	LLVMTableGenCommon
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Common
+.PATH: ${LLVM_SRCDIR}/utils/TableGen/Common/GlobalISel
 
 SRCS+=	AsmWriterInst.cpp \
+	CXXPredicates.cpp \
+	CodeExpander.cpp \
 	CodeGenDAGPatterns.cpp \
 	CodeGenHwModes.cpp \
 	CodeGenInstAlias.cpp \
@@ -14,16 +17,14 @@ SRCS+=	AsmWriterInst.cpp \
 	CodeGenRegisters.cpp \
 	CodeGenSchedule.cpp \
 	CodeGenTarget.cpp \
-	GlobalISel/CXXPredicates.cpp \
-	GlobalISel/CodeExpander.cpp \
-	GlobalISel/CombinerUtils.cpp \
-	GlobalISel/GlobalISelMatchTable.cpp \
-	GlobalISel/GlobalISelMatchTableExecutorEmitter.cpp \
-	GlobalISel/PatternParser.cpp \
-	GlobalISel/Patterns.cpp \
+	CombinerUtils.cpp \
+	GlobalISelMatchTable.cpp \
+	GlobalISelMatchTableExecutorEmitter.cpp \
 	InfoByHwMode.cpp \
 	InstructionEncoding.cpp \
 	OptEmitter.cpp \
+	PatternParser.cpp \
+	Patterns.cpp \
 	PredicateExpander.cpp \
 	SubtargetFeatureInfo.cpp \
 	Types.cpp \

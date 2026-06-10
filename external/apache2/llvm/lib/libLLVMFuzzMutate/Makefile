@@ -6,7 +6,8 @@ LIB=	LLVMFuzzMutate
 
 .PATH: ${LLVM_SRCDIR}/lib/FuzzMutate
 
-SRCS+=	IRMutator.cpp \
+SRCS+=	FuzzerCLI.cpp \
+	IRMutator.cpp \
 	OpDescriptor.cpp \
 	Operations.cpp \
 	RandomIRBuilder.cpp

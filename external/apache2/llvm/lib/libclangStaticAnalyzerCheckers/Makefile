@@ -5,11 +5,11 @@ LIB=	clangStaticAnalyzerCheckers
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers
-.PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/cert
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/MPI-Checker
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/RetainCountChecker
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/UninitializedObject
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/WebKit
+.PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/cert
 
 SRCS+=	ASTUtils.cpp \
 	AnalysisOrderChecker.cpp \

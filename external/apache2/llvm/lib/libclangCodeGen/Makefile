@@ -5,9 +5,17 @@ LIB=	clangCodeGen
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen
+.PATH: ${CLANG_SRCDIR}/lib/CodeGen/TargetBuiltins
+.PATH: ${CLANG_SRCDIR}/lib/CodeGen/Targets
 
-SRCS+=	ABIInfo.cpp \
+SRCS+=	AArch64.cpp \
+	ABIInfo.cpp \
 	ABIInfoImpl.cpp \
+	AMDGPU.cpp \
+	ARC.cpp \
+	ARM.cpp \
+	AVR.cpp \
+	BPF.cpp \
 	BackendUtil.cpp \
 	CGAtomic.cpp \
 	CGBlocks.cpp \
@@ -48,6 +56,7 @@ SRCS+=	ABIInfo.cpp \
 	CGStmtOpenMP.cpp \
 	CGVTT.cpp \
 	CGVTables.cpp \
+	CSKY.cpp \
 	CodeGenABITypes.cpp \
 	CodeGenAction.cpp \
 	CodeGenFunction.cpp \
@@ -58,55 +67,37 @@ SRCS+=	ABIInfo.cpp \
 	CodeGenTypes.cpp \
 	ConstantInitBuilder.cpp \
 	CoverageMappingGen.cpp \
+	DirectX.cpp \
 	HLSLBufferLayoutBuilder.cpp \
+	Hexagon.cpp \
 	ItaniumCXXABI.cpp \
+	Lanai.cpp \
 	LinkInModulesPass.cpp \
+	LoongArch.cpp \
+	M68k.cpp \
+	MSP430.cpp \
 	MacroPPCallbacks.cpp \
 	MicrosoftCXXABI.cpp \
+	Mips.cpp \
 	ModuleBuilder.cpp \
+	NVPTX.cpp \
 	ObjectFilePCHContainerWriter.cpp \
+	PPC.cpp \
 	PatternInit.cpp \
+	RISCV.cpp \
+	SPIR.cpp \
 	SanitizerMetadata.cpp \
+	Sparc.cpp \
 	SwiftCallingConv.cpp \
-	TargetBuiltins/AMDGPU.cpp \
-	TargetBuiltins/ARM.cpp \
-	TargetBuiltins/DirectX.cpp \
-	TargetBuiltins/Hexagon.cpp \
-	TargetBuiltins/NVPTX.cpp \
-	TargetBuiltins/PPC.cpp \
-	TargetBuiltins/RISCV.cpp \
-	TargetBuiltins/SPIR.cpp \
-	TargetBuiltins/SystemZ.cpp \
-	TargetBuiltins/WebAssembly.cpp \
-	TargetBuiltins/X86.cpp \
+	SystemZ.cpp \
+	TCE.cpp \
 	TargetInfo.cpp \
-	Targets/AArch64.cpp \
-	Targets/AMDGPU.cpp \
-	Targets/ARC.cpp \
-	Targets/ARM.cpp \
-	Targets/AVR.cpp \
-	Targets/BPF.cpp \
-	Targets/CSKY.cpp \
-	Targets/DirectX.cpp \
-	Targets/Hexagon.cpp \
-	Targets/Lanai.cpp \
-	Targets/LoongArch.cpp \
-	Targets/M68k.cpp \
-	Targets/MSP430.cpp \
-	Targets/Mips.cpp \
-	Targets/NVPTX.cpp \
-	Targets/PPC.cpp \
-	Targets/RISCV.cpp \
-	Targets/SPIR.cpp \
-	Targets/Sparc.cpp \
-	Targets/SystemZ.cpp \
-	Targets/TCE.cpp \
-	Targets/VE.cpp \
-	Targets/WebAssembly.cpp \
-	Targets/X86.cpp \
-	Targets/XCore.cpp \
 	TrapReasonBuilder.cpp \
-	VarBypassDetector.cpp
+	VE.cpp \
+	VarBypassDetector.cpp \
+	WebAssembly.cpp \
+	X86.cpp \
+	XCore.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

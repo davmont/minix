@@ -5,9 +5,10 @@ LIB=	LLVMTextAPI
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/TextAPI
+.PATH: ${LLVM_SRCDIR}/lib/TextAPI/BinaryReader
 SRCS+=	Architecture.cpp \
 	ArchitectureSet.cpp \
-	BinaryReader/DylibReader.cpp \
+	DylibReader.cpp \
 	InterfaceFile.cpp \
 	PackedVersion.cpp \
 	Platform.cpp \

@@ -5,6 +5,7 @@ LIB=	clangAST
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/AST
+.PATH: ${CLANG_SRCDIR}/lib/AST/ByteCode
 
 SRCS+=	APValue.cpp \
 	ASTConcept.cpp \
@@ -19,34 +20,8 @@ SRCS+=	APValue.cpp \
 	AttrDocTable.cpp \
 	AttrImpl.cpp \
 	Availability.cpp \
-	ByteCode/BitcastBuffer.cpp \
-	ByteCode/ByteCodeEmitter.cpp \
-	ByteCode/Compiler.cpp \
-	ByteCode/Context.cpp \
-	ByteCode/Descriptor.cpp \
-	ByteCode/Disasm.cpp \
-	ByteCode/DynamicAllocator.cpp \
-	ByteCode/EvalEmitter.cpp \
-	ByteCode/EvaluationResult.cpp \
-	ByteCode/Floating.cpp \
-	ByteCode/Function.cpp \
-	ByteCode/FunctionPointer.cpp \
-	ByteCode/InitMap.cpp \
-	ByteCode/Interp.cpp \
-	ByteCode/InterpBlock.cpp \
-	ByteCode/InterpBuiltin.cpp \
-	ByteCode/InterpBuiltinBitCast.cpp \
-	ByteCode/InterpFrame.cpp \
-	ByteCode/InterpShared.cpp \
-	ByteCode/InterpStack.cpp \
-	ByteCode/InterpState.cpp \
-	ByteCode/MemberPointer.cpp \
-	ByteCode/Pointer.cpp \
-	ByteCode/PrimType.cpp \
-	ByteCode/Program.cpp \
-	ByteCode/Record.cpp \
-	ByteCode/Source.cpp \
-	ByteCode/State.cpp \
+	BitcastBuffer.cpp \
+	ByteCodeEmitter.cpp \
 	CXXInheritance.cpp \
 	Comment.cpp \
 	CommentBriefParser.cpp \
@@ -55,7 +30,9 @@ SRCS+=	APValue.cpp \
 	CommentParser.cpp \
 	CommentSema.cpp \
 	ComparisonCategories.cpp \
+	Compiler.cpp \
 	ComputeDependence.cpp \
+	Context.cpp \
 	DataCollection.cpp \
 	Decl.cpp \
 	DeclBase.cpp \
@@ -68,7 +45,12 @@ SRCS+=	APValue.cpp \
 	DeclPrinter.cpp \
 	DeclTemplate.cpp \
 	DeclarationName.cpp \
+	Descriptor.cpp \
+	Disasm.cpp \
+	DynamicAllocator.cpp \
 	DynamicRecursiveASTVisitor.cpp \
+	EvalEmitter.cpp \
+	EvaluationResult.cpp \
 	Expr.cpp \
 	ExprCXX.cpp \
 	ExprClassification.cpp \
@@ -77,13 +59,26 @@ SRCS+=	APValue.cpp \
 	ExprObjC.cpp \
 	ExternalASTMerger.cpp \
 	ExternalASTSource.cpp \
+	Floating.cpp \
 	FormatString.cpp \
+	Function.cpp \
+	FunctionPointer.cpp \
 	InferAlloc.cpp \
 	InheritViz.cpp \
+	InitMap.cpp \
+	Interp.cpp \
+	InterpBlock.cpp \
+	InterpBuiltin.cpp \
+	InterpBuiltinBitCast.cpp \
+	InterpFrame.cpp \
+	InterpShared.cpp \
+	InterpStack.cpp \
+	InterpState.cpp \
 	ItaniumCXXABI.cpp \
 	ItaniumMangle.cpp \
 	JSONNodeDumper.cpp \
 	Mangle.cpp \
+	MemberPointer.cpp \
 	MicrosoftCXXABI.cpp \
 	MicrosoftMangle.cpp \
 	NSAPI.cpp \
@@ -95,14 +90,20 @@ SRCS+=	APValue.cpp \
 	OpenMPClause.cpp \
 	ParentMap.cpp \
 	ParentMapContext.cpp \
+	Pointer.cpp \
+	PrimType.cpp \
 	PrintfFormatString.cpp \
+	Program.cpp \
 	QualTypeNames.cpp \
 	Randstruct.cpp \
 	RawCommentList.cpp \
+	Record.cpp \
 	RecordLayout.cpp \
 	RecordLayoutBuilder.cpp \
 	ScanfFormatString.cpp \
 	SelectorLocationsKind.cpp \
+	Source.cpp \
+	State.cpp \
 	Stmt.cpp \
 	StmtCXX.cpp \
 	StmtIterator.cpp \
@@ -121,7 +122,6 @@ SRCS+=	APValue.cpp \
 	VTTBuilder.cpp \
 	VTableBuilder.cpp
 
-.PATH: ${CLANG_SRCDIR}/lib/AST/Interp
 
 
 CLANG_TABLEGEN_SRC=	Opcodes.td

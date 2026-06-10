@@ -7,6 +7,7 @@ LIB=	LLVMOptDriver
 .PATH: ${LLVM_SRCDIR}/tools/opt
 
 SRCS+=	NewPMDriver.cpp \
+	opt.cpp \
 	optdriver.cpp
 
 .if defined(HOSTLIB)

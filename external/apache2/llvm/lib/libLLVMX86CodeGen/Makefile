@@ -5,22 +5,20 @@ LIB=	LLVMX86CodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/X86
+.PATH: ${LLVM_SRCDIR}/lib/Target/X86/GISel
+.PATH: ${LLVM_SRCDIR}/lib/Target/X86/MCA
 
-SRCS+=	GISel/X86CallLowering.cpp \
-	GISel/X86InstructionSelector.cpp \
-	GISel/X86LegalizerInfo.cpp \
-	GISel/X86PreLegalizerCombiner.cpp \
-	GISel/X86RegisterBankInfo.cpp \
-	MCA/X86CustomBehaviour.cpp \
-	X86ArgumentStackSlotRebase.cpp \
+SRCS+=	X86ArgumentStackSlotRebase.cpp \
 	X86AsmPrinter.cpp \
 	X86AvoidStoreForwardingBlocks.cpp \
 	X86AvoidTrailingCall.cpp \
 	X86CallFrameOptimization.cpp \
+	X86CallLowering.cpp \
 	X86CallingConv.cpp \
 	X86CmovConversion.cpp \
 	X86CodeGenPassBuilder.cpp \
 	X86CompressEVEX.cpp \
+	X86CustomBehaviour.cpp \
 	X86DomainReassignment.cpp \
 	X86DynAllocaExpander.cpp \
 	X86ExpandPseudo.cpp \
@@ -45,7 +43,9 @@ SRCS+=	GISel/X86CallLowering.cpp \
 	X86InstrFMA3Info.cpp \
 	X86InstrFoldTables.cpp \
 	X86InstrInfo.cpp \
+	X86InstructionSelector.cpp \
 	X86InterleavedAccess.cpp \
+	X86LegalizerInfo.cpp \
 	X86LoadValueInjectionLoadHardening.cpp \
 	X86LoadValueInjectionRetHardening.cpp \
 	X86LowerAMXIntrinsics.cpp \
@@ -57,7 +57,9 @@ SRCS+=	GISel/X86CallLowering.cpp \
 	X86OptimizeLEAs.cpp \
 	X86PadShortFunction.cpp \
 	X86PartialReduction.cpp \
+	X86PreLegalizerCombiner.cpp \
 	X86PreTileConfig.cpp \
+	X86RegisterBankInfo.cpp \
 	X86RegisterInfo.cpp \
 	X86ReturnThunks.cpp \
 	X86SelectionDAGInfo.cpp \

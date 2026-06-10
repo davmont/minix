@@ -5,33 +5,39 @@ LIB=	LLVMObjCopy
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/ObjCopy
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/COFF
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/DXContainer
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/ELF
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/MachO
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/XCOFF
+.PATH: ${LLVM_SRCDIR}/lib/ObjCopy/wasm
 
 SRCS+=	Archive.cpp \
-	COFF/COFFObjcopy.cpp \
-	COFF/COFFObject.cpp \
-	COFF/COFFReader.cpp \
-	COFF/COFFWriter.cpp \
+	COFFObjcopy.cpp \
+	COFFObject.cpp \
+	COFFReader.cpp \
+	COFFWriter.cpp \
 	CommonConfig.cpp \
 	ConfigManager.cpp \
-	DXContainer/DXContainerObjcopy.cpp \
-	DXContainer/DXContainerObject.cpp \
-	DXContainer/DXContainerReader.cpp \
-	DXContainer/DXContainerWriter.cpp \
-	ELF/ELFObjcopy.cpp \
-	ELF/ELFObject.cpp \
-	MachO/MachOLayoutBuilder.cpp \
-	MachO/MachOObjcopy.cpp \
-	MachO/MachOObject.cpp \
-	MachO/MachOReader.cpp \
-	MachO/MachOWriter.cpp \
+	DXContainerObjcopy.cpp \
+	DXContainerObject.cpp \
+	DXContainerReader.cpp \
+	DXContainerWriter.cpp \
+	ELFObjcopy.cpp \
+	ELFObject.cpp \
+	MachOLayoutBuilder.cpp \
+	MachOObjcopy.cpp \
+	MachOObject.cpp \
+	MachOReader.cpp \
+	MachOWriter.cpp \
 	ObjCopy.cpp \
-	XCOFF/XCOFFObjcopy.cpp \
-	XCOFF/XCOFFReader.cpp \
-	XCOFF/XCOFFWriter.cpp \
-	wasm/WasmObjcopy.cpp \
-	wasm/WasmObject.cpp \
-	wasm/WasmReader.cpp \
-	wasm/WasmWriter.cpp
+	WasmObjcopy.cpp \
+	WasmObject.cpp \
+	WasmReader.cpp \
+	WasmWriter.cpp \
+	XCOFFObjcopy.cpp \
+	XCOFFReader.cpp \
+	XCOFFWriter.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

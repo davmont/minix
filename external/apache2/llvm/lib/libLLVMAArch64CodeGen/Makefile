@@ -5,6 +5,7 @@ LIB=	LLVMAArch64CodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/AArch64
+.PATH: ${LLVM_SRCDIR}/lib/Target/AArch64/GISel
 
 CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/AArch64
 
@@ -72,7 +73,6 @@ SRCS+=	AArch64A53Fix835769.cpp \
 	SMEPeepholeOpt.cpp \
 	SVEIntrinsicOpts.cpp
 
-.PATH: ${LLVM_SRCDIR}/lib/Target/AArch64/GISel
 
 
 TABLEGEN_SRC=		AArch64.td

@@ -5,6 +5,8 @@ LIB=	clangToolingRefactoring
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring
+.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Extract
+.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Rename
 
 SRCS+=	ASTSelection.cpp \
 	ASTSelectionRequirements.cpp \
@@ -19,10 +21,8 @@ SRCS+=	ASTSelection.cpp \
 	USRFindingAction.cpp \
 	USRLocFinder.cpp
 
-.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Extract
 
 
-.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Rename
 
 
 .if defined(HOSTLIB)

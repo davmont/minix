@@ -5,6 +5,8 @@ LIB=	LLVMMCA
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/MCA
+.PATH: ${LLVM_SRCDIR}/lib/MCA/HardwareUnits
+.PATH: ${LLVM_SRCDIR}/lib/MCA/Stages
 
 SRCS+=	CodeEmitter.cpp \
 	Context.cpp \
@@ -31,10 +33,8 @@ SRCS+=	CodeEmitter.cpp \
 	Support.cpp \
 	View.cpp
 
-.PATH: ${LLVM_SRCDIR}/lib/MCA/HardwareUnits
 
 
-.PATH: ${LLVM_SRCDIR}/lib/MCA/Stages
 
 
 .if defined(HOSTLIB)

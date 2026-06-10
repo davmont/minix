@@ -7,6 +7,7 @@ LIB=	LLVMPowerPCCodeGen
 CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/PowerPC
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/PowerPC
+.PATH: ${LLVM_SRCDIR}/lib/Target/PowerPC/GISel
 
 SRCS+=	PPCAsmPrinter.cpp \
 	PPCBoolRetToInt.cpp \
@@ -49,7 +50,6 @@ SRCS+=	PPCAsmPrinter.cpp \
 	PPCVSXSwapRemoval.cpp \
 	PPCVSXWACCCopy.cpp
 
-.PATH: ${LLVM_SRCDIR}/lib/Target/PowerPC/GISel
 
 
 TABLEGEN_SRC=		PPC.td

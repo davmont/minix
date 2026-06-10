@@ -5,28 +5,29 @@ LIB=	LLVMVectorize
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Transforms/Vectorize
+.PATH: ${LLVM_SRCDIR}/lib/Transforms/Vectorize/SandboxVectorizer
+.PATH: ${LLVM_SRCDIR}/lib/Transforms/Vectorize/SandboxVectorizer/Passes
 
-SRCS+=	LoadStoreVectorizer.cpp \
+SRCS+=	BottomUpVec.cpp \
+	DependencyGraph.cpp \
+	InstrMaps.cpp \
+	Interval.cpp \
+	Legality.cpp \
+	LoadStoreVectorizer.cpp \
 	LoopIdiomVectorize.cpp \
 	LoopVectorizationLegality.cpp \
 	LoopVectorize.cpp \
+	PackReuse.cpp \
+	RegionsFromBBs.cpp \
+	RegionsFromMetadata.cpp \
 	SLPVectorizer.cpp \
-	SandboxVectorizer/DependencyGraph.cpp \
-	SandboxVectorizer/InstrMaps.cpp \
-	SandboxVectorizer/Interval.cpp \
-	SandboxVectorizer/Legality.cpp \
-	SandboxVectorizer/Passes/BottomUpVec.cpp \
-	SandboxVectorizer/Passes/PackReuse.cpp \
-	SandboxVectorizer/Passes/RegionsFromBBs.cpp \
-	SandboxVectorizer/Passes/RegionsFromMetadata.cpp \
-	SandboxVectorizer/Passes/SeedCollection.cpp \
-	SandboxVectorizer/Passes/TransactionAcceptOrRevert.cpp \
-	SandboxVectorizer/Passes/TransactionSave.cpp \
-	SandboxVectorizer/SandboxVectorizer.cpp \
-	SandboxVectorizer/SandboxVectorizerPassBuilder.cpp \
-	SandboxVectorizer/Scheduler.cpp \
-	SandboxVectorizer/SeedCollector.cpp \
-	SandboxVectorizer/VecUtils.cpp \
+	SandboxVectorizer.cpp \
+	SandboxVectorizerPassBuilder.cpp \
+	Scheduler.cpp \
+	SeedCollection.cpp \
+	SeedCollector.cpp \
+	TransactionAcceptOrRevert.cpp \
+	TransactionSave.cpp \
 	VPlan.cpp \
 	VPlanAnalysis.cpp \
 	VPlanConstruction.cpp \
@@ -37,6 +38,7 @@ SRCS+=	LoadStoreVectorizer.cpp \
 	VPlanUnroll.cpp \
 	VPlanUtils.cpp \
 	VPlanVerifier.cpp \
+	VecUtils.cpp \
 	VectorCombine.cpp \
 	Vectorize.cpp
 

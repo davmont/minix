@@ -5,6 +5,8 @@ LIB=	clangDriver
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Driver
+.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
+.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains/Arch
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Driver
 
@@ -86,10 +88,8 @@ SRCS+=	AArch64.cpp \
 	XRayArgs.cpp \
 	ZOS.cpp
 
-.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
 
 
-.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains/Arch
 
 
 

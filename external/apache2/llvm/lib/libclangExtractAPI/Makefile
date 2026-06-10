@@ -5,12 +5,13 @@ LIB=	clangExtractAPI
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/ExtractAPI
+.PATH: ${CLANG_SRCDIR}/lib/ExtractAPI/Serialization
 
 SRCS+=	API.cpp \
 	APIIgnoresList.cpp \
 	DeclarationFragments.cpp \
 	ExtractAPIConsumer.cpp \
-	Serialization/SymbolGraphSerializer.cpp \
+	SymbolGraphSerializer.cpp \
 	TypedefUnderlyingTypeResolver.cpp
 
 .if defined(HOSTLIB)
