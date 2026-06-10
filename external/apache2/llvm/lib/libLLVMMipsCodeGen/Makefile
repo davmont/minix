@@ -5,6 +5,8 @@ LIB=	LLVMMipsCodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/Mips
+# LLVM 22 MCTargetDesc headers cross-include via the MCTargetDesc/ prefix.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/Mips
 
 SRCS+=	MicroMipsSizeReduction.cpp \
 	Mips16FrameLowering.cpp \

@@ -5,6 +5,8 @@ LIB=	LLVMSparcCodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/Sparc
+# LLVM 22 MCTargetDesc headers cross-include via the MCTargetDesc/ prefix.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/Sparc
 
 SRCS+=	DelaySlotFiller.cpp \
 	LeonPasses.cpp \

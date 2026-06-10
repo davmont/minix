@@ -67,6 +67,7 @@ TABLEGEN_OUTPUT= \
 	PPCGenMCCodeEmitter.inc|-gen-emitter \
 	PPCGenRegisterBank.inc|-gen-register-bank \
 	PPCGenRegisterInfo.inc|-gen-register-info \
+	PPCGenSDNodeInfo.inc|-gen-sd-node-info \
 	PPCGenSubtargetInfo.inc|-gen-subtarget
 
 .include "${.PARSEDIR}/../../tablegen.mk"

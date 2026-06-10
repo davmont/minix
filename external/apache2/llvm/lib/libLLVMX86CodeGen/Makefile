@@ -5,6 +5,8 @@ LIB=	LLVMX86CodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/X86
+# LLVM 22 MCTargetDesc headers cross-include via the MCTargetDesc/ prefix.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/X86
 .PATH: ${LLVM_SRCDIR}/lib/Target/X86/GISel
 .PATH: ${LLVM_SRCDIR}/lib/Target/X86/MCA
 
