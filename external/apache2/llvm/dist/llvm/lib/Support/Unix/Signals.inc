@@ -317,8 +317,16 @@ static void RegisterHandlers() { // Not signal-safe.
 
     switch (Kind) {
     case SignalKind::IsKill:
+#if defined(__minix)
+      // MINIX libc does not provide SA_SIGINFO / the 3-argument sa_sigaction
+      // handler model; SignalHandler only uses its signal-number argument, so
+      // register it through the basic one-argument sa_handler interface.
+      NewHandler.sa_handler = [](int Sig) { SignalHandler(Sig, nullptr, nullptr); };
+      NewHandler.sa_flags = SA_NODEFER | SA_RESETHAND | SA_ONSTACK;
+#else
       NewHandler.sa_sigaction = SignalHandler;
       NewHandler.sa_flags = SA_NODEFER | SA_RESETHAND | SA_ONSTACK | SA_SIGINFO;
+#endif
       break;
     case SignalKind::IsInfo:
       NewHandler.sa_handler = InfoSignalHandler;
