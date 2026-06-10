@@ -84,6 +84,15 @@ SRCS+=	ASTEntityMapping.cpp \
 	Value.cpp \
 	WatchedLiteralsSolver.cpp
 
+# LLVM 22: HTMLLogger.cpp bundles HTML/CSS/JS into HTMLLogger.inc via the
+# clang bundle_resources.py helper (a custom build step, not TableGen).
+_FS=		${CLANG_SRCDIR}/lib/Analysis/FlowSensitive
+DPSRCS+=	HTMLLogger.inc
+CLEANFILES+=	HTMLLogger.inc
+HTMLLogger.inc: ${_FS}/HTMLLogger.html ${_FS}/HTMLLogger.css ${_FS}/HTMLLogger.js
+	python3 ${CLANG_SRCDIR}/utils/bundle_resources.py ${.TARGET} \
+	    ${_FS}/HTMLLogger.html ${_FS}/HTMLLogger.css ${_FS}/HTMLLogger.js
+
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>
 .else
