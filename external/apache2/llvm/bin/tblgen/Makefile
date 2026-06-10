@@ -95,7 +95,6 @@ SRCS=	ARMTargetDefEmitter.cpp \
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Basic
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Common
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Common/GlobalISel
-SRCS+=	CodeExpander.cpp \
 
 LLVM_LIBS+= \
 	TableGen \

@@ -6,11 +6,17 @@ NOMAN=		yes
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/utils/TableGen
+# RISCVVIntrinsicUtils.cpp moved to clang/lib/Support in LLVM 22 (was in utils/TableGen);
+# clang-tblgen still references clang::RISCV::* so pull it in directly.
+.PATH: ${CLANG_SRCDIR}/lib/Support
 
 SRCS=	ASTTableGen.cpp \
+	CIRLoweringEmitter.cpp \
 	ClangASTNodesEmitter.cpp \
 	ClangASTPropertiesEmitter.cpp \
 	ClangAttrEmitter.cpp \
+	ClangBuiltinsEmitter.cpp \
+	ClangBuiltinTemplatesEmitter.cpp \
 	ClangCommentCommandInfoEmitter.cpp \
 	ClangCommentHTMLNamedCharacterReferenceEmitter.cpp \
 	ClangCommentHTMLTagsEmitter.cpp \
@@ -25,6 +31,7 @@ SRCS=	ASTTableGen.cpp \
 	MveEmitter.cpp \
 	NeonEmitter.cpp \
 	RISCVVEmitter.cpp \
+	RISCVVIntrinsicUtils.cpp \
 	SveEmitter.cpp \
 	TableGen.cpp
 
