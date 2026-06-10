@@ -144,6 +144,7 @@ SUBDIR+= \
 	libclangASTMatchers \
 	libclangBasic \
 	libclangCodeGen \
+	libclangCodeGenTargetBuiltins \
 	libclangCrossTU \
 	libclangDriver \
 	libclangEdit \

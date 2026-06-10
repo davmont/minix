@@ -5,10 +5,10 @@ LIB=	clangCodeGen
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen
-.PATH: ${CLANG_SRCDIR}/lib/CodeGen/TargetBuiltins
 .PATH: ${CLANG_SRCDIR}/lib/CodeGen/Targets
-# LLVM 22 split CodeGen into Targets/ and TargetBuiltins/ subdirs whose
-# sources include parent-dir headers (ABIInfo.h, CGBuiltin.h, ...).
+# LLVM 22 split CodeGen into Targets/ and TargetBuiltins/; the latter has the
+# same per-target basenames (AMDGPU.cpp, ...) as Targets/, so it lives in its
+# own reachover lib (libclangCodeGenTargetBuiltins) to avoid object collisions.
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/CodeGen
 
 SRCS+=	AArch64.cpp \

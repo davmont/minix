@@ -29,6 +29,7 @@ clang-driver.cpp: ${LLVM_SRCDIR}/cmake/modules/llvm-driver-template.cpp.in
 CLANG_LIBS= \
 	clangBasic \
 	clangCodeGen \
+	clangCodeGenTargetBuiltins \
 	clangDriver \
 	clangFrontend \
 	clangFrontendTool \
