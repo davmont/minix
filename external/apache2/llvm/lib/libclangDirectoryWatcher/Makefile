@@ -5,12 +5,20 @@ LIB=	clangDirectoryWatcher
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher
-.PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher/linux
 # The platform variant includes the parent-dir DirectoryScanner.h.
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/DirectoryWatcher
 
-SRCS+=	DirectoryScanner.cpp \
-	DirectoryWatcher-linux.cpp
+SRCS+=	DirectoryScanner.cpp
+
+.if defined(HOSTLIB)
+# Host build (Linux): use the inotify/epoll-based implementation.
+.PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher/linux
+SRCS+=	DirectoryWatcher-linux.cpp
+.else
+# MINIX target has no epoll/inotify; use the not-implemented stub.
+.PATH: ${CLANG_SRCDIR}/lib/DirectoryWatcher/default
+SRCS+=	DirectoryWatcher-not-implemented.cpp
+.endif
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>
