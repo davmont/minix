@@ -155,7 +155,7 @@ SRCS+=	AMDGPUAliasAnalysis.cpp \
 	SIShrinkInstructions.cpp \
 	SIWholeQuadMode.cpp
 
-TABLEGEN_SRC=		AMDGPU.td AMDGPUGISel.td InstCombineTables.td R600.td
+TABLEGEN_SRC=		AMDGPU.td AMDGPUGISel.td R600.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/AMDGPU \
 			-I${LLVM_SRCDIR}/lib/Target
 TABLEGEN_OUTPUT.AMDGPU.td= \
@@ -172,9 +172,6 @@ TABLEGEN_OUTPUT.AMDGPU.td= \
 	AMDGPUGenSDNodeInfo.inc|-gen-sd-node-info \
 	AMDGPUGenSearchableTables.inc|-gen-searchable-tables \
 	AMDGPUGenSubtargetInfo.inc|-gen-subtarget
-
-TABLEGEN_OUTPUT.InstCombineTables.td= \
-	InstCombineTables.inc|-gen-searchable-tables
 
 TABLEGEN_OUTPUT.AMDGPUGISel.td= \
 	AMDGPUGenGlobalISel.inc|-gen-global-isel \
