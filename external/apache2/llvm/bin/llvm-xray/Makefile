@@ -43,6 +43,8 @@ LDADD+=	-lz
 DPADD+=	${LIBZ}
 .endif
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

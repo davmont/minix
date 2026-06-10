@@ -10,6 +10,15 @@ CPPFLAGS+=	-I${LLVM_SRCDIR}/../third-party/siphash/include
 CPPFLAGS+=	-DBLAKE3_NO_AVX512 -DBLAKE3_NO_AVX2 \
 		-DBLAKE3_NO_SSE41 -DBLAKE3_NO_SSE2
 
+# MINIX libc/libc++ does not yet provide __cxa_thread_atexit, which thread_local
+# objects with destructors require (e.g. Parallel.cpp). Supply a weak stub for
+# the target so the LLVM tools link; the thread_local objects simply leak.
+# TODO: implement __cxa_thread_atexit(_impl) properly in MINIX libc.
+SRCS+=		minix_cxa_thread_atexit.cpp
+CLEANFILES+=	minix_cxa_thread_atexit.cpp
+minix_cxa_thread_atexit.cpp:
+	printf '#if defined(__minix)\nextern "C" int __cxa_thread_atexit(void (*)(void *), void *, void *) { return 0; }\n#endif\n' > ${.TARGET}
+
 .PATH: ${LLVM_SRCDIR}/lib/Support
 .PATH: ${LLVM_SRCDIR}/lib/Support/BLAKE3
 .PATH: ${LLVM_SRCDIR}/lib/Support/LSP

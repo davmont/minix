@@ -34,6 +34,8 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

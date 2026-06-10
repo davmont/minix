@@ -46,6 +46,8 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

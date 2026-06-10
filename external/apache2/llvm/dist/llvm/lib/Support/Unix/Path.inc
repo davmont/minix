@@ -916,8 +916,8 @@ void mapped_file_region::dontNeedImpl() {
   assert(Mode == mapped_file_region::readonly);
   if (!Mapping)
     return;
-#if defined(__MVS__) || defined(_AIX)
-    // If we don't have madvise, or it isn't beneficial, treat this as a no-op.
+#if defined(__MVS__) || defined(_AIX) || defined(__minix)
+    // No (working) madvise on MINIX; treat this as a no-op.
 #elif defined(POSIX_MADV_DONTNEED)
   ::posix_madvise(Mapping, Size, POSIX_MADV_DONTNEED);
 #else
@@ -929,8 +929,8 @@ void mapped_file_region::willNeedImpl() {
   assert(Mode == mapped_file_region::readonly);
   if (!Mapping)
     return;
-#if defined(__MVS__) || defined(_AIX)
-  // If we don't have madvise, or it isn't beneficial, treat this as a no-op.
+#if defined(__MVS__) || defined(_AIX) || defined(__minix)
+  // No (working) madvise on MINIX; treat this as a no-op.
 #elif defined(POSIX_MADV_WILLNEED)
   ::posix_madvise(Mapping, Size, POSIX_MADV_WILLNEED);
 #else

@@ -69,6 +69,8 @@ DPADD+=	${LIBZ}
 
 .include "${.PARSEDIR}/../../driver.mk"
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

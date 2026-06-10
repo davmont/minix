@@ -27,6 +27,8 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 LDADD+=	-lz

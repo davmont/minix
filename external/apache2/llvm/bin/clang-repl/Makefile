@@ -9,6 +9,8 @@ NOMAN=		yes
 
 SRCS=	ClangRepl.cpp
 
+LLVM_LIBS+=	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 CLANG_LIBS+= \
