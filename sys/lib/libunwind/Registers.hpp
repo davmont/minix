@@ -14,6 +14,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <string.h>
 
 namespace _Unwind {
 

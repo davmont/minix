@@ -333,8 +333,16 @@
 #  define __BEGIN_HIDDEN_DECLS	__BEGIN_EXTERN_C
 #  define __END_HIDDEN_DECLS	__END_EXTERN_C
 #endif
+/*
+ * __dso_protected is only used for libc's exported locale globals
+ * (_lc_global_locale, _lc_C_locale).  "protected" visibility on exported data
+ * is unsafe with copy relocations, and GNU ld >= 2.26 (MINIX is now on 2.34)
+ * rejects the R_X86_64_PC32 references clang emits against such symbols when
+ * building a shared object.  Use default visibility: the symbols stay exported
+ * and intra-libc references go through the GOT.
+ */
 #if __GNUC_PREREQ__(4, 2)
-#  define __dso_protected	__attribute__((__visibility__("protected")))
+#  define __dso_protected	__attribute__((__visibility__("default")))
 #else
 #  define __dso_protected
 #endif

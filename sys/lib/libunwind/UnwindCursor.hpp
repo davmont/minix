@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #if !defined(__minix)
 #include <pthread.h>
 #endif /* !defined(__minix) */
