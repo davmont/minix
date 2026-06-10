@@ -164,19 +164,21 @@ SUBDIR+= \
 
 .if ${NO_LLVM_DEVELOPER:Uno} == "no" && ${LLVM_DEVELOPER:U} == "yes"
 SUBDIR+= \
-	libclangAPINotes \
 	libclangASTMatchersDynamic \
-	libclangFormat \
 	libclangIndexSerialization \
 	libclangInterpreter \
 	libclangTesting \
 	libclangTooling \
 	libclangToolingDependencyScanning \
-	libclangToolingInclusions \
 	libclangToolingRefactoring \
 	libclangToolingSyntax
 .endif
 
+# clang 22 links these as core libraries (were developer-only in 13).
+SUBDIR+= \
+	libclangAPINotes \
+	libclangFormat \
+	libclangToolingInclusions
 
 # LLVM 22 new libraries
 SUBDIR+=	libclang \
