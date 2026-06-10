@@ -55,6 +55,7 @@ SRCS+=	PPCAsmPrinter.cpp \
 TABLEGEN_SRC=		PPC.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/PowerPC
 TABLEGEN_OUTPUT= \
+	PPCGenExegesis.inc|-gen-exegesis \
 	PPCGenAsmMatcher.inc|-gen-asm-matcher \
 	PPCGenAsmWriter.inc|-gen-asm-writer \
 	PPCGenCallingConv.inc|-gen-callingconv \
