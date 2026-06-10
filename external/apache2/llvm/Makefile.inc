@@ -9,7 +9,7 @@ COMMON_REVISION=	249b40b558955afe5ac2b549edcf2d7f859c8cc9
 CLANG_REVISION=		${COMMON_REVISION}
 LLVM_REVISION=		${COMMON_REVISION}
 
-LLVM_VERSION=		13.0.0
+LLVM_VERSION=		22.1.7
 CLANG_VERSION=		13.0.0
 
 CLANG_SRCDIR:=	${.PARSEDIR}/dist/clang
@@ -43,7 +43,7 @@ HOST_CXXFLAGS+=	-include cstdint
 .if ${HOST_SUPPORTS_MODULES:Uno} == "yes"
 HOST_CXXFLAGS+=	${MODULES_CXXFLAGS}
 .endif
-HOST_CPPFLAGS+=	-std=c++14
+HOST_CPPFLAGS+=	-std=c++17
 LLVM_TARGETS=	x86,powerpc,sparc,aarch64,arm,mips
 .else
 LLVM_INCLUDE_CONFIG=	${LLVM_TOPLEVEL}/config
@@ -60,7 +60,7 @@ LLVM_TARGETS=	x86,powerpc,sparc,aarch64,arm,mips,amdgpu
 CXXFLAGS+=		${${ACTIVE_CC} == "clang":? ${MODULES_CXXFLAGS} :}
 .endif
 
-CXXFLAGS+=	-std=c++14
+CXXFLAGS+=	-std=c++17
 CXXFLAGS+=	-include cstdint	# see HOST_CXXFLAGS note above
 .if ${MKDEBUG:Uno} != "no"
 CXXFLAGS+=	-g1

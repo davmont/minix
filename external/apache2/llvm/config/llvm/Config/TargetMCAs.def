@@ -1,4 +1,4 @@
-/*===- llvm/Config/AsmParsers.def - LLVM Assembly Parsers -------*- C++ -*-===*\
+/*===------ llvm/Config/TargetMCAs.def - LLVM Target MCAs -------*- C++ -*-===*\
 |*                                                                            *|
 |* Part of the LLVM Project, under the Apache License v2.0 with LLVM          *|
 |* Exceptions.                                                                *|
@@ -7,12 +7,12 @@
 |*                                                                            *|
 |*===----------------------------------------------------------------------===*|
 |*                                                                            *|
-|* This file enumerates all of the assembly-language parsers                  *|
+|* This file enumerates all of the target MCAs                  *|
 |* supported by this build of LLVM. Clients of this file should define        *|
-|* the LLVM_ASM_PARSER macro to be a function-like macro with a               *|
+|* the LLVM_TARGETMCA macro to be a function-like macro with a             *|
 |* single parameter (the name of the target whose assembly can be             *|
 |* generated); including this file will then enumerate all of the             *|
-|* targets with assembly parsers.                                             *|
+|* targets with target MCAs.                                             *|
 |*                                                                            *|
 |* The set of targets supported by LLVM is generated at configuration         *|
 |* time, at which point this header is generated. Do not modify this          *|
@@ -20,17 +20,12 @@
 |*                                                                            *|
 \*===----------------------------------------------------------------------===*/
 
-#ifndef LLVM_ASM_PARSER
-#  error Please define the macro LLVM_ASM_PARSER(TargetName)
+#ifndef LLVM_TARGETMCA
+#  error Please define the macro LLVM_TARGETMCA(TargetName)
 #endif
 
-LLVM_ASM_PARSER(X86)
-LLVM_ASM_PARSER(PowerPC)
-LLVM_ASM_PARSER(Sparc)
-LLVM_ASM_PARSER(AArch64)
-LLVM_ASM_PARSER(ARM)
-LLVM_ASM_PARSER(Mips)
-LLVM_ASM_PARSER(AMDGPU)
+LLVM_TARGETMCA(X86)
+LLVM_TARGETMCA(AMDGPU)
 
 
-#undef LLVM_ASM_PARSER
+#undef LLVM_TARGETMCA

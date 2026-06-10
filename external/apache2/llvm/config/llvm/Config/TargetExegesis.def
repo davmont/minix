@@ -1,4 +1,4 @@
-/*===- llvm/Config/AsmParsers.def - LLVM Assembly Parsers -------*- C++ -*-===*\
+/*===----- llvm/Config/TargetExegesis.def - LLVM Target Exegesis-*- C++ -*-===*\
 |*                                                                            *|
 |* Part of the LLVM Project, under the Apache License v2.0 with LLVM          *|
 |* Exceptions.                                                                *|
@@ -7,12 +7,12 @@
 |*                                                                            *|
 |*===----------------------------------------------------------------------===*|
 |*                                                                            *|
-|* This file enumerates all of the assembly-language parsers                  *|
+|* This file enumerates all of the target's of llvm-exegesis                  *|
 |* supported by this build of LLVM. Clients of this file should define        *|
-|* the LLVM_ASM_PARSER macro to be a function-like macro with a               *|
+|* the LLVM_EXEGISIS macro to be a function-like macro with a                 *|
 |* single parameter (the name of the target whose assembly can be             *|
 |* generated); including this file will then enumerate all of the             *|
-|* targets with assembly parsers.                                             *|
+|* targets with target llvm-exegsis support.                                  *|
 |*                                                                            *|
 |* The set of targets supported by LLVM is generated at configuration         *|
 |* time, at which point this header is generated. Do not modify this          *|
@@ -20,17 +20,14 @@
 |*                                                                            *|
 \*===----------------------------------------------------------------------===*/
 
-#ifndef LLVM_ASM_PARSER
-#  error Please define the macro LLVM_ASM_PARSER(TargetName)
+#ifndef LLVM_EXEGESIS
+#  error Please define the macro LLVM_EXEGESIS(TargetName)
 #endif
 
-LLVM_ASM_PARSER(X86)
-LLVM_ASM_PARSER(PowerPC)
-LLVM_ASM_PARSER(Sparc)
-LLVM_ASM_PARSER(AArch64)
-LLVM_ASM_PARSER(ARM)
-LLVM_ASM_PARSER(Mips)
-LLVM_ASM_PARSER(AMDGPU)
+LLVM_EXEGESIS(X86)
+LLVM_EXEGESIS(PowerPC)
+LLVM_EXEGESIS(AArch64)
+LLVM_EXEGESIS(Mips)
 
 
-#undef LLVM_ASM_PARSER
+#undef LLVM_EXEGESIS
