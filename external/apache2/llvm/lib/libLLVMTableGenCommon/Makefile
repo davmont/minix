@@ -6,6 +6,8 @@ LIB=	LLVMTableGenCommon
 
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Common
 .PATH: ${LLVM_SRCDIR}/utils/TableGen/Common/GlobalISel
+# Common/ sources include Basic/*.h and Common/*.h by prefix.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/utils/TableGen
 
 SRCS+=	AsmWriterInst.cpp \
 	CXXPredicates.cpp \

@@ -11,6 +11,8 @@ LIB=	LLVMObjCopy
 .PATH: ${LLVM_SRCDIR}/lib/ObjCopy/MachO
 .PATH: ${LLVM_SRCDIR}/lib/ObjCopy/XCOFF
 .PATH: ${LLVM_SRCDIR}/lib/ObjCopy/wasm
+# Format-specific sources include parent-dir ObjCopy headers (Archive.h).
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/ObjCopy
 
 SRCS+=	Archive.cpp \
 	COFFObjcopy.cpp \
