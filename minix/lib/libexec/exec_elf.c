@@ -22,11 +22,9 @@
 /* Support only 32-bit ELF objects */
 #define __ELF_WORD_SIZE 32
 
-#define SECTOR_SIZE 512
-
 static int check_header(Elf_Ehdr *hdr);
 
-static int elf_sane(Elf_Ehdr *hdr)
+static int elf_sane(Elf_Ehdr *hdr, size_t hdr_len)
 {
   if (check_header(hdr) != OK) {
      return 0;
@@ -36,8 +34,20 @@ static int elf_sane(Elf_Ehdr *hdr)
      return 0;
   }
 
-  if ((hdr->e_phoff > SECTOR_SIZE) ||
-      (hdr->e_phoff + hdr->e_phentsize * hdr->e_phnum) > SECTOR_SIZE) {
+  /*
+   * The whole program-header table must lie within the part of the
+   * executable that the caller has already read into the header buffer,
+   * so that the phdr[] accesses below stay in bounds.  This used to be an
+   * artificial 512-byte (one sector) cap, which rejected any binary with
+   * more than 8 program headers (64-byte Ehdr + 9 * 56-byte Phdr = 568 >
+   * 512) -- e.g. clang and the other LLVM tools, which carry a PT_TLS in
+   * addition to the usual segments.  Both callers (VFS and RS) read the
+   * full header (up to 10 pages / the entire image) into the buffer, so
+   * validate against the real hdr_len instead.
+   */
+  if ((size_t)hdr->e_phoff > hdr_len ||
+      (size_t)hdr->e_phoff +
+        (size_t)hdr->e_phentsize * (size_t)hdr->e_phnum > hdr_len) {
 #if ELF_DEBUG
 	printf("libexec: peculiar phoff\n");
 #endif
@@ -62,7 +72,7 @@ static int elf_unpack(char *exec_hdr,
 	return ENOEXEC;
 
   *hdr = (Elf_Ehdr *) exec_hdr;
-  if(!elf_sane(*hdr)) {
+  if(!elf_sane(*hdr, hdr_len)) {
   	return ENOEXEC;
   }
   *phdr = (Elf_Phdr *)(exec_hdr + (*hdr)->e_phoff);
