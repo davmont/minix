@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPUExportClustering.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIInstrInfo.h"
 #include "llvm/CodeGen/ScheduleDAGInstrs.h"
 
@@ -22,7 +21,7 @@ namespace {
 
 class ExportClustering : public ScheduleDAGMutation {
 public:
-  ExportClustering() {}
+  ExportClustering() = default;
   void apply(ScheduleDAGInstrs *DAG) override;
 };
 
@@ -139,10 +138,7 @@ void ExportClustering::apply(ScheduleDAGInstrs *DAG) {
 
 } // end namespace
 
-namespace llvm {
-
-std::unique_ptr<ScheduleDAGMutation> createAMDGPUExportClusteringDAGMutation() {
+std::unique_ptr<ScheduleDAGMutation>
+llvm::createAMDGPUExportClusteringDAGMutation() {
   return std::make_unique<ExportClustering>();
 }
-
-} // end namespace llvm

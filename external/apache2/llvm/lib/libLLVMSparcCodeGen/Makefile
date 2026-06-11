@@ -5,17 +5,19 @@ LIB=	LLVMSparcCodeGen
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/Target/Sparc
+# LLVM 22 MCTargetDesc headers cross-include via the MCTargetDesc/ prefix.
+CPPFLAGS+=	-I${LLVM_SRCDIR}/lib/Target/Sparc
 
 SRCS+=	DelaySlotFiller.cpp \
 	LeonPasses.cpp \
 	SparcAsmPrinter.cpp \
-	SparcInstrInfo.cpp \
+	SparcFrameLowering.cpp \
 	SparcISelDAGToDAG.cpp \
 	SparcISelLowering.cpp \
-	SparcFrameLowering.cpp \
-	SparcMCInstLower.cpp \
+	SparcInstrInfo.cpp \
 	SparcMachineFunctionInfo.cpp \
 	SparcRegisterInfo.cpp \
+	SparcSelectionDAGInfo.cpp \
 	SparcSubtarget.cpp \
 	SparcTargetMachine.cpp \
 	SparcTargetObjectFile.cpp
@@ -32,6 +34,8 @@ TABLEGEN_OUTPUT= \
 	SparcGenInstrInfo.inc|-gen-instr-info \
 	SparcGenMCCodeEmitter.inc|-gen-emitter \
 	SparcGenRegisterInfo.inc|-gen-register-info \
+	SparcGenSDNodeInfo.inc|-gen-sd-node-info^-sdnode-namespace=SPISD \
+	SparcGenSearchableTables.inc|-gen-searchable-tables \
 	SparcGenSubtargetInfo.inc|-gen-subtarget
 
 .include "${.PARSEDIR}/../../tablegen.mk"

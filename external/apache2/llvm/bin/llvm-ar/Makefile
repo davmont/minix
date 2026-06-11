@@ -54,6 +54,28 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+LLVM_DRIVER_TOOL=	ar
+.include "${.PARSEDIR}/../../driver.mk"
+
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	TargetParser \
+	CodeGenTypes \
+	Analysis \
+	FrontendHLSL \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	DebugInfoDWARF \
+	IRReader \
+	AsmParser \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

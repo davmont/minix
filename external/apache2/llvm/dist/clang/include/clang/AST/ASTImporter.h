@@ -14,7 +14,7 @@
 #ifndef LLVM_CLANG_AST_ASTIMPORTER_H
 #define LLVM_CLANG_AST_ASTIMPORTER_H
 
-#include "clang/AST/APValue.h"
+#include "clang/AST/ASTImportError.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExprCXX.h"
@@ -27,9 +27,8 @@
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Error.h"
+#include <optional>
 #include <utility>
 
 namespace clang {
@@ -49,33 +48,6 @@ class TagDecl;
 class TranslationUnitDecl;
 class TypeSourceInfo;
 
-  class ImportError : public llvm::ErrorInfo<ImportError> {
-  public:
-    /// \brief Kind of error when importing an AST component.
-    enum ErrorKind {
-        NameConflict, /// Naming ambiguity (likely ODR violation).
-        UnsupportedConstruct, /// Not supported node or case.
-        Unknown /// Other error.
-    };
-
-    ErrorKind Error;
-
-    static char ID;
-
-    ImportError() : Error(Unknown) {}
-    ImportError(const ImportError &Other) : Error(Other.Error) {}
-    ImportError &operator=(const ImportError &Other) {
-      Error = Other.Error;
-      return *this;
-    }
-    ImportError(ErrorKind Error) : Error(Error) { }
-
-    std::string toString() const;
-
-    void log(raw_ostream &OS) const override;
-    std::error_code convertToErrorCode() const override;
-  };
-
   // \brief Returns with a list of declarations started from the canonical decl
   // then followed by subsequent decls in the translation unit.
   // This gives a canonical list for each entry in the redecl chain.
@@ -90,7 +62,8 @@ class TypeSourceInfo;
   class ASTImporter {
     friend class ASTNodeImporter;
   public:
-    using NonEquivalentDeclSet = llvm::DenseSet<std::pair<Decl *, Decl *>>;
+    using NonEquivalentDeclSet =
+        llvm::DenseSet<std::tuple<Decl *, Decl *, int>>;
     using ImportedCXXBaseSpecifierMap =
         llvm::DenseMap<const CXXBaseSpecifier *, CXXBaseSpecifier *>;
 
@@ -217,6 +190,16 @@ class TypeSourceInfo;
       llvm::SmallDenseMap<Decl *, int, 32> Aux;
     };
 
+    class FunctionDeclImportCycleDetector {
+    public:
+      auto makeScopedCycleDetection(const FunctionDecl *D);
+
+      bool isCycle(const FunctionDecl *D) const;
+
+    private:
+      llvm::DenseSet<const FunctionDecl *> FunctionDeclsWithImportInProgress;
+    };
+
   private:
     std::shared_ptr<ASTImporterSharedState> SharedState = nullptr;
 
@@ -259,7 +242,7 @@ class TypeSourceInfo;
     /// imported. The same declaration may or may not be included in
     /// ImportedDecls. This map is updated continuously during imports and never
     /// cleared (like ImportedDecls).
-    llvm::DenseMap<Decl *, ImportError> ImportDeclErrors;
+    llvm::DenseMap<Decl *, ASTImportError> ImportDeclErrors;
 
     /// Mapping from the already-imported declarations in the "to"
     /// context to the corresponding declarations in the "from" context.
@@ -281,6 +264,12 @@ class TypeSourceInfo;
     /// Declaration (from, to) pairs that are known not to be equivalent
     /// (which we have already complained about).
     NonEquivalentDeclSet NonEquivalentDecls;
+    /// A FunctionDecl can have properties that have a reference to the
+    /// function itself and are imported before the function is created. This
+    /// can come for example from auto return type or when template parameters
+    /// are used in the return type or parameters. This member is used to detect
+    /// cyclic import of FunctionDecl objects to avoid infinite recursion.
+    FunctionDeclImportCycleDetector FindFunctionDeclImportCycle;
 
     using FoundDeclsTy = SmallVector<NamedDecl *, 2>;
     FoundDeclsTy findDeclsInToCtx(DeclContext *DC, DeclarationName Name);
@@ -332,7 +321,7 @@ class TypeSourceInfo;
     /// \param From Object to import.
     /// \return Error information (success or error).
     template <typename ImportT>
-    LLVM_NODISCARD llvm::Error importInto(ImportT &To, const ImportT &From) {
+    [[nodiscard]] llvm::Error importInto(ImportT &To, const ImportT &From) {
       auto ToOrErr = Import(From);
       if (ToOrErr)
         To = *ToOrErr;
@@ -379,6 +368,9 @@ class TypeSourceInfo;
       return Import(const_cast<Decl *>(FromD));
     }
 
+    llvm::Expected<InheritedConstructor>
+    Import(const InheritedConstructor &From);
+
     /// Return the copy of the given declaration in the "to" context if
     /// it has already been imported from the "from" context.  Otherwise return
     /// nullptr.
@@ -392,7 +384,7 @@ class TypeSourceInfo;
     /// in the "to" context was imported. If it was not imported or of the wrong
     /// type a null value is returned.
     template <typename DeclT>
-    llvm::Optional<DeclT *> getImportedFromDecl(const DeclT *ToD) const {
+    std::optional<DeclT *> getImportedFromDecl(const DeclT *ToD) const {
       auto FromI = ImportedFromDecls.find(ToD);
       if (FromI == ImportedFromDecls.end())
         return {};
@@ -428,7 +420,7 @@ class TypeSourceInfo;
     ///
     /// \returns The equivalent nested-name-specifier in the "to"
     /// context, or the import error.
-    llvm::Expected<NestedNameSpecifier *> Import(NestedNameSpecifier *FromNNS);
+    llvm::Expected<NestedNameSpecifier> Import(NestedNameSpecifier FromNNS);
 
     /// Import the given nested-name-specifier-loc from the "from"
     /// context into the "to" context.
@@ -470,6 +462,14 @@ class TypeSourceInfo;
     /// returns nullptr only if the FromId was nullptr.
     IdentifierInfo *Import(const IdentifierInfo *FromId);
 
+    /// Import the given identifier or overloaded operator from the "from"
+    /// context into the "to" context.
+    ///
+    /// \returns The equivalent identifier or overloaded operator in the "to"
+    /// context.
+    IdentifierOrOverloadedOperator
+    Import(IdentifierOrOverloadedOperator FromIO);
+
     /// Import the given Objective-C selector from the "from"
     /// context into the "to" context.
     ///
@@ -507,7 +507,12 @@ class TypeSourceInfo;
 
     /// Import the definition of the given declaration, including all of
     /// the declarations it contains.
-    LLVM_NODISCARD llvm::Error ImportDefinition(Decl *From);
+    [[nodiscard]] llvm::Error ImportDefinition(Decl *From);
+
+    llvm::Error
+    ImportTemplateArguments(ArrayRef<TemplateArgument> FromArgs,
+                            SmallVectorImpl<TemplateArgument> &ToArgs);
+    Expected<TemplateArgument> Import(const TemplateArgument &From);
 
     /// Cope with a name conflict when importing a declaration into the
     /// given context.
@@ -589,10 +594,10 @@ class TypeSourceInfo;
     /// Return if import of the given declaration has failed and if yes
     /// the kind of the problem. This gives the first error encountered with
     /// the node.
-    llvm::Optional<ImportError> getImportDeclErrorIfAny(Decl *FromD) const;
+    std::optional<ASTImportError> getImportDeclErrorIfAny(Decl *FromD) const;
 
     /// Mark (newly) imported declaration with error.
-    void setImportDeclError(Decl *From, ImportError Error);
+    void setImportDeclError(Decl *From, ASTImportError Error);
 
     /// Determine whether the given types are structurally
     /// equivalent.
@@ -602,8 +607,8 @@ class TypeSourceInfo;
     /// Determine the index of a field in its parent record.
     /// F should be a field (or indirect field) declaration.
     /// \returns The index of the field in its parent context (starting from 0).
-    /// On error `None` is returned (parent context is non-record).
-    static llvm::Optional<unsigned> getFieldIndex(Decl *F);
+    /// On error `std::nullopt` is returned (parent context is non-record).
+    static UnsignedOrNone getFieldIndex(Decl *F);
   };
 
 } // namespace clang

@@ -36,6 +36,15 @@ tablegen("ARMGenRegisterBank") {
   td_file = "ARM.td"
 }
 
+tablegen("ARMGenSDNodeInfo") {
+  visibility = [
+    ":LLVMARMCodeGen",
+    "//llvm/unittests/Target/ARM:ARMTests",
+  ]
+  args = [ "-gen-sd-node-info" ]
+  td_file = "ARM.td"
+}
+
 static_library("LLVMARMCodeGen") {
   deps = [
     ":ARMGenCallingConv",
@@ -44,6 +53,7 @@ static_library("LLVMARMCodeGen") {
     ":ARMGenGlobalISel",
     ":ARMGenMCPseudoLowering",
     ":ARMGenRegisterBank",
+    ":ARMGenSDNodeInfo",
     "MCTargetDesc",
     "TargetInfo",
     "Utils",
@@ -57,7 +67,9 @@ static_library("LLVMARMCodeGen") {
     "//llvm/lib/MC",
     "//llvm/lib/Support",
     "//llvm/lib/Target",
+    "//llvm/lib/TargetParser",
     "//llvm/lib/Transforms/CFGuard",
+    "//llvm/lib/Transforms/IPO",
     "//llvm/lib/Transforms/Utils",
   ]
   include_dirs = [ "." ]
@@ -68,18 +80,21 @@ static_library("LLVMARMCodeGen") {
     "ARMBaseRegisterInfo.cpp",
     "ARMBasicBlockInfo.cpp",
     "ARMBlockPlacement.cpp",
+    "ARMBranchTargets.cpp",
     "ARMCallLowering.cpp",
     "ARMCallingConv.cpp",
     "ARMConstantIslandPass.cpp",
     "ARMConstantPoolValue.cpp",
     "ARMExpandPseudoInsts.cpp",
     "ARMFastISel.cpp",
+    "ARMFixCortexA57AES1742098Pass.cpp",
     "ARMFrameLowering.cpp",
     "ARMHazardRecognizer.cpp",
     "ARMISelDAGToDAG.cpp",
     "ARMISelLowering.cpp",
     "ARMInstrInfo.cpp",
     "ARMInstructionSelector.cpp",
+    "ARMLatencyMutations.cpp",
     "ARMLegalizerInfo.cpp",
     "ARMLoadStoreOptimizer.cpp",
     "ARMLowOverheadLoops.cpp",

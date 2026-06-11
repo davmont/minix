@@ -40,6 +40,12 @@ enum Fixups {
   /// instrs like 'std'.
   fixup_ppc_half16ds,
 
+  // A 32-bit fixup corresponding to PC-relative paddis.
+  fixup_ppc_pcrel32,
+
+  // A 32-bit fixup corresponding to Non-PC-relative paddis.
+  fixup_ppc_imm32,
+
   // A 34-bit fixup corresponding to PC-relative paddi.
   fixup_ppc_pcrel34,
 
@@ -50,6 +56,10 @@ enum Fixups {
   /// TLS general and local dynamic models, or inserts the thread-pointer
   /// register number.
   fixup_ppc_nofixup,
+
+  /// A 16-bit fixup corresponding to lo16(_foo) with implied 3 zero bits for
+  /// instrs like 'lxv'. Produces the same relocation as fixup_ppc_half16ds.
+  fixup_ppc_half16dq,
 
   // Marker
   LastTargetFixupKind,

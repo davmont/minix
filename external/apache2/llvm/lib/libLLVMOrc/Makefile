@@ -5,34 +5,71 @@ LIB=	LLVMOrc
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc
+.PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc/Debugging
 
-SRCS+=	CompileOnDemandLayer.cpp \
+SRCS+=	AbsoluteSymbols.cpp \
+	BacktraceTools.cpp \
+	COFF.cpp \
+	COFFPlatform.cpp \
+	COFFVCRuntimeSupport.cpp \
+	CompileOnDemandLayer.cpp \
 	CompileUtils.cpp \
 	Core.cpp \
-	DebugObjectManagerPlugin.cpp \
+	DebugInfoSupport.cpp \
 	DebugUtils.cpp \
+	DebuggerSupport.cpp \
+	DebuggerSupportPlugin.cpp \
+	EHFrameRegistrationPlugin.cpp \
+	ELFDebugObjectPlugin.cpp \
+	ELFNixPlatform.cpp \
+	EPCDynamicLibrarySearchGenerator.cpp \
+	EPCGenericDylibManager.cpp \
+	EPCGenericJITLinkMemoryManager.cpp \
+	EPCGenericRTDyldMemoryManager.cpp \
+	EPCIndirectionUtils.cpp \
 	ExecutionUtils.cpp \
-	IndirectionUtils.cpp \
+	ExecutorProcessControl.cpp \
+	ExecutorResolutionGenerator.cpp \
 	IRCompileLayer.cpp \
+	IRPartitionLayer.cpp \
 	IRTransformLayer.cpp \
+	InProcessMemoryAccess.cpp \
+	IndirectionUtils.cpp \
+	JITLinkRedirectableSymbolManager.cpp \
+	JITLinkReentryTrampolines.cpp \
 	JITTargetMachineBuilder.cpp \
-	Layer.cpp \
-	LazyReexports.cpp \
 	LLJIT.cpp \
+	LLJITUtilsCBindings.cpp \
+	Layer.cpp \
+	LazyObjectLinkingLayer.cpp \
+	LazyReexports.cpp \
+	LinkGraphLayer.cpp \
+	LinkGraphLinkingLayer.cpp \
+	LoadLinkableFile.cpp \
+	LookupAndRecordAddrs.cpp \
+	MachO.cpp \
 	MachOPlatform.cpp \
 	Mangling.cpp \
+	MapperJITLinkMemoryManager.cpp \
+	MemoryMapper.cpp \
+	ObjectFileInterface.cpp \
 	ObjectLinkingLayer.cpp \
 	ObjectTransformLayer.cpp \
 	OrcABISupport.cpp \
 	OrcV2CBindings.cpp \
+	PerfSupportPlugin.cpp \
 	RTDyldObjectLinkingLayer.cpp \
+	ReOptimizeLayer.cpp \
+	RedirectionManager.cpp \
+	SectCreate.cpp \
+	SelfExecutorProcessControl.cpp \
+	SimpleRemoteEPC.cpp \
+	SimpleRemoteMemoryMapper.cpp \
 	SpeculateAnalyses.cpp \
 	Speculation.cpp \
-	TargetProcessControl.cpp \
+	TaskDispatch.cpp \
 	ThreadSafeModule.cpp \
-	TPCDebugObjectRegistrar.cpp \
-	TPCDynamicLibrarySearchGenerator.cpp \
-	TPCEHFrameRegistrar.cpp \
-	TPCIndirectionUtils.cpp
+	UnwindInfoRegistrationPlugin.cpp \
+	VTuneSupportPlugin.cpp
 
 .include <bsd.lib.mk>

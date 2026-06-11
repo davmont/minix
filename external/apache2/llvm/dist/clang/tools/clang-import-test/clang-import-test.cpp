@@ -30,8 +30,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Support/VirtualFileSystem.h"
+#include "llvm/TargetParser/Host.h"
 
 #include <memory>
 #include <string>
@@ -43,7 +44,7 @@ static llvm::cl::opt<std::string> Expression(
     llvm::cl::desc("Path to a file containing the expression to parse"));
 
 static llvm::cl::list<std::string>
-    Imports("import", llvm::cl::ZeroOrMore,
+    Imports("import",
             llvm::cl::desc("Path to a file containing declarations to import"));
 
 static llvm::cl::opt<bool>
@@ -56,7 +57,7 @@ static llvm::cl::opt<bool> UseOrigins(
         "Use DeclContext origin information for more accurate lookups"));
 
 static llvm::cl::list<std::string>
-    ClangArgs("Xcc", llvm::cl::ZeroOrMore,
+    ClangArgs("Xcc",
               llvm::cl::desc("Argument to pass to the CompilerInvocation"),
               llvm::cl::CommaSeparated);
 
@@ -84,18 +85,18 @@ public:
   TestDiagnosticConsumer()
       : Passthrough(std::make_unique<TextDiagnosticBuffer>()) {}
 
-  virtual void BeginSourceFile(const LangOptions &LangOpts,
-                               const Preprocessor *PP = nullptr) override {
+  void BeginSourceFile(const LangOptions &LangOpts,
+                       const Preprocessor *PP = nullptr) override {
     this->LangOpts = &LangOpts;
     return Passthrough->BeginSourceFile(LangOpts, PP);
   }
 
-  virtual void EndSourceFile() override {
+  void EndSourceFile() override {
     this->LangOpts = nullptr;
     Passthrough->EndSourceFile();
   }
 
-  virtual bool IncludeInDiagnosticCounts() const override {
+  bool IncludeInDiagnosticCounts() const override {
     return Passthrough->IncludeInDiagnosticCounts();
   }
 
@@ -130,8 +131,8 @@ private:
     llvm::errs() << '\n';
   }
 
-  virtual void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
-                                const Diagnostic &Info) override {
+  void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
+                        const Diagnostic &Info) override {
     if (Info.hasSourceManager() && LangOpts) {
       SourceManager &SM = Info.getSourceManager();
 
@@ -161,56 +162,61 @@ private:
 };
 
 std::unique_ptr<CompilerInstance> BuildCompilerInstance() {
-  auto Ins = std::make_unique<CompilerInstance>();
+  DiagnosticOptions DiagOpts;
   auto DC = std::make_unique<TestDiagnosticConsumer>();
-  const bool ShouldOwnClient = true;
-  Ins->createDiagnostics(DC.release(), ShouldOwnClient);
+  auto Diags = CompilerInstance::createDiagnostics(
+      *llvm::vfs::getRealFileSystem(), DiagOpts, DC.get(),
+      /*ShouldOwnClient=*/false);
 
   auto Inv = std::make_unique<CompilerInvocation>();
 
   std::vector<const char *> ClangArgv(ClangArgs.size());
   std::transform(ClangArgs.begin(), ClangArgs.end(), ClangArgv.begin(),
                  [](const std::string &s) -> const char * { return s.data(); });
-  CompilerInvocation::CreateFromArgs(*Inv, ClangArgv, Ins->getDiagnostics());
+  CompilerInvocation::CreateFromArgs(*Inv, ClangArgv, *Diags);
 
   {
     using namespace driver::types;
     ID Id = lookupTypeForTypeSpecifier(Input.c_str());
     assert(Id != TY_INVALID);
     if (isCXX(Id)) {
-      Inv->getLangOpts()->CPlusPlus = true;
-      Inv->getLangOpts()->CPlusPlus11 = true;
+      Inv->getLangOpts().CPlusPlus = true;
+      Inv->getLangOpts().CPlusPlus11 = true;
       Inv->getHeaderSearchOpts().UseLibcxx = true;
     }
     if (isObjC(Id)) {
-      Inv->getLangOpts()->ObjC = 1;
+      Inv->getLangOpts().ObjC = 1;
     }
   }
-  Inv->getLangOpts()->ObjCAutoRefCount = ObjCARC;
+  Inv->getLangOpts().ObjCAutoRefCount = ObjCARC;
 
-  Inv->getLangOpts()->Bool = true;
-  Inv->getLangOpts()->WChar = true;
-  Inv->getLangOpts()->Blocks = true;
-  Inv->getLangOpts()->DebuggerSupport = true;
-  Inv->getLangOpts()->SpellChecking = false;
-  Inv->getLangOpts()->ThreadsafeStatics = false;
-  Inv->getLangOpts()->AccessControl = false;
-  Inv->getLangOpts()->DollarIdents = true;
-  Inv->getLangOpts()->Exceptions = true;
-  Inv->getLangOpts()->CXXExceptions = true;
+  Inv->getLangOpts().Bool = true;
+  Inv->getLangOpts().WChar = true;
+  Inv->getLangOpts().Blocks = true;
+  Inv->getLangOpts().DebuggerSupport = true;
+  Inv->getLangOpts().SpellChecking = false;
+  Inv->getLangOpts().ThreadsafeStatics = false;
+  Inv->getLangOpts().AccessControl = false;
+  Inv->getLangOpts().DollarIdents = true;
+  Inv->getLangOpts().Exceptions = true;
+  Inv->getLangOpts().CXXExceptions = true;
   // Needed for testing dynamic_cast.
-  Inv->getLangOpts()->RTTI = true;
-  Inv->getCodeGenOpts().setDebugInfo(codegenoptions::FullDebugInfo);
+  Inv->getLangOpts().RTTI = true;
+  Inv->getCodeGenOpts().setDebugInfo(llvm::codegenoptions::FullDebugInfo);
   Inv->getTargetOpts().Triple = llvm::sys::getDefaultTargetTriple();
 
-  Ins->setInvocation(std::move(Inv));
+  auto Ins = std::make_unique<CompilerInstance>(std::move(Inv));
+
+  Ins->createVirtualFileSystem(llvm::vfs::getRealFileSystem(), DC.get());
+  Ins->createDiagnostics(DC.release(), /*ShouldOwnClient=*/true);
 
   TargetInfo *TI = TargetInfo::CreateTargetInfo(
-      Ins->getDiagnostics(), Ins->getInvocation().TargetOpts);
+      Ins->getDiagnostics(), Ins->getInvocation().getTargetOpts());
   Ins->setTarget(TI);
-  Ins->getTarget().adjust(Ins->getLangOpts());
+  Ins->getTarget().adjust(Ins->getDiagnostics(), Ins->getLangOpts(),
+                          /*AuxTarget=*/nullptr);
   Ins->createFileManager();
-  Ins->createSourceManager(Ins->getFileManager());
+  Ins->createSourceManager();
   Ins->createPreprocessor(TU_Complete);
 
   return Ins;
@@ -218,9 +224,10 @@ std::unique_ptr<CompilerInstance> BuildCompilerInstance() {
 
 std::unique_ptr<ASTContext>
 BuildASTContext(CompilerInstance &CI, SelectorTable &ST, Builtin::Context &BC) {
+  auto &PP = CI.getPreprocessor();
   auto AST = std::make_unique<ASTContext>(
       CI.getLangOpts(), CI.getSourceManager(),
-      CI.getPreprocessor().getIdentifierTable(), ST, BC);
+      PP.getIdentifierTable(), ST, BC, PP.TUKind);
   AST->InitBuiltinTypes(CI.getTarget());
   return AST;
 }
@@ -228,9 +235,7 @@ BuildASTContext(CompilerInstance &CI, SelectorTable &ST, Builtin::Context &BC) {
 std::unique_ptr<CodeGenerator> BuildCodeGen(CompilerInstance &CI,
                                             llvm::LLVMContext &LLVMCtx) {
   StringRef ModuleName("$__module");
-  return std::unique_ptr<CodeGenerator>(CreateLLVMCodeGen(
-      CI.getDiagnostics(), ModuleName, CI.getHeaderSearchOpts(),
-      CI.getPreprocessorOpts(), CI.getCodeGenOpts(), LLVMCtx));
+  return CreateLLVMCodeGen(CI, ModuleName, LLVMCtx);
 }
 } // namespace init_convenience
 

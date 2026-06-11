@@ -14,15 +14,14 @@
 #ifndef LLVM_CLANG_ANALYSIS_CFG_H
 #define LLVM_CLANG_ANALYSIS_CFG_H
 
-#include "clang/Analysis/Support/BumpVector.h"
-#include "clang/Analysis/ConstructionContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/Analysis/ConstructionContext.h"
+#include "clang/Analysis/Support/BumpVector.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/GraphTraits.h"
-#include "llvm/ADT/None.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Allocator.h"
@@ -32,6 +31,7 @@
 #include <cstddef>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace clang {
@@ -75,17 +75,18 @@ public:
     MemberDtor,
     TemporaryDtor,
     DTOR_BEGIN = AutomaticObjectDtor,
-    DTOR_END = TemporaryDtor
+    DTOR_END = TemporaryDtor,
+    CleanupFunction,
   };
 
 protected:
   // The int bits are used to mark the kind.
-  llvm::PointerIntPair<void *, 2> Data1;
-  llvm::PointerIntPair<void *, 2> Data2;
+  llvm::PointerIntPair<const void *, 2> Data1;
+  llvm::PointerIntPair<const void *, 2> Data2;
 
   CFGElement(Kind kind, const void *Ptr1, const void *Ptr2 = nullptr)
-      : Data1(const_cast<void*>(Ptr1), ((unsigned) kind) & 0x3),
-        Data2(const_cast<void*>(Ptr2), (((unsigned) kind) >> 2) & 0x3) {
+      : Data1(Ptr1, ((unsigned)kind) & 0x3),
+        Data2(Ptr2, (((unsigned)kind) >> 2) & 0x3) {
     assert(getKind() == kind);
   }
 
@@ -103,12 +104,11 @@ public:
     return t;
   }
 
-  /// Convert to the specified CFGElement type, returning None if this
+  /// Convert to the specified CFGElement type, returning std::nullopt if this
   /// CFGElement is not of the desired type.
-  template<typename T>
-  Optional<T> getAs() const {
+  template <typename T> std::optional<T> getAs() const {
     if (!T::isKind(*this))
-      return None;
+      return std::nullopt;
     T t;
     CFGElement& e = t;
     e = *this;
@@ -122,7 +122,8 @@ public:
     return (Kind) x;
   }
 
-  void dumpToStream(llvm::raw_ostream &OS) const;
+  void dumpToStream(llvm::raw_ostream &OS,
+                    bool TerminateWithNewLine = true) const;
 
   void dump() const {
     dumpToStream(llvm::errs());
@@ -131,7 +132,7 @@ public:
 
 class CFGStmt : public CFGElement {
 public:
-  explicit CFGStmt(Stmt *S, Kind K = Statement) : CFGElement(K, S) {
+  explicit CFGStmt(const Stmt *S, Kind K = Statement) : CFGElement(K, S) {
     assert(isKind(*this));
   }
 
@@ -155,14 +156,15 @@ protected:
 /// this is only used by the analyzer's CFG.
 class CFGConstructor : public CFGStmt {
 public:
-  explicit CFGConstructor(CXXConstructExpr *CE, const ConstructionContext *C)
+  explicit CFGConstructor(const CXXConstructExpr *CE,
+                          const ConstructionContext *C)
       : CFGStmt(CE, Constructor) {
     assert(C);
-    Data2.setPointer(const_cast<ConstructionContext *>(C));
+    Data2.setPointer(C);
   }
 
   const ConstructionContext *getConstructionContext() const {
-    return static_cast<ConstructionContext *>(Data2.getPointer());
+    return static_cast<const ConstructionContext *>(Data2.getPointer());
   }
 
 private:
@@ -185,7 +187,7 @@ class CFGCXXRecordTypedCall : public CFGStmt {
 public:
   /// Returns true when call expression \p CE needs to be represented
   /// by CFGCXXRecordTypedCall, as opposed to a regular CFGStmt.
-  static bool isCXXRecordTypedCall(Expr *E) {
+  static bool isCXXRecordTypedCall(const Expr *E) {
     assert(isa<CallExpr>(E) || isa<ObjCMessageExpr>(E));
     // There is no such thing as reference-type expression. If the function
     // returns a reference, it'll return the respective lvalue or xvalue
@@ -194,7 +196,7 @@ public:
            E->getType().getCanonicalType()->getAsCXXRecordDecl();
   }
 
-  explicit CFGCXXRecordTypedCall(Expr *E, const ConstructionContext *C)
+  explicit CFGCXXRecordTypedCall(const Expr *E, const ConstructionContext *C)
       : CFGStmt(E, CXXRecordTypedCall) {
     assert(isCXXRecordTypedCall(E));
     assert(C && (isa<TemporaryObjectConstructionContext>(C) ||
@@ -202,12 +204,13 @@ public:
                  isa<ReturnedValueConstructionContext>(C) ||
                  isa<VariableConstructionContext>(C) ||
                  isa<ConstructorInitializerConstructionContext>(C) ||
-                 isa<ArgumentConstructionContext>(C)));
-    Data2.setPointer(const_cast<ConstructionContext *>(C));
+                 isa<ArgumentConstructionContext>(C) ||
+                 isa<LambdaCaptureConstructionContext>(C)));
+    Data2.setPointer(C);
   }
 
   const ConstructionContext *getConstructionContext() const {
-    return static_cast<ConstructionContext *>(Data2.getPointer());
+    return static_cast<const ConstructionContext *>(Data2.getPointer());
   }
 
 private:
@@ -224,11 +227,11 @@ private:
 /// list.
 class CFGInitializer : public CFGElement {
 public:
-  explicit CFGInitializer(CXXCtorInitializer *initializer)
+  explicit CFGInitializer(const CXXCtorInitializer *initializer)
       : CFGElement(Initializer, initializer) {}
 
-  CXXCtorInitializer* getInitializer() const {
-    return static_cast<CXXCtorInitializer*>(Data1.getPointer());
+  const CXXCtorInitializer *getInitializer() const {
+    return static_cast<const CXXCtorInitializer *>(Data1.getPointer());
   }
 
 private:
@@ -249,7 +252,7 @@ public:
 
   // Get the new expression.
   const CXXNewExpr *getAllocatorExpr() const {
-    return static_cast<CXXNewExpr *>(Data1.getPointer());
+    return static_cast<const CXXNewExpr *>(Data1.getPointer());
   }
 
 private:
@@ -263,7 +266,7 @@ private:
 };
 
 /// Represents the point where a loop ends.
-/// This element is is only produced when building the CFG for the static
+/// This element is only produced when building the CFG for the static
 /// analyzer and hidden behind the 'cfg-loopexit' analyzer config flag.
 ///
 /// Note: a loop exit element can be reached even when the loop body was never
@@ -273,7 +276,7 @@ public:
   explicit CFGLoopExit(const Stmt *stmt) : CFGElement(LoopExit, stmt) {}
 
   const Stmt *getLoopStmt() const {
-    return static_cast<Stmt *>(Data1.getPointer());
+    return static_cast<const Stmt *>(Data1.getPointer());
   }
 
 private:
@@ -293,11 +296,11 @@ public:
       : CFGElement(LifetimeEnds, var, stmt) {}
 
   const VarDecl *getVarDecl() const {
-    return static_cast<VarDecl *>(Data1.getPointer());
+    return static_cast<const VarDecl *>(Data1.getPointer());
   }
 
   const Stmt *getTriggerStmt() const {
-    return static_cast<Stmt *>(Data2.getPointer());
+    return static_cast<const Stmt *>(Data2.getPointer());
   }
 
 private:
@@ -320,12 +323,12 @@ public:
 
   // Get statement that triggered a new scope.
   const Stmt *getTriggerStmt() const {
-    return static_cast<Stmt*>(Data2.getPointer());
+    return static_cast<const Stmt *>(Data2.getPointer());
   }
 
   // Get VD that triggered a new scope.
   const VarDecl *getVarDecl() const {
-    return static_cast<VarDecl *>(Data1.getPointer());
+    return static_cast<const VarDecl *>(Data1.getPointer());
   }
 
 private:
@@ -344,11 +347,11 @@ public:
   CFGScopeEnd(const VarDecl *VD, const Stmt *S) : CFGElement(ScopeEnd, VD, S) {}
 
   const VarDecl *getVarDecl() const {
-    return static_cast<VarDecl *>(Data1.getPointer());
+    return static_cast<const VarDecl *>(Data1.getPointer());
   }
 
   const Stmt *getTriggerStmt() const {
-    return static_cast<Stmt *>(Data2.getPointer());
+    return static_cast<const Stmt *>(Data2.getPointer());
   }
 
 private:
@@ -383,6 +386,32 @@ private:
   }
 };
 
+class CFGCleanupFunction final : public CFGElement {
+public:
+  CFGCleanupFunction() = default;
+  CFGCleanupFunction(const VarDecl *VD)
+      : CFGElement(Kind::CleanupFunction, VD) {
+    assert(VD->hasAttr<CleanupAttr>());
+  }
+
+  const VarDecl *getVarDecl() const {
+    return static_cast<const VarDecl *>(Data1.getPointer());
+  }
+
+  /// Returns the function to be called when cleaning up the var decl.
+  const FunctionDecl *getFunctionDecl() const {
+    const CleanupAttr *A = getVarDecl()->getAttr<CleanupAttr>();
+    return A->getFunctionDecl();
+  }
+
+private:
+  friend class CFGElement;
+
+  static bool isKind(const CFGElement E) {
+    return E.getKind() == Kind::CleanupFunction;
+  }
+};
+
 /// Represents C++ object destructor implicitly generated for automatic object
 /// or temporary bound to const reference at the point of leaving its local
 /// scope.
@@ -392,12 +421,12 @@ public:
       : CFGImplicitDtor(AutomaticObjectDtor, var, stmt) {}
 
   const VarDecl *getVarDecl() const {
-    return static_cast<VarDecl*>(Data1.getPointer());
+    return static_cast<const VarDecl *>(Data1.getPointer());
   }
 
   // Get statement end of which triggered the destructor call.
   const Stmt *getTriggerStmt() const {
-    return static_cast<Stmt*>(Data2.getPointer());
+    return static_cast<const Stmt *>(Data2.getPointer());
   }
 
 private:
@@ -417,12 +446,12 @@ public:
       : CFGImplicitDtor(DeleteDtor, RD, DE) {}
 
   const CXXRecordDecl *getCXXRecordDecl() const {
-    return static_cast<CXXRecordDecl*>(Data1.getPointer());
+    return static_cast<const CXXRecordDecl *>(Data1.getPointer());
   }
 
   // Get Delete expression which triggered the destructor call.
   const CXXDeleteExpr *getDeleteExpr() const {
-    return static_cast<CXXDeleteExpr *>(Data2.getPointer());
+    return static_cast<const CXXDeleteExpr *>(Data2.getPointer());
   }
 
 private:
@@ -481,7 +510,7 @@ private:
 /// expression for temporary object.
 class CFGTemporaryDtor : public CFGImplicitDtor {
 public:
-  CFGTemporaryDtor(CXXBindTemporaryExpr *expr)
+  CFGTemporaryDtor(const CXXBindTemporaryExpr *expr)
       : CFGImplicitDtor(TemporaryDtor, expr, nullptr) {}
 
   const CXXBindTemporaryExpr *getBindTemporaryExpr() const {
@@ -515,7 +544,7 @@ public:
     /// of the most derived class while we're in the base class.
     VirtualBaseBranch,
 
-    /// Number of different kinds, for sanity checks. We subtract 1 so that
+    /// Number of different kinds, for assertions. We subtract 1 so that
     /// to keep receiving compiler warnings when we don't cover all enum values
     /// in a switch.
     NumKindsMinusOne = VirtualBaseBranch
@@ -667,6 +696,11 @@ class CFGBlock {
     void dump() const {
       dumpToStream(llvm::errs());
     }
+
+    void Profile(llvm::FoldingSetNodeID &ID) const {
+      ID.AddPointer(Parent);
+      ID.AddInteger(Index);
+    }
   };
 
   template <bool IsReverse, bool IsConst> class ElementRefIterator {
@@ -707,7 +741,7 @@ class CFGBlock {
 
     template <bool IsOtherConst>
     ElementRefIterator(ElementRefIterator<true, IsOtherConst> E)
-        : ElementRefIterator(E.Parent, llvm::make_reverse_iterator(E.Pos)) {}
+        : ElementRefIterator(E.Parent, std::make_reverse_iterator(E.Pos)) {}
 
     bool operator<(ElementRefIterator Other) const {
       assert(Parent == Other.Parent);
@@ -851,6 +885,7 @@ private:
   ///
   /// Optimization Note: This bit could be profitably folded with Terminator's
   /// storage if the memory usage of CFGBlock becomes an issue.
+  LLVM_PREFERRED_TYPE(bool)
   unsigned HasNoReturnElement : 1;
 
   /// The parent CFG that owns this CFGBlock.
@@ -979,7 +1014,9 @@ public:
 
   class FilterOptions {
   public:
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IgnoreNullPredecessors : 1;
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IgnoreDefaultsWithCoveredEnums : 1;
 
     FilterOptions()
@@ -1058,11 +1095,7 @@ public:
   /// C itself, while this method would only return C.
   const Expr *getLastCondition() const;
 
-  Stmt *getTerminatorCondition(bool StripParens = true);
-
-  const Stmt *getTerminatorCondition(bool StripParens = true) const {
-    return const_cast<CFGBlock*>(this)->getTerminatorCondition(StripParens);
-  }
+  const Stmt *getTerminatorCondition(bool StripParens = true) const;
 
   const Stmt *getLoopTarget() const { return LoopTarget; }
 
@@ -1122,17 +1155,8 @@ public:
     Elements.push_back(CFGScopeBegin(VD, S), C);
   }
 
-  void prependScopeBegin(const VarDecl *VD, const Stmt *S,
-                         BumpVectorContext &C) {
-    Elements.insert(Elements.rbegin(), 1, CFGScopeBegin(VD, S), C);
-  }
-
   void appendScopeEnd(const VarDecl *VD, const Stmt *S, BumpVectorContext &C) {
     Elements.push_back(CFGScopeEnd(VD, S), C);
-  }
-
-  void prependScopeEnd(const VarDecl *VD, const Stmt *S, BumpVectorContext &C) {
-    Elements.insert(Elements.rbegin(), 1, CFGScopeEnd(VD, S), C);
   }
 
   void appendBaseDtor(const CXXBaseSpecifier *BS, BumpVectorContext &C) {
@@ -1151,6 +1175,10 @@ public:
     Elements.push_back(CFGAutomaticObjDtor(VD, S), C);
   }
 
+  void appendCleanupFunction(const VarDecl *VD, BumpVectorContext &C) {
+    Elements.push_back(CFGCleanupFunction(VD), C);
+  }
+
   void appendLifetimeEnds(VarDecl *VD, Stmt *S, BumpVectorContext &C) {
     Elements.push_back(CFGLifetimeEnds(VD, S), C);
   }
@@ -1162,45 +1190,9 @@ public:
   void appendDeleteDtor(CXXRecordDecl *RD, CXXDeleteExpr *DE, BumpVectorContext &C) {
     Elements.push_back(CFGDeleteDtor(RD, DE), C);
   }
-
-  // Destructors must be inserted in reversed order. So insertion is in two
-  // steps. First we prepare space for some number of elements, then we insert
-  // the elements beginning at the last position in prepared space.
-  iterator beginAutomaticObjDtorsInsert(iterator I, size_t Cnt,
-      BumpVectorContext &C) {
-    return iterator(Elements.insert(I.base(), Cnt,
-                                    CFGAutomaticObjDtor(nullptr, nullptr), C));
-  }
-  iterator insertAutomaticObjDtor(iterator I, VarDecl *VD, Stmt *S) {
-    *I = CFGAutomaticObjDtor(VD, S);
-    return ++I;
-  }
-
-  // Scope leaving must be performed in reversed order. So insertion is in two
-  // steps. First we prepare space for some number of elements, then we insert
-  // the elements beginning at the last position in prepared space.
-  iterator beginLifetimeEndsInsert(iterator I, size_t Cnt,
-                                   BumpVectorContext &C) {
-    return iterator(
-        Elements.insert(I.base(), Cnt, CFGLifetimeEnds(nullptr, nullptr), C));
-  }
-  iterator insertLifetimeEnds(iterator I, VarDecl *VD, Stmt *S) {
-    *I = CFGLifetimeEnds(VD, S);
-    return ++I;
-  }
-
-  // Scope leaving must be performed in reversed order. So insertion is in two
-  // steps. First we prepare space for some number of elements, then we insert
-  // the elements beginning at the last position in prepared space.
-  iterator beginScopeEndInsert(iterator I, size_t Cnt, BumpVectorContext &C) {
-    return iterator(
-        Elements.insert(I.base(), Cnt, CFGScopeEnd(nullptr, nullptr), C));
-  }
-  iterator insertScopeEnd(iterator I, VarDecl *VD, Stmt *S) {
-    *I = CFGScopeEnd(VD, S);
-    return ++I;
-  }
 };
+
+using ConstCFGElementRef = CFGBlock::ConstCFGElementRef;
 
 /// CFGCallback defines methods that should be called when a logical
 /// operator error is found when building the CFG.
@@ -1209,6 +1201,7 @@ public:
   CFGCallback() = default;
   virtual ~CFGCallback() = default;
 
+  virtual void logicAlwaysTrue(const BinaryOperator *B, bool isAlwaysTrue) {}
   virtual void compareAlwaysTrue(const BinaryOperator *B, bool isAlwaysTrue) {}
   virtual void compareBitwiseEquality(const BinaryOperator *B,
                                       bool isAlwaysTrue) {}
@@ -1229,7 +1222,9 @@ public:
   //===--------------------------------------------------------------------===//
 
   class BuildOptions {
-    std::bitset<Stmt::lastStmtConstant> alwaysAddMask;
+    // Stmt::lastStmtConstant has the same value as the last Stmt kind,
+    // so make sure we add one to account for this!
+    std::bitset<Stmt::lastStmtConstant + 1> alwaysAddMask;
 
   public:
     using ForcedBlkExprs = llvm::DenseMap<const Stmt *, const CFGBlock *>;
@@ -1252,6 +1247,7 @@ public:
     bool MarkElidedCXXConstructors = false;
     bool AddVirtualBaseBranches = false;
     bool OmitImplicitValueInitializers = false;
+    bool AssumeReachableDefaultInSwitchStatements = false;
 
     BuildOptions() = default;
 
@@ -1337,6 +1333,7 @@ public:
   const CFGBlock * getIndirectGotoBlock() const { return IndirectGotoBlock; }
 
   using try_block_iterator = std::vector<const CFGBlock *>::const_iterator;
+  using try_block_range = llvm::iterator_range<try_block_iterator>;
 
   try_block_iterator try_blocks_begin() const {
     return TryDispatchBlocks.begin();
@@ -1344,6 +1341,10 @@ public:
 
   try_block_iterator try_blocks_end() const {
     return TryDispatchBlocks.end();
+  }
+
+  try_block_range try_blocks() const {
+    return try_block_range(try_blocks_begin(), try_blocks_end());
   }
 
   void addTryDispatchBlock(const CFGBlock *block) {
@@ -1390,11 +1391,10 @@ public:
   //===--------------------------------------------------------------------===//
 
   template <typename Callback> void VisitBlockStmts(Callback &O) const {
-    for (const_iterator I = begin(), E = end(); I != E; ++I)
-      for (CFGBlock::const_iterator BI = (*I)->begin(), BE = (*I)->end();
-           BI != BE; ++BI) {
-        if (Optional<CFGStmt> stmt = BI->getAs<CFGStmt>())
-          O(const_cast<Stmt *>(stmt->getStmt()));
+    for (CFGBlock *BB : *this)
+      for (const CFGElement &Elem : *BB) {
+        if (std::optional<CFGStmt> stmt = Elem.getAs<CFGStmt>())
+          O(stmt->getStmt());
       }
   }
 
@@ -1460,6 +1460,8 @@ private:
   llvm::DenseMap<const DeclStmt *, const DeclStmt *> SyntheticDeclStmts;
 };
 
+Expr *extractElementInitializerFromNestedAILE(const ArrayInitLoopExpr *AILE);
+
 } // namespace clang
 
 //===----------------------------------------------------------------------===//
@@ -1489,9 +1491,6 @@ template <> struct GraphTraits< ::clang::CFGBlock *> {
   static ChildIteratorType child_end(NodeRef N) { return N->succ_end(); }
 };
 
-template <> struct GraphTraits<clang::CFGBlock>
-    : GraphTraits<clang::CFGBlock *> {};
-
 template <> struct GraphTraits< const ::clang::CFGBlock *> {
   using NodeRef = const ::clang::CFGBlock *;
   using ChildIteratorType = ::clang::CFGBlock::const_succ_iterator;
@@ -1500,9 +1499,6 @@ template <> struct GraphTraits< const ::clang::CFGBlock *> {
   static ChildIteratorType child_begin(NodeRef N) { return N->succ_begin(); }
   static ChildIteratorType child_end(NodeRef N) { return N->succ_end(); }
 };
-
-template <> struct GraphTraits<const clang::CFGBlock>
-    : GraphTraits<clang::CFGBlock *> {};
 
 template <> struct GraphTraits<Inverse< ::clang::CFGBlock *>> {
   using NodeRef = ::clang::CFGBlock *;
@@ -1516,9 +1512,6 @@ template <> struct GraphTraits<Inverse< ::clang::CFGBlock *>> {
   static ChildIteratorType child_end(NodeRef N) { return N->pred_end(); }
 };
 
-template <> struct GraphTraits<Inverse<clang::CFGBlock>>
-    : GraphTraits<clang::CFGBlock *> {};
-
 template <> struct GraphTraits<Inverse<const ::clang::CFGBlock *>> {
   using NodeRef = const ::clang::CFGBlock *;
   using ChildIteratorType = ::clang::CFGBlock::const_pred_iterator;
@@ -1530,9 +1523,6 @@ template <> struct GraphTraits<Inverse<const ::clang::CFGBlock *>> {
   static ChildIteratorType child_begin(NodeRef N) { return N->pred_begin(); }
   static ChildIteratorType child_end(NodeRef N) { return N->pred_end(); }
 };
-
-template <> struct GraphTraits<const Inverse<clang::CFGBlock>>
-    : GraphTraits<clang::CFGBlock *> {};
 
 // Traits for: CFG
 

@@ -14,6 +14,8 @@
 #ifndef LLVM_TRANSFORMS_UTILS_H
 #define LLVM_TRANSFORMS_UTILS_H
 
+#include "llvm/Support/Compiler.h"
+
 namespace llvm {
 
 class ModulePass;
@@ -21,41 +23,29 @@ class FunctionPass;
 class Pass;
 
 //===----------------------------------------------------------------------===//
-// createMetaRenamerPass - Rename everything with metasyntatic names.
-//
-ModulePass *createMetaRenamerPass();
-
-//===----------------------------------------------------------------------===//
 //
 // LowerInvoke - This pass removes invoke instructions, converting them to call
 // instructions.
 //
-FunctionPass *createLowerInvokePass();
-extern char &LowerInvokePassID;
-
-//===----------------------------------------------------------------------===//
-//
-// InstructionNamer - Give any unnamed non-void instructions "tmp" names.
-//
-FunctionPass *createInstructionNamerPass();
-extern char &InstructionNamerID;
+LLVM_ABI FunctionPass *createLowerInvokePass();
+LLVM_ABI extern char &LowerInvokePassID;
 
 //===----------------------------------------------------------------------===//
 //
 // LowerSwitch - This pass converts SwitchInst instructions into a sequence of
 // chained binary branch instructions.
 //
-FunctionPass *createLowerSwitchPass();
-extern char &LowerSwitchID;
+LLVM_ABI FunctionPass *createLowerSwitchPass();
+LLVM_ABI extern char &LowerSwitchID;
 
 //===----------------------------------------------------------------------===//
 //
 // EntryExitInstrumenter pass - Instrument function entry/exit with calls to
 // mcount(), @__cyg_profile_func_{enter,exit} and the like. There are two
-// variants, intended to run pre- and post-inlining, respectively.
+// variants, intended to run pre- and post-inlining, respectively. Only the
+// post-inlining variant is used with the legacy pass manager.
 //
-FunctionPass *createEntryExitInstrumenterPass();
-FunctionPass *createPostInlineEntryExitInstrumenterPass();
+LLVM_ABI FunctionPass *createPostInlineEntryExitInstrumenterPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -68,21 +58,16 @@ FunctionPass *createPostInlineEntryExitInstrumenterPass();
 // This pass obviously invalidates the CFG, but can update forward dominator
 // (set, immediate dominators, tree, and frontier) information.
 //
-FunctionPass *createBreakCriticalEdgesPass();
-extern char &BreakCriticalEdgesID;
+LLVM_ABI FunctionPass *createBreakCriticalEdgesPass();
+LLVM_ABI extern char &BreakCriticalEdgesID;
 
 //===----------------------------------------------------------------------===//
 //
 // LCSSA - This pass inserts phi nodes at loop boundaries to simplify other loop
 // optimizations.
 //
-Pass *createLCSSAPass();
-extern char &LCSSAID;
-
-//===----------------------------------------------------------------------===//
-//
-// AddDiscriminators - Add DWARF path discriminators to the IR.
-FunctionPass *createAddDiscriminatorsPass();
+LLVM_ABI Pass *createLCSSAPass();
+LLVM_ABI extern char &LCSSAID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -96,7 +81,15 @@ FunctionPass *createAddDiscriminatorsPass();
 //   %Y = load i32* %X
 //   ret i32 %Y
 //
-FunctionPass *createPromoteMemoryToRegisterPass();
+LLVM_ABI FunctionPass *createPromoteMemoryToRegisterPass();
+
+//===----------------------------------------------------------------------===//
+//
+// RegToMemWrapperPass - This pass is used to demote registers to memory
+// references. In basically undoes the PromoteMemoryToRegister pass to make cfg
+// hacking easier.
+//
+LLVM_ABI FunctionPass *createRegToMemWrapperPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -106,26 +99,8 @@ FunctionPass *createPromoteMemoryToRegisterPass();
 //
 //   AU.addRequiredID(LoopSimplifyID);
 //
-Pass *createLoopSimplifyPass();
-extern char &LoopSimplifyID;
-
-/// This function returns a new pass that downgrades the debug info in the
-/// module to line tables only.
-ModulePass *createStripNonLineTableDebugLegacyPass();
-
-//===----------------------------------------------------------------------===//
-//
-// ControlHeightReudction - Merges conditional blocks of code and reduces the
-// number of conditional branches in the hot paths based on profiles.
-//
-FunctionPass *createControlHeightReductionLegacyPass();
-
-//===----------------------------------------------------------------------===//
-//
-// InjectTLIMappingsLegacy - populates the VFABI attribute with the
-// scalar-to-vector mappings from the TargetLibraryInfo.
-//
-FunctionPass *createInjectTLIMappingsLegacyPass();
+LLVM_ABI Pass *createLoopSimplifyPass();
+LLVM_ABI extern char &LoopSimplifyID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -133,28 +108,27 @@ FunctionPass *createInjectTLIMappingsLegacyPass();
 // blocks branch to N, and then N distributes control flow to all the original
 // exit blocks.
 //
-FunctionPass *createUnifyLoopExitsPass();
+LLVM_ABI FunctionPass *createUnifyLoopExitsPass();
 
 //===----------------------------------------------------------------------===//
 //
 // FixIrreducible - Convert each SCC with irreducible control-flow
 // into a natural loop.
 //
-FunctionPass *createFixIrreduciblePass();
-
-//===----------------------------------------------------------------------===//
-//
-// AssumeSimplify - remove redundant assumes and merge assumes in the same
-// BasicBlock when possible.
-//
-FunctionPass *createAssumeSimplifyPass();
+LLVM_ABI FunctionPass *createFixIrreduciblePass();
 
 //===----------------------------------------------------------------------===//
 //
 // CanonicalizeFreezeInLoops - Canonicalize freeze instructions in loops so they
 // don't block SCEV.
 //
-Pass *createCanonicalizeFreezeInLoopsPass();
+LLVM_ABI Pass *createCanonicalizeFreezeInLoopsPass();
+
+//===----------------------------------------------------------------------===//
+// LowerGlobalDtorsLegacy - Lower @llvm.global_dtors by creating wrapper
+// functions that are registered in @llvm.global_ctors and which contain a call
+// to `__cxa_atexit` to register their destructor functions.
+LLVM_ABI ModulePass *createLowerGlobalDtorsLegacyPass();
 } // namespace llvm
 
 #endif

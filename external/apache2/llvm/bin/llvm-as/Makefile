@@ -22,6 +22,23 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	FrontendHLSL \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	DebugInfoDWARF \
+	IRReader \
+	BitReader \
+	BitstreamReader \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

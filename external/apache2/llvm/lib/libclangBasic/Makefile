@@ -5,34 +5,67 @@ LIB=	clangBasic
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Basic
+.PATH: ${CLANG_SRCDIR}/lib/Basic/Targets
 
-SRCS+=	Attributes.cpp \
+SRCS+=	AArch64.cpp \
+	AMDGPU.cpp \
+	ARC.cpp \
+	ARM.cpp \
+	ASTSourceDescriptor.cpp \
+	AVR.cpp \
+	Attributes.cpp \
+	BPF.cpp \
 	Builtins.cpp \
+	CLWarnings.cpp \
+	CSKY.cpp \
 	CharInfo.cpp \
 	CodeGenOptions.cpp \
 	Cuda.cpp \
+	DarwinSDKInfo.cpp \
 	Diagnostic.cpp \
 	DiagnosticIDs.cpp \
 	DiagnosticOptions.cpp \
+	DirectX.cpp \
 	ExpressionTraits.cpp \
 	FileEntry.cpp \
 	FileManager.cpp \
 	FileSystemStatCache.cpp \
+	Hexagon.cpp \
 	IdentifierTable.cpp \
+	Lanai.cpp \
 	LangOptions.cpp \
 	LangStandards.cpp \
+	LoongArch.cpp \
+	M68k.cpp \
+	MSP430.cpp \
+	MakeSupport.cpp \
+	Mips.cpp \
 	Module.cpp \
+	NVPTX.cpp \
 	NoSanitizeList.cpp \
+	OSTargets.cpp \
 	ObjCRuntime.cpp \
+	OffloadArch.cpp \
 	OpenCLOptions.cpp \
 	OpenMPKinds.cpp \
 	OperatorPrecedence.cpp \
+	PPC.cpp \
+	ParsedAttrInfo.cpp \
 	ProfileList.cpp \
-	Sanitizers.cpp \
+	RISCV.cpp \
+	SPIR.cpp \
 	SanitizerSpecialCaseList.cpp \
+	Sanitizers.cpp \
+	Sarif.cpp \
+	SimpleTypoCorrection.cpp \
 	SourceLocation.cpp \
 	SourceManager.cpp \
+	SourceMgrAdapter.cpp \
+	Sparc.cpp \
 	Stack.cpp \
+	StackExhaustionHandler.cpp \
+	SystemZ.cpp \
+	TCE.cpp \
 	TargetID.cpp \
 	TargetInfo.cpp \
 	Targets.cpp \
@@ -41,35 +74,14 @@ SRCS+=	Attributes.cpp \
 	VE.cpp \
 	Version.cpp \
 	Warnings.cpp \
-	XRayInstr.cpp \
-	XRayLists.cpp
-
-.PATH: ${CLANG_SRCDIR}/lib/Basic/Targets
-
-SRCS+=	AArch64.cpp \
-	AMDGPU.cpp \
-	ARC.cpp \
-	ARM.cpp \
-	AVR.cpp \
-	BPF.cpp \
-	Hexagon.cpp \
-	Lanai.cpp \
-	Le64.cpp \
-	M68k.cpp \
-	MSP430.cpp \
-	Mips.cpp \
-	NVPTX.cpp \
-	OSTargets.cpp \
-	PNaCl.cpp \
-	PPC.cpp \
-	RISCV.cpp \
-	SPIR.cpp \
-	Sparc.cpp \
-	SystemZ.cpp \
-	TCE.cpp \
 	WebAssembly.cpp \
 	X86.cpp \
-	XCore.cpp
+	XCore.cpp \
+	XRayInstr.cpp \
+	XRayLists.cpp \
+	Xtensa.cpp
+
+
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Basic -I.
 

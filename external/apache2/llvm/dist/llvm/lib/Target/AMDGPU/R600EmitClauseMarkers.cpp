@@ -13,18 +13,13 @@
 /// initiated by CF_ALU instructions.
 //===----------------------------------------------------------------------===//
 
-#include "AMDGPU.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "MCTargetDesc/R600MCTargetDesc.h"
+#include "R600.h"
 #include "R600Defines.h"
 #include "R600Subtarget.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 
 using namespace llvm;
-
-namespace llvm {
-
-  void initializeR600EmitClauseMarkersPass(PassRegistry&);
-
-} // end namespace llvm
 
 namespace {
 
@@ -123,29 +118,28 @@ private:
     assert(
         (TII->isALUInstr(MI.getOpcode()) || MI.getOpcode() == R600::DOT_4) &&
         "Can't assign Const");
-    for (unsigned i = 0, n = Consts.size(); i < n; ++i) {
-      if (Consts[i].first->getReg() != R600::ALU_CONST)
+    for (auto &[Op, Sel] : Consts) {
+      if (Op->getReg() != R600::ALU_CONST)
         continue;
-      unsigned Sel = Consts[i].second;
       unsigned Chan = Sel & 3, Index = ((Sel >> 2) - 512) & 31;
       unsigned KCacheIndex = Index * 4 + Chan;
       const std::pair<unsigned, unsigned> &BankLine = getAccessedBankLine(Sel);
       if (CachedConsts.empty()) {
         CachedConsts.push_back(BankLine);
-        UsedKCache.push_back(std::pair<unsigned, unsigned>(0, KCacheIndex));
+        UsedKCache.emplace_back(0, KCacheIndex);
         continue;
       }
       if (CachedConsts[0] == BankLine) {
-        UsedKCache.push_back(std::pair<unsigned, unsigned>(0, KCacheIndex));
+        UsedKCache.emplace_back(0, KCacheIndex);
         continue;
       }
       if (CachedConsts.size() == 1) {
         CachedConsts.push_back(BankLine);
-        UsedKCache.push_back(std::pair<unsigned, unsigned>(1, KCacheIndex));
+        UsedKCache.emplace_back(1, KCacheIndex);
         continue;
       }
       if (CachedConsts[1] == BankLine) {
-        UsedKCache.push_back(std::pair<unsigned, unsigned>(1, KCacheIndex));
+        UsedKCache.emplace_back(1, KCacheIndex);
         continue;
       }
       return false;
@@ -154,17 +148,16 @@ private:
     if (!UpdateInstr)
       return true;
 
-    for (unsigned i = 0, j = 0, n = Consts.size(); i < n; ++i) {
-      if (Consts[i].first->getReg() != R600::ALU_CONST)
+    unsigned j = 0;
+    for (auto &[Op, Sel] : Consts) {
+      if (Op->getReg() != R600::ALU_CONST)
         continue;
-      switch(UsedKCache[j].first) {
+      switch (UsedKCache[j].first) {
       case 0:
-        Consts[i].first->setReg(
-            R600::R600_KC0RegClass.getRegister(UsedKCache[j].second));
+        Op->setReg(R600::R600_KC0RegClass.getRegister(UsedKCache[j].second));
         break;
       case 1:
-        Consts[i].first->setReg(
-            R600::R600_KC1RegClass.getRegister(UsedKCache[j].second));
+        Op->setReg(R600::R600_KC1RegClass.getRegister(UsedKCache[j].second));
         break;
       default:
         llvm_unreachable("Wrong Cache Line");
@@ -181,11 +174,8 @@ private:
                         MachineBasicBlock::iterator BBEnd) {
     const R600RegisterInfo &TRI = TII->getRegisterInfo();
     //TODO: change this to defs?
-    for (MachineInstr::const_mop_iterator
-           MOI = Def->operands_begin(),
-           MOE = Def->operands_end(); MOI != MOE; ++MOI) {
-      if (!MOI->isReg() || !MOI->isDef() ||
-          TRI.isPhysRegLiveAcrossClauses(MOI->getReg()))
+    for (MachineOperand &MO : Def->all_defs()) {
+      if (TRI.isPhysRegLiveAcrossClauses(MO.getReg()))
         continue;
 
       // Def defines a clause local register, so check that its use will fit
@@ -209,11 +199,11 @@ private:
         // occur in the same basic block as its definition, because
         // it is illegal for the scheduler to schedule them in
         // different blocks.
-        if (UseI->readsRegister(MOI->getReg(), &TRI))
+        if (UseI->readsRegister(MO.getReg(), &TRI))
           LastUseCount = AluInstCount;
 
         // Exit early if the current use kills the register
-        if (UseI != Def && UseI->killsRegister(MOI->getReg(), &TRI))
+        if (UseI != Def && UseI->killsRegister(MO.getReg(), &TRI))
           break;
       }
       if (LastUseCount)
@@ -293,17 +283,13 @@ private:
 public:
   static char ID;
 
-  R600EmitClauseMarkers() : MachineFunctionPass(ID) {
-    initializeR600EmitClauseMarkersPass(*PassRegistry::getPassRegistry());
-  }
+  R600EmitClauseMarkers() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override {
     const R600Subtarget &ST = MF.getSubtarget<R600Subtarget>();
     TII = ST.getInstrInfo();
 
-    for (MachineFunction::iterator BB = MF.begin(), BB_E = MF.end();
-                                                    BB != BB_E; ++BB) {
-      MachineBasicBlock &MBB = *BB;
+    for (MachineBasicBlock &MBB : MF) {
       MachineBasicBlock::iterator I = MBB.begin();
       if (I != MBB.end() && I->getOpcode() == R600::CF_ALU)
         continue; // BB was already parsed
@@ -329,9 +315,9 @@ char R600EmitClauseMarkers::ID = 0;
 } // end anonymous namespace
 
 INITIALIZE_PASS_BEGIN(R600EmitClauseMarkers, "emitclausemarkers",
-                      "R600 Emit Clause Markters", false, false)
+                      "R600 Emit Clause Markers", false, false)
 INITIALIZE_PASS_END(R600EmitClauseMarkers, "emitclausemarkers",
-                      "R600 Emit Clause Markters", false, false)
+                    "R600 Emit Clause Markers", false, false)
 
 FunctionPass *llvm::createR600EmitClauseMarkers() {
   return new R600EmitClauseMarkers();

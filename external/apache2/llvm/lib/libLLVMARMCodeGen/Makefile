@@ -14,30 +14,33 @@ SRCS+=	A15SDOptimizer.cpp \
 	ARMBaseRegisterInfo.cpp \
 	ARMBasicBlockInfo.cpp \
 	ARMBlockPlacement.cpp \
-	ARMCallingConv.cpp \
+	ARMBranchTargets.cpp \
 	ARMCallLowering.cpp \
+	ARMCallingConv.cpp \
 	ARMConstantIslandPass.cpp \
 	ARMConstantPoolValue.cpp \
 	ARMExpandPseudoInsts.cpp \
 	ARMFastISel.cpp \
+	ARMFixCortexA57AES1742098Pass.cpp \
 	ARMFrameLowering.cpp \
 	ARMHazardRecognizer.cpp \
-	ARMInstrInfo.cpp \
-	ARMInstructionSelector.cpp \
 	ARMISelDAGToDAG.cpp \
 	ARMISelLowering.cpp \
+	ARMInstrInfo.cpp \
+	ARMInstructionSelector.cpp \
+	ARMLatencyMutations.cpp \
 	ARMLegalizerInfo.cpp \
 	ARMLoadStoreOptimizer.cpp \
 	ARMLowOverheadLoops.cpp \
+	ARMMCInstLower.cpp \
 	ARMMachineFunctionInfo.cpp \
 	ARMMacroFusion.cpp \
-	ARMMCInstLower.cpp \
 	ARMOptimizeBarriersPass.cpp \
 	ARMParallelDSP.cpp \
 	ARMRegisterBankInfo.cpp \
 	ARMRegisterInfo.cpp \
-	ARMSelectionDAGInfo.cpp \
 	ARMSLSHardening.cpp \
+	ARMSelectionDAGInfo.cpp \
 	ARMSubtarget.cpp \
 	ARMTargetMachine.cpp \
 	ARMTargetObjectFile.cpp \
@@ -45,19 +48,20 @@ SRCS+=	A15SDOptimizer.cpp \
 	MLxExpansionPass.cpp \
 	MVEGatherScatterLowering.cpp \
 	MVELaneInterleavingPass.cpp \
-	MVETailPredication.cpp \
 	MVETPAndVPTOptimisationsPass.cpp \
+	MVETailPredication.cpp \
 	MVEVPTBlockPass.cpp \
 	Thumb1FrameLowering.cpp \
 	Thumb1InstrInfo.cpp \
-	Thumb2InstrInfo.cpp \
 	Thumb2ITBlockPass.cpp \
+	Thumb2InstrInfo.cpp \
 	Thumb2SizeReduction.cpp \
 	ThumbRegisterInfo.cpp
 
 TABLEGEN_SRC=		ARM.td
 TABLEGEN_INCLUDES=	-I${LLVM_SRCDIR}/lib/Target/ARM
 TABLEGEN_OUTPUT= \
+	ARMGenSDNodeInfo.inc|-gen-sd-node-info \
 	ARMGenAsmMatcher.inc|-gen-asm-matcher \
 	ARMGenAsmWriter.inc|-gen-asm-writer \
 	ARMGenCallingConv.inc|-gen-callingconv \

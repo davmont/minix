@@ -22,26 +22,21 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/LiteralSupport.h"
 #include "clang/Tooling/Syntax/Nodes.h"
+#include "clang/Tooling/Syntax/TokenBufferTokenManager.h"
 #include "clang/Tooling/Syntax/Tokens.h"
 #include "clang/Tooling/Syntax/Tree.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
 #include <map>
 
 using namespace clang;
@@ -82,8 +77,10 @@ static Expr *IgnoreImplicit(Expr *E) {
                          IgnoreCXXFunctionalCastExprWrappingConstructor);
 }
 
-LLVM_ATTRIBUTE_UNUSED
-static bool isImplicitExpr(Expr *E) { return IgnoreImplicit(E) != E; }
+[[maybe_unused]]
+static bool isImplicitExpr(Expr *E) {
+  return IgnoreImplicit(E) != E;
+}
 
 namespace {
 /// Get start location of the Declarator from the TypeLoc.
@@ -155,9 +152,8 @@ private:
 } // namespace
 
 static CallExpr::arg_range dropDefaultArgs(CallExpr::arg_range Args) {
-  auto FirstDefaultArg = std::find_if(Args.begin(), Args.end(), [](auto It) {
-    return isa<CXXDefaultArgExpr>(It);
-  });
+  auto FirstDefaultArg =
+      llvm::find_if(Args, [](auto It) { return isa<CXXDefaultArgExpr>(It); });
   return llvm::make_range(Args.begin(), FirstDefaultArg);
 }
 
@@ -366,21 +362,24 @@ private:
 /// Call finalize() to finish building the tree and consume the root node.
 class syntax::TreeBuilder {
 public:
-  TreeBuilder(syntax::Arena &Arena) : Arena(Arena), Pending(Arena) {
-    for (const auto &T : Arena.getTokenBuffer().expandedTokens())
+  TreeBuilder(syntax::Arena &Arena, TokenBufferTokenManager& TBTM)
+      : Arena(Arena),
+        TBTM(TBTM),
+        Pending(Arena, TBTM.tokenBuffer()) {
+    for (const auto &T : TBTM.tokenBuffer().expandedTokens())
       LocationToToken.insert({T.location(), &T});
   }
 
   llvm::BumpPtrAllocator &allocator() { return Arena.getAllocator(); }
   const SourceManager &sourceManager() const {
-    return Arena.getSourceManager();
+    return TBTM.sourceManager();
   }
 
   /// Populate children for \p New node, assuming it covers tokens from \p
   /// Range.
   void foldNode(ArrayRef<syntax::Token> Range, syntax::Tree *New, ASTPtr From) {
     assert(New);
-    Pending.foldChildren(Arena, Range, New);
+    Pending.foldChildren(TBTM.tokenBuffer(), Range, New);
     if (From)
       Mapping.add(From, New);
   }
@@ -393,7 +392,7 @@ public:
   void foldNode(llvm::ArrayRef<syntax::Token> Range, syntax::Tree *New,
                 NestedNameSpecifierLoc From) {
     assert(New);
-    Pending.foldChildren(Arena, Range, New);
+    Pending.foldChildren(TBTM.tokenBuffer(), Range, New);
     if (From)
       Mapping.add(From, New);
   }
@@ -404,7 +403,7 @@ public:
                 ASTPtr From) {
     assert(New);
     auto ListRange = Pending.shrinkToFitList(SuperRange);
-    Pending.foldChildren(Arena, ListRange, New);
+    Pending.foldChildren(TBTM.tokenBuffer(), ListRange, New);
     if (From)
       Mapping.add(From, New);
   }
@@ -435,12 +434,12 @@ public:
 
   /// Finish building the tree and consume the root node.
   syntax::TranslationUnit *finalize() && {
-    auto Tokens = Arena.getTokenBuffer().expandedTokens();
+    auto Tokens = TBTM.tokenBuffer().expandedTokens();
     assert(!Tokens.empty());
     assert(Tokens.back().kind() == tok::eof);
 
     // Build the root of the tree, consuming all the children.
-    Pending.foldChildren(Arena, Tokens.drop_back(),
+    Pending.foldChildren(TBTM.tokenBuffer(), Tokens.drop_back(),
                          new (Arena.getAllocator()) syntax::TranslationUnit);
 
     auto *TU = cast<syntax::TranslationUnit>(std::move(Pending).finalize());
@@ -465,8 +464,8 @@ public:
     assert(First.isValid());
     assert(Last.isValid());
     assert(First == Last ||
-           Arena.getSourceManager().isBeforeInTranslationUnit(First, Last));
-    return llvm::makeArrayRef(findToken(First), std::next(findToken(Last)));
+           TBTM.sourceManager().isBeforeInTranslationUnit(First, Last));
+    return llvm::ArrayRef(findToken(First), std::next(findToken(Last)));
   }
 
   ArrayRef<syntax::Token>
@@ -549,7 +548,7 @@ private:
     assert(Tokens.back().kind() != tok::eof);
     // We never consume 'eof', so looking at the next token is ok.
     if (Tokens.back().kind() != tok::semi && Tokens.end()->kind() == tok::semi)
-      return llvm::makeArrayRef(Tokens.begin(), Tokens.end() + 1);
+      return llvm::ArrayRef(Tokens.begin(), Tokens.end() + 1);
     return Tokens;
   }
 
@@ -565,15 +564,16 @@ private:
   ///
   /// Ensures that added nodes properly nest and cover the whole token stream.
   struct Forest {
-    Forest(syntax::Arena &A) {
-      assert(!A.getTokenBuffer().expandedTokens().empty());
-      assert(A.getTokenBuffer().expandedTokens().back().kind() == tok::eof);
+    Forest(syntax::Arena &A, const syntax::TokenBuffer &TB) {
+      assert(!TB.expandedTokens().empty());
+      assert(TB.expandedTokens().back().kind() == tok::eof);
       // Create all leaf nodes.
       // Note that we do not have 'eof' in the tree.
-      for (const auto &T : A.getTokenBuffer().expandedTokens().drop_back()) {
-        auto *L = new (A.getAllocator()) syntax::Leaf(&T);
+      for (const auto &T : TB.expandedTokens().drop_back()) {
+        auto *L = new (A.getAllocator())
+            syntax::Leaf(reinterpret_cast<TokenManager::Key>(&T));
         L->Original = true;
-        L->CanModify = A.getTokenBuffer().spelledForExpanded(T).hasValue();
+        L->CanModify = TB.spelledForExpanded(T).has_value();
         Trees.insert(Trees.end(), {&T, L});
       }
     }
@@ -621,8 +621,8 @@ private:
     }
 
     /// Add \p Node to the forest and attach child nodes based on \p Tokens.
-    void foldChildren(const syntax::Arena &A, ArrayRef<syntax::Token> Tokens,
-                      syntax::Tree *Node) {
+    void foldChildren(const syntax::TokenBuffer &TB,
+                      ArrayRef<syntax::Token> Tokens, syntax::Tree *Node) {
       // Attach children to `Node`.
       assert(Node->getFirstChild() == nullptr && "node already has children");
 
@@ -647,7 +647,7 @@ private:
       // Mark that this node came from the AST and is backed by the source code.
       Node->Original = true;
       Node->CanModify =
-          A.getTokenBuffer().spelledForExpanded(Tokens).hasValue();
+          TB.spelledForExpanded(Tokens).has_value();
 
       Trees.erase(BeginChildren, EndChildren);
       Trees.insert({FirstToken, Node});
@@ -661,18 +661,18 @@ private:
       return Root;
     }
 
-    std::string str(const syntax::Arena &A) const {
+    std::string str(const syntax::TokenBufferTokenManager &STM) const {
       std::string R;
       for (auto It = Trees.begin(); It != Trees.end(); ++It) {
         unsigned CoveredTokens =
             It != Trees.end()
                 ? (std::next(It)->first - It->first)
-                : A.getTokenBuffer().expandedTokens().end() - It->first;
+                : STM.tokenBuffer().expandedTokens().end() - It->first;
 
         R += std::string(
             formatv("- '{0}' covers '{1}'+{2} tokens\n", It->second->getKind(),
-                    It->first->text(A.getSourceManager()), CoveredTokens));
-        R += It->second->dump(A.getSourceManager());
+                    It->first->text(STM.sourceManager()), CoveredTokens));
+        R += It->second->dump(STM);
       }
       return R;
     }
@@ -685,9 +685,10 @@ private:
   };
 
   /// For debugging purposes.
-  std::string str() { return Pending.str(Arena); }
+  std::string str() { return Pending.str(TBTM); }
 
   syntax::Arena &Arena;
+  TokenBufferTokenManager& TBTM;
   /// To quickly find tokens by their start location.
   llvm::DenseMap<SourceLocation, const syntax::Token *> LocationToToken;
   Forest Pending;
@@ -730,7 +731,8 @@ public:
     auto *Declaration =
         cast<syntax::SimpleDeclaration>(handleFreeStandingTagDecl(C));
     foldExplicitTemplateInstantiation(
-        Builder.getTemplateRange(C), Builder.findToken(C->getExternLoc()),
+        Builder.getTemplateRange(C),
+        Builder.findToken(C->getExternKeywordLoc()),
         Builder.findToken(C->getTemplateKeywordLoc()), Declaration, C);
     return true;
   }
@@ -763,7 +765,7 @@ public:
     // Build TemplateDeclaration nodes if we had template parameters.
     auto ConsumeTemplateParameters = [&](const TemplateParameterList &L) {
       const auto *TemplateKW = Builder.findToken(L.getTemplateLoc());
-      auto R = llvm::makeArrayRef(TemplateKW, DeclarationRange.end());
+      auto R = llvm::ArrayRef(TemplateKW, DeclarationRange.end());
       Result =
           foldTemplateDeclaration(R, TemplateKW, DeclarationRange, nullptr);
       DeclarationRange = R;
@@ -918,100 +920,84 @@ public:
     return true;
   }
 
-  // FIXME: Fix `NestedNameSpecifierLoc::getLocalSourceRange` for the
-  // `DependentTemplateSpecializationType` case.
-  /// Given a nested-name-specifier return the range for the last name
-  /// specifier.
-  ///
-  /// e.g. `std::T::template X<U>::` => `template X<U>::`
-  SourceRange getLocalSourceRange(const NestedNameSpecifierLoc &NNSLoc) {
-    auto SR = NNSLoc.getLocalSourceRange();
-
-    // The method `NestedNameSpecifierLoc::getLocalSourceRange` *should*
-    // return the desired `SourceRange`, but there is a corner case. For a
-    // `DependentTemplateSpecializationType` this method returns its
-    // qualifiers as well, in other words in the example above this method
-    // returns `T::template X<U>::` instead of only `template X<U>::`
-    if (auto TL = NNSLoc.getTypeLoc()) {
-      if (auto DependentTL =
-              TL.getAs<DependentTemplateSpecializationTypeLoc>()) {
-        // The 'template' keyword is always present in dependent template
-        // specializations. Except in the case of incorrect code
-        // TODO: Treat the case of incorrect code.
-        SR.setBegin(DependentTL.getTemplateKeywordLoc());
-      }
-    }
-
-    return SR;
+  syntax::NameSpecifier *buildIdentifier(SourceRange SR,
+                                         bool DropBack = false) {
+    auto NameSpecifierTokens = Builder.getRange(SR).drop_back(DropBack);
+    assert(NameSpecifierTokens.size() == 1);
+    Builder.markChildToken(NameSpecifierTokens.begin(),
+                           syntax::NodeRole::Unknown);
+    auto *NS = new (allocator()) syntax::IdentifierNameSpecifier;
+    Builder.foldNode(NameSpecifierTokens, NS, nullptr);
+    return NS;
   }
 
-  syntax::NodeKind getNameSpecifierKind(const NestedNameSpecifier &NNS) {
-    switch (NNS.getKind()) {
-    case NestedNameSpecifier::Global:
-      return syntax::NodeKind::GlobalNameSpecifier;
-    case NestedNameSpecifier::Namespace:
-    case NestedNameSpecifier::NamespaceAlias:
-    case NestedNameSpecifier::Identifier:
-      return syntax::NodeKind::IdentifierNameSpecifier;
-    case NestedNameSpecifier::TypeSpecWithTemplate:
-      return syntax::NodeKind::SimpleTemplateNameSpecifier;
-    case NestedNameSpecifier::TypeSpec: {
-      const auto *NNSType = NNS.getAsType();
-      assert(NNSType);
-      if (isa<DecltypeType>(NNSType))
-        return syntax::NodeKind::DecltypeNameSpecifier;
-      if (isa<TemplateSpecializationType, DependentTemplateSpecializationType>(
-              NNSType))
-        return syntax::NodeKind::SimpleTemplateNameSpecifier;
-      return syntax::NodeKind::IdentifierNameSpecifier;
-    }
-    default:
-      // FIXME: Support Microsoft's __super
-      llvm::report_fatal_error("We don't yet support the __super specifier",
-                               true);
-    }
+  syntax::NameSpecifier *buildSimpleTemplateName(SourceRange SR) {
+    auto NameSpecifierTokens = Builder.getRange(SR);
+    // TODO: Build `SimpleTemplateNameSpecifier` children and implement
+    // accessors to them.
+    // Be aware, we cannot do that simply by calling `TraverseTypeLoc`,
+    // some `TypeLoc`s have inside them the previous name specifier and
+    // we want to treat them independently.
+    auto *NS = new (allocator()) syntax::SimpleTemplateNameSpecifier;
+    Builder.foldNode(NameSpecifierTokens, NS, nullptr);
+    return NS;
   }
 
   syntax::NameSpecifier *
   buildNameSpecifier(const NestedNameSpecifierLoc &NNSLoc) {
     assert(NNSLoc.hasQualifier());
-    auto NameSpecifierTokens =
-        Builder.getRange(getLocalSourceRange(NNSLoc)).drop_back();
-    switch (getNameSpecifierKind(*NNSLoc.getNestedNameSpecifier())) {
-    case syntax::NodeKind::GlobalNameSpecifier:
+    switch (NNSLoc.getNestedNameSpecifier().getKind()) {
+    case NestedNameSpecifier::Kind::Global:
       return new (allocator()) syntax::GlobalNameSpecifier;
-    case syntax::NodeKind::IdentifierNameSpecifier: {
-      assert(NameSpecifierTokens.size() == 1);
-      Builder.markChildToken(NameSpecifierTokens.begin(),
-                             syntax::NodeRole::Unknown);
-      auto *NS = new (allocator()) syntax::IdentifierNameSpecifier;
-      Builder.foldNode(NameSpecifierTokens, NS, nullptr);
-      return NS;
-    }
-    case syntax::NodeKind::SimpleTemplateNameSpecifier: {
-      // TODO: Build `SimpleTemplateNameSpecifier` children and implement
-      // accessors to them.
-      // Be aware, we cannot do that simply by calling `TraverseTypeLoc`,
-      // some `TypeLoc`s have inside them the previous name specifier and
-      // we want to treat them independently.
-      auto *NS = new (allocator()) syntax::SimpleTemplateNameSpecifier;
-      Builder.foldNode(NameSpecifierTokens, NS, nullptr);
-      return NS;
-    }
-    case syntax::NodeKind::DecltypeNameSpecifier: {
-      const auto TL = NNSLoc.getTypeLoc().castAs<DecltypeTypeLoc>();
-      if (!RecursiveASTVisitor::TraverseDecltypeTypeLoc(TL))
-        return nullptr;
-      auto *NS = new (allocator()) syntax::DecltypeNameSpecifier;
-      // TODO: Implement accessor to `DecltypeNameSpecifier` inner
-      // `DecltypeTypeLoc`.
-      // For that add mapping from `TypeLoc` to `syntax::Node*` then:
-      // Builder.markChild(TypeLoc, syntax::NodeRole);
-      Builder.foldNode(NameSpecifierTokens, NS, nullptr);
-      return NS;
+
+    case NestedNameSpecifier::Kind::Namespace:
+      return buildIdentifier(NNSLoc.getLocalSourceRange(), /*DropBack=*/true);
+
+    case NestedNameSpecifier::Kind::Type: {
+      TypeLoc TL = NNSLoc.castAsTypeLoc();
+      switch (TL.getTypeLocClass()) {
+      case TypeLoc::Record:
+      case TypeLoc::InjectedClassName:
+      case TypeLoc::Enum:
+        return buildIdentifier(TL.castAs<TagTypeLoc>().getNameLoc());
+      case TypeLoc::Typedef:
+        return buildIdentifier(TL.castAs<TypedefTypeLoc>().getNameLoc());
+      case TypeLoc::UnresolvedUsing:
+        return buildIdentifier(
+            TL.castAs<UnresolvedUsingTypeLoc>().getNameLoc());
+      case TypeLoc::Using:
+        return buildIdentifier(TL.castAs<UsingTypeLoc>().getNameLoc());
+      case TypeLoc::DependentName:
+        return buildIdentifier(TL.castAs<DependentNameTypeLoc>().getNameLoc());
+      case TypeLoc::TemplateSpecialization: {
+        auto TST = TL.castAs<TemplateSpecializationTypeLoc>();
+        SourceLocation BeginLoc = TST.getTemplateKeywordLoc();
+        if (BeginLoc.isInvalid())
+          BeginLoc = TST.getTemplateNameLoc();
+        return buildSimpleTemplateName({BeginLoc, TST.getEndLoc()});
+      }
+      case TypeLoc::Decltype: {
+        const auto DTL = TL.castAs<DecltypeTypeLoc>();
+        if (!RecursiveASTVisitor::TraverseDecltypeTypeLoc(
+                DTL, /*TraverseQualifier=*/true))
+          return nullptr;
+        auto *NS = new (allocator()) syntax::DecltypeNameSpecifier;
+        // TODO: Implement accessor to `DecltypeNameSpecifier` inner
+        // `DecltypeTypeLoc`.
+        // For that add mapping from `TypeLoc` to `syntax::Node*` then:
+        // Builder.markChild(TypeLoc, syntax::NodeRole);
+        Builder.foldNode(Builder.getRange(DTL.getLocalSourceRange()), NS,
+                         nullptr);
+        return NS;
+      }
+      default:
+        return buildIdentifier(TL.getLocalSourceRange());
+      }
     }
     default:
-      llvm_unreachable("getChildKind() does not return this value");
+      // FIXME: Support Microsoft's __super
+      llvm::report_fatal_error("We don't yet support the __super specifier",
+                               true);
     }
   }
 
@@ -1022,12 +1008,16 @@ public:
   bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc QualifierLoc) {
     if (!QualifierLoc)
       return true;
-    for (auto It = QualifierLoc; It; It = It.getPrefix()) {
+    for (auto It = QualifierLoc; It; /**/) {
       auto *NS = buildNameSpecifier(It);
       if (!NS)
         return false;
       Builder.markChild(NS, syntax::NodeRole::ListElement);
       Builder.markChildToken(It.getEndLoc(), syntax::NodeRole::ListDelimiter);
+      if (TypeLoc TL = It.getAsTypeLoc())
+        It = TL.getPrefix();
+      else
+        It = It.getAsNamespaceAndPrefix().Prefix;
     }
     Builder.foldNode(Builder.getRange(QualifierLoc.getSourceRange()),
                      new (allocator()) syntax::NestedNameSpecifier,
@@ -1331,7 +1321,7 @@ public:
 
   // FIXME: Deleting the `TraverseParenTypeLoc` override doesn't change test
   // results. Find test coverage or remove it.
-  bool TraverseParenTypeLoc(ParenTypeLoc L) {
+  bool TraverseParenTypeLoc(ParenTypeLoc L, bool TraverseQualifier) {
     // We reverse order of traversal to get the proper syntax structure.
     if (!WalkUpFromParenTypeLoc(L))
       return false;
@@ -1394,7 +1384,8 @@ public:
     return WalkUpFromFunctionTypeLoc(L);
   }
 
-  bool TraverseMemberPointerTypeLoc(MemberPointerTypeLoc L) {
+  bool TraverseMemberPointerTypeLoc(MemberPointerTypeLoc L,
+                                    bool TraverseQualifier) {
     // In the source code "void (Y::*mp)()" `MemberPointerTypeLoc` corresponds
     // to "Y::*" but it points to a `ParenTypeLoc` that corresponds to
     // "(Y::*mp)" We thus reverse the order of traversal to get the proper
@@ -1486,16 +1477,14 @@ public:
   }
 
   bool WalkUpFromContinueStmt(ContinueStmt *S) {
-    Builder.markChildToken(S->getContinueLoc(),
-                           syntax::NodeRole::IntroducerKeyword);
+    Builder.markChildToken(S->getKwLoc(), syntax::NodeRole::IntroducerKeyword);
     Builder.foldNode(Builder.getStmtRange(S),
                      new (allocator()) syntax::ContinueStatement, S);
     return true;
   }
 
   bool WalkUpFromBreakStmt(BreakStmt *S) {
-    Builder.markChildToken(S->getBreakLoc(),
-                           syntax::NodeRole::IntroducerKeyword);
+    Builder.markChildToken(S->getKwLoc(), syntax::NodeRole::IntroducerKeyword);
     Builder.foldNode(Builder.getStmtRange(S),
                      new (allocator()) syntax::BreakStatement, S);
     return true;
@@ -1634,7 +1623,7 @@ private:
     auto Return = Builder.getRange(ReturnedType.getSourceRange());
     const auto *Arrow = Return.begin() - 1;
     assert(Arrow->kind() == tok::arrow);
-    auto Tokens = llvm::makeArrayRef(Arrow, Return.end());
+    auto Tokens = llvm::ArrayRef(Arrow, Return.end());
     Builder.markChildToken(Arrow, syntax::NodeRole::ArrowToken);
     if (ReturnDeclarator)
       Builder.markChild(ReturnDeclarator, syntax::NodeRole::Declarator);
@@ -1719,7 +1708,7 @@ void syntax::TreeBuilder::markStmtChild(Stmt *Child, NodeRole Role) {
     markExprChild(ChildExpr, NodeRole::Expression);
     ChildNode = new (allocator()) syntax::ExpressionStatement;
     // (!) 'getStmtRange()' ensures this covers a trailing semicolon.
-    Pending.foldChildren(Arena, getStmtRange(Child), ChildNode);
+    Pending.foldChildren(TBTM.tokenBuffer(), getStmtRange(Child), ChildNode);
   } else {
     ChildNode = Mapping.find(Child);
   }
@@ -1746,8 +1735,9 @@ const syntax::Token *syntax::TreeBuilder::findToken(SourceLocation L) const {
 }
 
 syntax::TranslationUnit *syntax::buildSyntaxTree(Arena &A,
+                                                 TokenBufferTokenManager& TBTM,
                                                  ASTContext &Context) {
-  TreeBuilder Builder(A);
+  TreeBuilder Builder(A, TBTM);
   BuildTreeVisitor(Context, Builder).TraverseAST(Context);
   return std::move(Builder).finalize();
 }

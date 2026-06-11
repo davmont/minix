@@ -5,82 +5,92 @@ LIB=	clangDriver
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Driver
+.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
+.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains/Arch
 
 CPPFLAGS+=	-I${CLANG_SRCDIR}/lib/Driver
 
-SRCS+=	Action.cpp \
-	Compilation.cpp \
-	DarwinSDKInfo.cpp \
-	Distro.cpp \
-	Driver.cpp \
-	DriverOptions.cpp \
-	Job.cpp \
-	Multilib.cpp \
-	OptionUtils.cpp \
-	Phases.cpp \
-	SanitizerArgs.cpp \
-	Tool.cpp \
-	ToolChain.cpp \
-	Types.cpp \
-	XRayArgs.cpp
-
-.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains
-
-SRCS+=	AMDGPU.cpp \
-	Ananas.cpp \
+SRCS+=	AArch64.cpp \
 	AIX.cpp \
+	AMDGPU.cpp \
 	AMDGPUOpenMP.cpp \
+	ARM.cpp \
 	AVR.cpp \
+	Action.cpp \
 	BareMetal.cpp \
+	CSKY.cpp \
+	CSKYToolChain.cpp \
 	Clang.cpp \
-	CloudABI.cpp \
 	CommonArgs.cpp \
-	Contiki.cpp \
+	Compilation.cpp \
+	CreateASTUnitFromArgs.cpp \
+	CreateInvocationFromArgs.cpp \
 	CrossWindows.cpp \
 	Cuda.cpp \
+	Cygwin.cpp \
 	Darwin.cpp \
+	Distro.cpp \
 	DragonFly.cpp \
+	Driver.cpp \
 	Flang.cpp \
 	FreeBSD.cpp \
 	Fuchsia.cpp \
 	Gnu.cpp \
+	HIPAMD.cpp \
+	HIPSPV.cpp \
+	HIPUtility.cpp \
+	HLSL.cpp \
 	Haiku.cpp \
 	Hexagon.cpp \
-	HIP.cpp \
 	Hurd.cpp \
 	InterfaceStubs.cpp \
+	Job.cpp \
+	LFILinux.cpp \
 	Linux.cpp \
+	LoongArch.cpp \
 	M68k.cpp \
-	MinGW.cpp \
-	Minix.cpp \
-	MipsLinux.cpp \
 	MSP430.cpp \
 	MSVC.cpp \
-	Myriad.cpp \
-	NaCl.cpp \
+	Managarm.cpp \
+	MinGW.cpp \
+	Minix.cpp \
+	Mips.cpp \
+	MipsLinux.cpp \
+	Multilib.cpp \
+	MultilibBuilder.cpp \
 	NetBSD.cpp \
+	OHOS.cpp \
+	OffloadBundler.cpp \
 	OpenBSD.cpp \
+	PPC.cpp \
+	PPCFreeBSD.cpp \
 	PPCLinux.cpp \
 	PS4CPU.cpp \
-	RISCVToolchain.cpp \
-	Solaris.cpp \
-	TCE.cpp \
-	VEToolchain.cpp \
-	WebAssembly.cpp \
-	XCore.cpp \
-	ZOS.cpp
-
-.PATH: ${CLANG_SRCDIR}/lib/Driver/ToolChains/Arch
-
-SRCS+=	AArch64.cpp \
-	ARM.cpp \
-	Mips.cpp \
-	PPC.cpp \
+	Phases.cpp \
 	RISCV.cpp \
+	SPIRV.cpp \
+	SPIRVOpenMP.cpp \
+	SYCL.cpp \
+	SanitizerArgs.cpp \
+	Solaris.cpp \
 	Sparc.cpp \
 	SystemZ.cpp \
+	TCE.cpp \
+	Tool.cpp \
+	ToolChain.cpp \
+	Types.cpp \
+	UEFI.cpp \
 	VE.cpp \
-	X86.cpp
+	VEToolchain.cpp \
+	WebAssembly.cpp \
+	X86.cpp \
+	XCore.cpp \
+	XRayArgs.cpp \
+	ZOS.cpp
+
+
+
+
 
 
 

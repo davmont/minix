@@ -10,11 +10,12 @@
 #define LLVM_SUPPORT_BINARYSTREAMWRITER_H
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/BinaryStreamArray.h"
 #include "llvm/Support/BinaryStreamError.h"
 #include "llvm/Support/BinaryStreamRef.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include <cstdint>
@@ -31,21 +32,16 @@ namespace llvm {
 class BinaryStreamWriter {
 public:
   BinaryStreamWriter() = default;
-  explicit BinaryStreamWriter(WritableBinaryStreamRef Ref);
-  explicit BinaryStreamWriter(WritableBinaryStream &Stream);
-  explicit BinaryStreamWriter(MutableArrayRef<uint8_t> Data,
-                              llvm::support::endianness Endian);
+  LLVM_ABI explicit BinaryStreamWriter(WritableBinaryStreamRef Ref);
+  LLVM_ABI explicit BinaryStreamWriter(WritableBinaryStream &Stream);
+  LLVM_ABI explicit BinaryStreamWriter(MutableArrayRef<uint8_t> Data,
+                                       llvm::endianness Endian);
 
-  BinaryStreamWriter(const BinaryStreamWriter &Other)
-      : Stream(Other.Stream), Offset(Other.Offset) {}
+  BinaryStreamWriter(const BinaryStreamWriter &Other) = default;
 
-  BinaryStreamWriter &operator=(const BinaryStreamWriter &Other) {
-    Stream = Other.Stream;
-    Offset = Other.Offset;
-    return *this;
-  }
+  BinaryStreamWriter &operator=(const BinaryStreamWriter &Other) = default;
 
-  virtual ~BinaryStreamWriter() {}
+  virtual ~BinaryStreamWriter() = default;
 
   /// Write the bytes specified in \p Buffer to the underlying stream.
   /// On success, updates the offset so that subsequent writes will occur
@@ -53,7 +49,7 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeBytes(ArrayRef<uint8_t> Buffer);
+  LLVM_ABI Error writeBytes(ArrayRef<uint8_t> Buffer);
 
   /// Write the integer \p Value to the underlying stream in the
   /// specified endianness.  On success, updates the offset so that
@@ -62,11 +58,10 @@ public:
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
   template <typename T> Error writeInteger(T Value) {
-    static_assert(std::is_integral<T>::value,
+    static_assert(std::is_integral_v<T>,
                   "Cannot call writeInteger with non-integral value!");
     uint8_t Buffer[sizeof(T)];
-    llvm::support::endian::write<T, llvm::support::unaligned>(
-        Buffer, Value, Stream.getEndian());
+    llvm::support::endian::write<T>(Buffer, Value, Stream.getEndian());
     return writeBytes(Buffer);
   }
 
@@ -75,8 +70,7 @@ public:
     static_assert(std::is_enum<T>::value,
                   "Cannot call writeEnum with non-Enum type");
 
-    using U = std::underlying_type_t<T>;
-    return writeInteger<U>(static_cast<U>(Num));
+    return writeInteger(llvm::to_underlying(Num));
   }
 
   /// Write the unsigned integer Value to the underlying stream using ULEB128
@@ -84,14 +78,14 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeULEB128(uint64_t Value);
+  LLVM_ABI Error writeULEB128(uint64_t Value);
 
   /// Write the unsigned integer Value to the underlying stream using ULEB128
   /// encoding.
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeSLEB128(int64_t Value);
+  LLVM_ABI Error writeSLEB128(int64_t Value);
 
   /// Write the string \p Str to the underlying stream followed by a null
   /// terminator.  On success, updates the offset so that subsequent writes
@@ -100,7 +94,7 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeCString(StringRef Str);
+  LLVM_ABI Error writeCString(StringRef Str);
 
   /// Write the string \p Str to the underlying stream without a null
   /// terminator.  On success, updates the offset so that subsequent writes
@@ -108,7 +102,7 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeFixedString(StringRef Str);
+  LLVM_ABI Error writeFixedString(StringRef Str);
 
   /// Efficiently reads all data from \p Ref, and writes it to this stream.
   /// This operation will not invoke any copies of the source data, regardless
@@ -116,7 +110,7 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeStreamRef(BinaryStreamRef Ref);
+  LLVM_ABI Error writeStreamRef(BinaryStreamRef Ref);
 
   /// Efficiently reads \p Size bytes from \p Ref, and writes it to this stream.
   /// This operation will not invoke any copies of the source data, regardless
@@ -124,7 +118,7 @@ public:
   ///
   /// \returns a success error code if the data was successfully written,
   /// otherwise returns an appropriate error code.
-  Error writeStreamRef(BinaryStreamRef Ref, uint32_t Size);
+  LLVM_ABI Error writeStreamRef(BinaryStreamRef Ref, uint64_t Size);
 
   /// Writes the object \p Obj to the underlying stream, as if by using memcpy.
   /// It is up to the caller to ensure that type of \p Obj can be safely copied
@@ -178,17 +172,18 @@ public:
   }
 
   /// Splits the Writer into two Writers at a given offset.
-  std::pair<BinaryStreamWriter, BinaryStreamWriter> split(uint32_t Off) const;
+  LLVM_ABI std::pair<BinaryStreamWriter, BinaryStreamWriter>
+  split(uint64_t Off) const;
 
-  void setOffset(uint32_t Off) { Offset = Off; }
-  uint32_t getOffset() const { return Offset; }
-  uint32_t getLength() const { return Stream.getLength(); }
-  uint32_t bytesRemaining() const { return getLength() - getOffset(); }
-  Error padToAlignment(uint32_t Align);
+  void setOffset(uint64_t Off) { Offset = Off; }
+  uint64_t getOffset() const { return Offset; }
+  uint64_t getLength() const { return Stream.getLength(); }
+  uint64_t bytesRemaining() const { return getLength() - getOffset(); }
+  LLVM_ABI Error padToAlignment(uint32_t Align);
 
 protected:
   WritableBinaryStreamRef Stream;
-  uint32_t Offset = 0;
+  uint64_t Offset = 0;
 };
 
 } // end namespace llvm

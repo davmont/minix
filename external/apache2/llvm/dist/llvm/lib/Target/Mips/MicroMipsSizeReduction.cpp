@@ -774,14 +774,14 @@ bool MicroMipsSizeReduce::ReplaceInstruction(MachineInstr *MI,
 
 bool MicroMipsSizeReduce::runOnMachineFunction(MachineFunction &MF) {
 
-  Subtarget = &static_cast<const MipsSubtarget &>(MF.getSubtarget());
+  Subtarget = &MF.getSubtarget<MipsSubtarget>();
 
   // TODO: Add support for the subtarget microMIPS32R6.
   if (!Subtarget->inMicroMipsMode() || !Subtarget->hasMips32r2() ||
       Subtarget->hasMips32r6())
     return false;
 
-  MipsII = static_cast<const MipsInstrInfo *>(Subtarget->getInstrInfo());
+  MipsII = Subtarget->getInstrInfo();
 
   bool Modified = false;
   MachineFunction::iterator I = MF.begin(), E = MF.end();

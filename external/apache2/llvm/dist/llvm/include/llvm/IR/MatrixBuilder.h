@@ -30,8 +30,8 @@ class Function;
 class Twine;
 class Module;
 
-template <class IRBuilderTy> class MatrixBuilder {
-  IRBuilderTy &B;
+class MatrixBuilder {
+  IRBuilderBase &B;
   Module *getModule() { return B.GetInsertBlock()->getParent()->getParent(); }
 
   std::pair<Value *, Value *> splatScalarOperandIfNeeded(Value *LHS,
@@ -55,34 +55,30 @@ template <class IRBuilderTy> class MatrixBuilder {
   }
 
 public:
-  MatrixBuilder(IRBuilderTy &Builder) : B(Builder) {}
+  MatrixBuilder(IRBuilderBase &Builder) : B(Builder) {}
 
   /// Create a column major, strided matrix load.
+  /// \p EltTy   - Matrix element type
   /// \p DataPtr - Start address of the matrix read
   /// \p Rows    - Number of rows in matrix (must be a constant)
   /// \p Columns - Number of columns in matrix (must be a constant)
   /// \p Stride  - Space between columns
-  CallInst *CreateColumnMajorLoad(Value *DataPtr, Align Alignment,
+  CallInst *CreateColumnMajorLoad(Type *EltTy, Value *DataPtr, Align Alignment,
                                   Value *Stride, bool IsVolatile, unsigned Rows,
                                   unsigned Columns, const Twine &Name = "") {
-
-    // Deal with the pointer
-    PointerType *PtrTy = cast<PointerType>(DataPtr->getType());
-    Type *EltTy = PtrTy->getElementType();
-
     auto *RetType = FixedVectorType::get(EltTy, Rows * Columns);
 
     Value *Ops[] = {DataPtr, Stride, B.getInt1(IsVolatile), B.getInt32(Rows),
                     B.getInt32(Columns)};
-    Type *OverloadedTypes[] = {RetType};
+    Type *OverloadedTypes[] = {RetType, Stride->getType()};
 
-    Function *TheFn = Intrinsic::getDeclaration(
+    Function *TheFn = Intrinsic::getOrInsertDeclaration(
         getModule(), Intrinsic::matrix_column_major_load, OverloadedTypes);
 
     CallInst *Call = B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
     Attribute AlignAttr =
         Attribute::getWithAlignment(Call->getContext(), Alignment);
-    Call->addAttribute(1, AlignAttr);
+    Call->addParamAttr(0, AlignAttr);
     return Call;
   }
 
@@ -97,15 +93,15 @@ public:
     Value *Ops[] = {Matrix,           Ptr,
                     Stride,           B.getInt1(IsVolatile),
                     B.getInt32(Rows), B.getInt32(Columns)};
-    Type *OverloadedTypes[] = {Matrix->getType()};
+    Type *OverloadedTypes[] = {Matrix->getType(), Stride->getType()};
 
-    Function *TheFn = Intrinsic::getDeclaration(
+    Function *TheFn = Intrinsic::getOrInsertDeclaration(
         getModule(), Intrinsic::matrix_column_major_store, OverloadedTypes);
 
     CallInst *Call = B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
     Attribute AlignAttr =
         Attribute::getWithAlignment(Call->getContext(), Alignment);
-    Call->addAttribute(2, AlignAttr);
+    Call->addParamAttr(1, AlignAttr);
     return Call;
   }
 
@@ -119,7 +115,7 @@ public:
 
     Type *OverloadedTypes[] = {ReturnType};
     Value *Ops[] = {Matrix, B.getInt32(Rows), B.getInt32(Columns)};
-    Function *TheFn = Intrinsic::getDeclaration(
+    Function *TheFn = Intrinsic::getOrInsertDeclaration(
         getModule(), Intrinsic::matrix_transpose, OverloadedTypes);
 
     return B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
@@ -140,7 +136,7 @@ public:
                     B.getInt32(RHSColumns)};
     Type *OverloadedTypes[] = {ReturnType, LHSType, RHSType};
 
-    Function *TheFn = Intrinsic::getDeclaration(
+    Function *TheFn = Intrinsic::getOrInsertDeclaration(
         getModule(), Intrinsic::matrix_multiply, OverloadedTypes);
     return B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
   }
@@ -231,19 +227,49 @@ public:
                : (IsUnsigned ? B.CreateUDiv(LHS, RHS) : B.CreateSDiv(LHS, RHS));
   }
 
-  /// Extracts the element at (\p RowIdx, \p ColumnIdx) from \p Matrix.
-  Value *CreateExtractElement(Value *Matrix, Value *RowIdx, Value *ColumnIdx,
-                              unsigned NumRows, Twine const &Name = "") {
-
+  /// Create an assumption that \p Idx is less than \p NumElements.
+  void CreateIndexAssumption(Value *Idx, unsigned NumElements,
+                             Twine const &Name = "") {
+    Value *NumElts =
+        B.getIntN(Idx->getType()->getScalarSizeInBits(), NumElements);
+    auto *Cmp = B.CreateICmpULT(Idx, NumElts);
+    if (isa<ConstantInt>(Cmp))
+      assert(cast<ConstantInt>(Cmp)->isOne() && "Index must be valid!");
+    else
+      B.CreateAssumption(Cmp);
+  }
+  /// Compute the index to access the element at (\p RowIdx, \p ColumnIdx) from
+  /// a matrix with \p NumRows or \p NumCols embedded in a vector depending
+  /// on matrix major ordering.
+  Value *CreateIndex(Value *RowIdx, Value *ColumnIdx, unsigned NumRows,
+                     unsigned NumCols, bool IsMatrixRowMajor = false,
+                     Twine const &Name = "") {
     unsigned MaxWidth = std::max(RowIdx->getType()->getScalarSizeInBits(),
                                  ColumnIdx->getType()->getScalarSizeInBits());
     Type *IntTy = IntegerType::get(RowIdx->getType()->getContext(), MaxWidth);
     RowIdx = B.CreateZExt(RowIdx, IntTy);
     ColumnIdx = B.CreateZExt(ColumnIdx, IntTy);
+    if (IsMatrixRowMajor) {
+      Value *NumColsV = B.getIntN(MaxWidth, NumCols);
+      return CreateRowMajorIndex(RowIdx, ColumnIdx, NumColsV, Name);
+    }
     Value *NumRowsV = B.getIntN(MaxWidth, NumRows);
-    return B.CreateExtractElement(
-        Matrix, B.CreateAdd(B.CreateMul(ColumnIdx, NumRowsV), RowIdx),
-        "matext");
+    return CreateColumnMajorIndex(RowIdx, ColumnIdx, NumRowsV, Name);
+  }
+
+private:
+  /// Compute the index to access the element at (\p RowIdx, \p ColumnIdx) from
+  /// a matrix with \p NumRows embedded in a vector.
+  Value *CreateColumnMajorIndex(Value *RowIdx, Value *ColumnIdx,
+                                Value *NumRowsV, Twine const &Name) {
+    return B.CreateAdd(B.CreateMul(ColumnIdx, NumRowsV), RowIdx);
+  }
+
+  /// Compute the index to access the element at (\p RowIdx, \p ColumnIdx) from
+  /// a matrix with \p NumCols embedded in a vector.
+  Value *CreateRowMajorIndex(Value *RowIdx, Value *ColumnIdx, Value *NumColsV,
+                             Twine const &Name) {
+    return B.CreateAdd(B.CreateMul(RowIdx, NumColsV), ColumnIdx);
   }
 };
 

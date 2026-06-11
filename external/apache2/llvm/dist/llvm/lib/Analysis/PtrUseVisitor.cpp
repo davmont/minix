@@ -14,11 +14,10 @@
 #include "llvm/Analysis/PtrUseVisitor.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
-#include <algorithm>
 
 using namespace llvm;
 
-void detail::PtrUseVisitorBase::enqueueUsers(Instruction &I) {
+void detail::PtrUseVisitorBase::enqueueUsers(Value &I) {
   for (Use &U : I.uses()) {
     if (VisitedUses.insert(&U).second) {
       UseToVisit NewU = {

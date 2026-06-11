@@ -6,10 +6,10 @@ LIB=	LLVMDebugInfoMSF
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/MSF
 
-SRCS+=	MappedBlockStream.cpp \
-	MSFBuilder.cpp \
+SRCS+=	MSFBuilder.cpp \
 	MSFCommon.cpp \
-	MSFError.cpp
+	MSFError.cpp \
+	MappedBlockStream.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

@@ -9,16 +9,18 @@ LIB=	LLVMX86MCTargetDesc
 X86_OBJDIR!=	cd ${.CURDIR}/../libLLVMX86CodeGen && ${PRINTOBJDIR}
 CPPFLAGS+=	-I${X86_OBJDIR} -I${LLVM_SRCDIR}/lib/Target/X86
 
-SRCS+=	X86AsmBackend.cpp \
-	X86ATTInstPrinter.cpp \
+SRCS+=	X86ATTInstPrinter.cpp \
+	X86AsmBackend.cpp \
 	X86ELFObjectWriter.cpp \
+	X86EncodingOptimization.cpp \
 	X86InstComments.cpp \
 	X86InstPrinterCommon.cpp \
 	X86IntelInstPrinter.cpp \
-	X86MachObjectWriter.cpp \
 	X86MCAsmInfo.cpp \
 	X86MCCodeEmitter.cpp \
 	X86MCTargetDesc.cpp \
+	X86MachObjectWriter.cpp \
+	X86MnemonicTables.cpp \
 	X86ShuffleDecode.cpp \
 	X86WinCOFFObjectWriter.cpp \
 	X86WinCOFFStreamer.cpp \

@@ -30,12 +30,10 @@ public:
   const uint32_t *getNoPreservedMask() const override;
 
   BitVector getReservedRegs(const MachineFunction &MF) const override;
-  bool isConstantPhysReg(MCRegister PhysReg) const override;
 
-  const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
-                                                unsigned Kind) const override;
+  const TargetRegisterClass *getPointerRegClass(unsigned Kind) const override;
 
-  void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
+  bool eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;
 

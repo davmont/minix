@@ -11,6 +11,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/DebugInfo/Symbolize/SymbolizableModule.h"
 #include "llvm/DebugInfo/Symbolize/Symbolize.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -22,18 +23,21 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Option/Option.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/LLVMDriver.h"
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -41,7 +45,6 @@
 #include "llvm/Support/SHA1.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/SpecialCaseList.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/YAMLParser.h"
@@ -54,64 +57,64 @@ using namespace llvm;
 
 namespace {
 
+// Command-line option boilerplate.
+namespace {
+using namespace llvm::opt;
+enum ID {
+  OPT_INVALID = 0, // This is not an option ID.
+#define OPTION(...) LLVM_MAKE_OPT_ID(__VA_ARGS__),
+#include "Opts.inc"
+#undef OPTION
+};
+
+#define OPTTABLE_STR_TABLE_CODE
+#include "Opts.inc"
+#undef OPTTABLE_STR_TABLE_CODE
+
+#define OPTTABLE_PREFIXES_TABLE_CODE
+#include "Opts.inc"
+#undef OPTTABLE_PREFIXES_TABLE_CODE
+
+static constexpr opt::OptTable::Info InfoTable[] = {
+#define OPTION(...) LLVM_CONSTRUCT_OPT_INFO(__VA_ARGS__),
+#include "Opts.inc"
+#undef OPTION
+};
+
+class SancovOptTable : public opt::GenericOptTable {
+public:
+  SancovOptTable()
+      : GenericOptTable(OptionStrTable, OptionPrefixesTable, InfoTable) {}
+};
+} // namespace
+
 // --------- COMMAND LINE FLAGS ---------
 
 enum ActionType {
   CoveredFunctionsAction,
+  DiffAction,
   HtmlReportAction,
   MergeAction,
   NotCoveredFunctionsAction,
   PrintAction,
   PrintCovPointsAction,
   StatsAction,
-  SymbolizeAction
+  SymbolizeAction,
+  UnionAction
 };
 
-cl::opt<ActionType> Action(
-    cl::desc("Action (required)"), cl::Required,
-    cl::values(
-        clEnumValN(PrintAction, "print", "Print coverage addresses"),
-        clEnumValN(PrintCovPointsAction, "print-coverage-pcs",
-                   "Print coverage instrumentation points addresses."),
-        clEnumValN(CoveredFunctionsAction, "covered-functions",
-                   "Print all covered funcions."),
-        clEnumValN(NotCoveredFunctionsAction, "not-covered-functions",
-                   "Print all not covered funcions."),
-        clEnumValN(StatsAction, "print-coverage-stats",
-                   "Print coverage statistics."),
-        clEnumValN(HtmlReportAction, "html-report",
-                   "REMOVED. Use -symbolize & coverage-report-server.py."),
-        clEnumValN(SymbolizeAction, "symbolize",
-                   "Produces a symbolized JSON report from binary report."),
-        clEnumValN(MergeAction, "merge", "Merges reports.")));
+static ActionType Action;
+static std::vector<std::string> ClInputFiles;
+static bool ClDemangle;
+static bool ClSkipDeadFiles;
+static bool ClUseDefaultIgnorelist;
+static std::string ClStripPathPrefix;
+static std::string ClIgnorelist;
+static std::string ClOutputFile;
 
-static cl::list<std::string>
-    ClInputFiles(cl::Positional, cl::OneOrMore,
-                 cl::desc("<action> <binary files...> <.sancov files...> "
-                          "<.symcov files...>"));
-
-static cl::opt<bool> ClDemangle("demangle", cl::init(true),
-                                cl::desc("Print demangled function name."));
-
-static cl::opt<bool>
-    ClSkipDeadFiles("skip-dead-files", cl::init(true),
-                    cl::desc("Do not list dead source files in reports."));
-
-static cl::opt<std::string> ClStripPathPrefix(
-    "strip_path_prefix", cl::init(""),
-    cl::desc("Strip this prefix from file paths in reports."));
-
-static cl::opt<std::string>
-    ClBlacklist("blacklist", cl::init(""),
-                cl::desc("Blacklist file (sanitizer blacklist format)."));
-
-static cl::opt<bool> ClUseDefaultBlacklist(
-    "use_default_blacklist", cl::init(true), cl::Hidden,
-    cl::desc("Controls if default blacklist should be used."));
-
-static const char *const DefaultBlacklistStr = "fun:__sanitizer_.*\n"
-                                               "src:/usr/include/.*\n"
-                                               "src:.*/libc\\+\\+/.*\n";
+static const char *const DefaultIgnorelistStr = "fun:__sanitizer_.*\n"
+                                                "src:/usr/include/.*\n"
+                                                "src:.*/libc\\+\\+/.*\n";
 
 // --------- FORMAT SPECIFICATION ---------
 
@@ -132,14 +135,19 @@ static const Regex SymcovFileRegex(".*\\.symcov");
 // Contents of .sancov file: list of coverage point addresses that were
 // executed.
 struct RawCoverage {
-  explicit RawCoverage(std::unique_ptr<std::set<uint64_t>> Addrs)
-      : Addrs(std::move(Addrs)) {}
+  explicit RawCoverage(std::unique_ptr<std::set<uint64_t>> Addrs,
+                       FileHeader Header)
+      : Addrs(std::move(Addrs)), Header(Header) {}
 
   // Read binary .sancov file.
   static ErrorOr<std::unique_ptr<RawCoverage>>
   read(const std::string &FileName);
 
+  // Write binary .sancov file.
+  static void write(const std::string &FileName, const RawCoverage &Coverage);
+
   std::unique_ptr<std::set<uint64_t>> Addrs;
+  FileHeader Header;
 };
 
 // Coverage point has an opaque Id and corresponds to multiple source locations.
@@ -264,7 +272,7 @@ RawCoverage::read(const std::string &FileName) {
   // to compactify the data.
   Addrs->erase(0);
 
-  return std::unique_ptr<RawCoverage>(new RawCoverage(std::move(Addrs)));
+  return std::make_unique<RawCoverage>(std::move(Addrs), *Header);
 }
 
 // Print coverage addresses.
@@ -275,6 +283,34 @@ raw_ostream &operator<<(raw_ostream &OS, const RawCoverage &CoverageData) {
     OS << "\n";
   }
   return OS;
+}
+
+// Write coverage addresses in binary format.
+void RawCoverage::write(const std::string &FileName,
+                        const RawCoverage &Coverage) {
+  std::error_code EC;
+  raw_fd_ostream OS(FileName, EC, sys::fs::OF_None);
+  failIfError(EC);
+
+  OS.write(reinterpret_cast<const char *>(&Coverage.Header),
+           sizeof(Coverage.Header));
+
+  switch (Coverage.Header.Bitness) {
+  case Bitness64:
+    for (auto Addr : *Coverage.Addrs) {
+      uint64_t Addr64 = Addr;
+      OS.write(reinterpret_cast<const char *>(&Addr64), sizeof(Addr64));
+    }
+    break;
+  case Bitness32:
+    for (auto Addr : *Coverage.Addrs) {
+      uint32_t Addr32 = static_cast<uint32_t>(Addr);
+      OS.write(reinterpret_cast<const char *>(&Addr32), sizeof(Addr32));
+    }
+    break;
+  default:
+    fail("Unsupported bitness: " + std::to_string(Coverage.Header.Bitness));
+  }
 }
 
 static raw_ostream &operator<<(raw_ostream &OS, const CoverageStats &Stats) {
@@ -325,11 +361,10 @@ static void operator<<(json::OStream &W,
             for (const auto &Loc : Point->Locs) {
               if (Loc.FileName != FileName || Loc.FunctionName != FunctionName)
                 continue;
-              if (WrittenIds.find(Point->Id) != WrittenIds.end())
+              if (!WrittenIds.insert(Point->Id).second)
                 continue;
 
               // Output <point_id> : "<line>:<col>".
-              WrittenIds.insert(Point->Id);
               W.attribute(Point->Id,
                           (utostr(Loc.Line) + ":" + utostr(Loc.Column)));
             }
@@ -420,9 +455,6 @@ SymbolizedCoverage::read(const std::string &InputFile) {
             auto LineStr = Loc.substr(0, ColonPos);
             auto ColStr = Loc.substr(ColonPos + 1, Loc.size());
 
-            if (Points.find(PointId) == Points.end())
-              Points.insert(std::make_pair(PointId, CoveragePoint(PointId)));
-
             DILineInfo LineInfo;
             LineInfo.FileName = Filename;
             LineInfo.FunctionName = FunctionName;
@@ -430,7 +462,8 @@ SymbolizedCoverage::read(const std::string &InputFile) {
             LineInfo.Line = std::strtoul(LineStr.c_str(), &End, 10);
             LineInfo.Column = std::strtoul(ColStr.c_str(), &End, 10);
 
-            CoveragePoint *CoveragePoint = &Points.find(PointId)->second;
+            CoveragePoint *CoveragePoint =
+                &Points.try_emplace(PointId, PointId).first->second;
             CoveragePoint->Locs.push_back(LineInfo);
           }
         }
@@ -462,8 +495,7 @@ static std::unique_ptr<symbolize::LLVMSymbolizer> createSymbolizer() {
   symbolize::LLVMSymbolizer::Options SymbolizerOptions;
   SymbolizerOptions.Demangle = ClDemangle;
   SymbolizerOptions.UseSymbolTable = true;
-  return std::unique_ptr<symbolize::LLVMSymbolizer>(
-      new symbolize::LLVMSymbolizer(SymbolizerOptions));
+  return std::make_unique<symbolize::LLVMSymbolizer>(SymbolizerOptions);
 }
 
 static std::string normalizeFilename(const std::string &FileName) {
@@ -472,48 +504,48 @@ static std::string normalizeFilename(const std::string &FileName) {
   return stripPathPrefix(sys::path::convert_to_slash(std::string(S)));
 }
 
-class Blacklists {
+class Ignorelists {
 public:
-  Blacklists()
-      : DefaultBlacklist(createDefaultBlacklist()),
-        UserBlacklist(createUserBlacklist()) {}
+  Ignorelists()
+      : DefaultIgnorelist(createDefaultIgnorelist()),
+        UserIgnorelist(createUserIgnorelist()) {}
 
-  bool isBlacklisted(const DILineInfo &I) {
-    if (DefaultBlacklist &&
-        DefaultBlacklist->inSection("sancov", "fun", I.FunctionName))
+  bool isIgnorelisted(const DILineInfo &I) {
+    if (DefaultIgnorelist &&
+        DefaultIgnorelist->inSection("sancov", "fun", I.FunctionName))
       return true;
-    if (DefaultBlacklist &&
-        DefaultBlacklist->inSection("sancov", "src", I.FileName))
+    if (DefaultIgnorelist &&
+        DefaultIgnorelist->inSection("sancov", "src", I.FileName))
       return true;
-    if (UserBlacklist &&
-        UserBlacklist->inSection("sancov", "fun", I.FunctionName))
+    if (UserIgnorelist &&
+        UserIgnorelist->inSection("sancov", "fun", I.FunctionName))
       return true;
-    if (UserBlacklist && UserBlacklist->inSection("sancov", "src", I.FileName))
+    if (UserIgnorelist &&
+        UserIgnorelist->inSection("sancov", "src", I.FileName))
       return true;
     return false;
   }
 
 private:
-  static std::unique_ptr<SpecialCaseList> createDefaultBlacklist() {
-    if (!ClUseDefaultBlacklist)
+  static std::unique_ptr<SpecialCaseList> createDefaultIgnorelist() {
+    if (!ClUseDefaultIgnorelist)
       return std::unique_ptr<SpecialCaseList>();
     std::unique_ptr<MemoryBuffer> MB =
-        MemoryBuffer::getMemBuffer(DefaultBlacklistStr);
+        MemoryBuffer::getMemBuffer(DefaultIgnorelistStr);
     std::string Error;
-    auto Blacklist = SpecialCaseList::create(MB.get(), Error);
+    auto Ignorelist = SpecialCaseList::create(MB.get(), Error);
     failIfNotEmpty(Error);
-    return Blacklist;
+    return Ignorelist;
   }
 
-  static std::unique_ptr<SpecialCaseList> createUserBlacklist() {
-    if (ClBlacklist.empty())
+  static std::unique_ptr<SpecialCaseList> createUserIgnorelist() {
+    if (ClIgnorelist.empty())
       return std::unique_ptr<SpecialCaseList>();
-
-    return SpecialCaseList::createOrDie({{ClBlacklist}},
+    return SpecialCaseList::createOrDie({{ClIgnorelist}},
                                         *vfs::getRealFileSystem());
   }
-  std::unique_ptr<SpecialCaseList> DefaultBlacklist;
-  std::unique_ptr<SpecialCaseList> UserBlacklist;
+  std::unique_ptr<SpecialCaseList> DefaultIgnorelist;
+  std::unique_ptr<SpecialCaseList> UserIgnorelist;
 };
 
 static std::vector<CoveragePoint>
@@ -522,7 +554,7 @@ getCoveragePoints(const std::string &ObjectFile,
                   const std::set<uint64_t> &CoveredAddrs) {
   std::vector<CoveragePoint> Result;
   auto Symbolizer(createSymbolizer());
-  Blacklists B;
+  Ignorelists Ig;
 
   std::set<std::string> CoveredFiles;
   if (ClSkipDeadFiles) {
@@ -560,7 +592,7 @@ getCoveragePoints(const std::string &ObjectFile,
         CoveredFiles.find(LineInfo->FileName) == CoveredFiles.end())
       continue;
     LineInfo->FileName = normalizeFilename(LineInfo->FileName);
-    if (B.isBlacklisted(*LineInfo))
+    if (Ig.isIgnorelisted(*LineInfo))
       continue;
 
     auto Id = utohexstr(Addr, true);
@@ -577,12 +609,10 @@ getCoveragePoints(const std::string &ObjectFile,
           CoveredFiles.find(FrameInfo.FileName) == CoveredFiles.end())
         continue;
       FrameInfo.FileName = normalizeFilename(FrameInfo.FileName);
-      if (B.isBlacklisted(FrameInfo))
+      if (Ig.isIgnorelisted(FrameInfo))
         continue;
-      if (Infos.find(FrameInfo) == Infos.end()) {
-        Infos.insert(FrameInfo);
+      if (Infos.insert(FrameInfo).second)
         Point.Locs.push_back(FrameInfo);
-      }
     }
 
     Result.push_back(Point);
@@ -687,17 +717,19 @@ findSanitizerCovFunctions(const object::ObjectFile &O) {
   return Result;
 }
 
-static uint64_t getPreviousInstructionPc(uint64_t PC,
-                                         Triple TheTriple) {
-  if (TheTriple.isARM()) {
+// Ported from
+// compiler-rt/lib/sanitizer_common/sanitizer_stacktrace.h:GetPreviousInstructionPc
+// GetPreviousInstructionPc.
+static uint64_t getPreviousInstructionPc(uint64_t PC, Triple TheTriple) {
+  if (TheTriple.isARM())
     return (PC - 3) & (~1);
-  } else if (TheTriple.isAArch64()) {
-    return PC - 4;
-  } else if (TheTriple.isMIPS()) {
+  if (TheTriple.isMIPS() || TheTriple.isSPARC())
     return PC - 8;
-  } else {
+  if (TheTriple.isRISCV())
+    return PC - 2;
+  if (TheTriple.isX86() || TheTriple.isSystemZ())
     return PC - 1;
-  }
+  return PC - 4;
 }
 
 // Locate addresses of all coverage points in a file. Coverage point
@@ -710,20 +742,20 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
   auto TripleName = TheTriple.getTriple();
 
   std::string Error;
-  const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, Error);
+  const Target *TheTarget = TargetRegistry::lookupTarget(TheTriple, Error);
   failIfNotEmpty(Error);
 
   std::unique_ptr<const MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, "", ""));
+      TheTarget->createMCSubtargetInfo(TheTriple, "", ""));
   failIfEmpty(STI, "no subtarget info for target " + TripleName);
 
   std::unique_ptr<const MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
+      TheTarget->createMCRegInfo(TheTriple));
   failIfEmpty(MRI, "no register info for target " + TripleName);
 
   MCTargetOptions MCOptions;
   std::unique_ptr<const MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, MCOptions));
+      TheTarget->createMCAsmInfo(*MRI, TheTriple, MCOptions));
   failIfEmpty(AsmInfo, "no asm info for target " + TripleName);
 
   MCContext Ctx(TheTriple, AsmInfo.get(), MRI.get(), STI.get());
@@ -734,7 +766,7 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
   std::unique_ptr<const MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   failIfEmpty(MII, "no instruction info for target " + TripleName);
 
-  std::unique_ptr<const MCInstrAnalysis> MIA(
+  std::unique_ptr<MCInstrAnalysis> MIA(
       TheTarget->createMCInstrAnalysis(MII.get()));
   failIfEmpty(MIA, "no instruction analysis info for target " + TripleName);
 
@@ -754,13 +786,20 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
     failIfError(BytesStr);
     ArrayRef<uint8_t> Bytes = arrayRefFromStringRef(*BytesStr);
 
+    if (MIA)
+      MIA->resetState();
+
     for (uint64_t Index = 0, Size = 0; Index < Section.getSize();
          Index += Size) {
       MCInst Inst;
-      if (!DisAsm->getInstruction(Inst, Size, Bytes.slice(Index),
-                                  SectionAddr + Index, nulls())) {
+      ArrayRef<uint8_t> ThisBytes = Bytes.slice(Index);
+      uint64_t ThisAddr = SectionAddr + Index;
+      if (!DisAsm->getInstruction(Inst, Size, ThisBytes, ThisAddr, nulls())) {
         if (Size == 0)
-          Size = 1;
+          Size = std::min<uint64_t>(
+              ThisBytes.size(),
+              DisAsm->suggestBytesToSkip(ThisBytes, ThisAddr));
+        MIA->resetState();
         continue;
       }
       uint64_t Addr = Index + SectionAddr;
@@ -771,6 +810,7 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
           MIA->evaluateBranch(Inst, SectionAddr + Index, Size, Target) &&
           SanCovAddrs.find(Target) != SanCovAddrs.end())
         Addrs->insert(CovPoint);
+      MIA->updateState(Inst, Addr);
     }
   }
 }
@@ -874,7 +914,7 @@ symbolize(const RawCoverage &Data, const std::string ObjectFile) {
   Hasher.update((*BufOrErr)->getBuffer());
   Coverage->BinaryHash = toHex(Hasher.final());
 
-  Blacklists B;
+  Ignorelists Ig;
   auto Symbolizer(createSymbolizer());
 
   for (uint64_t Addr : *Data.Addrs) {
@@ -883,15 +923,14 @@ symbolize(const RawCoverage &Data, const std::string ObjectFile) {
     auto LineInfo = Symbolizer->symbolizeCode(
         ObjectFile, {Addr, object::SectionedAddress::UndefSection});
     failIfError(LineInfo);
-    if (B.isBlacklisted(*LineInfo))
+    if (Ig.isIgnorelisted(*LineInfo))
       continue;
 
     Coverage->CoveredIds.insert(utohexstr(Addr, true));
   }
 
   std::set<uint64_t> AllAddrs = findCoveragePointAddrs(ObjectFile);
-  if (!std::includes(AllAddrs.begin(), AllAddrs.end(), Data.Addrs->begin(),
-                     Data.Addrs->end())) {
+  if (!llvm::includes(AllAddrs, *Data.Addrs)) {
     fail("Coverage points in binary and .sancov file do not match.");
   }
   Coverage->Points = getCoveragePoints(ObjectFile, AllAddrs, *Data.Addrs);
@@ -964,10 +1003,9 @@ static FunctionLocs resolveFunctions(const SymbolizedCoverage &Coverage,
         continue;
 
       auto P = std::make_pair(Loc.Line, Loc.Column);
-      auto I = Result.find(Fn);
-      if (I == Result.end() || I->second > P) {
-        Result[Fn] = P;
-      }
+      auto [It, Inserted] = Result.try_emplace(Fn, P);
+      if (!Inserted && It->second > P)
+        It->second = P;
     }
   }
   return Result;
@@ -1005,13 +1043,94 @@ static void printNotCoveredFunctions(const SymbolizedCoverage &CovData,
 // Read list of files and merges their coverage info.
 static void readAndPrintRawCoverage(const std::vector<std::string> &FileNames,
                                     raw_ostream &OS) {
-  std::vector<std::unique_ptr<RawCoverage>> Covs;
   for (const auto &FileName : FileNames) {
     auto Cov = RawCoverage::read(FileName);
     if (!Cov)
       continue;
     OS << *Cov.get();
   }
+}
+
+static const char *bitnessToString(uint32_t Bitness) {
+  switch (Bitness) {
+  case Bitness64:
+    return "64-bit";
+  case Bitness32:
+    return "32-bit";
+  default:
+    fail("Unsupported bitness: " + std::to_string(Bitness));
+    return nullptr;
+  }
+}
+
+// Warn if two file headers have different bitness.
+static void warnIfDifferentBitness(const FileHeader &Header1,
+                                   const FileHeader &Header2,
+                                   const std::string &File1Desc,
+                                   const std::string &File2Desc) {
+  if (Header1.Bitness != Header2.Bitness) {
+    errs() << "WARNING: Input files have different bitness (" << File1Desc
+           << ": " << bitnessToString(Header1.Bitness) << ", " << File2Desc
+           << ": " << bitnessToString(Header2.Bitness)
+           << "). Using bitness from " << File1Desc << ".\n";
+
+    if (Header1.Bitness == Bitness32 && Header2.Bitness == Bitness64) {
+      errs() << "WARNING: 64-bit addresses will be truncated to 32 bits. "
+             << "This may result in data loss.\n";
+    }
+  }
+}
+
+// Compute difference between two coverage files (A - B) and write to output
+// file.
+static void diffRawCoverage(const std::string &FileA, const std::string &FileB,
+                            const std::string &OutputFile) {
+  auto CovA = RawCoverage::read(FileA);
+  failIfError(CovA);
+
+  auto CovB = RawCoverage::read(FileB);
+  failIfError(CovB);
+
+  const FileHeader &HeaderA = CovA.get()->Header;
+  const FileHeader &HeaderB = CovB.get()->Header;
+
+  warnIfDifferentBitness(HeaderA, HeaderB, FileA, FileB);
+
+  // Compute A - B
+  auto DiffAddrs = std::make_unique<std::set<uint64_t>>();
+  std::set_difference(CovA.get()->Addrs->begin(), CovA.get()->Addrs->end(),
+                      CovB.get()->Addrs->begin(), CovB.get()->Addrs->end(),
+                      std::inserter(*DiffAddrs, DiffAddrs->end()));
+
+  RawCoverage DiffCov(std::move(DiffAddrs), HeaderA);
+  RawCoverage::write(OutputFile, DiffCov);
+}
+
+// Compute union of multiple coverage files and write to output file.
+static void unionRawCoverage(const std::vector<std::string> &InputFiles,
+                             const std::string &OutputFile) {
+  failIf(InputFiles.empty(), "union action requires at least one input file");
+
+  // Read the first file to get the header and initial coverage
+  auto UnionCov = RawCoverage::read(InputFiles[0]);
+  failIfError(UnionCov);
+
+  const FileHeader &UnionHeader = UnionCov.get()->Header;
+
+  for (size_t I = 1; I < InputFiles.size(); ++I) {
+    auto Cov = RawCoverage::read(InputFiles[I]);
+    failIfError(Cov);
+
+    const FileHeader &CurHeader = Cov.get()->Header;
+
+    warnIfDifferentBitness(UnionHeader, CurHeader, InputFiles[0],
+                           InputFiles[I]);
+
+    UnionCov.get()->Addrs->insert(Cov.get()->Addrs->begin(),
+                                  Cov.get()->Addrs->end());
+  }
+
+  RawCoverage::write(OutputFile, *UnionCov.get());
 }
 
 static std::unique_ptr<SymbolizedCoverage>
@@ -1053,7 +1172,7 @@ readSymbolizeAndMergeCmdArguments(std::vector<std::string> FileNames) {
 
   {
     // Short name => file name.
-    std::map<std::string, std::string> ObjFiles;
+    std::map<std::string, std::string, std::less<>> ObjFiles;
     std::string FirstObjFile;
     std::set<std::string> CovFiles;
 
@@ -1070,7 +1189,7 @@ readSymbolizeAndMergeCmdArguments(std::vector<std::string> FileNames) {
         CovFiles.insert(FileName);
       } else {
         auto ShortFileName = llvm::sys::path::filename(FileName);
-        if (ObjFiles.find(std::string(ShortFileName)) != ObjFiles.end()) {
+        if (ObjFiles.find(ShortFileName) != ObjFiles.end()) {
           fail("Duplicate binary file with a short name: " + ShortFileName);
         }
 
@@ -1093,7 +1212,7 @@ readSymbolizeAndMergeCmdArguments(std::vector<std::string> FileNames) {
              FileName);
       }
 
-      auto Iter = ObjFiles.find(std::string(Components[1]));
+      auto Iter = ObjFiles.find(Components[1]);
       if (Iter == ObjFiles.end()) {
         fail("Object file for coverage not found: " + FileName);
       }
@@ -1130,30 +1249,129 @@ readSymbolizeAndMergeCmdArguments(std::vector<std::string> FileNames) {
 
 } // namespace
 
-int main(int Argc, char **Argv) {
-  llvm::InitLLVM X(Argc, Argv);
+static void parseArgs(int Argc, char **Argv) {
+  SancovOptTable Tbl;
+  llvm::BumpPtrAllocator A;
+  llvm::StringSaver Saver{A};
+  opt::InputArgList Args =
+      Tbl.parseArgs(Argc, Argv, OPT_UNKNOWN, Saver, [&](StringRef Msg) {
+        llvm::errs() << Msg << '\n';
+        std::exit(1);
+      });
 
+  if (Args.hasArg(OPT_help)) {
+    Tbl.printHelp(
+        llvm::outs(),
+        "sancov [options] <action> <binary files...> <.sancov files...> "
+        "<.symcov files...>",
+        "Sanitizer Coverage Processing Tool (sancov)\n\n"
+        "  This tool can extract various coverage-related information from: \n"
+        "  coverage-instrumented binary files, raw .sancov files and their "
+        "symbolized .symcov version.\n"
+        "  Depending on chosen action the tool expects different input files:\n"
+        "    -print-coverage-pcs     - coverage-instrumented binary files\n"
+        "    -print-coverage         - .sancov files\n"
+        "    -diff                   - two .sancov files & --output option\n"
+        "    -union                  - one or more .sancov files & --output "
+        "option\n"
+        "    <other actions>         - .sancov files & corresponding binary "
+        "files, .symcov files\n");
+    std::exit(0);
+  }
+
+  if (Args.hasArg(OPT_version)) {
+    cl::PrintVersionMessage();
+    std::exit(0);
+  }
+
+  if (Args.hasMultipleArgs(OPT_action_grp)) {
+    fail("Only one action option is allowed");
+  }
+
+  for (const opt::Arg *A : Args.filtered(OPT_INPUT)) {
+    ClInputFiles.emplace_back(A->getValue());
+  }
+
+  if (const llvm::opt::Arg *A = Args.getLastArg(OPT_action_grp)) {
+    switch (A->getOption().getID()) {
+    case OPT_print:
+      Action = ActionType::PrintAction;
+      break;
+    case OPT_diff:
+      Action = ActionType::DiffAction;
+      break;
+    case OPT_union_files:
+      Action = ActionType::UnionAction;
+      break;
+    case OPT_printCoveragePcs:
+      Action = ActionType::PrintCovPointsAction;
+      break;
+    case OPT_coveredFunctions:
+      Action = ActionType::CoveredFunctionsAction;
+      break;
+    case OPT_notCoveredFunctions:
+      Action = ActionType::NotCoveredFunctionsAction;
+      break;
+    case OPT_printCoverageStats:
+      Action = ActionType::StatsAction;
+      break;
+    case OPT_htmlReport:
+      Action = ActionType::HtmlReportAction;
+      break;
+    case OPT_symbolize:
+      Action = ActionType::SymbolizeAction;
+      break;
+    case OPT_merge:
+      Action = ActionType::MergeAction;
+      break;
+    default:
+      fail("Invalid Action");
+    }
+  }
+
+  ClDemangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, true);
+  ClSkipDeadFiles = Args.hasFlag(OPT_skipDeadFiles, OPT_no_skipDeadFiles, true);
+  ClUseDefaultIgnorelist =
+      Args.hasFlag(OPT_useDefaultIgnoreList, OPT_no_useDefaultIgnoreList, true);
+
+  ClStripPathPrefix = Args.getLastArgValue(OPT_stripPathPrefix_EQ);
+  ClIgnorelist = Args.getLastArgValue(OPT_ignorelist_EQ);
+  ClOutputFile = Args.getLastArgValue(OPT_output_EQ);
+}
+
+int sancov_main(int Argc, char **Argv, const llvm::ToolContext &) {
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
-  cl::ParseCommandLineOptions(Argc, Argv,
-      "Sanitizer Coverage Processing Tool (sancov)\n\n"
-      "  This tool can extract various coverage-related information from: \n"
-      "  coverage-instrumented binary files, raw .sancov files and their "
-      "symbolized .symcov version.\n"
-      "  Depending on chosen action the tool expects different input files:\n"
-      "    -print-coverage-pcs     - coverage-instrumented binary files\n"
-      "    -print-coverage         - .sancov files\n"
-      "    <other actions>         - .sancov files & corresponding binary "
-      "files, .symcov files\n"
-      );
+  parseArgs(Argc, Argv);
 
   // -print doesn't need object files.
   if (Action == PrintAction) {
     readAndPrintRawCoverage(ClInputFiles, outs());
     return 0;
-  } else if (Action == PrintCovPointsAction) {
+  }
+  if (Action == DiffAction) {
+    // -diff requires exactly 2 input files and an output file.
+    failIf(ClInputFiles.size() != 2,
+           "diff action requires exactly 2 input sancov files");
+    failIf(
+        ClOutputFile.empty(),
+        "diff action requires --output option to specify output sancov file");
+    diffRawCoverage(ClInputFiles[0], ClInputFiles[1], ClOutputFile);
+    return 0;
+  }
+  if (Action == UnionAction) {
+    // -union requires at least 1 input file and an output file.
+    failIf(ClInputFiles.empty(),
+           "union action requires at least one input sancov file");
+    failIf(
+        ClOutputFile.empty(),
+        "union action requires --output option to specify output sancov file");
+    unionRawCoverage(ClInputFiles, ClOutputFile);
+    return 0;
+  }
+  if (Action == PrintCovPointsAction) {
     // -print-coverage-points doesn't need coverage files.
     for (const std::string &ObjFile : ClInputFiles) {
       printCovPoints(ObjFile, outs());
@@ -1187,8 +1405,12 @@ int main(int Argc, char **Argv) {
     errs() << "-html-report option is removed: "
               "use -symbolize & coverage-report-server.py instead\n";
     return 1;
+  case DiffAction:
+  case UnionAction:
   case PrintAction:
   case PrintCovPointsAction:
     llvm_unreachable("unsupported action");
   }
+
+  return 0;
 }

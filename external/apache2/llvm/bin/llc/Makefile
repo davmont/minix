@@ -78,6 +78,34 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	CodeGenTypes \
+	IRPrinter \
+	Plugins \
+	TargetParser \
+	TransformsCoroutines \
+	CGData \
+	ObjCARC \
+	ipo \
+	SandboxIR \
+	BitWriter \
+	TransformsAggressiveInstCombine \
+	InstCombine \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	Linker \
+	HipStdPar \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoBTF \
+	TextAPI \
+	FrontendHLSL
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

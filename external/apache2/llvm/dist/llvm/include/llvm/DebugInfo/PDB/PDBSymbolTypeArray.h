@@ -11,13 +11,13 @@
 
 #include "PDBSymbol.h"
 #include "PDBTypes.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
-class raw_ostream;
 namespace pdb {
 
-class PDBSymbolTypeArray : public PDBSymbol {
+class LLVM_ABI PDBSymbolTypeArray : public PDBSymbol {
   DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::ArrayType)
 public:
   void dump(PDBSymDumper &Dumper) const override;
@@ -34,7 +34,7 @@ public:
   FORWARD_SYMBOL_METHOD(isVolatileType)
 };
 
+} // namespace pdb
 } // namespace llvm
-}
 
 #endif // LLVM_DEBUGINFO_PDB_PDBSYMBOLTYPEARRAY_H

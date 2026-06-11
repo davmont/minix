@@ -6,7 +6,8 @@ LIB=	LLVMFrontendOpenMP
 
 .PATH: ${LLVM_SRCDIR}/lib/Frontend/OpenMP
 
-SRCS+=	OMP.cpp \
+SRCS+=	DirectiveNameParser.cpp \
+	OMP.cpp \
 	OMPContext.cpp \
 	OMPIRBuilder.cpp
 

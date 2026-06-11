@@ -6,8 +6,8 @@ LIB=	LLVMTarget
 
 .PATH: ${LLVM_SRCDIR}/lib/Target
 
-SRCS+=	Target.cpp \
-	TargetIntrinsicInfo.cpp \
+SRCS+=	RegisterTargetPassConfigCallback.cpp \
+	Target.cpp \
 	TargetLoweringObjectFile.cpp \
 	TargetMachine.cpp \
 	TargetMachineC.cpp

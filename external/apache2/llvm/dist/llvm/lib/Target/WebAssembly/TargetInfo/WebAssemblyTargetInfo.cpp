@@ -12,7 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "TargetInfo/WebAssemblyTargetInfo.h"
-#include "llvm/Support/TargetRegistry.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/Compiler.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "wasm-target-info"
@@ -26,7 +27,8 @@ Target &llvm::getTheWebAssemblyTarget64() {
   return TheWebAssemblyTarget64;
 }
 
-extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeWebAssemblyTargetInfo() {
+extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void
+LLVMInitializeWebAssemblyTargetInfo() {
   RegisterTarget<Triple::wasm32> X(getTheWebAssemblyTarget32(), "wasm32",
                                    "WebAssembly 32-bit", "WebAssembly");
   RegisterTarget<Triple::wasm64> Y(getTheWebAssemblyTarget64(), "wasm64",
@@ -37,4 +39,5 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeWebAssemblyTargetInfo() {
 // which have to be in a shared location between CodeGen and MC.
 #define GET_INSTRMAP_INFO 1
 #define GET_INSTRINFO_ENUM 1
+#define GET_INSTRINFO_MC_HELPER_DECLS
 #include "WebAssemblyGenInstrInfo.inc"

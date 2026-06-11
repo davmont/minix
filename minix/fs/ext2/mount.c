@@ -134,7 +134,13 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   root_node->fn_gid = root_ip->i_gid;
   root_node->fn_dev = NO_DEV;
 
-  *res_flags = RES_NOFLAGS;
+  /*
+   * ext2 implements REQ_PEEK/REQ_BPEEK (.fdr_peek/.fdr_bpeek in table.c), so
+   * advertise RES_HASPEEK; otherwise VFS rejects file mmap() with EINVAL and
+   * dynamically-linked binaries fail to load.  Same regression as MFS from the
+   * libfsdriver conversion.
+   */
+  *res_flags = RES_HASPEEK;
 
   return(r);
 }

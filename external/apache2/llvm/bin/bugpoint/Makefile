@@ -88,6 +88,29 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	Extensions \
+	ipo \
+	Plugins \
+	IRPrinter \
+	TransformsCoroutines \
+	SandboxIR \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	HipStdPar \
+	CGData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoBTF \
+	TextAPI \
+	FrontendHLSL \
+	CodeGenTypes
+
 .include "${.PARSEDIR}/../../link.mk"
 
 LDADD+=	-lz

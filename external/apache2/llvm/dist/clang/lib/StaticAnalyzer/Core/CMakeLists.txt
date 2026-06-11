@@ -11,6 +11,8 @@ add_clang_library(clangStaticAnalyzerCore
   BlockCounter.cpp
   BugReporter.cpp
   BugReporterVisitors.cpp
+  BugSuppression.cpp
+  CallDescription.cpp
   CallEvent.cpp
   Checker.cpp
   CheckerContext.cpp
@@ -22,6 +24,7 @@ add_clang_library(clangStaticAnalyzerCore
   CoreEngine.cpp
   DynamicExtent.cpp
   DynamicType.cpp
+  EntryPointStats.cpp
   Environment.cpp
   ExplodedGraph.cpp
   ExprEngine.cpp
@@ -49,6 +52,7 @@ add_clang_library(clangStaticAnalyzerCore
   SymbolManager.cpp
   TextDiagnostics.cpp
   WorkList.cpp
+  Z3CrosscheckVisitor.cpp
 
   LINK_LIBS
   clangAST
@@ -57,6 +61,7 @@ add_clang_library(clangStaticAnalyzerCore
   clangBasic
   clangCrossTU
   clangFrontend
+  clangIndex
   clangLex
   clangRewrite
   clangToolingCore

@@ -5,57 +5,60 @@ LIB=	clangStaticAnalyzerCheckers
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers
-.PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/cert
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/MPI-Checker
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/RetainCountChecker
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/UninitializedObject
 .PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/WebKit
+.PATH: ${CLANG_SRCDIR}/lib/StaticAnalyzer/Checkers/cert
 
-SRCS+=	AnalysisOrderChecker.cpp \
+SRCS+=	ASTUtils.cpp \
+	AnalysisOrderChecker.cpp \
 	AnalyzerStatsChecker.cpp \
 	ArrayBoundChecker.cpp \
-	ArrayBoundCheckerV2.cpp \
-	ASTUtils.cpp \
+	AssumeModeling.cpp \
 	BasicObjCFoundationChecks.cpp \
+	BitwiseShiftChecker.cpp \
 	BlockInCriticalSectionChecker.cpp \
 	BoolAssignmentChecker.cpp \
 	BuiltinFunctionChecker.cpp \
+	CStringChecker.cpp \
+	CStringSyntaxChecker.cpp \
+	CXXDeleteChecker.cpp \
+	CXXSelfAssignmentChecker.cpp \
 	CallAndMessageChecker.cpp \
-	CastSizeChecker.cpp \
 	CastToStructChecker.cpp \
 	CastValueChecker.cpp \
-	CheckerDocumentation.cpp \
 	CheckObjCDealloc.cpp \
 	CheckObjCInstMethSignature.cpp \
 	CheckPlacementNew.cpp \
 	CheckSecuritySyntaxOnly.cpp \
-	CheckSizeofPointer.cpp \
+	CheckerDocumentation.cpp \
 	ChrootChecker.cpp \
 	CloneChecker.cpp \
 	ContainerModeling.cpp \
 	ConversionChecker.cpp \
-	CStringChecker.cpp \
-	CStringSyntaxChecker.cpp \
-	CXXSelfAssignmentChecker.cpp \
 	DeadStoresChecker.cpp \
 	DebugCheckers.cpp \
 	DebugContainerModeling.cpp \
 	DebugIteratorModeling.cpp \
-	DeleteWithNonVirtualDtorChecker.cpp \
 	DereferenceChecker.cpp \
 	DirectIvarAssignment.cpp \
 	DivZeroChecker.cpp \
 	DynamicTypeChecker.cpp \
 	DynamicTypePropagation.cpp \
 	EnumCastOutOfRangeChecker.cpp \
+	ErrnoChecker.cpp \
+	ErrnoModeling.cpp \
+	ErrnoTesterChecker.cpp \
 	ExprInspectionChecker.cpp \
 	FixedAddressChecker.cpp \
+	ForwardDeclChecker.cpp \
 	FuchsiaHandleChecker.cpp \
 	GCDAntipatternChecker.cpp \
-	GenericTaintChecker.cpp \
 	GTestChecker.cpp \
-	IdenticalExprChecker.cpp \
+	GenericTaintChecker.cpp \
 	InnerPointerChecker.cpp \
+	InvalidPtrChecker.cpp \
 	InvalidatedIteratorChecker.cpp \
 	Iterator.cpp \
 	IteratorModeling.cpp \
@@ -63,26 +66,27 @@ SRCS+=	AnalysisOrderChecker.cpp \
 	IvarInvalidationChecker.cpp \
 	LLVMConventionsChecker.cpp \
 	LocalizationChecker.cpp \
-	MacOSKeychainAPIChecker.cpp \
-	MacOSXAPIChecker.cpp \
-	MallocChecker.cpp \
-	MallocOverflowSecurityChecker.cpp \
-	MallocSizeofChecker.cpp \
 	MIGChecker.cpp \
-	MismatchedIteratorChecker.cpp \
-	MmapWriteExecChecker.cpp \
-	MoveChecker.cpp \
 	MPIBugReporter.cpp \
 	MPIChecker.cpp \
 	MPIFunctionClassifier.cpp \
-	NonnullGlobalConstantsChecker.cpp \
-	NonNullParamChecker.cpp \
-	NoReturnFunctionChecker.cpp \
-	NoUncountedMembersChecker.cpp \
+	MacOSKeychainAPIChecker.cpp \
+	MacOSXAPIChecker.cpp \
+	MallocChecker.cpp \
+	MallocSizeofChecker.cpp \
+	MemoryUnsafeCastChecker.cpp \
+	MismatchedIteratorChecker.cpp \
+	MmapWriteExecChecker.cpp \
+	MoveChecker.cpp \
 	NSAutoreleasePoolChecker.cpp \
 	NSErrorChecker.cpp \
+	NoOwnershipChangeVisitor.cpp \
+	NoReturnFunctionChecker.cpp \
+	NonNullParamChecker.cpp \
+	NonnullGlobalConstantsChecker.cpp \
 	NullabilityChecker.cpp \
 	NumberObjectConversionChecker.cpp \
+	OSObjectCStyleCast.cpp \
 	ObjCAtSyncChecker.cpp \
 	ObjCAutoreleaseWriteChecker.cpp \
 	ObjCContainersASTChecker.cpp \
@@ -92,50 +96,55 @@ SRCS+=	AnalysisOrderChecker.cpp \
 	ObjCSelfInitChecker.cpp \
 	ObjCSuperDeallocChecker.cpp \
 	ObjCUnusedIVarsChecker.cpp \
-	OSObjectCStyleCast.cpp \
 	PaddingChecker.cpp \
 	PointerArithChecker.cpp \
-	PointerIterationChecker.cpp \
-	PointerSortingChecker.cpp \
 	PointerSubChecker.cpp \
 	PthreadLockChecker.cpp \
 	PtrTypesSemantics.cpp \
-	PutenvWithAutoChecker.cpp \
+	PutenvStackArrayChecker.cpp \
+	RawPtrRefCallArgsChecker.cpp \
+	RawPtrRefLambdaCapturesChecker.cpp \
+	RawPtrRefLocalVarsChecker.cpp \
+	RawPtrRefMemberChecker.cpp \
 	RefCntblBaseVirtualDtorChecker.cpp \
 	RetainCountChecker.cpp \
 	RetainCountDiagnostics.cpp \
+	RetainPtrCtorAdoptChecker.cpp \
 	ReturnPointerRangeChecker.cpp \
 	ReturnUndefChecker.cpp \
 	ReturnValueChecker.cpp \
 	RunLoopAutoreleaseLeakChecker.cpp \
+	STLAlgorithmModeling.cpp \
+	SetgidSetuidOrderChecker.cpp \
 	SimpleStreamChecker.cpp \
 	SmartPtrChecker.cpp \
 	SmartPtrModeling.cpp \
 	StackAddrEscapeChecker.cpp \
 	StdLibraryFunctionsChecker.cpp \
-	STLAlgorithmModeling.cpp \
+	StdVariantChecker.cpp \
+	StoreToImmutableChecker.cpp \
 	StreamChecker.cpp \
+	StringChecker.cpp \
 	Taint.cpp \
 	TaintTesterChecker.cpp \
 	TestAfterDivZeroChecker.cpp \
 	TraversalChecker.cpp \
 	TrustNonnullChecker.cpp \
-	UncountedCallArgsChecker.cpp \
-	UncountedLambdaCapturesChecker.cpp \
-	UncountedLocalVarsChecker.cpp \
+	TrustReturnsNonnullChecker.cpp \
 	UndefBranchChecker.cpp \
 	UndefCapturedBlockVarChecker.cpp \
+	UndefResultChecker.cpp \
 	UndefinedArraySubscriptChecker.cpp \
 	UndefinedAssignmentChecker.cpp \
-	UndefResultChecker.cpp \
+	UndefinedNewArraySizeChecker.cpp \
 	UninitializedObjectChecker.cpp \
 	UninitializedPointee.cpp \
 	UnixAPIChecker.cpp \
 	UnreachableCodeChecker.cpp \
-	ValistChecker.cpp \
+	VAListChecker.cpp \
+	VLASizeChecker.cpp \
 	VforkChecker.cpp \
-	VirtualCallChecker.cpp \
-	VLASizeChecker.cpp
+	VirtualCallChecker.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

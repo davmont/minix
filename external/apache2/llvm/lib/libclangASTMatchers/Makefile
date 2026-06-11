@@ -8,7 +8,7 @@ LIB=	clangASTMatchers
 
 SRCS+=	ASTMatchFinder.cpp \
 	ASTMatchersInternal.cpp \
-	GtestMatchers.cpp
+	LowLevelHelpers.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

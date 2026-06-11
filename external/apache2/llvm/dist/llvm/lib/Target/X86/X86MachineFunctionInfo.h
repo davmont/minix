@@ -16,9 +16,42 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/Support/YAMLTraits.h"
+#include <set>
 
 namespace llvm {
+
+enum AMXProgModelEnum { None = 0, DirectReg = 1, ManagedRA = 2 };
+
+class X86MachineFunctionInfo;
+
+namespace yaml {
+template <> struct ScalarEnumerationTraits<AMXProgModelEnum> {
+  static void enumeration(IO &YamlIO, AMXProgModelEnum &Value) {
+    YamlIO.enumCase(Value, "None", AMXProgModelEnum::None);
+    YamlIO.enumCase(Value, "DirectReg", AMXProgModelEnum::DirectReg);
+    YamlIO.enumCase(Value, "ManagedRA", AMXProgModelEnum::ManagedRA);
+  }
+};
+
+struct X86MachineFunctionInfo final : public yaml::MachineFunctionInfo {
+  AMXProgModelEnum AMXProgModel;
+
+  X86MachineFunctionInfo() = default;
+  X86MachineFunctionInfo(const llvm::X86MachineFunctionInfo &MFI);
+
+  void mappingImpl(yaml::IO &YamlIO) override;
+  ~X86MachineFunctionInfo() override = default;
+};
+
+template <> struct MappingTraits<X86MachineFunctionInfo> {
+  static void mapping(IO &YamlIO, X86MachineFunctionInfo &MFI) {
+    YamlIO.mapOptional("amxProgModel", MFI.AMXProgModel);
+  }
+};
+} // end namespace yaml
 
 /// X86MachineFunctionInfo - This class is derived from MachineFunction and
 /// contains private X86 target-specific information for each MachineFunction.
@@ -95,6 +128,9 @@ class X86MachineFunctionInfo : public MachineFunctionInfo {
   /// used to address arguments in a function using a base pointer.
   int SEHFramePtrSaveIndex = 0;
 
+  /// The AMX programing model used in the function.
+  AMXProgModelEnum AMXProgModel = AMXProgModelEnum::None;
+
   /// True if this function has a subset of CSRs that is handled explicitly via
   /// copies.
   bool IsSplitCSR = false;
@@ -102,8 +138,8 @@ class X86MachineFunctionInfo : public MachineFunctionInfo {
   /// True if this function uses the red zone.
   bool UsesRedZone = false;
 
-  /// True if this function has WIN_ALLOCA instructions.
-  bool HasWinAlloca = false;
+  /// True if this function has DYN_ALLOCA instructions.
+  bool HasDynAlloca = false;
 
   /// True if this function has any preallocated calls.
   bool HasPreallocatedCall = false;
@@ -113,11 +149,32 @@ class X86MachineFunctionInfo : public MachineFunctionInfo {
   /// other tools to detect the extended record.
   bool HasSwiftAsyncContext = false;
 
-  Optional<int> SwiftAsyncContextFrameIdx;
+  /// Adjust stack for push2/pop2
+  bool PadForPush2Pop2 = false;
 
-  ValueMap<const Value *, size_t> PreallocatedIds;
+  /// Candidate registers for push2/pop2
+  std::set<Register> CandidatesForPush2Pop2;
+
+  /// True if this function has CFI directives that adjust the CFA.
+  /// This is used to determine if we should direct the debugger to use
+  /// the CFA instead of the stack pointer.
+  bool HasCFIAdjustCfa = false;
+
+  MachineInstr *StackPtrSaveMI = nullptr;
+
+  std::optional<int> SwiftAsyncContextFrameIdx;
+
+  // Preallocated fields are only used during isel.
+  // FIXME: Can we find somewhere else to store these?
+  DenseMap<const Value *, size_t> PreallocatedIds;
   SmallVector<size_t, 0> PreallocatedStackSizes;
   SmallVector<SmallVector<size_t, 4>, 0> PreallocatedArgOffsets;
+
+  // True if a function clobbers FP/BP according to its calling convention.
+  bool FPClobberedByCall = false;
+  bool BPClobberedByCall = false;
+  bool FPClobberedByInvoke = false;
+  bool BPClobberedByInvoke = false;
 
 private:
   /// ForwardedMustTailRegParms - A list of virtual and physical registers
@@ -126,8 +183,16 @@ private:
 
 public:
   X86MachineFunctionInfo() = default;
+  X86MachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
 
-  explicit X86MachineFunctionInfo(MachineFunction &MF) {}
+  X86MachineFunctionInfo(const X86MachineFunctionInfo &) = default;
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
+
+  void initializeBaseYamlFields(const yaml::X86MachineFunctionInfo &YamlMFI);
 
   bool getForceFramePointer() const { return ForceFramePointer;}
   void setForceFramePointer(bool forceFP) { ForceFramePointer = forceFP; }
@@ -137,13 +202,18 @@ public:
 
   bool getRestoreBasePointer() const { return RestoreBasePointerOffset!=0; }
   void setRestoreBasePointer(const MachineFunction *MF);
+  void setRestoreBasePointer(unsigned CalleeSavedFrameSize) {
+    RestoreBasePointerOffset = -CalleeSavedFrameSize;
+  }
   int getRestoreBasePointerOffset() const {return RestoreBasePointerOffset; }
 
   DenseMap<int, unsigned>& getWinEHXMMSlotInfo() { return WinEHXMMSlotInfo; }
   const DenseMap<int, unsigned>& getWinEHXMMSlotInfo() const {
     return WinEHXMMSlotInfo; }
 
-  unsigned getCalleeSavedFrameSize() const { return CalleeSavedFrameSize; }
+  unsigned getCalleeSavedFrameSize() const {
+    return CalleeSavedFrameSize + 8 * padForPush2Pop2();
+  }
   void setCalleeSavedFrameSize(unsigned bytes) { CalleeSavedFrameSize = bytes; }
 
   unsigned getBytesToPopOnReturn() const { return BytesToPopOnReturn; }
@@ -188,6 +258,13 @@ public:
   int getSEHFramePtrSaveIndex() const { return SEHFramePtrSaveIndex; }
   void setSEHFramePtrSaveIndex(int Index) { SEHFramePtrSaveIndex = Index; }
 
+  AMXProgModelEnum getAMXProgModel() const { return AMXProgModel; }
+  void setAMXProgModel(AMXProgModelEnum Model) {
+    assert((AMXProgModel == AMXProgModelEnum::None || AMXProgModel == Model) &&
+           "mixed model is not supported");
+    AMXProgModel = Model;
+  }
+
   SmallVectorImpl<ForwardedRegister> &getForwardedMustTailRegParms() {
     return ForwardedMustTailRegParms;
   }
@@ -198,8 +275,8 @@ public:
   bool getUsesRedZone() const { return UsesRedZone; }
   void setUsesRedZone(bool V) { UsesRedZone = V; }
 
-  bool hasWinAlloca() const { return HasWinAlloca; }
-  void setHasWinAlloca(bool v) { HasWinAlloca = v; }
+  bool hasDynAlloca() const { return HasDynAlloca; }
+  void setHasDynAlloca(bool v) { HasDynAlloca = v; }
 
   bool hasPreallocatedCall() const { return HasPreallocatedCall; }
   void setHasPreallocatedCall(bool v) { HasPreallocatedCall = v; }
@@ -207,7 +284,26 @@ public:
   bool hasSwiftAsyncContext() const { return HasSwiftAsyncContext; }
   void setHasSwiftAsyncContext(bool v) { HasSwiftAsyncContext = v; }
 
-  Optional<int> getSwiftAsyncContextFrameIdx() const {
+  bool padForPush2Pop2() const { return PadForPush2Pop2; }
+  void setPadForPush2Pop2(bool V) { PadForPush2Pop2 = V; }
+
+  bool isCandidateForPush2Pop2(Register Reg) const {
+    return CandidatesForPush2Pop2.find(Reg) != CandidatesForPush2Pop2.end();
+  }
+  void addCandidateForPush2Pop2(Register Reg) {
+    CandidatesForPush2Pop2.insert(Reg);
+  }
+  size_t getNumCandidatesForPush2Pop2() const {
+    return CandidatesForPush2Pop2.size();
+  }
+
+  bool hasCFIAdjustCfa() const { return HasCFIAdjustCfa; }
+  void setHasCFIAdjustCfa(bool v) { HasCFIAdjustCfa = v; }
+
+  void setStackPtrSaveMI(MachineInstr *MI) { StackPtrSaveMI = MI; }
+  MachineInstr *getStackPtrSaveMI() const { return StackPtrSaveMI; }
+
+  std::optional<int> getSwiftAsyncContextFrameIdx() const {
     return SwiftAsyncContextFrameIdx;
   }
   void setSwiftAsyncContextFrameIdx(int v) { SwiftAsyncContextFrameIdx = v; }
@@ -238,6 +334,18 @@ public:
     assert(!PreallocatedArgOffsets[Id].empty() && "arg offsets not set");
     return PreallocatedArgOffsets[Id];
   }
+
+  bool getFPClobberedByCall() const { return FPClobberedByCall; }
+  void setFPClobberedByCall(bool C) { FPClobberedByCall = C; }
+
+  bool getBPClobberedByCall() const { return BPClobberedByCall; }
+  void setBPClobberedByCall(bool C) { BPClobberedByCall = C; }
+
+  bool getFPClobberedByInvoke() const { return FPClobberedByInvoke; }
+  void setFPClobberedByInvoke(bool C) { FPClobberedByInvoke = C; }
+
+  bool getBPClobberedByInvoke() const { return BPClobberedByInvoke; }
+  void setBPClobberedByInvoke(bool C) { BPClobberedByInvoke = C; }
 };
 
 } // End llvm namespace

@@ -16,13 +16,13 @@ using namespace llvm;
 using namespace llvm::object;
 using namespace llvm::Win64EH;
 
-static const EnumEntry<unsigned> UnwindFlags[] = {
+const EnumEntry<unsigned> UnwindFlags[] = {
   { "ExceptionHandler", UNW_ExceptionHandler },
   { "TerminateHandler", UNW_TerminateHandler },
   { "ChainInfo"       , UNW_ChainInfo        }
 };
 
-static const EnumEntry<unsigned> UnwindOpInfo[] = {
+const EnumEntry<unsigned> UnwindOpInfo[] = {
   { "RAX",  0 },
   { "RCX",  1 },
   { "RDX",  2 },
@@ -65,6 +65,8 @@ static StringRef getUnwindCodeTypeName(uint8_t Code) {
   case UOP_SaveXMM128: return "SAVE_XMM128";
   case UOP_SaveXMM128Big: return "SAVE_XMM128_FAR";
   case UOP_PushMachFrame: return "PUSH_MACHFRAME";
+  case UOP_Epilog:
+    return "EPILOG";
   }
 }
 
@@ -99,6 +101,7 @@ static unsigned getNumUsedSlots(const UnwindCode &UnwindCode) {
   case UOP_AllocSmall:
   case UOP_SetFPReg:
   case UOP_PushMachFrame:
+  case UOP_Epilog:
     return 1;
   case UOP_SaveNonVol:
   case UOP_SaveXMM128:
@@ -125,14 +128,52 @@ static std::error_code getSymbol(const COFFObjectFile &COFF, uint64_t VA,
   return inconvertibleErrorCode();
 }
 
+static object::SymbolRef getPreferredSymbol(const COFFObjectFile &COFF,
+                                            object::SymbolRef Sym,
+                                            uint32_t &SymbolOffset,
+                                            bool IsRangeEnd) {
+  // The symbol resolved by ResolveSymbol can be any internal
+  // nondescriptive symbol; try to resolve a more descriptive one.
+  COFFSymbolRef CoffSym = COFF.getCOFFSymbol(Sym);
+  if (CoffSym.getStorageClass() != COFF::IMAGE_SYM_CLASS_LABEL &&
+      CoffSym.getSectionDefinition() == nullptr)
+    return Sym;
+  for (const auto &S : COFF.symbols()) {
+    COFFSymbolRef CS = COFF.getCOFFSymbol(S);
+    if (CS.getSectionNumber() == CoffSym.getSectionNumber() &&
+        CS.getValue() <= CoffSym.getValue() + SymbolOffset &&
+        CS.getStorageClass() != COFF::IMAGE_SYM_CLASS_LABEL &&
+        CS.getSectionDefinition() == nullptr) {
+      uint32_t Offset = CoffSym.getValue() + SymbolOffset - CS.getValue();
+      // For the end of a range, don't pick a symbol with a zero offset;
+      // prefer a symbol with a small positive offset.
+      if (Offset <= SymbolOffset && (!IsRangeEnd || Offset > 0)) {
+        SymbolOffset = Offset;
+        Sym = S;
+        CoffSym = CS;
+        if (CS.isExternal() && SymbolOffset == 0)
+          return Sym;
+      }
+    }
+  }
+  return Sym;
+}
+
 static std::string formatSymbol(const Dumper::Context &Ctx,
                                 const coff_section *Section, uint64_t Offset,
-                                uint32_t Displacement) {
+                                uint32_t Displacement,
+                                bool IsRangeEnd = false) {
   std::string Buffer;
   raw_string_ostream OS(Buffer);
 
   SymbolRef Symbol;
   if (!Ctx.ResolveSymbol(Section, Offset, Symbol, Ctx.UserData)) {
+    // We found a relocation at the given offset in the section, pointing
+    // at a symbol.
+
+    // Try to resolve label/section symbols into function names.
+    Symbol = getPreferredSymbol(Ctx.COFF, Symbol, Displacement, IsRangeEnd);
+
     Expected<StringRef> Name = Symbol.getName();
     if (Name) {
       OS << *Name;
@@ -207,7 +248,8 @@ void Dumper::printRuntimeFunctionEntry(const Context &Ctx,
   SW.printString("StartAddress",
                  formatSymbol(Ctx, Section, Offset + 0, RF.StartAddress));
   SW.printString("EndAddress",
-                 formatSymbol(Ctx, Section, Offset + 4, RF.EndAddress));
+                 formatSymbol(Ctx, Section, Offset + 4, RF.EndAddress,
+                              /*IsRangeEnd=*/true));
   SW.printString("UnwindInfoAddress",
                  formatSymbol(Ctx, Section, Offset + 8, RF.UnwindInfoOffset));
 }
@@ -215,7 +257,8 @@ void Dumper::printRuntimeFunctionEntry(const Context &Ctx,
 // Prints one unwind code. Because an unwind code can occupy up to 3 slots in
 // the unwind codes array, this function requires that the correct number of
 // slots is provided.
-void Dumper::printUnwindCode(const UnwindInfo& UI, ArrayRef<UnwindCode> UC) {
+void Dumper::printUnwindCode(const UnwindInfo &UI, ArrayRef<UnwindCode> UC,
+                             bool &SeenFirstEpilog) {
   assert(UC.size() >= getNumUsedSlots(UC[0]));
 
   SW.startLine() << format("0x%02X: ", unsigned(UC[0].u.CodeOffset))
@@ -267,6 +310,23 @@ void Dumper::printUnwindCode(const UnwindInfo& UI, ArrayRef<UnwindCode> UC) {
   case UOP_PushMachFrame:
     OS << " errcode=" << (UC[0].getOpInfo() == 0 ? "no" : "yes");
     break;
+
+  case UOP_Epilog:
+    if (SeenFirstEpilog) {
+      uint32_t Offset = UC[0].getEpilogOffset();
+      if (Offset == 0) {
+        OS << " padding";
+      } else {
+        OS << " offset=" << format("0x%X", Offset);
+      }
+    } else {
+      SeenFirstEpilog = true;
+      bool AtEnd = (UC[0].getOpInfo() & 0x1) != 0;
+      uint32_t Length = UC[0].u.CodeOffset;
+      OS << " atend=" << (AtEnd ? "yes" : "no")
+         << ", length=" << format("0x%X", Length);
+    }
+    break;
   }
 
   OS << "\n";
@@ -276,11 +336,11 @@ void Dumper::printUnwindInfo(const Context &Ctx, const coff_section *Section,
                              off_t Offset, const UnwindInfo &UI) {
   DictScope UIS(SW, "UnwindInfo");
   SW.printNumber("Version", UI.getVersion());
-  SW.printFlags("Flags", UI.getFlags(), makeArrayRef(UnwindFlags));
+  SW.printFlags("Flags", UI.getFlags(), ArrayRef(UnwindFlags));
   SW.printNumber("PrologSize", UI.PrologSize);
   if (UI.getFrameRegister()) {
     SW.printEnum("FrameRegister", UI.getFrameRegister(),
-                 makeArrayRef(UnwindOpInfo));
+                 ArrayRef(UnwindOpInfo));
     SW.printHex("FrameOffset", UI.getFrameOffset());
   } else {
     SW.printString("FrameRegister", StringRef("-"));
@@ -291,6 +351,7 @@ void Dumper::printUnwindInfo(const Context &Ctx, const coff_section *Section,
   {
     ListScope UCS(SW, "UnwindCodes");
     ArrayRef<UnwindCode> UC(&UI.UnwindCodes[0], UI.NumCodes);
+    bool SeenFirstEpilog = false;
     for (const UnwindCode *UCI = UC.begin(), *UCE = UC.end(); UCI < UCE; ++UCI) {
       unsigned UsedSlots = getNumUsedSlots(*UCI);
       if (UsedSlots > UC.size()) {
@@ -298,7 +359,7 @@ void Dumper::printUnwindInfo(const Context &Ctx, const coff_section *Section,
         return;
       }
 
-      printUnwindCode(UI, makeArrayRef(UCI, UCE));
+      printUnwindCode(UI, ArrayRef(UCI, UCE), SeenFirstEpilog);
       UCI = UCI + UsedSlots - 1;
     }
   }
@@ -358,7 +419,7 @@ void Dumper::printData(const Context &Ctx) {
     else
       consumeError(NameOrErr.takeError());
 
-    if (Name != ".pdata" && !Name.startswith(".pdata$"))
+    if (Name != ".pdata" && !Name.starts_with(".pdata$"))
       continue;
 
     const coff_section *PData = Ctx.COFF.getCOFFSection(Section);

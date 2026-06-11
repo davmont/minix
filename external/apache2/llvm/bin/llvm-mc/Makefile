@@ -69,6 +69,28 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	TargetParser \
+	DWARFCFIChecker \
+	CodeGenTypes \
+	FrontendHLSL \
+	ProfileData \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	DebugInfoDWARF \
+	IRReader \
+	BitReader \
+	AsmParser \
+	Remarks \
+	BitstreamReader \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

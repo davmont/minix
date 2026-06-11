@@ -41,8 +41,7 @@ PressureTracker::PressureTracker(const MCSchedModel &Model)
   }
 
   ResourceUsers.resize(NextResourceUsersIdx);
-  std::fill(ResourceUsers.begin(), ResourceUsers.end(),
-            std::make_pair<unsigned, unsigned>(~0U, 0U));
+  llvm::fill(ResourceUsers, std::make_pair<unsigned, unsigned>(~0U, 0U));
 }
 
 void PressureTracker::getResourceUsers(uint64_t ResourceMask,
@@ -52,13 +51,13 @@ void PressureTracker::getResourceUsers(uint64_t ResourceMask,
   const MCProcResourceDesc &PRDesc = *SM.getProcResource(ProcResID);
   for (unsigned I = 0, E = PRDesc.NumUnits; I < E; ++I) {
     const User U = getResourceUser(ProcResID, I);
-    if (U.second && IPI.find(U.first) != IPI.end())
+    if (U.second && IPI.contains(U.first))
       Users.emplace_back(U);
   }
 }
 
 void PressureTracker::onInstructionDispatched(unsigned IID) {
-  IPI.insert(std::make_pair(IID, InstructionPressureInfo()));
+  IPI.try_emplace(IID);
 }
 
 void PressureTracker::onInstructionExecuted(unsigned IID) { IPI.erase(IID); }
@@ -66,12 +65,10 @@ void PressureTracker::onInstructionExecuted(unsigned IID) { IPI.erase(IID); }
 void PressureTracker::handleInstructionIssuedEvent(
     const HWInstructionIssuedEvent &Event) {
   unsigned IID = Event.IR.getSourceIndex();
-  using ResourceRef = HWInstructionIssuedEvent::ResourceRef;
-  using ResourceUse = std::pair<ResourceRef, ResourceCycles>;
   for (const ResourceUse &Use : Event.UsedResources) {
     const ResourceRef &RR = Use.first;
     unsigned Index = ProcResID2ResourceUsersIndex[RR.first];
-    Index += countTrailingZeros(RR.second);
+    Index += llvm::countr_zero(RR.second);
     ResourceUsers[Index] = std::make_pair(IID, Use.second.getNumerator());
   }
 }
@@ -200,8 +197,8 @@ void DependencyGraph::initializeRootSet(
   }
 }
 
-void DependencyGraph::propagateThroughEdges(
-    SmallVectorImpl<unsigned> &RootSet, unsigned Iterations) {
+void DependencyGraph::propagateThroughEdges(SmallVectorImpl<unsigned> &RootSet,
+                                            unsigned Iterations) {
   SmallVector<unsigned, 8> ToVisit;
 
   // A critical sequence is computed as the longest path from a node of the
@@ -223,14 +220,14 @@ void DependencyGraph::propagateThroughEdges(
   // The `unvisited nodes` set initially contains all the nodes from the
   // RootSet.  A node N is added to the `unvisited nodes` if all its
   // predecessors have been visited already.
-  // 
+  //
   // For simplicity, every node tracks the number of unvisited incoming edges in
   // field `NumVisitedPredecessors`.  When the value of that field drops to
   // zero, then the corresponding node is added to a `ToVisit` set.
   //
   // At the end of every iteration of the outer loop, set `ToVisit` becomes our
   // new `unvisited nodes` set.
-  // 
+  //
   // The algorithm terminates when the set of unvisited nodes (i.e. our RootSet)
   // is empty. This algorithm works under the assumption that the graph is
   // acyclic.
@@ -269,16 +266,18 @@ void DependencyGraph::getCriticalSequence(
   // that node is the last instruction of our critical sequence.
   // Field N.Depth would tell us the total length of the sequence.
   //
-  // To obtain the sequence of critical edges, we simply follow the chain of critical
-  // predecessors starting from node N (field DGNode::CriticalPredecessor).
-  const auto It = std::max_element(
-      Nodes.begin(), Nodes.end(),
-      [](const DGNode &Lhs, const DGNode &Rhs) { return Lhs.Cost < Rhs.Cost; });
+  // To obtain the sequence of critical edges, we simply follow the chain of
+  // critical predecessors starting from node N (field
+  // DGNode::CriticalPredecessor).
+  const auto It =
+      llvm::max_element(Nodes, [](const DGNode &Lhs, const DGNode &Rhs) {
+        return Lhs.Cost < Rhs.Cost;
+      });
   unsigned IID = std::distance(Nodes.begin(), It);
   Seq.resize(Nodes[IID].Depth);
-  for (unsigned I = Seq.size(), E = 0; I > E; --I) {
+  for (const DependencyEdge *&DE : llvm::reverse(Seq)) {
     const DGNode &N = Nodes[IID];
-    Seq[I - 1] = &N.CriticalPredecessor;
+    DE = &N.CriticalPredecessor;
     IID = N.CriticalPredecessor.FromIID;
   }
 }
@@ -612,9 +611,9 @@ void BottleneckAnalysis::printBottleneckHints(raw_ostream &OS) const {
     ArrayRef<unsigned> Distribution = Tracker.getResourcePressureDistribution();
     const MCSchedModel &SM = getSubTargetInfo().getSchedModel();
     for (unsigned I = 0, E = Distribution.size(); I < E; ++I) {
-      unsigned ResourceCycles = Distribution[I];
-      if (ResourceCycles) {
-        double Frequency = (double)ResourceCycles * 100 / TotalCycles;
+      unsigned ReleaseAtCycles = Distribution[I];
+      if (ReleaseAtCycles) {
+        double Frequency = (double)ReleaseAtCycles * 100 / TotalCycles;
         const MCProcResourceDesc &PRDesc = *SM.getProcResource(I);
         OS << "\n  - " << PRDesc.Name << "  [ "
            << format("%.2f", floor((Frequency * 100) + 0.5) / 100) << "% ]";
@@ -639,6 +638,52 @@ void BottleneckAnalysis::printView(raw_ostream &OS) const {
   TempStream.flush();
   OS << Buffer;
   printCriticalSequence(OS);
+}
+
+json::Value BottleneckAnalysis::toJSON() const {
+  if (!SeenStallCycles || !BPI.PressureIncreaseCycles) {
+    json::Object JO({{"PressureIncreaseCycles", 0}});
+    return JO;
+  }
+
+  json::Array CriticalSequence;
+  // get critical sequence
+  SmallVector<const DependencyEdge *, 16> Seq;
+  DG.getCriticalSequence(Seq);
+  if (!Seq.empty()) {
+    for (const DependencyEdge *&DE : Seq) {
+      json::Object DEJO({{"FromID", DE->FromIID},
+                         {"ToID", DE->ToIID},
+                         {"Type", static_cast<unsigned>(DE->Dep.Type)},
+                         {"ResourceOrRegID", DE->Dep.ResourceOrRegID}});
+      CriticalSequence.push_back(std::move(DEJO));
+    }
+  }
+
+  json::Array ResourcePressure;
+  if (BPI.PressureIncreaseCycles) {
+    ArrayRef<unsigned> Distribution = Tracker.getResourcePressureDistribution();
+    const MCSchedModel &SM = getSubTargetInfo().getSchedModel();
+    for (unsigned I = 0, E = Distribution.size(); I < E; ++I) {
+      unsigned ReleaseAtCycles = Distribution[I];
+      if (ReleaseAtCycles) {
+        const MCProcResourceDesc &PRDesc = *SM.getProcResource(I);
+        json::Object RPJO({{PRDesc.Name, ReleaseAtCycles}});
+        ResourcePressure.push_back(std::move(RPJO));
+      }
+    }
+  }
+
+  json::Object JO({{"PressureIncreaseCycles", BPI.PressureIncreaseCycles},
+                   {"ResourcePressureCycles", BPI.ResourcePressureCycles},
+                   {"DataDependencyCycles", BPI.DataDependencyCycles},
+                   {"RegisterDependencyCycles", BPI.RegisterDependencyCycles},
+                   {"MemoryDependencyCycles", BPI.MemoryDependencyCycles},
+                   {"TotalCycles", TotalCycles},
+                   {"DependencyEdge", std::move(CriticalSequence)},
+                   {"ResourcePressure", std::move(ResourcePressure)}});
+
+  return JO;
 }
 
 } // namespace mca.

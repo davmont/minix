@@ -65,7 +65,8 @@ SUBDIR+= \
 	libLLVMAMDGPUMCTargetDesc \
 	libLLVMAMDGPUTargetInfo \
 	libLLVMAMDGPUAsmParser \
-	libLLVMAMDGPUUtils
+	libLLVMAMDGPUUtils \
+	libLLVMAMDGPUDisassembler
 .endif
 
 SUBDIR+= \
@@ -108,7 +109,6 @@ SUBDIR+= \
 
 .if ${NO_LLVM_DEVELOPER:Uno} == "no" && ${LLVM_DEVELOPER:U} == "yes"
 SUBDIR+= \
-	libLLVMAMDGPUDisassembler \
 	libLLVMExecutionEngine \
 	libLLVMExecutionEngineJITLink \
 	libLLVMExecutionEngineOrcShared \
@@ -124,12 +124,16 @@ SUBDIR+= \
 SUBDIR+= \
 	libLLVMDebugInfoPDB \
 	libLLVMDebugInfoSymbolize \
-	libLLVMObjectYAML
+	libLLVMDebugInfoGSYM
 .endif
+
+# clang 22's FrontendOffloading uses ELFYAML (yaml2elf), so the host clang
+# needs ObjectYAML built as well.
+SUBDIR+= \
+	libLLVMObjectYAML
 
 .if ${NO_LLVM_DEVELOPER:Uno} == "no" && ${LLVM_DEVELOPER:U} == "yes"
 SUBDIR+= \
-	libLLVMDebugInfoGSYM \
 	libLLVMHello \
 	libLLVMInterpreter \
 	libLLVMLineEditor \
@@ -140,11 +144,11 @@ SUBDIR+= \
 
 SUBDIR+= \
 	libclangAnalysis \
-	libclangARCMigrate \
 	libclangAST \
 	libclangASTMatchers \
 	libclangBasic \
 	libclangCodeGen \
+	libclangCodeGenTargetBuiltins \
 	libclangCrossTU \
 	libclangDriver \
 	libclangEdit \
@@ -165,17 +169,68 @@ SUBDIR+= \
 
 .if ${NO_LLVM_DEVELOPER:Uno} == "no" && ${LLVM_DEVELOPER:U} == "yes"
 SUBDIR+= \
-	libclangAPINotes \
 	libclangASTMatchersDynamic \
-	libclangFormat \
 	libclangIndexSerialization \
 	libclangInterpreter \
 	libclangTesting \
 	libclangTooling \
 	libclangToolingDependencyScanning \
-	libclangToolingInclusions \
 	libclangToolingRefactoring \
 	libclangToolingSyntax
 .endif
+
+# clang 22 links these as core libraries (were developer-only in 13).
+SUBDIR+= \
+	libclangAPINotes \
+	libclangFormat \
+	libclangToolingInclusions
+
+# LLVM 22 new libraries
+SUBDIR+=	libclang \
+	libclangDependencyScanning \
+	libclangDirectoryWatcher \
+	libclangExtractAPI \
+	libclangHandleCXX \
+	libclangHandleLLVM \
+	libclangInstallAPI \
+	libclangOptions \
+	libclangSupport \
+	libLLVMABI \
+	libLLVMCAS \
+	libLLVMCFIVerify \
+	libLLVMCGData \
+	libLLVMCodeGenTypes \
+	libLLVMDebugInfoBTF \
+	libLLVMDebuginfod \
+	libLLVMDebugInfoLogicalView \
+	libLLVMDiff \
+	libLLVMDTLTO \
+	libLLVMDWARFCFIChecker \
+	libLLVMDWP \
+	libLLVMExegesis \
+	libLLVMExegesisAArch64 \
+	libLLVMExegesisMips \
+	libLLVMExegesisPowerPC \
+	libLLVMExegesisX86 \
+	libLLVMExtensions \
+	libLLVMFrontendAtomic \
+	libLLVMFrontendDirective \
+	libLLVMFrontendDriver \
+	libLLVMFrontendHLSL \
+	libLLVMFrontendOffloading \
+	libLLVMFuzzerCLI \
+	libLLVMFuzzMutate \
+	libLLVMHipStdPar \
+	libLLVMIRPrinter \
+	libLLVMObjCopy \
+	libLLVMOptDriver \
+	libLLVMPlugins \
+	libLLVMSandboxIR \
+	libLLVMTableGenBasic \
+	libLLVMTableGenCommon \
+	libLLVMTargetParser \
+	libLLVMTelemetry \
+	libLLVMWindowsDriver \
+	libLLVMWindowsManifest
 
 .include <bsd.subdir.mk>

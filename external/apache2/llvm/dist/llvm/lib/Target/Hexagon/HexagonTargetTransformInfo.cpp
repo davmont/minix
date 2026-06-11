@@ -29,14 +29,22 @@ using namespace llvm;
 #define DEBUG_TYPE "hexagontti"
 
 static cl::opt<bool> HexagonAutoHVX("hexagon-autohvx", cl::init(false),
-  cl::Hidden, cl::desc("Enable loop vectorizer for HVX"));
+    cl::Hidden, cl::desc("Enable loop vectorizer for HVX"));
+
+cl::opt<bool> HexagonAllowScatterGatherHVX(
+    "hexagon-allow-scatter-gather-hvx", cl::init(false), cl::Hidden,
+    cl::desc("Allow auto-generation of HVX scatter-gather"));
+
+static cl::opt<bool> EnableV68FloatAutoHVX(
+    "force-hvx-float", cl::Hidden,
+    cl::desc("Enable auto-vectorization of floatint point types on v68."));
 
 static cl::opt<bool> EmitLookupTables("hexagon-emit-lookup-tables",
-  cl::init(true), cl::Hidden,
-  cl::desc("Control lookup table emission on Hexagon target"));
+    cl::init(true), cl::Hidden,
+    cl::desc("Control lookup table emission on Hexagon target"));
 
 static cl::opt<bool> HexagonMaskedVMem("hexagon-masked-vmem", cl::init(true),
-  cl::Hidden, cl::desc("Enable masked loads/stores for HVX"));
+    cl::Hidden, cl::desc("Enable masked loads/stores for HVX"));
 
 // Constant "cost factor" to make floating point operations more expensive
 // in terms of vectorization cost. This isn't the best way, but it should
@@ -45,6 +53,17 @@ static const unsigned FloatFactor = 4;
 
 bool HexagonTTIImpl::useHVX() const {
   return ST.useHVXOps() && HexagonAutoHVX;
+}
+
+bool HexagonTTIImpl::isHVXVectorType(Type *Ty) const {
+  auto *VecTy = dyn_cast<VectorType>(Ty);
+  if (!VecTy)
+    return false;
+  if (!ST.isTypeForHVX(VecTy))
+    return false;
+  if (ST.useHVXV69Ops() || !VecTy->getElementType()->isFloatingPointTy())
+    return true;
+  return ST.useHVXV68Ops() && EnableV68FloatAutoHVX;
 }
 
 unsigned HexagonTTIImpl::getTypeNumElements(Type *Ty) const {
@@ -63,13 +82,14 @@ HexagonTTIImpl::getPopcntSupport(unsigned IntTyWidthInBit) const {
 }
 
 // The Hexagon target can unroll loops with run-time trip counts.
-void HexagonTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
-                                             TTI::UnrollingPreferences &UP) {
+void HexagonTTIImpl::getUnrollingPreferences(
+    Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
+    OptimizationRemarkEmitter *ORE) const {
   UP.Runtime = UP.Partial = true;
 }
 
 void HexagonTTIImpl::getPeelingPreferences(Loop *L, ScalarEvolution &SE,
-                                           TTI::PeelingPreferences &PP) {
+                                           TTI::PeelingPreferences &PP) const {
   BaseT::getPeelingPreferences(L, SE, PP);
   // Only try to peel innermost loops with small runtime trip counts.
   if (L && L->isInnermost() && canPeel(L) &&
@@ -88,13 +108,14 @@ HexagonTTIImpl::getPreferredAddressingMode(const Loop *L,
 
 /// --- Vector TTI begin ---
 
-unsigned HexagonTTIImpl::getNumberOfRegisters(bool Vector) const {
+unsigned HexagonTTIImpl::getNumberOfRegisters(unsigned ClassID) const {
+  bool Vector = ClassID == 1;
   if (Vector)
     return useHVX() ? 32 : 0;
   return 32;
 }
 
-unsigned HexagonTTIImpl::getMaxInterleaveFactor(unsigned VF) {
+unsigned HexagonTTIImpl::getMaxInterleaveFactor(ElementCount VF) const {
   return useHVX() ? 2 : 1;
 }
 
@@ -122,45 +143,36 @@ ElementCount HexagonTTIImpl::getMinimumVF(unsigned ElemWidth,
   return ElementCount::getFixed((8 * ST.getVectorLength()) / ElemWidth);
 }
 
-InstructionCost HexagonTTIImpl::getScalarizationOverhead(
-    VectorType *Ty, const APInt &DemandedElts, bool Insert, bool Extract) {
-  return BaseT::getScalarizationOverhead(Ty, DemandedElts, Insert, Extract);
-}
-
 InstructionCost
-HexagonTTIImpl::getOperandsScalarizationOverhead(ArrayRef<const Value *> Args,
-                                                 ArrayRef<Type *> Tys) {
-  return BaseT::getOperandsScalarizationOverhead(Args, Tys);
-}
-
-InstructionCost HexagonTTIImpl::getCallInstrCost(Function *F, Type *RetTy,
-                                                 ArrayRef<Type *> Tys,
-                                                 TTI::TargetCostKind CostKind) {
+HexagonTTIImpl::getCallInstrCost(Function *F, Type *RetTy, ArrayRef<Type *> Tys,
+                                 TTI::TargetCostKind CostKind) const {
   return BaseT::getCallInstrCost(F, RetTy, Tys, CostKind);
 }
 
 InstructionCost
 HexagonTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
-                                      TTI::TargetCostKind CostKind) {
+                                      TTI::TargetCostKind CostKind) const {
   if (ICA.getID() == Intrinsic::bswap) {
     std::pair<InstructionCost, MVT> LT =
-        TLI.getTypeLegalizationCost(DL, ICA.getReturnType());
+        getTypeLegalizationCost(ICA.getReturnType());
     return LT.first + 2;
   }
   return BaseT::getIntrinsicInstrCost(ICA, CostKind);
 }
 
-InstructionCost HexagonTTIImpl::getAddressComputationCost(Type *Tp,
-                                                          ScalarEvolution *SE,
-                                                          const SCEV *S) {
+InstructionCost
+HexagonTTIImpl::getAddressComputationCost(Type *PtrTy, ScalarEvolution *SE,
+                                          const SCEV *S,
+                                          TTI::TargetCostKind CostKind) const {
   return 0;
 }
 
 InstructionCost HexagonTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
-                                                MaybeAlign Alignment,
+                                                Align Alignment,
                                                 unsigned AddressSpace,
                                                 TTI::TargetCostKind CostKind,
-                                                const Instruction *I) {
+                                                TTI::OperandValueInfo OpInfo,
+                                                const Instruction *I) const {
   assert(Opcode == Instruction::Load || Opcode == Instruction::Store);
   // TODO: Handle other cost kinds.
   if (CostKind != TTI::TCK_RecipThroughput)
@@ -168,25 +180,24 @@ InstructionCost HexagonTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
 
   if (Opcode == Instruction::Store)
     return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
-                                  CostKind, I);
+                                  CostKind, OpInfo, I);
 
   if (Src->isVectorTy()) {
     VectorType *VecTy = cast<VectorType>(Src);
-    unsigned VecWidth = VecTy->getPrimitiveSizeInBits().getFixedSize();
-    if (useHVX() && ST.isTypeForHVX(VecTy)) {
+    unsigned VecWidth = VecTy->getPrimitiveSizeInBits().getFixedValue();
+    if (isHVXVectorType(VecTy)) {
       unsigned RegWidth =
           getRegisterBitWidth(TargetTransformInfo::RGK_FixedWidthVector)
-              .getFixedSize();
+              .getFixedValue();
       assert(RegWidth && "Non-zero vector register width expected");
       // Cost of HVX loads.
       if (VecWidth % RegWidth == 0)
         return VecWidth / RegWidth;
       // Cost of constructing HVX vector from scalar loads
       const Align RegAlign(RegWidth / 8);
-      if (!Alignment || *Alignment > RegAlign)
+      if (Alignment > RegAlign)
         Alignment = RegAlign;
-      assert(Alignment);
-      unsigned AlignWidth = 8 * Alignment->value();
+      unsigned AlignWidth = 8 * Alignment.value();
       unsigned NumLoads = alignTo(VecWidth, AlignWidth) / AlignWidth;
       return 3 * NumLoads;
     }
@@ -197,7 +208,7 @@ InstructionCost HexagonTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
         VecTy->getElementType()->isFloatingPointTy() ? FloatFactor : 1;
 
     // At this point unspecified alignment is considered as Align(1).
-    const Align BoundAlignment = std::min(Alignment.valueOrOne(), Align(8));
+    const Align BoundAlignment = std::min(Alignment, Align(8));
     unsigned AlignWidth = 8 * BoundAlignment.value();
     unsigned NumLoads = alignTo(VecWidth, AlignWidth) / AlignWidth;
     if (Alignment == Align(4) || Alignment == Align(8))
@@ -208,91 +219,83 @@ InstructionCost HexagonTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
     return (3 - LogA) * Cost * NumLoads;
   }
 
-  return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
-                                CostKind, I);
+  return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace, CostKind,
+                                OpInfo, I);
 }
 
 InstructionCost
-HexagonTTIImpl::getMaskedMemoryOpCost(unsigned Opcode, Type *Src,
-                                      Align Alignment, unsigned AddressSpace,
-                                      TTI::TargetCostKind CostKind) {
-  return BaseT::getMaskedMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
-                                      CostKind);
-}
-
-InstructionCost HexagonTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp,
-                                               ArrayRef<int> Mask, int Index,
-                                               Type *SubTp) {
+HexagonTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy,
+                               VectorType *SrcTy, ArrayRef<int> Mask,
+                               TTI::TargetCostKind CostKind, int Index,
+                               VectorType *SubTp, ArrayRef<const Value *> Args,
+                               const Instruction *CxtI) const {
   return 1;
-}
-
-InstructionCost HexagonTTIImpl::getGatherScatterOpCost(
-    unsigned Opcode, Type *DataTy, const Value *Ptr, bool VariableMask,
-    Align Alignment, TTI::TargetCostKind CostKind, const Instruction *I) {
-  return BaseT::getGatherScatterOpCost(Opcode, DataTy, Ptr, VariableMask,
-                                       Alignment, CostKind, I);
 }
 
 InstructionCost HexagonTTIImpl::getInterleavedMemoryOpCost(
     unsigned Opcode, Type *VecTy, unsigned Factor, ArrayRef<unsigned> Indices,
     Align Alignment, unsigned AddressSpace, TTI::TargetCostKind CostKind,
-    bool UseMaskForCond, bool UseMaskForGaps) {
+    bool UseMaskForCond, bool UseMaskForGaps) const {
   if (Indices.size() != Factor || UseMaskForCond || UseMaskForGaps)
     return BaseT::getInterleavedMemoryOpCost(Opcode, VecTy, Factor, Indices,
                                              Alignment, AddressSpace,
                                              CostKind,
                                              UseMaskForCond, UseMaskForGaps);
-  return getMemoryOpCost(Opcode, VecTy, MaybeAlign(Alignment), AddressSpace,
-                         CostKind);
+  return getMemoryOpCost(Opcode, VecTy, Alignment, AddressSpace, CostKind);
 }
 
-InstructionCost HexagonTTIImpl::getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
-                                                   Type *CondTy,
-                                                   CmpInst::Predicate VecPred,
-                                                   TTI::TargetCostKind CostKind,
-                                                   const Instruction *I) {
+InstructionCost HexagonTTIImpl::getCmpSelInstrCost(
+    unsigned Opcode, Type *ValTy, Type *CondTy, CmpInst::Predicate VecPred,
+    TTI::TargetCostKind CostKind, TTI::OperandValueInfo Op1Info,
+    TTI::OperandValueInfo Op2Info, const Instruction *I) const {
   if (ValTy->isVectorTy() && CostKind == TTI::TCK_RecipThroughput) {
-    std::pair<InstructionCost, MVT> LT = TLI.getTypeLegalizationCost(DL, ValTy);
+    if (!isHVXVectorType(ValTy) && ValTy->isFPOrFPVectorTy())
+      return InstructionCost::getMax();
+    std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(ValTy);
     if (Opcode == Instruction::FCmp)
       return LT.first + FloatFactor * getTypeNumElements(ValTy);
   }
-  return BaseT::getCmpSelInstrCost(Opcode, ValTy, CondTy, VecPred, CostKind, I);
+  return BaseT::getCmpSelInstrCost(Opcode, ValTy, CondTy, VecPred, CostKind,
+                                   Op1Info, Op2Info, I);
 }
 
 InstructionCost HexagonTTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::TargetCostKind CostKind,
-    TTI::OperandValueKind Opd1Info, TTI::OperandValueKind Opd2Info,
-    TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args,
-    const Instruction *CxtI) {
+    TTI::OperandValueInfo Op1Info, TTI::OperandValueInfo Op2Info,
+    ArrayRef<const Value *> Args, const Instruction *CxtI) const {
   // TODO: Handle more cost kinds.
   if (CostKind != TTI::TCK_RecipThroughput)
-    return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Opd1Info,
-                                         Opd2Info, Opd1PropInfo,
-                                         Opd2PropInfo, Args, CxtI);
+    return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info,
+                                         Op2Info, Args, CxtI);
 
   if (Ty->isVectorTy()) {
-    std::pair<InstructionCost, MVT> LT = TLI.getTypeLegalizationCost(DL, Ty);
+    if (!isHVXVectorType(Ty) && Ty->isFPOrFPVectorTy())
+      return InstructionCost::getMax();
+    std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
     if (LT.second.isFloatingPoint())
       return LT.first + FloatFactor * getTypeNumElements(Ty);
   }
-  return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Opd1Info, Opd2Info,
-                                       Opd1PropInfo, Opd2PropInfo, Args, CxtI);
+  return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
+                                       Args, CxtI);
 }
 
 InstructionCost HexagonTTIImpl::getCastInstrCost(unsigned Opcode, Type *DstTy,
                                                  Type *SrcTy,
                                                  TTI::CastContextHint CCH,
                                                  TTI::TargetCostKind CostKind,
-                                                 const Instruction *I) {
+                                                 const Instruction *I) const {
+  auto isNonHVXFP = [this] (Type *Ty) {
+    return Ty->isVectorTy() && !isHVXVectorType(Ty) && Ty->isFPOrFPVectorTy();
+  };
+  if (isNonHVXFP(SrcTy) || isNonHVXFP(DstTy))
+    return InstructionCost::getMax();
+
   if (SrcTy->isFPOrFPVectorTy() || DstTy->isFPOrFPVectorTy()) {
     unsigned SrcN = SrcTy->isFPOrFPVectorTy() ? getTypeNumElements(SrcTy) : 0;
     unsigned DstN = DstTy->isFPOrFPVectorTy() ? getTypeNumElements(DstTy) : 0;
 
-    std::pair<InstructionCost, MVT> SrcLT =
-        TLI.getTypeLegalizationCost(DL, SrcTy);
-    std::pair<InstructionCost, MVT> DstLT =
-        TLI.getTypeLegalizationCost(DL, DstTy);
+    std::pair<InstructionCost, MVT> SrcLT = getTypeLegalizationCost(SrcTy);
+    std::pair<InstructionCost, MVT> DstLT = getTypeLegalizationCost(DstTy);
     InstructionCost Cost =
         std::max(SrcLT.first, DstLT.first) + FloatFactor * (SrcN + DstN);
     // TODO: Allow non-throughput costs that aren't binary.
@@ -304,7 +307,10 @@ InstructionCost HexagonTTIImpl::getCastInstrCost(unsigned Opcode, Type *DstTy,
 }
 
 InstructionCost HexagonTTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
-                                                   unsigned Index) {
+                                                   TTI::TargetCostKind CostKind,
+                                                   unsigned Index,
+                                                   const Value *Op0,
+                                                   const Value *Op1) const {
   Type *ElemTy = Val->isVectorTy() ? cast<VectorType>(Val)->getElementType()
                                    : Val;
   if (Opcode == Instruction::InsertElement) {
@@ -313,7 +319,8 @@ InstructionCost HexagonTTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
     if (ElemTy->isIntegerTy(32))
       return Cost;
     // If it's not a 32-bit value, there will need to be an extract.
-    return Cost + getVectorInstrCost(Instruction::ExtractElement, Val, Index);
+    return Cost + getVectorInstrCost(Instruction::ExtractElement, Val, CostKind,
+                                     Index, Op0, Op1);
   }
 
   if (Opcode == Instruction::ExtractElement)
@@ -322,12 +329,75 @@ InstructionCost HexagonTTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
   return 1;
 }
 
-bool HexagonTTIImpl::isLegalMaskedStore(Type *DataType, Align /*Alignment*/) {
+bool HexagonTTIImpl::isLegalMaskedStore(Type *DataType, Align /*Alignment*/,
+                                        unsigned /*AddressSpace*/,
+                                        TTI::MaskKind /*MaskKind*/) const {
+  // This function is called from scalarize-masked-mem-intrin, which runs
+  // in pre-isel. Use ST directly instead of calling isHVXVectorType.
   return HexagonMaskedVMem && ST.isTypeForHVX(DataType);
 }
 
-bool HexagonTTIImpl::isLegalMaskedLoad(Type *DataType, Align /*Alignment*/) {
+bool HexagonTTIImpl::isLegalMaskedLoad(Type *DataType, Align /*Alignment*/,
+                                       unsigned /*AddressSpace*/,
+                                       TTI::MaskKind /*MaskKind*/) const {
+  // This function is called from scalarize-masked-mem-intrin, which runs
+  // in pre-isel. Use ST directly instead of calling isHVXVectorType.
   return HexagonMaskedVMem && ST.isTypeForHVX(DataType);
+}
+
+bool HexagonTTIImpl::isLegalMaskedGather(Type *Ty, Align Alignment) const {
+  // For now assume we can not deal with all HVX datatypes.
+  if (!Ty->isVectorTy() || !ST.isTypeForHVX(Ty) ||
+      !HexagonAllowScatterGatherHVX)
+    return false;
+  // This must be in sync with HexagonVectorCombine pass.
+  switch (Ty->getScalarSizeInBits()) {
+  case 8:
+    return (getTypeNumElements(Ty) == 128);
+  case 16:
+    if (getTypeNumElements(Ty) == 64 || getTypeNumElements(Ty) == 32)
+      return (Alignment >= 2);
+    break;
+  case 32:
+    if (getTypeNumElements(Ty) == 32)
+      return (Alignment >= 4);
+    break;
+  default:
+    break;
+  }
+  return false;
+}
+
+bool HexagonTTIImpl::isLegalMaskedScatter(Type *Ty, Align Alignment) const {
+  if (!Ty->isVectorTy() || !ST.isTypeForHVX(Ty) ||
+      !HexagonAllowScatterGatherHVX)
+    return false;
+  // This must be in sync with HexagonVectorCombine pass.
+  switch (Ty->getScalarSizeInBits()) {
+  case 8:
+    return (getTypeNumElements(Ty) == 128);
+  case 16:
+    if (getTypeNumElements(Ty) == 64)
+      return (Alignment >= 2);
+    break;
+  case 32:
+    if (getTypeNumElements(Ty) == 32)
+      return (Alignment >= 4);
+    break;
+  default:
+    break;
+  }
+  return false;
+}
+
+bool HexagonTTIImpl::forceScalarizeMaskedGather(VectorType *VTy,
+                                                Align Alignment) const {
+  return !isLegalMaskedGather(VTy, Alignment);
+}
+
+bool HexagonTTIImpl::forceScalarizeMaskedScatter(VectorType *VTy,
+                                                 Align Alignment) const {
+  return !isLegalMaskedScatter(VTy, Alignment);
 }
 
 /// --- Vector TTI end ---
@@ -340,9 +410,10 @@ unsigned HexagonTTIImpl::getCacheLineSize() const {
   return ST.getL1CacheLineSize();
 }
 
-InstructionCost HexagonTTIImpl::getUserCost(const User *U,
-                                            ArrayRef<const Value *> Operands,
-                                            TTI::TargetCostKind CostKind) {
+InstructionCost
+HexagonTTIImpl::getInstructionCost(const User *U,
+                                   ArrayRef<const Value *> Operands,
+                                   TTI::TargetCostKind CostKind) const {
   auto isCastFoldedIntoLoad = [this](const CastInst *CI) -> bool {
     if (!CI->isIntegerCast())
       return false;
@@ -364,7 +435,7 @@ InstructionCost HexagonTTIImpl::getUserCost(const User *U,
   if (const CastInst *CI = dyn_cast<const CastInst>(U))
     if (isCastFoldedIntoLoad(CI))
       return TargetTransformInfo::TCC_Free;
-  return BaseT::getUserCost(U, Operands, CostKind);
+  return BaseT::getInstructionCost(U, Operands, CostKind);
 }
 
 bool HexagonTTIImpl::shouldBuildLookupTables() const {

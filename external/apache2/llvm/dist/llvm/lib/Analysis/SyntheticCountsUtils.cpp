@@ -14,9 +14,6 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/Analysis/CallGraph.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/InstIterator.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 
 using namespace llvm;
@@ -26,11 +23,8 @@ template <typename CallGraphType>
 void SyntheticCountsUtils<CallGraphType>::propagateFromSCC(
     const SccTy &SCC, GetProfCountTy GetProfCount, AddCountTy AddCount) {
 
-  DenseSet<NodeRef> SCCNodes;
+  DenseSet<NodeRef> SCCNodes(llvm::from_range, SCC);
   SmallVector<std::pair<NodeRef, EdgeRef>, 8> SCCEdges, NonSCCEdges;
-
-  for (auto &Node : SCC)
-    SCCNodes.insert(Node);
 
   // Partition the edges coming out of the SCC into those whose destination is
   // in the SCC and the rest.
@@ -57,7 +51,7 @@ void SyntheticCountsUtils<CallGraphType>::propagateFromSCC(
     if (!OptProfCount)
       continue;
     auto Callee = CGT::edge_dest(E.second);
-    AdditionalCounts[Callee] += OptProfCount.getValue();
+    AdditionalCounts[Callee] += *OptProfCount;
   }
 
   // Update the counts for the nodes in the SCC.
@@ -70,7 +64,7 @@ void SyntheticCountsUtils<CallGraphType>::propagateFromSCC(
     if (!OptProfCount)
       continue;
     auto Callee = CGT::edge_dest(E.second);
-    AddCount(Callee, OptProfCount.getValue());
+    AddCount(Callee, *OptProfCount);
   }
 }
 

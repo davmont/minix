@@ -5,22 +5,20 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// This file defines the make_scope_exit function, which executes user-defined
-// cleanup logic at scope exit.
-//
+///
+/// \file
+/// This file defines the make_scope_exit function, which executes user-defined
+/// cleanup logic at scope exit.
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_ADT_SCOPEEXIT_H
 #define LLVM_ADT_SCOPEEXIT_H
 
 #include "llvm/Support/Compiler.h"
-
-#include <type_traits>
 #include <utility>
 
 namespace llvm {
-namespace detail {
 
 template <typename Callable> class scope_exit {
   Callable ExitFunction;
@@ -46,7 +44,7 @@ public:
   }
 };
 
-} // end namespace detail
+template <typename Callable> scope_exit(Callable) -> scope_exit<Callable>;
 
 // Keeps the callable object that is passed in, and execute it at the
 // destruction of the returned object (usually at the scope exit where the
@@ -54,10 +52,11 @@ public:
 //
 // Interface is specified by p0052r2.
 template <typename Callable>
-LLVM_NODISCARD detail::scope_exit<typename std::decay<Callable>::type>
-make_scope_exit(Callable &&F) {
-  return detail::scope_exit<typename std::decay<Callable>::type>(
-      std::forward<Callable>(F));
+[[nodiscard]]
+LLVM_DEPRECATED("Prefer calling the constructor of llvm::scope_exit directly.",
+                "scope_exit") auto make_scope_exit(Callable &&F) {
+  // TODO(LLVM 24): Remove this function.
+  return scope_exit(std::forward<Callable>(F));
 }
 
 } // end namespace llvm

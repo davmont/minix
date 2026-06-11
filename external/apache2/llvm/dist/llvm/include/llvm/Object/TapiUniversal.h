@@ -13,17 +13,20 @@
 #ifndef LLVM_OBJECT_TAPIUNIVERSAL_H
 #define LLVM_OBJECT_TAPIUNIVERSAL_H
 
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Object/Binary.h"
-#include "llvm/Object/TapiFile.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/MemoryBufferRef.h"
 #include "llvm/TextAPI/Architecture.h"
 #include "llvm/TextAPI/InterfaceFile.h"
 
 namespace llvm {
 namespace object {
 
-class TapiUniversal : public Binary {
+class TapiFile;
+
+class LLVM_ABI TapiUniversal : public Binary {
 public:
   class ObjectForArch {
     const TapiUniversal *Parent;
@@ -63,7 +66,7 @@ public:
       return Parent->ParsedFile->getInstallName() == getInstallName();
     }
 
-    Expected<std::unique_ptr<TapiFile>> getAsObjectFile() const;
+    LLVM_ABI Expected<std::unique_ptr<TapiFile>> getAsObjectFile() const;
   };
 
   class object_iterator {
@@ -101,14 +104,18 @@ public:
     return make_range(begin_objects(), end_objects());
   }
 
+  const MachO::InterfaceFile &getInterfaceFile() { return *ParsedFile; }
+
   uint32_t getNumberOfObjects() const { return Libraries.size(); }
 
   static bool classof(const Binary *v) { return v->isTapiUniversal(); }
 
 private:
+  /// Attributes of a library that is inlined into a single TBD file.
   struct Library {
-    StringRef InstallName;
-    MachO::Architecture Arch;
+    const StringRef InstallName;
+    const MachO::Architecture Arch;
+    const std::optional<size_t> DocumentIdx;
   };
 
   std::unique_ptr<MachO::InterfaceFile> ParsedFile;

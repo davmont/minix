@@ -9,8 +9,8 @@ LIB=	LLVMipo
 SRCS+=	AlwaysInliner.cpp \
 	Annotation2Metadata.cpp \
 	ArgumentPromotion.cpp \
-	AttributorAttributes.cpp \
 	Attributor.cpp \
+	AttributorAttributes.cpp \
 	BarrierNoopPass.cpp \
 	BlockExtractor.cpp \
 	CalledValuePropagation.cpp \
@@ -18,34 +18,37 @@ SRCS+=	AlwaysInliner.cpp \
 	CrossDSOCFI.cpp \
 	DeadArgumentElimination.cpp \
 	ElimAvailExtern.cpp \
+	EmbedBitcodePass.cpp \
+	ExpandVariadics.cpp \
 	ExtractGV.cpp \
+	FatLTOCleanup.cpp \
 	ForceFunctionAttrs.cpp \
 	FunctionAttrs.cpp \
 	FunctionImport.cpp \
+	FunctionSpecialization.cpp \
 	GlobalDCE.cpp \
 	GlobalOpt.cpp \
 	GlobalSplit.cpp \
 	HotColdSplitting.cpp \
-	InferFunctionAttrs.cpp \
-	Inliner.cpp \
-	InlineSimple.cpp \
-	Internalize.cpp \
 	IPO.cpp \
 	IROutliner.cpp \
+	InferFunctionAttrs.cpp \
+	Inliner.cpp \
+	Internalize.cpp \
 	LoopExtractor.cpp \
 	LowerTypeTests.cpp \
+	MemProfContextDisambiguation.cpp \
 	MergeFunctions.cpp \
+	ModuleInliner.cpp \
 	OpenMPOpt.cpp \
 	PartialInlining.cpp \
-	PassManagerBuilder.cpp \
-	PruneEH.cpp \
+	SCCP.cpp \
 	SampleContextTracker.cpp \
 	SampleProfile.cpp \
+	SampleProfileMatcher.cpp \
 	SampleProfileProbe.cpp \
-	SCCP.cpp \
 	StripDeadPrototypes.cpp \
 	StripSymbols.cpp \
-	SyntheticCountsPropagation.cpp \
 	ThinLTOBitcodeWriter.cpp \
 	WholeProgramDevirt.cpp
 

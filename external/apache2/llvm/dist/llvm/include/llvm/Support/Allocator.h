@@ -17,21 +17,17 @@
 #ifndef LLVM_SUPPORT_ALLOCATOR_H
 #define LLVM_SUPPORT_ALLOCATOR_H
 
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/MemAlloc.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <iterator>
-#include <type_traits>
+#include <optional>
 #include <utility>
 
 namespace llvm {
@@ -40,8 +36,9 @@ namespace detail {
 
 // We call out to an external function to actually print the message as the
 // printing code uses Allocator.h in its implementation.
-void printBumpPtrAllocatorStats(unsigned NumSlabs, size_t BytesAllocated,
-                                size_t TotalMemory);
+LLVM_ABI void printBumpPtrAllocatorStats(unsigned NumSlabs,
+                                         size_t BytesAllocated,
+                                         size_t TotalMemory);
 
 } // end namespace detail
 
@@ -67,7 +64,9 @@ template <typename AllocatorT = MallocAllocator, size_t SlabSize = 4096,
 class BumpPtrAllocatorImpl
     : public AllocatorBase<BumpPtrAllocatorImpl<AllocatorT, SlabSize,
                                                 SizeThreshold, GrowthDelay>>,
-      private AllocatorT {
+      private detail::AllocatorHolder<AllocatorT> {
+  using AllocTy = detail::AllocatorHolder<AllocatorT>;
+
 public:
   static_assert(SizeThreshold <= SlabSize,
                 "The SizeThreshold must be at most the SlabSize to ensure "
@@ -81,12 +80,12 @@ public:
 
   template <typename T>
   BumpPtrAllocatorImpl(T &&Allocator)
-      : AllocatorT(std::forward<T &&>(Allocator)) {}
+      : AllocTy(std::forward<T &&>(Allocator)) {}
 
   // Manually implement a move constructor as we must clear the old allocator's
   // slabs as a matter of correctness.
   BumpPtrAllocatorImpl(BumpPtrAllocatorImpl &&Old)
-      : AllocatorT(static_cast<AllocatorT &&>(Old)), CurPtr(Old.CurPtr),
+      : AllocTy(std::move(Old.getAllocator())), CurPtr(Old.CurPtr),
         End(Old.End), Slabs(std::move(Old.Slabs)),
         CustomSizedSlabs(std::move(Old.CustomSizedSlabs)),
         BytesAllocated(Old.BytesAllocated), RedZoneSize(Old.RedZoneSize) {
@@ -111,7 +110,7 @@ public:
     RedZoneSize = RHS.RedZoneSize;
     Slabs = std::move(RHS.Slabs);
     CustomSizedSlabs = std::move(RHS.CustomSizedSlabs);
-    AllocatorT::operator=(static_cast<AllocatorT &&>(RHS));
+    AllocTy::operator=(std::move(RHS.getAllocator()));
 
     RHS.CurPtr = RHS.End = nullptr;
     RHS.BytesAllocated = 0;
@@ -141,13 +140,17 @@ public:
   }
 
   /// Allocate space at the specified alignment.
-  LLVM_ATTRIBUTE_RETURNS_NONNULL LLVM_ATTRIBUTE_RETURNS_NOALIAS void *
-  Allocate(size_t Size, Align Alignment) {
+  // This method is *not* marked noalias, because
+  // SpecificBumpPtrAllocator::DestroyAll() loops over all allocations, and
+  // that loop is not based on the Allocate() return value.
+  //
+  // Allocate(0, N) is valid, it returns a non-null pointer (which should not
+  // be dereferenced).
+  LLVM_ATTRIBUTE_RETURNS_NONNULL void *Allocate(size_t Size, Align Alignment) {
     // Keep track of how many bytes we've allocated.
     BytesAllocated += Size;
 
-    size_t Adjustment = offsetToAlignedAddr(CurPtr, Alignment);
-    assert(Adjustment + Size >= Size && "Adjustment + Size must not overflow");
+    uintptr_t AlignedPtr = alignAddr(CurPtr, Alignment);
 
     size_t SizeToAllocate = Size;
 #if LLVM_ADDRESS_SANITIZER_BUILD
@@ -155,24 +158,34 @@ public:
     SizeToAllocate += RedZoneSize;
 #endif
 
+    uintptr_t AllocEndPtr = AlignedPtr + SizeToAllocate;
+    assert(AllocEndPtr >= uintptr_t(CurPtr) &&
+           "Alignment + Size must not overflow");
+
     // Check if we have enough space.
-    if (Adjustment + SizeToAllocate <= size_t(End - CurPtr)) {
-      char *AlignedPtr = CurPtr + Adjustment;
-      CurPtr = AlignedPtr + SizeToAllocate;
+    if (LLVM_LIKELY(AllocEndPtr <= uintptr_t(End)
+                    // We can't return nullptr even for a zero-sized allocation!
+                    && CurPtr != nullptr)) {
+      CurPtr = reinterpret_cast<char *>(AllocEndPtr);
       // Update the allocation point of this memory block in MemorySanitizer.
       // Without this, MemorySanitizer messages for values originated from here
       // will point to the allocation of the entire slab.
-      __msan_allocated_memory(AlignedPtr, Size);
+      __msan_allocated_memory(reinterpret_cast<char *>(AlignedPtr), Size);
       // Similarly, tell ASan about this space.
-      __asan_unpoison_memory_region(AlignedPtr, Size);
-      return AlignedPtr;
+      __asan_unpoison_memory_region(reinterpret_cast<char *>(AlignedPtr), Size);
+      return reinterpret_cast<char *>(AlignedPtr);
     }
 
+    return AllocateSlow(Size, SizeToAllocate, Alignment);
+  }
+
+  LLVM_ATTRIBUTE_RETURNS_NONNULL LLVM_ATTRIBUTE_NOINLINE void *
+  AllocateSlow(size_t Size, size_t SizeToAllocate, Align Alignment) {
     // If Size is really big, allocate a separate slab for it.
     size_t PaddedSize = SizeToAllocate + Alignment.value() - 1;
     if (PaddedSize > SizeThreshold) {
       void *NewSlab =
-          AllocatorT::Allocate(PaddedSize, alignof(std::max_align_t));
+          this->getAllocator().Allocate(PaddedSize, alignof(std::max_align_t));
       // We own the new slab and don't want anyone reading anyting other than
       // pieces returned from this method.  So poison the whole slab.
       __asan_poison_memory_region(NewSlab, PaddedSize);
@@ -198,7 +211,7 @@ public:
     return AlignedPtr;
   }
 
-  inline LLVM_ATTRIBUTE_RETURNS_NONNULL LLVM_ATTRIBUTE_RETURNS_NOALIAS void *
+  inline LLVM_ATTRIBUTE_RETURNS_NONNULL void *
   Allocate(size_t Size, size_t Alignment) {
     assert(Alignment > 0 && "0-byte alignment is not allowed. Use 1 instead.");
     return Allocate(Size, Align(Alignment));
@@ -224,7 +237,7 @@ public:
   /// The returned value is negative iff the object is inside a custom-size
   /// slab.
   /// Returns an empty optional if the pointer is not found in the allocator.
-  llvm::Optional<int64_t> identifyObject(const void *Ptr) {
+  std::optional<int64_t> identifyObject(const void *Ptr) {
     const char *P = static_cast<const char *>(Ptr);
     int64_t InSlabIdx = 0;
     for (size_t Idx = 0, E = Slabs.size(); Idx < E; Idx++) {
@@ -236,14 +249,14 @@ public:
 
     // Use negative index to denote custom sized slabs.
     int64_t InCustomSizedSlabIdx = -1;
-    for (size_t Idx = 0, E = CustomSizedSlabs.size(); Idx < E; Idx++) {
-      const char *S = static_cast<const char *>(CustomSizedSlabs[Idx].first);
-      size_t Size = CustomSizedSlabs[Idx].second;
+    for (const auto &Slab : CustomSizedSlabs) {
+      const char *S = static_cast<const char *>(Slab.first);
+      size_t Size = Slab.second;
       if (P >= S && P < S + Size)
         return InCustomSizedSlabIdx - static_cast<int64_t>(P - S);
       InCustomSizedSlabIdx -= static_cast<int64_t>(Size);
     }
-    return None;
+    return std::nullopt;
   }
 
   /// A wrapper around identifyObject that additionally asserts that
@@ -251,7 +264,7 @@ public:
   /// \return An index uniquely and reproducibly identifying
   /// an input pointer \p Ptr in the given allocator.
   int64_t identifyKnownObject(const void *Ptr) {
-    Optional<int64_t> Out = identifyObject(Ptr);
+    std::optional<int64_t> Out = identifyObject(Ptr);
     assert(Out && "Wrong allocator used");
     return *Out;
   }
@@ -277,7 +290,7 @@ public:
     size_t TotalMemory = 0;
     for (auto I = Slabs.begin(), E = Slabs.end(); I != E; ++I)
       TotalMemory += computeSlabSize(std::distance(Slabs.begin(), I));
-    for (auto &PtrAndSize : CustomSizedSlabs)
+    for (const auto &PtrAndSize : CustomSizedSlabs)
       TotalMemory += PtrAndSize.second;
     return TotalMemory;
   }
@@ -331,8 +344,8 @@ private:
   void StartNewSlab() {
     size_t AllocatedSlabSize = computeSlabSize(Slabs.size());
 
-    void *NewSlab =
-        AllocatorT::Allocate(AllocatedSlabSize, alignof(std::max_align_t));
+    void *NewSlab = this->getAllocator().Allocate(AllocatedSlabSize,
+                                                  alignof(std::max_align_t));
     // We own the new slab and don't want anyone reading anything other than
     // pieces returned from this method.  So poison the whole slab.
     __asan_poison_memory_region(NewSlab, AllocatedSlabSize);
@@ -348,7 +361,8 @@ private:
     for (; I != E; ++I) {
       size_t AllocatedSlabSize =
           computeSlabSize(std::distance(Slabs.begin(), I));
-      AllocatorT::Deallocate(*I, AllocatedSlabSize, alignof(std::max_align_t));
+      this->getAllocator().Deallocate(*I, AllocatedSlabSize,
+                                      alignof(std::max_align_t));
     }
   }
 
@@ -357,7 +371,7 @@ private:
     for (auto &PtrAndSize : CustomSizedSlabs) {
       void *Ptr = PtrAndSize.first;
       size_t Size = PtrAndSize.second;
-      AllocatorT::Deallocate(Ptr, Size, alignof(std::max_align_t));
+      this->getAllocator().Deallocate(Ptr, Size, alignof(std::max_align_t));
     }
   }
 
@@ -366,7 +380,7 @@ private:
 
 /// The standard BumpPtrAllocator which just uses the default template
 /// parameters.
-typedef BumpPtrAllocatorImpl<> BumpPtrAllocator;
+using BumpPtrAllocator = BumpPtrAllocatorImpl<>;
 
 /// A BumpPtrAllocator that allows only elements of a specific type to be
 /// allocated.
@@ -424,6 +438,13 @@ public:
 
   /// Allocate space for an array of objects without constructing them.
   T *Allocate(size_t num = 1) { return Allocator.Allocate<T>(num); }
+
+  /// \return An index uniquely and reproducibly identifying
+  /// an input pointer \p Ptr in the given allocator.
+  /// Returns an empty optional if the pointer is not found in the allocator.
+  std::optional<int64_t> identifyObject(const void *Ptr) {
+    return Allocator.identifyObject(Ptr);
+  }
 };
 
 } // end namespace llvm

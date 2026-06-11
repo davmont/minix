@@ -14,16 +14,17 @@
 #ifndef LLVM_IR_ABSTRACTCALLSITE_H
 #define LLVM_IR_ABSTRACTCALLSITE_H
 
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/IR/Instruction.h"
-#include "llvm/IR/Use.h"
-#include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/Support/Casting.h"
+#include "llvm/Support/Compiler.h"
 #include <cassert>
 
 namespace llvm {
+
+class Argument;
+class Use;
 
 /// AbstractCallSite
 ///
@@ -95,15 +96,16 @@ public:
   /// If the use is not a callee use of a call or invoke instruction, the
   /// callback metadata is used to determine the argument <-> parameter mapping
   /// as well as the callee of the abstract call site.
-  AbstractCallSite(const Use *U);
+  LLVM_ABI AbstractCallSite(const Use *U);
 
   /// Add operand uses of \p CB that represent callback uses into
   /// \p CallbackUses.
   ///
   /// All uses added to \p CallbackUses can be used to create abstract call
   /// sites for which AbstractCallSite::isCallbackCall() will return true.
-  static void getCallbackUses(const CallBase &CB,
-                              SmallVectorImpl<const Use *> &CallbackUses);
+  LLVM_ABI static void
+  getCallbackUses(const CallBase &CB,
+                  SmallVectorImpl<const Use *> &CallbackUses);
 
   /// Conversion operator to conveniently check for a valid/initialized ACS.
   explicit operator bool() const { return CB != nullptr; }
@@ -135,7 +137,7 @@ public:
 
   /// Return true if @p U is the use that defines the callee of this ACS.
   bool isCallee(const Use *U) const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->isCallee(U);
 
     assert(!CI.ParameterEncoding.empty() &&
@@ -152,8 +154,8 @@ public:
 
   /// Return the number of parameters of the callee.
   unsigned getNumArgOperands() const {
-    if (isDirectCall())
-      return CB->getNumArgOperands();
+    if (!isCallbackCall())
+      return CB->arg_size();
     // Subtract 1 for the callee encoding.
     return CI.ParameterEncoding.size() - 1;
   }
@@ -167,7 +169,7 @@ public:
   /// Return the operand index of the underlying instruction associated with
   /// the function parameter number @p ArgNo or -1 if there is none.
   int getCallArgOperandNo(unsigned ArgNo) const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return ArgNo;
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1];
@@ -181,7 +183,7 @@ public:
   /// Return the operand of the underlying instruction associated with the
   /// function parameter number @p ArgNo or nullptr if there is none.
   Value *getCallArgOperand(unsigned ArgNo) const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->getArgOperand(ArgNo);
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1] >= 0
@@ -208,7 +210,7 @@ public:
 
   /// Return the pointer to function that is being called.
   Value *getCalledOperand() const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->getCalledOperand();
     return CB->getArgOperand(getCallArgOperandNoForCallee());
   }

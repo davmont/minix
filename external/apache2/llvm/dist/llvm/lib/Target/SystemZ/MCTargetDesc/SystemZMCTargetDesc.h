@@ -23,11 +23,7 @@ class MCObjectTargetWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
 class MCTargetOptions;
-class StringRef;
 class Target;
-class Triple;
-class raw_pwrite_stream;
-class raw_ostream;
 
 namespace SystemZMC {
 // How many bytes are in the ABI-defined, caller-allocated part of
@@ -47,9 +43,11 @@ extern const unsigned GR32Regs[16];
 extern const unsigned GRH32Regs[16];
 extern const unsigned GR64Regs[16];
 extern const unsigned GR128Regs[16];
+extern const unsigned FP16Regs[16];
 extern const unsigned FP32Regs[16];
 extern const unsigned FP64Regs[16];
 extern const unsigned FP128Regs[16];
+extern const unsigned VR16Regs[32];
 extern const unsigned VR32Regs[32];
 extern const unsigned VR64Regs[32];
 extern const unsigned VR128Regs[32];
@@ -82,7 +80,6 @@ inline unsigned getRegAsVR128(unsigned Reg) {
 } // end namespace SystemZMC
 
 MCCodeEmitter *createSystemZMCCodeEmitter(const MCInstrInfo &MCII,
-                                          const MCRegisterInfo &MRI,
                                           MCContext &Ctx);
 
 MCAsmBackend *createSystemZMCAsmBackend(const Target &T,
@@ -90,7 +87,9 @@ MCAsmBackend *createSystemZMCAsmBackend(const Target &T,
                                         const MCRegisterInfo &MRI,
                                         const MCTargetOptions &Options);
 
-std::unique_ptr<MCObjectTargetWriter> createSystemZObjectWriter(uint8_t OSABI);
+std::unique_ptr<MCObjectTargetWriter>
+createSystemZELFObjectWriter(uint8_t OSABI);
+std::unique_ptr<MCObjectTargetWriter> createSystemZGOFFObjectWriter();
 } // end namespace llvm
 
 // Defines symbolic names for SystemZ registers.
@@ -100,6 +99,7 @@ std::unique_ptr<MCObjectTargetWriter> createSystemZObjectWriter(uint8_t OSABI);
 
 // Defines symbolic names for the SystemZ instructions.
 #define GET_INSTRINFO_ENUM
+#define GET_INSTRINFO_MC_HELPER_DECLS
 #include "SystemZGenInstrInfo.inc"
 
 #define GET_SUBTARGETINFO_ENUM

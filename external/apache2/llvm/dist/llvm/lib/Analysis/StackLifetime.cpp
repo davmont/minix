@@ -19,17 +19,12 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
-#include "llvm/IR/Intrinsics.h"
-#include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormattedStream.h"
 #include <algorithm>
-#include <memory>
 #include <tuple>
 
 using namespace llvm;
@@ -44,7 +39,7 @@ StackLifetime::getLiveRange(const AllocaInst *AI) const {
 }
 
 bool StackLifetime::isReachable(const Instruction *I) const {
-  return BlockInstRange.find(I->getParent()) != BlockInstRange.end();
+  return BlockInstRange.contains(I->getParent());
 }
 
 bool StackLifetime::isAliveAfter(const AllocaInst *AI,
@@ -64,36 +59,10 @@ bool StackLifetime::isAliveAfter(const AllocaInst *AI,
   return getLiveRange(AI).test(InstNum);
 }
 
-// Returns unique alloca annotated by lifetime marker only if
-// markers has the same size and points to the alloca start.
-static const AllocaInst *findMatchingAlloca(const IntrinsicInst &II,
-                                            const DataLayout &DL) {
-  const AllocaInst *AI = findAllocaForValue(II.getArgOperand(1), true);
-  if (!AI)
-    return nullptr;
-
-  auto AllocaSizeInBits = AI->getAllocationSizeInBits(DL);
-  if (!AllocaSizeInBits)
-    return nullptr;
-  int64_t AllocaSize = AllocaSizeInBits.getValue() / 8;
-
-  auto *Size = dyn_cast<ConstantInt>(II.getArgOperand(0));
-  if (!Size)
-    return nullptr;
-  int64_t LifetimeSize = Size->getSExtValue();
-
-  if (LifetimeSize != -1 && LifetimeSize != AllocaSize)
-    return nullptr;
-
-  return AI;
-}
-
 void StackLifetime::collectMarkers() {
   InterestingAllocas.resize(NumAllocas);
   DenseMap<const BasicBlock *, SmallDenseMap<const IntrinsicInst *, Marker>>
       BBMarkerSet;
-
-  const DataLayout &DL = F.getParent()->getDataLayout();
 
   // Compute the set of start/end markers per basic block.
   for (const BasicBlock *BB : depth_first(&F)) {
@@ -101,11 +70,9 @@ void StackLifetime::collectMarkers() {
       const IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
       if (!II || !II->isLifetimeStartOrEnd())
         continue;
-      const AllocaInst *AI = findMatchingAlloca(*II, DL);
-      if (!AI) {
-        HasUnknownLifetimeStartOrEnd = true;
+      const AllocaInst *AI = dyn_cast<AllocaInst>(II->getArgOperand(0));
+      if (!AI)
         continue;
-      }
       auto It = AllocaNumbering.find(AI);
       if (It == AllocaNumbering.end())
         continue;
@@ -179,30 +146,35 @@ void StackLifetime::collectMarkers() {
 
 void StackLifetime::calculateLocalLiveness() {
   bool Changed = true;
+
+  // LiveIn, LiveOut and BitsIn have a different meaning deppends on type.
+  // ::Maybe true bits represent "may be alive" allocas, ::Must true bits
+  // represent "may be dead". After the loop we will convert ::Must bits from
+  // "may be dead" to "must be alive".
   while (Changed) {
+    // TODO: Consider switching to worklist instead of traversing entire graph.
     Changed = false;
 
     for (const BasicBlock *BB : depth_first(&F)) {
       BlockLifetimeInfo &BlockInfo = BlockLiveness.find(BB)->getSecond();
 
-      // Compute LiveIn by unioning together the LiveOut sets of all preds.
-      BitVector LocalLiveIn;
-      for (auto *PredBB : predecessors(BB)) {
+      // Compute BitsIn by unioning together the LiveOut sets of all preds.
+      BitVector BitsIn;
+      for (const auto *PredBB : predecessors(BB)) {
         LivenessMap::const_iterator I = BlockLiveness.find(PredBB);
         // If a predecessor is unreachable, ignore it.
         if (I == BlockLiveness.end())
           continue;
-        switch (Type) {
-        case LivenessType::May:
-          LocalLiveIn |= I->second.LiveOut;
-          break;
-        case LivenessType::Must:
-          if (LocalLiveIn.empty())
-            LocalLiveIn = I->second.LiveOut;
-          else
-            LocalLiveIn &= I->second.LiveOut;
-          break;
-        }
+        BitsIn |= I->second.LiveOut;
+      }
+
+      // Everything is "may be dead" for entry without predecessors.
+      if (Type == LivenessType::Must && BitsIn.empty())
+        BitsIn.resize(NumAllocas, true);
+
+      // Update block LiveIn set, noting whether it has changed.
+      if (!BitsIn.subsetOf(BlockInfo.LiveIn)) {
+        BlockInfo.LiveIn |= BitsIn;
       }
 
       // Compute LiveOut by subtracting out lifetimes that end in this
@@ -212,22 +184,34 @@ void StackLifetime::calculateLocalLiveness() {
       // because we already handle the case where the BEGIN comes
       // before the END when collecting the markers (and building the
       // BEGIN/END vectors).
-      BitVector LocalLiveOut = LocalLiveIn;
-      LocalLiveOut.reset(BlockInfo.End);
-      LocalLiveOut |= BlockInfo.Begin;
-
-      // Update block LiveIn set, noting whether it has changed.
-      if (LocalLiveIn.test(BlockInfo.LiveIn)) {
-        BlockInfo.LiveIn |= LocalLiveIn;
+      switch (Type) {
+      case LivenessType::May:
+        BitsIn.reset(BlockInfo.End);
+        // "may be alive" is set by lifetime start.
+        BitsIn |= BlockInfo.Begin;
+        break;
+      case LivenessType::Must:
+        BitsIn.reset(BlockInfo.Begin);
+        // "may be dead" is set by lifetime end.
+        BitsIn |= BlockInfo.End;
+        break;
       }
 
       // Update block LiveOut set, noting whether it has changed.
-      if (LocalLiveOut.test(BlockInfo.LiveOut)) {
+      if (!BitsIn.subsetOf(BlockInfo.LiveOut)) {
         Changed = true;
-        BlockInfo.LiveOut |= LocalLiveOut;
+        BlockInfo.LiveOut |= BitsIn;
       }
     }
   } // while changed.
+
+  if (Type == LivenessType::Must) {
+    // Convert from "may be dead" to "must be alive".
+    for (auto &[BB, BlockInfo] : BlockLiveness) {
+      BlockInfo.LiveIn.flip();
+      BlockInfo.LiveOut.flip();
+    }
+  }
 }
 
 void StackLifetime::calculateLiveIntervals() {
@@ -257,14 +241,12 @@ void StackLifetime::calculateLiveIntervals() {
       unsigned AllocaNo = It.second.AllocaNo;
 
       if (IsStart) {
-        assert(!Started.test(AllocaNo) || Start[AllocaNo] == BBStart);
         if (!Started.test(AllocaNo)) {
           Started.set(AllocaNo);
           Ended.reset(AllocaNo);
           Start[AllocaNo] = InstNo;
         }
       } else {
-        assert(!Ended.test(AllocaNo));
         if (Started.test(AllocaNo)) {
           LiveRanges[AllocaNo].addRange(Start[AllocaNo], InstNo);
           Started.reset(AllocaNo);
@@ -319,20 +301,6 @@ StackLifetime::StackLifetime(const Function &F,
 }
 
 void StackLifetime::run() {
-  if (HasUnknownLifetimeStartOrEnd) {
-    // There is marker which we can't assign to a specific alloca, so we
-    // fallback to the most conservative results for the type.
-    switch (Type) {
-    case LivenessType::May:
-      LiveRanges.resize(NumAllocas, getFullLiveRange());
-      break;
-    case LivenessType::Must:
-      LiveRanges.resize(NumAllocas, LiveRange(Instructions.size()));
-      break;
-    }
-    return;
-  }
-
   LiveRanges.resize(NumAllocas, LiveRange(Instructions.size()));
   for (unsigned I = 0; I < NumAllocas; ++I)
     if (!InterestingAllocas.test(I))
@@ -399,4 +367,20 @@ PreservedAnalyses StackLifetimePrinterPass::run(Function &F,
   SL.run();
   SL.print(OS);
   return PreservedAnalyses::all();
+}
+
+void StackLifetimePrinterPass::printPipeline(
+    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
+  static_cast<PassInfoMixin<StackLifetimePrinterPass> *>(this)->printPipeline(
+      OS, MapClassName2PassName);
+  OS << '<';
+  switch (Type) {
+  case StackLifetime::LivenessType::May:
+    OS << "may";
+    break;
+  case StackLifetime::LivenessType::Must:
+    OS << "must";
+    break;
+  }
+  OS << '>';
 }

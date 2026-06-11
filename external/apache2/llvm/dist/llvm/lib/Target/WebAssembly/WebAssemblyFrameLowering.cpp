@@ -19,25 +19,70 @@
 
 #include "WebAssemblyFrameLowering.h"
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
-#include "Utils/WebAssemblyUtilities.h"
+#include "Utils/WebAssemblyTypeUtilities.h"
 #include "WebAssembly.h"
 #include "WebAssemblyInstrInfo.h"
 #include "WebAssemblyMachineFunctionInfo.h"
 #include "WebAssemblySubtarget.h"
 #include "WebAssemblyTargetMachine.h"
+#include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/MC/MCAsmInfo.h"
-#include "llvm/Support/Debug.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "wasm-frame-info"
 
 // TODO: wasm64
 // TODO: Emit TargetOpcode::CFI_INSTRUCTION instructions
+
+// In an ideal world, when objects are added to the MachineFrameInfo by
+// FunctionLoweringInfo::set, we could somehow hook into target-specific code to
+// ensure they are assigned the right stack ID.  However there isn't a hook that
+// runs between then and DAG building time, though, so instead we hoist stack
+// objects lazily when they are first used, and comprehensively after the DAG is
+// built via the PreprocessISelDAG hook, called by the
+// SelectionDAGISel::runOnMachineFunction.  We have to do it in two places
+// because we want to do it while building the selection DAG for uses of alloca,
+// but not all alloca instructions are used so we have to follow up afterwards.
+std::optional<unsigned>
+WebAssemblyFrameLowering::getLocalForStackObject(MachineFunction &MF,
+                                                 int FrameIndex) {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+
+  // If already hoisted to a local, done.
+  if (MFI.getStackID(FrameIndex) == TargetStackID::WasmLocal)
+    return static_cast<unsigned>(MFI.getObjectOffset(FrameIndex));
+
+  // If not allocated in the object address space, this object will be in
+  // linear memory.
+  const AllocaInst *AI = MFI.getObjectAllocation(FrameIndex);
+  if (!AI || !WebAssembly::isWasmVarAddressSpace(AI->getAddressSpace()))
+    return std::nullopt;
+
+  // Otherwise, allocate this object in the named value stack, outside of linear
+  // memory.
+  SmallVector<EVT, 4> ValueVTs;
+  const WebAssemblyTargetLowering &TLI =
+      *MF.getSubtarget<WebAssemblySubtarget>().getTargetLowering();
+  WebAssemblyFunctionInfo *FuncInfo = MF.getInfo<WebAssemblyFunctionInfo>();
+  ComputeValueVTs(TLI, MF.getDataLayout(), AI->getAllocatedType(), ValueVTs);
+  MFI.setStackID(FrameIndex, TargetStackID::WasmLocal);
+  // Abuse SP offset to record the index of the first local in the object.
+  unsigned Local = FuncInfo->getParams().size() + FuncInfo->getLocals().size();
+  MFI.setObjectOffset(FrameIndex, Local);
+  // Allocate WebAssembly locals for each non-aggregate component of the
+  // allocation.
+  for (EVT ValueVT : ValueVTs)
+    FuncInfo->addLocal(ValueVT.getSimpleVT());
+  // Abuse object size to record number of WebAssembly locals allocated to
+  // this object.
+  MFI.setObjectSize(FrameIndex, ValueVTs.size());
+  return Local;
+}
 
 /// We need a base pointer in the case of having items on the stack that
 /// require stricter alignment than the stack pointer itself.  Because we need
@@ -51,7 +96,7 @@ bool WebAssemblyFrameLowering::hasBP(const MachineFunction &MF) const {
 
 /// Return true if the specified function should have a dedicated frame pointer
 /// register.
-bool WebAssemblyFrameLowering::hasFP(const MachineFunction &MF) const {
+bool WebAssemblyFrameLowering::hasFPImpl(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // When we have var-sized objects, we move the stack pointer by an unknown
@@ -83,7 +128,15 @@ bool WebAssemblyFrameLowering::hasReservedCallFrame(
 bool WebAssemblyFrameLowering::needsSPForLocalFrame(
     const MachineFunction &MF) const {
   auto &MFI = MF.getFrameInfo();
-  return MFI.getStackSize() || MFI.adjustsStack() || hasFP(MF);
+  auto &MRI = MF.getRegInfo();
+  // llvm.stacksave can explicitly read SP register and it can appear without
+  // dynamic alloca.
+  bool HasExplicitSPUse =
+      any_of(MRI.use_operands(getSPReg(MF)),
+             [](MachineOperand &MO) { return !MO.isImplicit(); });
+
+  return MFI.getStackSize() || MFI.adjustsStack() || hasFP(MF) ||
+         HasExplicitSPUse;
 }
 
 // In function with EH pads, we need to make a copy of the value of
@@ -225,7 +278,7 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   DebugLoc DL;
 
   const TargetRegisterClass *PtrRC =
-      MRI.getTargetRegisterInfo()->getPointerRegClass(MF);
+      MRI.getTargetRegisterInfo()->getPointerRegClass();
   unsigned SPReg = getSPReg(MF);
   if (StackSize)
     SPReg = MRI.createVirtualRegister(PtrRC);
@@ -296,7 +349,7 @@ void WebAssemblyFrameLowering::emitEpilogue(MachineFunction &MF,
     SPReg = FI->getBasePointerVreg();
   } else if (StackSize) {
     const TargetRegisterClass *PtrRC =
-        MRI.getTargetRegisterInfo()->getPointerRegClass(MF);
+        MRI.getTargetRegisterInfo()->getPointerRegClass();
     Register OffsetReg = MRI.createVirtualRegister(PtrRC);
     BuildMI(MBB, InsertPt, DL, TII->get(getOpcConst(MF)), OffsetReg)
         .addImm(StackSize);
@@ -312,6 +365,16 @@ void WebAssemblyFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   writeSPToGlobal(SPReg, MF, MBB, InsertPt, DL);
+}
+
+bool WebAssemblyFrameLowering::isSupportedStackID(
+    TargetStackID::Value ID) const {
+  // Use the Object stack for WebAssembly locals which can only be accessed
+  // by name, not via an address in linear memory.
+  if (ID == TargetStackID::WasmLocal)
+    return true;
+
+  return TargetFrameLowering::isSupportedStackID(ID);
 }
 
 TargetFrameLowering::DwarfFrameBase

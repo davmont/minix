@@ -10,14 +10,15 @@
 #define LLVM_DEBUGINFO_CODEVIEW_TYPEINDEX_H
 
 #include "llvm/ADT/DenseMapInfo.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Endian.h"
 #include <cassert>
 #include <cinttypes>
-#include <functional>
 
 namespace llvm {
 
 class ScopedPrinter;
+class StringRef;
 
 namespace codeview {
 
@@ -35,6 +36,7 @@ enum class SimpleTypeKind : uint32_t {
   WideCharacter = 0x0071,     // wide char
   Character16 = 0x007a,       // char16_t
   Character32 = 0x007b,       // char32_t
+  Character8 = 0x007c,        // char8_t
 
   SByte = 0x0068,       // 8 bit signed int
   Byte = 0x0069,        // 8 bit unsigned int
@@ -269,7 +271,7 @@ public:
     return A.toArrayIndex() - B.toArrayIndex();
   }
 
-  static StringRef simpleTypeName(TypeIndex TI);
+  LLVM_ABI static StringRef simpleTypeName(TypeIndex TI);
 
 private:
   support::ulittle32_t Index;
@@ -283,8 +285,8 @@ struct TypeIndexOffset {
   support::ulittle32_t Offset;
 };
 
-void printTypeIndex(ScopedPrinter &Printer, StringRef FieldName, TypeIndex TI,
-                    TypeCollection &Types);
+LLVM_ABI void printTypeIndex(ScopedPrinter &Printer, StringRef FieldName,
+                             TypeIndex TI, TypeCollection &Types);
 }
 
 template <> struct DenseMapInfo<codeview::TypeIndex> {

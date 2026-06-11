@@ -6,14 +6,17 @@ LIB=	clangLex
 
 .PATH: ${CLANG_SRCDIR}/lib/Lex
 
-SRCS+=	DependencyDirectivesSourceMinimizer.cpp \
+SRCS+=	DependencyDirectivesScanner.cpp \
 	HeaderMap.cpp \
 	HeaderSearch.cpp \
+	InitHeaderSearch.cpp \
+	LexHLSLRootSignature.cpp \
 	Lexer.cpp \
 	LiteralSupport.cpp \
 	MacroArgs.cpp \
 	MacroInfo.cpp \
 	ModuleMap.cpp \
+	ModuleMapFile.cpp \
 	PPCaching.cpp \
 	PPCallbacks.cpp \
 	PPConditionalDirectiveRecord.cpp \

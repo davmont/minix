@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/Function.h"
@@ -25,10 +26,8 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManagers.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/OptBisect.h"
 #include "llvm/IR/PassTimingInfo.h"
 #include "llvm/IR/PrintPasses.h"
-#include "llvm/IR/StructuralHash.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -46,7 +45,7 @@ using namespace llvm;
 namespace llvm {
 cl::opt<unsigned> MaxDevirtIterations("max-devirt-iterations", cl::ReallyHidden,
                                       cl::init(4));
-}
+} // namespace llvm
 
 STATISTIC(MaxSCCIterations, "Maximum CGSCCPassMgr iterations on one SCC");
 
@@ -61,7 +60,7 @@ class CGPassManager : public ModulePass, public PMDataManager {
 public:
   static char ID;
 
-  explicit CGPassManager() : ModulePass(ID), PMDataManager() {}
+  explicit CGPassManager() : ModulePass(ID) {}
 
   /// Execute all of the passes scheduled for execution.  Keep track of
   /// whether any of the passes modifies the module, and if so, return true.
@@ -268,15 +267,7 @@ bool CGPassManager::RefreshCallGraph(const CallGraphSCC &CurSCC, CallGraph &CG,
           // If we've already seen this call site, then the FunctionPass RAUW'd
           // one call with another, which resulted in two "uses" in the edge
           // list of the same call.
-          Calls.count(Call) ||
-
-          // If the call edge is not from a call or invoke, or it is a
-          // instrinsic call, then the function pass RAUW'd a call with
-          // another value. This can happen when constant folding happens
-          // of well known functions etc.
-          (Call->getCalledFunction() &&
-           Call->getCalledFunction()->isIntrinsic() &&
-           Intrinsic::isLeaf(Call->getCalledFunction()->getIntrinsicID()))) {
+          Calls.count(Call)) {
         assert(!CheckingMode &&
                "CallGraphSCCPass did not update the CallGraph correctly!");
 
@@ -461,7 +452,6 @@ bool CGPassManager::RunAllPassesOnSCC(CallGraphSCC &CurSCC, CallGraph &CG,
         OS << LS;
         CGN->print(OS);
       }
-      OS.flush();
   #endif
       dumpPassInfo(P, EXECUTION_MSG, ON_CG_MSG, Functions);
     }
@@ -470,7 +460,7 @@ bool CGPassManager::RunAllPassesOnSCC(CallGraphSCC &CurSCC, CallGraph &CG,
     initializeAnalysisImpl(P);
 
 #ifdef EXPENSIVE_CHECKS
-    uint64_t RefHash = StructuralHash(CG.getModule());
+    uint64_t RefHash = P->structuralHash(CG.getModule());
 #endif
 
     // Actually run this pass on the current SCC.
@@ -480,7 +470,7 @@ bool CGPassManager::RunAllPassesOnSCC(CallGraphSCC &CurSCC, CallGraph &CG,
     Changed |= LocalChanged;
 
 #ifdef EXPENSIVE_CHECKS
-    if (!LocalChanged && (RefHash != StructuralHash(CG.getModule()))) {
+    if (!LocalChanged && (RefHash != P->structuralHash(CG.getModule()))) {
       llvm::errs() << "Pass modifies its input and doesn't report it: "
                    << P->getPassName() << "\n";
       llvm_unreachable("Pass modifies its input and doesn't report it");
@@ -732,27 +722,6 @@ char PrintCallGraphPass::ID = 0;
 Pass *CallGraphSCCPass::createPrinterPass(raw_ostream &OS,
                                           const std::string &Banner) const {
   return new PrintCallGraphPass(Banner, OS);
-}
-
-static std::string getDescription(const CallGraphSCC &SCC) {
-  std::string Desc = "SCC (";
-  ListSeparator LS;
-  for (CallGraphNode *CGN : SCC) {
-    Desc += LS;
-    Function *F = CGN->getFunction();
-    if (F)
-      Desc += F->getName();
-    else
-      Desc += "<<null function>>";
-  }
-  Desc += ")";
-  return Desc;
-}
-
-bool CallGraphSCCPass::skipSCC(CallGraphSCC &SCC) const {
-  OptPassGate &Gate =
-      SCC.getCallGraph().getModule().getContext().getOptPassGate();
-  return Gate.isEnabled() && !Gate.shouldRunPass(this, getDescription(SCC));
 }
 
 char DummyCGSCCPass::ID = 0;

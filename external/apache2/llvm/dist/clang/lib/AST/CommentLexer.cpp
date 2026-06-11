@@ -8,8 +8,8 @@
 
 #include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentCommandTraits.h"
-#include "clang/AST/CommentDiagnostic.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/DiagnosticComment.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ConvertUTF.h"
@@ -94,31 +94,12 @@ void Lexer::skipLineStartingDecorations() {
   if (BufferPtr == CommentEnd)
     return;
 
-  switch (*BufferPtr) {
-  case ' ':
-  case '\t':
-  case '\f':
-  case '\v': {
-    const char *NewBufferPtr = BufferPtr;
-    NewBufferPtr++;
-    if (NewBufferPtr == CommentEnd)
+  const char *NewBufferPtr = BufferPtr;
+  while (isHorizontalWhitespace(*NewBufferPtr))
+    if (++NewBufferPtr == CommentEnd)
       return;
-
-    char C = *NewBufferPtr;
-    while (isHorizontalWhitespace(C)) {
-      NewBufferPtr++;
-      if (NewBufferPtr == CommentEnd)
-        return;
-      C = *NewBufferPtr;
-    }
-    if (C == '*')
-      BufferPtr = NewBufferPtr + 1;
-    break;
-  }
-  case '*':
-    BufferPtr++;
-    break;
-  }
+  if (*NewBufferPtr == '*')
+    BufferPtr = NewBufferPtr + 1;
 }
 
 namespace {
@@ -215,6 +196,15 @@ const char *skipWhitespace(const char *BufferPtr, const char *BufferEnd) {
   return BufferEnd;
 }
 
+const char *skipHorizontalWhitespace(const char *BufferPtr,
+                                     const char *BufferEnd) {
+  for (; BufferPtr != BufferEnd; ++BufferPtr) {
+    if (!isHorizontalWhitespace(*BufferPtr))
+      return BufferPtr;
+  }
+  return BufferEnd;
+}
+
 bool isWhitespace(const char *BufferPtr, const char *BufferEnd) {
   return skipWhitespace(BufferPtr, BufferEnd) == BufferEnd;
 }
@@ -224,7 +214,7 @@ bool isCommandNameStartCharacter(char C) {
 }
 
 bool isCommandNameCharacter(char C) {
-  return isAlphanumeric(C);
+  return isAsciiIdentifierContinue(C, false);
 }
 
 const char *skipCommandName(const char *BufferPtr, const char *BufferEnd) {
@@ -289,6 +279,29 @@ void Lexer::formTokenWithChars(Token &Result, const char *TokEnd,
   BufferPtr = TokEnd;
 }
 
+const char *Lexer::skipTextToken() {
+  const char *TokenPtr = BufferPtr;
+  assert(TokenPtr < CommentEnd);
+  StringRef TokStartSymbols = ParseCommands ? "\n\r\\@\"&<" : "\n\r";
+
+again:
+  size_t End =
+      StringRef(TokenPtr, CommentEnd - TokenPtr).find_first_of(TokStartSymbols);
+  if (End == StringRef::npos)
+    return CommentEnd;
+
+  // Doxygen doesn't recognize any commands in a one-line double quotation.
+  // If we don't find an ending quotation mark, we pretend it never began.
+  if (*(TokenPtr + End) == '\"') {
+    TokenPtr += End + 1;
+    End = StringRef(TokenPtr, CommentEnd - TokenPtr).find_first_of("\n\r\"");
+    if (End != StringRef::npos && *(TokenPtr + End) == '\"')
+      TokenPtr += End + 1;
+    goto again;
+  }
+  return TokenPtr + End;
+}
+
 void Lexer::lexCommentText(Token &T) {
   assert(CommentState == LCS_InsideBCPLComment ||
          CommentState == LCS_InsideCComment);
@@ -309,17 +322,8 @@ void Lexer::lexCommentText(Token &T) {
             skipLineStartingDecorations();
           return;
 
-      default: {
-          StringRef TokStartSymbols = ParseCommands ? "\n\r\\@&<" : "\n\r";
-          size_t End = StringRef(TokenPtr, CommentEnd - TokenPtr)
-                           .find_first_of(TokStartSymbols);
-          if (End != StringRef::npos)
-            TokenPtr += End;
-          else
-            TokenPtr = CommentEnd;
-          formTextToken(T, TokenPtr);
-          return;
-      }
+      default:
+        return formTextToken(T, skipTextToken());
     }
   };
 
@@ -392,10 +396,11 @@ void Lexer::lexCommentText(Token &T) {
       unsigned Length = TokenPtr - (BufferPtr + 1);
 
       // Hardcoded support for lexing LaTeX formula commands
-      // \f$ \f[ \f] \f{ \f} as a single command.
+      // \f$ \f( \f) \f[ \f] \f{ \f} as a single command.
       if (Length == 1 && TokenPtr[-1] == 'f' && TokenPtr != CommentEnd) {
         C = *TokenPtr;
-        if (C == '$' || C == '[' || C == ']' || C == '{' || C == '}') {
+        if (C == '$' || C == '(' || C == ')' || C == '[' || C == ']' ||
+            C == '{' || C == '}') {
           TokenPtr++;
           Length++;
         }
@@ -641,16 +646,40 @@ void Lexer::setupAndLexHTMLStartTag(Token &T) {
   formTokenWithChars(T, TagNameEnd, tok::html_start_tag);
   T.setHTMLTagStartName(Name);
 
-  BufferPtr = skipWhitespace(BufferPtr, CommentEnd);
+  BufferPtr = skipHorizontalWhitespace(BufferPtr, CommentEnd);
+  if (BufferPtr == CommentEnd) { // in BCPL comments
+    State = LS_HTMLStartTag;
+    return;
+  }
 
   const char C = *BufferPtr;
   if (BufferPtr != CommentEnd &&
-      (C == '>' || C == '/' || isHTMLIdentifierStartingCharacter(C)))
+      (C == '>' || C == '/' || isVerticalWhitespace(C) ||
+       isHTMLIdentifierStartingCharacter(C)))
     State = LS_HTMLStartTag;
 }
 
 void Lexer::lexHTMLStartTag(Token &T) {
   assert(State == LS_HTMLStartTag);
+
+  // Skip leading whitespace and comment decorations
+  while (isVerticalWhitespace(*BufferPtr)) {
+    BufferPtr = skipNewline(BufferPtr, CommentEnd);
+
+    if (CommentState == LCS_InsideCComment)
+      skipLineStartingDecorations();
+
+    BufferPtr = skipHorizontalWhitespace(BufferPtr, CommentEnd);
+    if (BufferPtr == CommentEnd) {
+      // HTML starting tags must be defined in a single comment block.
+      // It's likely a user-error where they forgot to terminate the comment.
+      State = LS_Normal;
+      // Since at least one newline was skipped and one token needs to be lexed,
+      // return a newline.
+      formTokenWithChars(T, BufferPtr, tok::newline);
+      return;
+    }
+  }
 
   const char *TokenPtr = BufferPtr;
   char C = *TokenPtr;
@@ -697,15 +726,14 @@ void Lexer::lexHTMLStartTag(Token &T) {
 
   // Now look ahead and return to normal state if we don't see any HTML tokens
   // ahead.
-  BufferPtr = skipWhitespace(BufferPtr, CommentEnd);
+  BufferPtr = skipHorizontalWhitespace(BufferPtr, CommentEnd);
   if (BufferPtr == CommentEnd) {
-    State = LS_Normal;
     return;
   }
 
   C = *BufferPtr;
-  if (!isHTMLIdentifierStartingCharacter(C) &&
-      C != '=' && C != '\"' && C != '\'' && C != '>') {
+  if (!isHTMLIdentifierStartingCharacter(C) && !isVerticalWhitespace(C) &&
+      C != '=' && C != '\"' && C != '\'' && C != '>' && C != '/') {
     State = LS_Normal;
     return;
   }
@@ -778,8 +806,17 @@ again:
         BufferPtr++;
 
       CommentState = LCS_InsideBCPLComment;
-      if (State != LS_VerbatimBlockBody && State != LS_VerbatimBlockFirstLine)
+      switch (State) {
+      case LS_VerbatimBlockFirstLine:
+      case LS_VerbatimBlockBody:
+        break;
+      case LS_HTMLStartTag:
+        BufferPtr = skipHorizontalWhitespace(BufferPtr, BufferEnd);
+        break;
+      default:
         State = LS_Normal;
+        break;
+      }
       CommentEnd = findBCPLCommentEnd(BufferPtr, BufferEnd);
       goto again;
     }
@@ -811,6 +848,14 @@ again:
     while(EndWhitespace != BufferEnd && *EndWhitespace != '/')
       EndWhitespace++;
 
+    // When lexing the start of an HTML tag (i.e. going through the attributes)
+    // there won't be any newlines generated.
+    if (State == LS_HTMLStartTag && EndWhitespace != BufferEnd) {
+      CommentState = LCS_BeforeComment;
+      BufferPtr = EndWhitespace;
+      goto again;
+    }
+
     // Turn any whitespace between comments (and there is only whitespace
     // between them -- guaranteed by comment extraction) into a newline.  We
     // have two newlines between C comments in total (first one was synthesized
@@ -833,6 +878,14 @@ again:
         BufferPtr += 2;
         assert(BufferPtr <= BufferEnd);
 
+        // When lexing the start of an HTML tag (i.e. going through the
+        // attributes) there won't be any newlines generated - whitespace still
+        // needs to be skipped.
+        if (State == LS_HTMLStartTag && BufferPtr != BufferEnd) {
+          CommentState = LCS_BetweenComments;
+          goto again;
+        }
+
         // Synthenize newline just after the C comment, regardless if there is
         // actually a newline.
         formTokenWithChars(T, BufferPtr, tok::newline);
@@ -851,7 +904,7 @@ again:
 StringRef Lexer::getSpelling(const Token &Tok,
                              const SourceManager &SourceMgr) const {
   SourceLocation Loc = Tok.getLocation();
-  std::pair<FileID, unsigned> LocInfo = SourceMgr.getDecomposedLoc(Loc);
+  FileIDAndOffset LocInfo = SourceMgr.getDecomposedLoc(Loc);
 
   bool InvalidTemp = false;
   StringRef File = SourceMgr.getBufferData(LocInfo.first, &InvalidTemp);

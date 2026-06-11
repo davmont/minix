@@ -38,6 +38,18 @@ TABLEGEN_OUTPUT.Opts.td= \
 	Opts.inc|-gen-opt-parser-defs
 
 .include "${.PARSEDIR}/../../tablegen.mk"
+.include "${.PARSEDIR}/../../driver.mk"
+
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	Debuginfod \
+	DebugInfoGSYM \
+	DebugInfoBTF \
+	IRReader \
+	AsmParser \
+	TargetParser
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

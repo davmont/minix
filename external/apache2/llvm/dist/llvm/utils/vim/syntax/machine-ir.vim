@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   mir
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 1.1.1.1 $
+" Version:      $Revision$
 
 syn case match
 

@@ -20,6 +20,14 @@
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("xop"), __min_vector_width__(128)))
 #define __DEFAULT_FN_ATTRS256 __attribute__((__always_inline__, __nodebug__, __target__("xop"), __min_vector_width__(256)))
 
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS constexpr
+#define __DEFAULT_FN_ATTRS256_CONSTEXPR __DEFAULT_FN_ATTRS256 constexpr
+#else
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS
+#define __DEFAULT_FN_ATTRS256_CONSTEXPR __DEFAULT_FN_ATTRS256
+#endif
+
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_maccs_epi16(__m128i __A, __m128i __B, __m128i __C)
 {
@@ -182,13 +190,13 @@ _mm_hsubq_epi32(__m128i __A)
   return (__m128i)__builtin_ia32_vphsubdq((__v4si)__A);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS
+static __inline__ __m128i __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm_cmov_si128(__m128i __A, __m128i __B, __m128i __C)
 {
   return (__m128i)(((__v2du)__A & (__v2du)__C) | ((__v2du)__B & ~(__v2du)__C));
 }
 
-static __inline__ __m256i __DEFAULT_FN_ATTRS256
+static __inline__ __m256i __DEFAULT_FN_ATTRS256_CONSTEXPR
 _mm256_cmov_si256(__m256i __A, __m256i __B, __m256i __C)
 {
   return (__m256i)(((__v4du)__A & (__v4du)__C) | ((__v4du)__B & ~(__v4du)__C));
@@ -200,41 +208,41 @@ _mm_perm_epi8(__m128i __A, __m128i __B, __m128i __C)
   return (__m128i)__builtin_ia32_vpperm((__v16qi)__A, (__v16qi)__B, (__v16qi)__C);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS
+static __inline__ __m128i __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm_rot_epi8(__m128i __A, __m128i __B)
 {
-  return (__m128i)__builtin_ia32_vprotb((__v16qi)__A, (__v16qi)__B);
+  return (__m128i)__builtin_elementwise_fshl((__v16qu)__A, (__v16qu)__A, (__v16qu)__B);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS
+static __inline__ __m128i __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm_rot_epi16(__m128i __A, __m128i __B)
 {
-  return (__m128i)__builtin_ia32_vprotw((__v8hi)__A, (__v8hi)__B);
+  return (__m128i)__builtin_elementwise_fshl((__v8hu)__A, (__v8hu)__A, (__v8hu)__B);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS
+static __inline__ __m128i __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm_rot_epi32(__m128i __A, __m128i __B)
 {
-  return (__m128i)__builtin_ia32_vprotd((__v4si)__A, (__v4si)__B);
+  return (__m128i)__builtin_elementwise_fshl((__v4su)__A, (__v4su)__A, (__v4su)__B);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS
+static __inline__ __m128i __DEFAULT_FN_ATTRS_CONSTEXPR
 _mm_rot_epi64(__m128i __A, __m128i __B)
 {
-  return (__m128i)__builtin_ia32_vprotq((__v2di)__A, (__v2di)__B);
+  return (__m128i)__builtin_elementwise_fshl((__v2du)__A, (__v2du)__A, (__v2du)__B);
 }
 
 #define _mm_roti_epi8(A, N) \
-  (__m128i)__builtin_ia32_vprotbi((__v16qi)(__m128i)(A), (N))
+  ((__m128i)__builtin_ia32_vprotbi((__v16qi)(__m128i)(A), (N)))
 
 #define _mm_roti_epi16(A, N) \
-  (__m128i)__builtin_ia32_vprotwi((__v8hi)(__m128i)(A), (N))
+  ((__m128i)__builtin_ia32_vprotwi((__v8hi)(__m128i)(A), (N)))
 
 #define _mm_roti_epi32(A, N) \
-  (__m128i)__builtin_ia32_vprotdi((__v4si)(__m128i)(A), (N))
+  ((__m128i)__builtin_ia32_vprotdi((__v4si)(__m128i)(A), (N)))
 
 #define _mm_roti_epi64(A, N) \
-  (__m128i)__builtin_ia32_vprotqi((__v2di)(__m128i)(A), (N))
+  ((__m128i)__builtin_ia32_vprotqi((__v2di)(__m128i)(A), (N)))
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_shl_epi8(__m128i __A, __m128i __B)
@@ -285,36 +293,36 @@ _mm_sha_epi64(__m128i __A, __m128i __B)
 }
 
 #define _mm_com_epu8(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomub((__v16qi)(__m128i)(A), \
-                                  (__v16qi)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomub((__v16qi)(__m128i)(A), \
+                                   (__v16qi)(__m128i)(B), (N)))
 
 #define _mm_com_epu16(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomuw((__v8hi)(__m128i)(A), \
-                                  (__v8hi)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomuw((__v8hi)(__m128i)(A), \
+                                   (__v8hi)(__m128i)(B), (N)))
 
 #define _mm_com_epu32(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomud((__v4si)(__m128i)(A), \
-                                  (__v4si)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomud((__v4si)(__m128i)(A), \
+                                   (__v4si)(__m128i)(B), (N)))
 
 #define _mm_com_epu64(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomuq((__v2di)(__m128i)(A), \
-                                  (__v2di)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomuq((__v2di)(__m128i)(A), \
+                                   (__v2di)(__m128i)(B), (N)))
 
 #define _mm_com_epi8(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomb((__v16qi)(__m128i)(A), \
-                                 (__v16qi)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomb((__v16qi)(__m128i)(A), \
+                                  (__v16qi)(__m128i)(B), (N)))
 
 #define _mm_com_epi16(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomw((__v8hi)(__m128i)(A), \
-                                 (__v8hi)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomw((__v8hi)(__m128i)(A), \
+                                  (__v8hi)(__m128i)(B), (N)))
 
 #define _mm_com_epi32(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomd((__v4si)(__m128i)(A), \
-                                 (__v4si)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomd((__v4si)(__m128i)(A), \
+                                  (__v4si)(__m128i)(B), (N)))
 
 #define _mm_com_epi64(A, B, N) \
-  (__m128i)__builtin_ia32_vpcomq((__v2di)(__m128i)(A), \
-                                 (__v2di)(__m128i)(B), (N))
+  ((__m128i)__builtin_ia32_vpcomq((__v2di)(__m128i)(A), \
+                                  (__v2di)(__m128i)(B), (N)))
 
 #define _MM_PCOMCTRL_LT    0
 #define _MM_PCOMCTRL_LE    1
@@ -710,23 +718,23 @@ _mm_comtrue_epi64(__m128i __A, __m128i __B)
 }
 
 #define _mm_permute2_pd(X, Y, C, I) \
-  (__m128d)__builtin_ia32_vpermil2pd((__v2df)(__m128d)(X), \
-                                     (__v2df)(__m128d)(Y), \
-                                     (__v2di)(__m128i)(C), (I))
+  ((__m128d)__builtin_ia32_vpermil2pd((__v2df)(__m128d)(X), \
+                                      (__v2df)(__m128d)(Y), \
+                                      (__v2di)(__m128i)(C), (I)))
 
 #define _mm256_permute2_pd(X, Y, C, I) \
-  (__m256d)__builtin_ia32_vpermil2pd256((__v4df)(__m256d)(X), \
-                                        (__v4df)(__m256d)(Y), \
-                                        (__v4di)(__m256i)(C), (I))
+  ((__m256d)__builtin_ia32_vpermil2pd256((__v4df)(__m256d)(X), \
+                                         (__v4df)(__m256d)(Y), \
+                                         (__v4di)(__m256i)(C), (I)))
 
 #define _mm_permute2_ps(X, Y, C, I) \
-  (__m128)__builtin_ia32_vpermil2ps((__v4sf)(__m128)(X), (__v4sf)(__m128)(Y), \
-                                    (__v4si)(__m128i)(C), (I))
+  ((__m128)__builtin_ia32_vpermil2ps((__v4sf)(__m128)(X), (__v4sf)(__m128)(Y), \
+                                     (__v4si)(__m128i)(C), (I)))
 
 #define _mm256_permute2_ps(X, Y, C, I) \
-  (__m256)__builtin_ia32_vpermil2ps256((__v8sf)(__m256)(X), \
-                                       (__v8sf)(__m256)(Y), \
-                                       (__v8si)(__m256i)(C), (I))
+  ((__m256)__builtin_ia32_vpermil2ps256((__v8sf)(__m256)(X), \
+                                        (__v8sf)(__m256)(Y), \
+                                        (__v8si)(__m256i)(C), (I)))
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_frcz_ss(__m128 __A)
@@ -766,5 +774,7 @@ _mm256_frcz_pd(__m256d __A)
 
 #undef __DEFAULT_FN_ATTRS
 #undef __DEFAULT_FN_ATTRS256
+#undef __DEFAULT_FN_ATTRS_CONSTEXPR
+#undef __DEFAULT_FN_ATTRS256_CONSTEXPR
 
 #endif /* __XOPINTRIN_H */

@@ -16,7 +16,6 @@
 
 #include "MCTargetDesc/PPCPredicates.h"
 #include "PPC.h"
-#include "PPCInstrBuilder.h"
 #include "PPCInstrInfo.h"
 #include "PPCSubtarget.h"
 #include "llvm/ADT/Statistic.h"
@@ -38,9 +37,7 @@ STATISTIC(NumPrefixedAligned,
 namespace {
   struct PPCBSel : public MachineFunctionPass {
     static char ID;
-    PPCBSel() : MachineFunctionPass(ID) {
-      initializePPCBSelPass(*PassRegistry::getPassRegistry());
-    }
+    PPCBSel() : MachineFunctionPass(ID) {}
 
     // The sizes of the basic blocks in the function (the first
     // element of the pair); the second element of the pair is the amount of the
@@ -61,8 +58,7 @@ namespace {
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
     MachineFunctionProperties getRequiredProperties() const override {
-      return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::NoVRegs);
+      return MachineFunctionProperties().setNoVRegs();
     }
 
     StringRef getPassName() const override { return "PowerPC Branch Selector"; }
@@ -120,16 +116,13 @@ unsigned PPCBSel::ComputeBlockSizes(MachineFunction &Fn) {
       static_cast<const PPCInstrInfo *>(Fn.getSubtarget().getInstrInfo());
   unsigned FuncSize = GetInitialOffset(Fn);
 
-  for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
-       ++MFI) {
-    MachineBasicBlock *MBB = &*MFI;
-
+  for (MachineBasicBlock &MBB : Fn) {
     // The end of the previous block may have extra nops if this block has an
     // alignment requirement.
-    if (MBB->getNumber() > 0) {
-      unsigned AlignExtra = GetAlignmentAdjustment(*MBB, FuncSize);
+    if (MBB.getNumber() > 0) {
+      unsigned AlignExtra = GetAlignmentAdjustment(MBB, FuncSize);
 
-      auto &BS = BlockSizes[MBB->getNumber()-1];
+      auto &BS = BlockSizes[MBB.getNumber()-1];
       BS.first += AlignExtra;
       BS.second = AlignExtra;
 
@@ -138,10 +131,10 @@ unsigned PPCBSel::ComputeBlockSizes(MachineFunction &Fn) {
 
     unsigned BlockSize = 0;
     unsigned UnalignedBytesRemaining = 0;
-    for (MachineInstr &MI : *MBB) {
+    for (MachineInstr &MI : MBB) {
       unsigned MINumBytes = TII->getInstSizeInBytes(MI);
       if (MI.isInlineAsm() && (FirstImpreciseBlock < 0))
-        FirstImpreciseBlock = MBB->getNumber();
+        FirstImpreciseBlock = MBB.getNumber();
       if (TII->isPrefixed(MI.getOpcode())) {
         NumPrefixed++;
 
@@ -171,7 +164,7 @@ unsigned PPCBSel::ComputeBlockSizes(MachineFunction &Fn) {
       BlockSize += MINumBytes;
     }
 
-    BlockSizes[MBB->getNumber()].first = BlockSize;
+    BlockSizes[MBB.getNumber()].first = BlockSize;
     FuncSize += BlockSize;
   }
 
@@ -181,16 +174,13 @@ unsigned PPCBSel::ComputeBlockSizes(MachineFunction &Fn) {
 /// Modify the basic block align adjustment.
 void PPCBSel::modifyAdjustment(MachineFunction &Fn) {
   unsigned Offset = GetInitialOffset(Fn);
-  for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
-       ++MFI) {
-    MachineBasicBlock *MBB = &*MFI;
-
-    if (MBB->getNumber() > 0) {
-      auto &BS = BlockSizes[MBB->getNumber()-1];
+  for (MachineBasicBlock &MBB : Fn) {
+    if (MBB.getNumber() > 0) {
+      auto &BS = BlockSizes[MBB.getNumber()-1];
       BS.first -= BS.second;
       Offset -= BS.second;
 
-      unsigned AlignExtra = GetAlignmentAdjustment(*MBB, Offset);
+      unsigned AlignExtra = GetAlignmentAdjustment(MBB, Offset);
 
       BS.first += AlignExtra;
       BS.second = AlignExtra;
@@ -198,7 +188,7 @@ void PPCBSel::modifyAdjustment(MachineFunction &Fn) {
       Offset += AlignExtra;
     }
 
-    Offset += BlockSizes[MBB->getNumber()].first;
+    Offset += BlockSizes[MBB.getNumber()].first;
   }
 }
 
@@ -415,5 +405,5 @@ bool PPCBSel::runOnMachineFunction(MachineFunction &Fn) {
   }
 
   BlockSizes.clear();
-  return true;
+  return EverMadeChange;
 }

@@ -7,102 +7,101 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/Demangle/Demangle.h"
+#include "llvm/Demangle/StringViewExtras.h"
+#include "llvm/Option/Arg.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Option/Option.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/LLVMDriver.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/Triple.h"
 #include <cstdlib>
 #include <iostream>
 
 using namespace llvm;
 
-enum Style {
-  Auto,  ///< auto-detect mangling
-  GNU,   ///< GNU
-  Lucid, ///< Lucid compiler (lcc)
-  ARM,
-  HP,    ///< HP compiler (xCC)
-  EDG,   ///< EDG compiler
-  GNUv3, ///< GNU C++ v3 ABI
-  Java,  ///< Java (gcj)
-  GNAT   ///< ADA compiler (gnat)
+namespace {
+enum ID {
+  OPT_INVALID = 0, // This is not an option ID.
+#define OPTION(...) LLVM_MAKE_OPT_ID(__VA_ARGS__),
+#include "Opts.inc"
+#undef OPTION
 };
-static cl::opt<Style>
-    Format("format", cl::desc("decoration style"),
-           cl::values(clEnumValN(Auto, "auto", "auto-detect style"),
-                      clEnumValN(GNU, "gnu", "GNU (itanium) style")),
-           cl::init(Auto));
-static cl::alias FormatShort("s", cl::desc("alias for --format"),
-                             cl::aliasopt(Format));
 
-static cl::opt<bool> StripUnderscore("strip-underscore",
-                                     cl::desc("strip the leading underscore"),
-                                     cl::init(false));
-static cl::alias StripUnderscoreShort("_",
-                                      cl::desc("alias for --strip-underscore"),
-                                      cl::aliasopt(StripUnderscore));
-static cl::opt<bool>
-    NoStripUnderscore("no-strip-underscore",
-                      cl::desc("do not strip the leading underscore"),
-                      cl::init(false));
-static cl::alias
-    NoStripUnderscoreShort("n", cl::desc("alias for --no-strip-underscore"),
-                           cl::aliasopt(NoStripUnderscore));
+#define OPTTABLE_STR_TABLE_CODE
+#include "Opts.inc"
+#undef OPTTABLE_STR_TABLE_CODE
 
-static cl::opt<bool>
-    Types("types",
-          cl::desc("attempt to demangle types as well as function names"),
-          cl::init(false));
-static cl::alias TypesShort("t", cl::desc("alias for --types"),
-                            cl::aliasopt(Types));
+#define OPTTABLE_PREFIXES_TABLE_CODE
+#include "Opts.inc"
+#undef OPTTABLE_PREFIXES_TABLE_CODE
 
-static cl::list<std::string>
-Decorated(cl::Positional, cl::desc("<mangled>"), cl::ZeroOrMore);
+using namespace llvm::opt;
+static constexpr opt::OptTable::Info InfoTable[] = {
+#define OPTION(...) LLVM_CONSTRUCT_OPT_INFO(__VA_ARGS__),
+#include "Opts.inc"
+#undef OPTION
+};
 
-static cl::extrahelp
-    HelpResponse("\nPass @FILE as argument to read options from FILE.\n");
+class CxxfiltOptTable : public opt::GenericOptTable {
+public:
+  CxxfiltOptTable()
+      : opt::GenericOptTable(OptionStrTable, OptionPrefixesTable, InfoTable) {
+    setGroupedShortOptions(true);
+  }
+};
+} // namespace
 
-static bool shouldStripUnderscore() {
-  if (StripUnderscore)
-    return true;
-  if (NoStripUnderscore)
-    return false;
-  // If none of them are set, use the default value for platform.
-  // macho has symbols prefix with "_" so strip by default.
-  return Triple(sys::getProcessTriple()).isOSBinFormatMachO();
+static bool ParseParams;
+static bool Quote;
+static bool StripUnderscore;
+static bool Types;
+
+static StringRef ToolName;
+
+static void error(const Twine &Message) {
+  WithColor::error(errs(), ToolName) << Message << '\n';
+  exit(1);
 }
 
-static std::string demangle(const std::string &Mangled) {
-  int Status;
+// Quote Undecorated with "" if asked for and not already followed by a '"'.
+static std::string optionalQuote(const std::string &Undecorated,
+                                 StringRef Delimiters) {
+  if (Quote && (Delimiters.empty() || Delimiters[0] != '"'))
+    return '"' + Undecorated + '"';
+  return Undecorated;
+}
+
+static std::string demangle(const std::string &Mangled, StringRef Delimiters) {
+  using llvm::itanium_demangle::starts_with;
+  std::string_view DecoratedStr = Mangled;
+  bool CanHaveLeadingDot = true;
+  if (StripUnderscore && DecoratedStr[0] == '_') {
+    DecoratedStr.remove_prefix(1);
+    CanHaveLeadingDot = false;
+  }
+
+  std::string Result;
+  if (nonMicrosoftDemangle(DecoratedStr, Result, CanHaveLeadingDot,
+                           ParseParams))
+    return optionalQuote(Result, Delimiters);
+
   std::string Prefix;
-
-  const char *DecoratedStr = Mangled.c_str();
-  if (shouldStripUnderscore())
-    if (DecoratedStr[0] == '_')
-      ++DecoratedStr;
-  size_t DecoratedLength = strlen(DecoratedStr);
-
   char *Undecorated = nullptr;
 
-  if (Types ||
-      ((DecoratedLength >= 2 && strncmp(DecoratedStr, "_Z", 2) == 0) ||
-       (DecoratedLength >= 4 && strncmp(DecoratedStr, "___Z", 4) == 0)))
-    Undecorated = itaniumDemangle(DecoratedStr, nullptr, nullptr, &Status);
+  if (Types)
+    Undecorated = itaniumDemangle(DecoratedStr, ParseParams);
 
-  if (!Undecorated &&
-      (DecoratedLength > 6 && strncmp(DecoratedStr, "__imp_", 6) == 0)) {
+  if (!Undecorated && starts_with(DecoratedStr, "__imp_")) {
     Prefix = "import thunk for ";
-    Undecorated = itaniumDemangle(DecoratedStr + 6, nullptr, nullptr, &Status);
+    Undecorated = itaniumDemangle(DecoratedStr.substr(6), ParseParams);
   }
 
-  if (!Undecorated &&
-      (DecoratedLength >= 2 && strncmp(DecoratedStr, "_R", 2) == 0)) {
-    Undecorated = rustDemangle(DecoratedStr, nullptr, nullptr, &Status);
-  }
-
-  std::string Result(Undecorated ? Prefix + Undecorated : Mangled);
+  Result =
+      Undecorated ? optionalQuote(Prefix + Undecorated, Delimiters) : Mangled;
   free(Undecorated);
   return Result;
 }
@@ -138,7 +137,7 @@ static void SplitStringDelims(
 static bool IsLegalItaniumChar(char C) {
   // Itanium CXX ABI [External Names]p5.1.1:
   // '$' and '.' in mangled names are reserved for private implementations.
-  return isalnum(C) || C == '.' || C == '$' || C == '_';
+  return isAlnum(C) || C == '.' || C == '$' || C == '_';
 }
 
 // If 'Split' is true, then 'Mangled' is broken into individual words and each
@@ -150,18 +149,45 @@ static void demangleLine(llvm::raw_ostream &OS, StringRef Mangled, bool Split) {
     SmallVector<std::pair<StringRef, StringRef>, 16> Words;
     SplitStringDelims(Mangled, Words, IsLegalItaniumChar);
     for (const auto &Word : Words)
-      Result += ::demangle(std::string(Word.first)) + Word.second.str();
+      Result +=
+          ::demangle(std::string(Word.first), Word.second) + Word.second.str();
   } else
-    Result = ::demangle(std::string(Mangled));
+    Result = ::demangle(std::string(Mangled), "");
   OS << Result << '\n';
   OS.flush();
 }
 
-int main(int argc, char **argv) {
-  InitLLVM X(argc, argv);
+int llvm_cxxfilt_main(int argc, char **argv, const llvm::ToolContext &) {
+  BumpPtrAllocator A;
+  StringSaver Saver(A);
+  CxxfiltOptTable Tbl;
+  ToolName = argv[0];
+  opt::InputArgList Args = Tbl.parseArgs(argc, argv, OPT_UNKNOWN, Saver,
+                                         [&](StringRef Msg) { error(Msg); });
+  if (Args.hasArg(OPT_help)) {
+    Tbl.printHelp(outs(),
+                  (Twine(ToolName) + " [options] <mangled>").str().c_str(),
+                  "LLVM symbol undecoration tool");
+    // TODO Replace this with OptTable API once it adds extrahelp support.
+    outs() << "\nPass @FILE as argument to read options from FILE.\n";
+    return 0;
+  }
+  if (Args.hasArg(OPT_version)) {
+    outs() << ToolName << '\n';
+    cl::PrintVersionMessage();
+    return 0;
+  }
 
-  cl::ParseCommandLineOptions(argc, argv, "llvm symbol undecoration tool\n");
+  StripUnderscore =
+      Args.hasFlag(OPT_strip_underscore, OPT_no_strip_underscore, false);
 
+  ParseParams = !Args.hasArg(OPT_no_params);
+
+  Quote = Args.hasArg(OPT_quote);
+
+  Types = Args.hasArg(OPT_types);
+
+  std::vector<std::string> Decorated = Args.getAllArgValues(OPT_INPUT);
   if (Decorated.empty())
     for (std::string Mangled; std::getline(std::cin, Mangled);)
       demangleLine(llvm::outs(), Mangled, true);

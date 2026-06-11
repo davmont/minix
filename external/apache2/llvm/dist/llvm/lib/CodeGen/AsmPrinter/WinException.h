@@ -14,6 +14,7 @@
 #define LLVM_LIB_CODEGEN_ASMPRINTER_WIN64EXCEPTION_H
 
 #include "EHStreamer.h"
+#include <vector>
 
 namespace llvm {
 class GlobalValue;
@@ -37,6 +38,9 @@ class LLVM_LIBRARY_VISIBILITY WinException : public EHStreamer {
 
   /// True if we are generating exception handling on Windows for ARM64.
   bool isAArch64 = false;
+
+  /// True if we are generating exception handling on Windows for ARM (Thumb).
+  bool isThumb = false;
 
   /// Pointer to the current funclet entry BB.
   const MachineBasicBlock *CurrentFuncletEntry = nullptr;

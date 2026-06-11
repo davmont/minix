@@ -14,11 +14,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/IVDescriptors.h"
-#include "llvm/Analysis/LoopInfoImpl.h"
 #include "llvm/Analysis/LoopIterator.h"
 #include "llvm/Analysis/LoopNestAnalysis.h"
 #include "llvm/Analysis/MemorySSA.h"
@@ -30,22 +28,21 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Dominators.h"
-#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/PrintPasses.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
 using namespace llvm;
 
 // Explicitly instantiate methods in LoopInfoImpl.h for IR-level Loops.
-template class llvm::LoopBase<BasicBlock, Loop>;
-template class llvm::LoopInfoBase<BasicBlock, Loop>;
+template class LLVM_EXPORT_TEMPLATE llvm::LoopBase<BasicBlock, Loop>;
+template class LLVM_EXPORT_TEMPLATE llvm::LoopInfoBase<BasicBlock, Loop>;
 
 // Always verify loopinfo if expensive checking is enabled.
 #ifdef EXPENSIVE_CHECKS
@@ -68,19 +65,20 @@ bool Loop::isLoopInvariant(const Value *V) const {
 }
 
 bool Loop::hasLoopInvariantOperands(const Instruction *I) const {
-  return all_of(I->operands(), [this](Value *V) { return isLoopInvariant(V); });
+  return all_of(I->operands(), [&](Value *V) { return isLoopInvariant(V); });
 }
 
 bool Loop::makeLoopInvariant(Value *V, bool &Changed, Instruction *InsertPt,
-                             MemorySSAUpdater *MSSAU) const {
+                             MemorySSAUpdater *MSSAU,
+                             ScalarEvolution *SE) const {
   if (Instruction *I = dyn_cast<Instruction>(V))
-    return makeLoopInvariant(I, Changed, InsertPt, MSSAU);
+    return makeLoopInvariant(I, Changed, InsertPt, MSSAU, SE);
   return true; // All non-instructions are loop-invariant.
 }
 
 bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
-                             Instruction *InsertPt,
-                             MemorySSAUpdater *MSSAU) const {
+                             Instruction *InsertPt, MemorySSAUpdater *MSSAU,
+                             ScalarEvolution *SE) const {
   // Test if the value is already loop-invariant.
   if (isLoopInvariant(I))
     return true;
@@ -101,11 +99,11 @@ bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
   }
   // Don't hoist instructions with loop-variant operands.
   for (Value *Operand : I->operands())
-    if (!makeLoopInvariant(Operand, Changed, InsertPt, MSSAU))
+    if (!makeLoopInvariant(Operand, Changed, InsertPt, MSSAU, SE))
       return false;
 
   // Hoist.
-  I->moveBefore(InsertPt);
+  I->moveBefore(InsertPt->getIterator());
   if (MSSAU)
     if (auto *MUD = MSSAU->getMemorySSA()->getMemoryAccess(I))
       MSSAU->moveToPlace(MUD, InsertPt->getParent(),
@@ -116,6 +114,9 @@ bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
   // condition. Conservatively strip it here so that we don't give any wrong
   // information to the optimizer.
   I->dropUnknownNonDebugMetadata();
+
+  if (SE)
+    SE->forgetBlockAndLoopDispositions(I);
 
   Changed = true;
   return true;
@@ -171,8 +172,8 @@ PHINode *Loop::getCanonicalInductionVariable() const {
 }
 
 /// Get the latch condition instruction.
-static ICmpInst *getLatchCmpInst(const Loop &L) {
-  if (BasicBlock *Latch = L.getLoopLatch())
+ICmpInst *Loop::getLatchCmpInst() const {
+  if (BasicBlock *Latch = getLoopLatch())
     if (BranchInst *BI = dyn_cast_or_null<BranchInst>(Latch->getTerminator()))
       if (BI->isConditional())
         return dyn_cast<ICmpInst>(BI->getCondition());
@@ -183,7 +184,7 @@ static ICmpInst *getLatchCmpInst(const Loop &L) {
 /// Return the final value of the loop induction variable if found.
 static Value *findFinalIVValue(const Loop &L, const PHINode &IndVar,
                                const Instruction &StepInst) {
-  ICmpInst *LatchCmpInst = getLatchCmpInst(L);
+  ICmpInst *LatchCmpInst = L.getLatchCmpInst();
   if (!LatchCmpInst)
     return nullptr;
 
@@ -198,17 +199,17 @@ static Value *findFinalIVValue(const Loop &L, const PHINode &IndVar,
   return nullptr;
 }
 
-Optional<Loop::LoopBounds> Loop::LoopBounds::getBounds(const Loop &L,
-                                                       PHINode &IndVar,
-                                                       ScalarEvolution &SE) {
+std::optional<Loop::LoopBounds>
+Loop::LoopBounds::getBounds(const Loop &L, PHINode &IndVar,
+                            ScalarEvolution &SE) {
   InductionDescriptor IndDesc;
   if (!InductionDescriptor::isInductionPHI(&IndVar, &L, &SE, IndDesc))
-    return None;
+    return std::nullopt;
 
   Value *InitialIVValue = IndDesc.getStartValue();
   Instruction *StepInst = IndDesc.getInductionBinOp();
   if (!InitialIVValue || !StepInst)
-    return None;
+    return std::nullopt;
 
   const SCEV *Step = IndDesc.getStep();
   Value *StepInstOp1 = StepInst->getOperand(1);
@@ -221,7 +222,7 @@ Optional<Loop::LoopBounds> Loop::LoopBounds::getBounds(const Loop &L,
 
   Value *FinalIVValue = findFinalIVValue(L, IndVar, *StepInst);
   if (!FinalIVValue)
-    return None;
+    return std::nullopt;
 
   return LoopBounds(L, *InitialIVValue, *StepInst, StepValue, *FinalIVValue,
                     SE);
@@ -284,11 +285,11 @@ Direction Loop::LoopBounds::getDirection() const {
   return Direction::Unknown;
 }
 
-Optional<Loop::LoopBounds> Loop::getBounds(ScalarEvolution &SE) const {
+std::optional<Loop::LoopBounds> Loop::getBounds(ScalarEvolution &SE) const {
   if (PHINode *IndVar = getInductionVariable(SE))
     return LoopBounds::getBounds(*this, *IndVar, SE);
 
-  return None;
+  return std::nullopt;
 }
 
 PHINode *Loop::getInductionVariable(ScalarEvolution &SE) const {
@@ -297,19 +298,20 @@ PHINode *Loop::getInductionVariable(ScalarEvolution &SE) const {
 
   BasicBlock *Header = getHeader();
   assert(Header && "Expected a valid loop header");
-  ICmpInst *CmpInst = getLatchCmpInst(*this);
+  ICmpInst *CmpInst = getLatchCmpInst();
   if (!CmpInst)
     return nullptr;
 
-  Instruction *LatchCmpOp0 = dyn_cast<Instruction>(CmpInst->getOperand(0));
-  Instruction *LatchCmpOp1 = dyn_cast<Instruction>(CmpInst->getOperand(1));
+  Value *LatchCmpOp0 = CmpInst->getOperand(0);
+  Value *LatchCmpOp1 = CmpInst->getOperand(1);
 
   for (PHINode &IndVar : Header->phis()) {
     InductionDescriptor IndDesc;
     if (!InductionDescriptor::isInductionPHI(&IndVar, this, &SE, IndDesc))
       continue;
 
-    Instruction *StepInst = IndDesc.getInductionBinOp();
+    BasicBlock *Latch = getLoopLatch();
+    Value *StepInst = IndVar.getIncomingValueForBlock(Latch);
 
     // case 1:
     // IndVar = phi[{InitialValue, preheader}, {StepInst, latch}]
@@ -428,12 +430,12 @@ bool Loop::isCanonical(ScalarEvolution &SE) const {
 
 // Check that 'BB' doesn't have any uses outside of the 'L'
 static bool isBlockInLCSSAForm(const Loop &L, const BasicBlock &BB,
-                               const DominatorTree &DT) {
+                               const DominatorTree &DT, bool IgnoreTokens) {
   for (const Instruction &I : BB) {
     // Tokens can't be used in PHI nodes and live-out tokens prevent loop
     // optimizations, so for the purposes of considered LCSSA form, we
     // can ignore them.
-    if (I.getType()->isTokenTy())
+    if (IgnoreTokens && I.getType()->isTokenTy())
       continue;
 
     for (const Use &U : I.uses()) {
@@ -458,20 +460,20 @@ static bool isBlockInLCSSAForm(const Loop &L, const BasicBlock &BB,
   return true;
 }
 
-bool Loop::isLCSSAForm(const DominatorTree &DT) const {
+bool Loop::isLCSSAForm(const DominatorTree &DT, bool IgnoreTokens) const {
   // For each block we check that it doesn't have any uses outside of this loop.
   return all_of(this->blocks(), [&](const BasicBlock *BB) {
-    return isBlockInLCSSAForm(*this, *BB, DT);
+    return isBlockInLCSSAForm(*this, *BB, DT, IgnoreTokens);
   });
 }
 
-bool Loop::isRecursivelyLCSSAForm(const DominatorTree &DT,
-                                  const LoopInfo &LI) const {
+bool Loop::isRecursivelyLCSSAForm(const DominatorTree &DT, const LoopInfo &LI,
+                                  bool IgnoreTokens) const {
   // For each block we check that it doesn't have any uses outside of its
   // innermost loop. This process will transitively guarantee that the current
   // loop and all of the nested loops are in LCSSA form.
   return all_of(this->blocks(), [&](const BasicBlock *BB) {
-    return isBlockInLCSSAForm(*LI.getLoopFor(BB), *BB, DT);
+    return isBlockInLCSSAForm(*LI.getLoopFor(BB), *BB, DT, IgnoreTokens);
   });
 }
 
@@ -485,11 +487,8 @@ bool Loop::isLoopSimplifyForm() const {
 bool Loop::isSafeToClone() const {
   // Return false if any loop blocks contain indirectbrs, or there are any calls
   // to noduplicate functions.
-  // FIXME: it should be ok to clone CallBrInst's if we correctly update the
-  // operand list to reflect the newly cloned labels.
   for (BasicBlock *BB : this->blocks()) {
-    if (isa<IndirectBrInst>(BB->getTerminator()) ||
-        isa<CallBrInst>(BB->getTerminator()))
+    if (isa<IndirectBrInst>(BB->getTerminator()))
       return false;
 
     for (Instruction &I : *BB)
@@ -639,8 +638,8 @@ Loop::LocRange Loop::getLocRange() const {
     // We use the first DebugLoc in the header as the start location of the loop
     // and if there is a second DebugLoc in the header we use it as end location
     // of the loop.
-    for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i) {
-      if (DILocation *L = dyn_cast<DILocation>(LoopID->getOperand(i))) {
+    for (const MDOperand &MDO : llvm::drop_begin(LoopID->operands())) {
+      if (DILocation *L = dyn_cast<DILocation>(MDO)) {
         if (!Start)
           Start = DebugLoc(L);
         else
@@ -663,6 +662,17 @@ Loop::LocRange Loop::getLocRange() const {
     return LocRange(HeadBB->getTerminator()->getDebugLoc());
 
   return LocRange();
+}
+
+std::string Loop::getLocStr() const {
+  std::string Result;
+  raw_string_ostream OS(Result);
+  if (const DebugLoc LoopDbgLoc = getStartLoc())
+    LoopDbgLoc.print(OS);
+  else
+    // Just print the module name.
+    OS << getHeader()->getParent()->getParent()->getModuleIdentifier();
+  return Result;
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -694,11 +704,10 @@ class UnloopUpdater {
 
   // Flag the presence of an irreducible backedge whose destination is a block
   // directly contained by the original unloop.
-  bool FoundIB;
+  bool FoundIB = false;
 
 public:
-  UnloopUpdater(Loop *UL, LoopInfo *LInfo)
-      : Unloop(*UL), LI(LInfo), DFS(UL), FoundIB(false) {}
+  UnloopUpdater(Loop *UL, LoopInfo *LInfo) : Unloop(*UL), LI(LInfo), DFS(UL) {}
 
   void updateBlockParents();
 
@@ -740,6 +749,7 @@ void UnloopUpdater::updateBlockParents() {
   bool Changed = FoundIB;
   for (unsigned NIters = 0; Changed; ++NIters) {
     assert(NIters < Unloop.getNumBlocks() && "runaway iterative algorithm");
+    (void)NIters;
 
     // Iterate over the postorder list of blocks, propagating the nearest loop
     // from successors to predecessors as before.
@@ -818,20 +828,19 @@ Loop *UnloopUpdater::getNearestLoop(BasicBlock *BB, Loop *BBLoop) {
     NearLoop = SubloopParents.insert({Subloop, &Unloop}).first->second;
   }
 
-  succ_iterator I = succ_begin(BB), E = succ_end(BB);
-  if (I == E) {
+  if (succ_empty(BB)) {
     assert(!Subloop && "subloop blocks must have a successor");
     NearLoop = nullptr; // unloop blocks may now exit the function.
   }
-  for (; I != E; ++I) {
-    if (*I == BB)
+  for (BasicBlock *Succ : successors(BB)) {
+    if (Succ == BB)
       continue; // self loops are uninteresting
 
-    Loop *L = LI->getLoopFor(*I);
+    Loop *L = LI->getLoopFor(Succ);
     if (L == &Unloop) {
       // This successor has not been processed. This path must lead to an
       // irreducible backedge.
-      assert((FoundIB || !DFS.hasPostorder(*I)) && "should have seen IB");
+      assert((FoundIB || !DFS.hasPostorder(Succ)) && "should have seen IB");
       FoundIB = true;
     }
     if (L != &Unloop && Unloop.contains(L)) {
@@ -878,7 +887,7 @@ bool LoopInfo::invalidate(Function &F, const PreservedAnalyses &PA,
 void LoopInfo::erase(Loop *Unloop) {
   assert(!Unloop->isInvalid() && "Loop has already been erased!");
 
-  auto InvalidateOnExit = make_scope_exit([&]() { destroy(Unloop); });
+  llvm::scope_exit InvalidateOnExit([&]() { destroy(Unloop); });
 
   // First handle the special case of no parent loop to simplify the algorithm.
   if (Unloop->isOutermost()) {
@@ -931,9 +940,8 @@ void LoopInfo::erase(Loop *Unloop) {
   }
 }
 
-bool
-LoopInfo::wouldBeOutOfLoopUseRequiringLCSSA(const Value *V,
-                                            const BasicBlock *ExitBB) const {
+bool LoopInfo::wouldBeOutOfLoopUseRequiringLCSSA(
+    const Value *V, const BasicBlock *ExitBB) const {
   if (V->getType()->isTokenTy())
     // We can't form PHIs of token type, so the definition of LCSSA excludes
     // values of that type.
@@ -972,12 +980,14 @@ LoopInfo LoopAnalysis::run(Function &F, FunctionAnalysisManager &AM) {
 
 PreservedAnalyses LoopPrinterPass::run(Function &F,
                                        FunctionAnalysisManager &AM) {
-  AM.getResult<LoopAnalysis>(F).print(OS);
+  auto &LI = AM.getResult<LoopAnalysis>(F);
+  OS << "Loop info for function '" << F.getName() << "':\n";
+  LI.print(OS);
   return PreservedAnalyses::all();
 }
 
-void llvm::printLoop(Loop &L, raw_ostream &OS, const std::string &Banner) {
-
+void llvm::printLoop(const Loop &L, raw_ostream &OS,
+                     const std::string &Banner) {
   if (forcePrintModuleIR()) {
     // handling -print-module-scope
     OS << Banner << " (loop: ";
@@ -986,6 +996,18 @@ void llvm::printLoop(Loop &L, raw_ostream &OS, const std::string &Banner) {
 
     // printing whole module
     OS << *L.getHeader()->getModule();
+    return;
+  }
+
+  if (forcePrintFuncIR()) {
+    // handling -print-loop-func-scope.
+    // -print-module-scope overrides this.
+    OS << Banner << " (loop: ";
+    L.getHeader()->printAsOperand(OS, false);
+    OS << ")\n";
+
+    // printing whole function.
+    OS << *L.getHeader()->getParent();
     return;
   }
 
@@ -1026,15 +1048,15 @@ MDNode *llvm::findOptionMDForLoopID(MDNode *LoopID, StringRef Name) {
   assert(LoopID->getOperand(0) == LoopID && "invalid loop id");
 
   // Iterate over the metdata node operands and look for MDString metadata.
-  for (unsigned i = 1, e = LoopID->getNumOperands(); i < e; ++i) {
-    MDNode *MD = dyn_cast<MDNode>(LoopID->getOperand(i));
+  for (const MDOperand &MDO : llvm::drop_begin(LoopID->operands())) {
+    MDNode *MD = dyn_cast<MDNode>(MDO);
     if (!MD || MD->getNumOperands() < 1)
       continue;
     MDString *S = dyn_cast<MDString>(MD->getOperand(0));
     if (!S)
       continue;
     // Return the operand node if MDString holds expected metadata.
-    if (Name.equals(S->getString()))
+    if (Name == S->getString())
       return MD;
   }
 
@@ -1044,6 +1066,101 @@ MDNode *llvm::findOptionMDForLoopID(MDNode *LoopID, StringRef Name) {
 
 MDNode *llvm::findOptionMDForLoop(const Loop *TheLoop, StringRef Name) {
   return findOptionMDForLoopID(TheLoop->getLoopID(), Name);
+}
+
+/// Find string metadata for loop
+///
+/// If it has a value (e.g. {"llvm.distribute", 1} return the value as an
+/// operand or null otherwise.  If the string metadata is not found return
+/// Optional's not-a-value.
+std::optional<const MDOperand *>
+llvm::findStringMetadataForLoop(const Loop *TheLoop, StringRef Name) {
+  MDNode *MD = findOptionMDForLoop(TheLoop, Name);
+  if (!MD)
+    return std::nullopt;
+  switch (MD->getNumOperands()) {
+  case 1:
+    return nullptr;
+  case 2:
+    return &MD->getOperand(1);
+  default:
+    llvm_unreachable("loop metadata has 0 or 1 operand");
+  }
+}
+
+std::optional<bool> llvm::getOptionalBoolLoopAttribute(const Loop *TheLoop,
+                                                       StringRef Name) {
+  MDNode *MD = findOptionMDForLoop(TheLoop, Name);
+  if (!MD)
+    return std::nullopt;
+  switch (MD->getNumOperands()) {
+  case 1:
+    // When the value is absent it is interpreted as 'attribute set'.
+    return true;
+  case 2:
+    if (ConstantInt *IntMD =
+            mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get()))
+      return IntMD->getZExtValue();
+    return true;
+  }
+  llvm_unreachable("unexpected number of options");
+}
+
+bool llvm::getBooleanLoopAttribute(const Loop *TheLoop, StringRef Name) {
+  return getOptionalBoolLoopAttribute(TheLoop, Name).value_or(false);
+}
+
+std::optional<int> llvm::getOptionalIntLoopAttribute(const Loop *TheLoop,
+                                                     StringRef Name) {
+  const MDOperand *AttrMD =
+      findStringMetadataForLoop(TheLoop, Name).value_or(nullptr);
+  if (!AttrMD)
+    return std::nullopt;
+
+  ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD->get());
+  if (!IntMD)
+    return std::nullopt;
+
+  return IntMD->getSExtValue();
+}
+
+int llvm::getIntLoopAttribute(const Loop *TheLoop, StringRef Name,
+                              int Default) {
+  return getOptionalIntLoopAttribute(TheLoop, Name).value_or(Default);
+}
+
+CallBase *llvm::getLoopConvergenceHeart(const Loop *TheLoop) {
+  BasicBlock *H = TheLoop->getHeader();
+  for (Instruction &II : *H) {
+    if (auto *CB = dyn_cast<CallBase>(&II)) {
+      if (!CB->isConvergent())
+        continue;
+      // This is the heart if it uses a token defined outside the loop. The
+      // verifier has already checked that only the loop intrinsic can use such
+      // a token.
+      if (auto *Token = CB->getConvergenceControlToken()) {
+        auto *TokenDef = cast<Instruction>(Token);
+        if (!TheLoop->contains(TokenDef->getParent()))
+          return CB;
+      }
+      return nullptr;
+    }
+  }
+  return nullptr;
+}
+
+bool llvm::isFinite(const Loop *L) {
+  return L->getHeader()->getParent()->willReturn();
+}
+
+static const char *LLVMLoopMustProgress = "llvm.loop.mustprogress";
+
+bool llvm::hasMustProgress(const Loop *L) {
+  return getBooleanLoopAttribute(L, LLVMLoopMustProgress);
+}
+
+bool llvm::isMustProgress(const Loop *L) {
+  return L->getHeader()->getParent()->mustProgress() || hasMustProgress(L);
 }
 
 bool llvm::isValidAsAccessGroup(MDNode *Node) {
@@ -1063,15 +1180,15 @@ MDNode *llvm::makePostTransformationMetadata(LLVMContext &Context,
   // Remove metadata for the transformation that has been applied or that became
   // outdated.
   if (OrigLoopID) {
-    for (unsigned i = 1, ie = OrigLoopID->getNumOperands(); i < ie; ++i) {
+    for (const MDOperand &MDO : llvm::drop_begin(OrigLoopID->operands())) {
       bool IsVectorMetadata = false;
-      Metadata *Op = OrigLoopID->getOperand(i);
+      Metadata *Op = MDO;
       if (MDNode *MD = dyn_cast<MDNode>(Op)) {
         const MDString *S = dyn_cast<MDString>(MD->getOperand(0));
         if (S)
           IsVectorMetadata =
               llvm::any_of(RemovePrefixes, [S](StringRef Prefix) -> bool {
-                return S->getString().startswith(Prefix);
+                return S->getString().starts_with(Prefix);
               });
       }
       if (!IsVectorMetadata)
@@ -1093,9 +1210,7 @@ MDNode *llvm::makePostTransformationMetadata(LLVMContext &Context,
 // LoopInfo implementation
 //
 
-LoopInfoWrapperPass::LoopInfoWrapperPass() : FunctionPass(ID) {
-  initializeLoopInfoWrapperPassPass(*PassRegistry::getPassRegistry());
-}
+LoopInfoWrapperPass::LoopInfoWrapperPass() : FunctionPass(ID) {}
 
 char LoopInfoWrapperPass::ID = 0;
 INITIALIZE_PASS_BEGIN(LoopInfoWrapperPass, "loops", "Natural Loop Information",
@@ -1146,7 +1261,7 @@ PreservedAnalyses LoopVerifierPass::run(Function &F,
 /// Traverse the loop blocks and store the DFS result.
 /// Useful for clients that just want the final DFS result and don't need to
 /// visit blocks during the initial traversal.
-void LoopBlocksDFS::perform(LoopInfo *LI) {
+void LoopBlocksDFS::perform(const LoopInfo *LI) {
   LoopBlocksTraversal Traversal(*this, LI);
   for (LoopBlocksTraversal::POTIterator POI = Traversal.begin(),
                                         POE = Traversal.end();

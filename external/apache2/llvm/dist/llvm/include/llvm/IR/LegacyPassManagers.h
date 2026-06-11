@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Compiler.h"
 #include <vector>
 
 //===----------------------------------------------------------------------===//
@@ -90,7 +91,6 @@ template <typename T> class ArrayRef;
 class Module;
 class StringRef;
 class Value;
-class Timer;
 class PMDataManager;
 
 // enums for debugging strings
@@ -107,7 +107,7 @@ enum PassDebuggingString {
 
 /// PassManagerPrettyStackEntry - This is used to print informative information
 /// about what pass is running when/if a stack trace is generated.
-class PassManagerPrettyStackEntry : public PrettyStackTraceEntry {
+class LLVM_ABI PassManagerPrettyStackEntry : public PrettyStackTraceEntry {
   Pass *P;
   Value *V;
   Module *M;
@@ -140,12 +140,12 @@ public:
   iterator begin() const { return S.rbegin(); }
   iterator end() const { return S.rend(); }
 
-  void pop();
+  LLVM_ABI void pop();
   PMDataManager *top() const { return S.back(); }
-  void push(PMDataManager *PM);
+  LLVM_ABI void push(PMDataManager *PM);
   bool empty() const { return S.empty(); }
 
-  void dump() const;
+  LLVM_ABI void dump() const;
 
 private:
   std::vector<PMDataManager *> S;
@@ -156,7 +156,7 @@ private:
 //
 /// PMTopLevelManager manages LastUser info and collects common APIs used by
 /// top level pass managers.
-class PMTopLevelManager {
+class LLVM_ABI PMTopLevelManager {
 protected:
   explicit PMTopLevelManager(PMDataManager *PMDM);
 
@@ -293,11 +293,9 @@ private:
 
 /// PMDataManager provides the common place to manage the analysis data
 /// used by pass managers.
-class PMDataManager {
+class LLVM_ABI PMDataManager {
 public:
-  explicit PMDataManager() : TPM(nullptr), Depth(0) {
-    initializeAnalysisInfo();
-  }
+  explicit PMDataManager() { initializeAnalysisInfo(); }
 
   virtual ~PMDataManager();
 
@@ -335,8 +333,7 @@ public:
   /// Initialize available analysis information.
   void initializeAnalysisInfo() {
     AvailableAnalysis.clear();
-    for (auto &IA : InheritedAnalysis)
-      IA = nullptr;
+    llvm::fill(InheritedAnalysis, nullptr);
   }
 
   // Return true if P preserves high level analysis used by other
@@ -419,14 +416,14 @@ public:
 
 protected:
   // Top level manager.
-  PMTopLevelManager *TPM;
+  PMTopLevelManager *TPM = nullptr;
 
   // Collection of pass that are managed by this manager
   SmallVector<Pass *, 16> PassVector;
 
   // Collection of Analysis provided by Parent pass manager and
-  // used by current pass manager. At at time there can not be more
-  // then PMT_Last active pass mangers.
+  // used by current pass manager. At any time there can not be more
+  // then PMT_Last active pass managers.
   DenseMap<AnalysisID, Pass *> *InheritedAnalysis[PMT_Last];
 
   /// isPassDebuggingExecutionsOrMore - Return true if -debug-pass=Executions
@@ -447,7 +444,7 @@ private:
   // this manager.
   SmallVector<Pass *, 16> HigherLevelAnalysis;
 
-  unsigned Depth;
+  unsigned Depth = 0;
 };
 
 //===----------------------------------------------------------------------===//
@@ -457,11 +454,10 @@ private:
 /// It batches all function passes and basic block pass managers together and
 /// sequence them to process one function at a time before processing next
 /// function.
-class FPPassManager : public ModulePass, public PMDataManager {
+class LLVM_ABI FPPassManager : public ModulePass, public PMDataManager {
 public:
   static char ID;
-  explicit FPPassManager()
-  : ModulePass(ID), PMDataManager() { }
+  explicit FPPassManager() : ModulePass(ID) {}
 
   /// run - Execute all of the passes scheduled for execution.  Keep track of
   /// whether any of the passes modifies the module, and if so, return true.
@@ -512,7 +508,6 @@ public:
     return PMT_FunctionPassManager;
   }
 };
-
 }
 
 #endif

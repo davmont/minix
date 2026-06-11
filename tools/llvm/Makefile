@@ -23,7 +23,13 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	cd config && ${HOST_SH} ${CONFIG_DIR}/configure ${LLVM_CONFIGURE_ARGS} \
 	    --enable-optimized CC=${HOST_CC:Q} CXX=${HOST_CXX:Q} \
 	    --with-python=${.OBJDIR}/config/python && \
-	cp ${LLVM_TOPLEVEL}/include/module.modulemap include/llvm/module.modulemap
+	cp ${LLVM_TOPLEVEL}/include/module.modulemap include/llvm/module.modulemap && \
+	mkdir -p tools/clang/include/clang/Config include/llvm/Config && \
+	cp ${LLVM_TOPLEVEL}/config/clang/Config/config.h \
+	    tools/clang/include/clang/Config/config.h && \
+	cp ${LLVM_TOPLEVEL}/config/llvm/Config/TargetMCAs.def \
+	   ${LLVM_TOPLEVEL}/config/llvm/Config/TargetExegesis.def \
+	    include/llvm/Config/
 
 support-modules: module-test.cpp Makefile
 	if ${HOST_CXX} -stdlib=libc++ -c -fmodules -fcxx-modules -fmodules-cache-path=./module.cache \

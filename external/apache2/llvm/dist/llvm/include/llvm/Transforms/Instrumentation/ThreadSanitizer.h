@@ -1,4 +1,4 @@
-//===- Transforms/Instrumentation/ThreadSanitizer.h - TSan Pass -----------===//
+//===- ThreadSanitizer.h - ThreadSanitizer instrumentation ------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -14,11 +14,11 @@
 #define LLVM_TRANSFORMS_INSTRUMENTATION_THREADSANITIZER_H
 
 #include "llvm/IR/PassManager.h"
-#include "llvm/Pass.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
-// Insert ThreadSanitizer (race detection) instrumentation
-FunctionPass *createThreadSanitizerLegacyPassPass();
+class Function;
+class Module;
 
 /// A function pass for tsan instrumentation.
 ///
@@ -26,8 +26,16 @@ FunctionPass *createThreadSanitizerLegacyPassPass();
 /// inserts calls to runtime library functions. If the functions aren't declared
 /// yet, the pass inserts the declarations. Otherwise the existing globals are
 struct ThreadSanitizerPass : public PassInfoMixin<ThreadSanitizerPass> {
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM);
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  LLVM_ABI PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM);
+  static bool isRequired() { return true; }
+};
+
+/// A module pass for tsan instrumentation.
+///
+/// Create ctor and init functions.
+struct ModuleThreadSanitizerPass
+  : public PassInfoMixin<ModuleThreadSanitizerPass> {
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
   static bool isRequired() { return true; }
 };
 

@@ -8,26 +8,33 @@ LIB=	LLVMObjectYAML
 
 SRCS+=	ArchiveEmitter.cpp \
 	ArchiveYAML.cpp \
+	COFFEmitter.cpp \
+	COFFYAML.cpp \
 	CodeViewYAMLDebugSections.cpp \
 	CodeViewYAMLSymbols.cpp \
 	CodeViewYAMLTypeHashing.cpp \
 	CodeViewYAMLTypes.cpp \
-	COFFEmitter.cpp \
-	COFFYAML.cpp \
 	DWARFEmitter.cpp \
 	DWARFYAML.cpp \
+	DXContainerEmitter.cpp \
+	DXContainerYAML.cpp \
 	ELFEmitter.cpp \
 	ELFYAML.cpp \
+	GOFFEmitter.cpp \
+	GOFFYAML.cpp \
 	MachOEmitter.cpp \
 	MachOYAML.cpp \
 	MinidumpEmitter.cpp \
 	MinidumpYAML.cpp \
 	ObjectYAML.cpp \
+	OffloadEmitter.cpp \
+	OffloadYAML.cpp \
 	WasmEmitter.cpp \
 	WasmYAML.cpp \
+	XCOFFEmitter.cpp \
 	XCOFFYAML.cpp \
-	yaml2obj.cpp \
-	YAML.cpp
+	YAML.cpp \
+	yaml2obj.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

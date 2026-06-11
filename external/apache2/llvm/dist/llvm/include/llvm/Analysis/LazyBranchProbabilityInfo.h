@@ -20,7 +20,6 @@
 #include "llvm/Pass.h"
 
 namespace llvm {
-class AnalysisUsage;
 class Function;
 class LoopInfo;
 class TargetLibraryInfo;
@@ -57,7 +56,7 @@ class LazyBranchProbabilityInfoPass : public FunctionPass {
   public:
     LazyBranchProbabilityInfo(const Function *F, const LoopInfo *LI,
                               const TargetLibraryInfo *TLI)
-        : Calculated(false), F(F), LI(LI), TLI(TLI) {}
+        : F(F), LI(LI), TLI(TLI) {}
 
     /// Retrieve the BPI with the branch probabilities computed.
     BranchProbabilityInfo &getCalculated() {
@@ -75,7 +74,7 @@ class LazyBranchProbabilityInfoPass : public FunctionPass {
 
   private:
     BranchProbabilityInfo BPI;
-    bool Calculated;
+    bool Calculated = false;
     const Function *F;
     const LoopInfo *LI;
     const TargetLibraryInfo *TLI;
@@ -119,5 +118,5 @@ template <> struct BPIPassTrait<LazyBranchProbabilityInfoPass> {
     return P->getBPI();
   }
 };
-}
+} // namespace llvm
 #endif

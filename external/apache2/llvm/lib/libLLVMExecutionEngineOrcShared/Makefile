@@ -6,9 +6,13 @@ LIB=	LLVMExecutionEngineOrcShared
 
 .PATH: ${LLVM_SRCDIR}/lib/ExecutionEngine/Orc/Shared
 
-SRCS+=	OrcError.cpp \
-	RPCError.cpp \
-	TargetProcessControlTypes.cpp
+SRCS+=	AllocationActions.cpp \
+	MachOObjectFormat.cpp \
+	ObjectFormats.cpp \
+	OrcError.cpp \
+	OrcRTBridge.cpp \
+	SimpleRemoteEPCUtils.cpp \
+	SymbolStringPool.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

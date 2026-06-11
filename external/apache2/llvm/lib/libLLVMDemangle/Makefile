@@ -6,7 +6,8 @@ LIB=	LLVMDemangle
 
 .PATH: ${LLVM_SRCDIR}/lib/Demangle
 
-SRCS+=	Demangle.cpp \
+SRCS+=	DLangDemangle.cpp \
+	Demangle.cpp \
 	ItaniumDemangle.cpp \
 	MicrosoftDemangle.cpp \
 	MicrosoftDemangleNodes.cpp \

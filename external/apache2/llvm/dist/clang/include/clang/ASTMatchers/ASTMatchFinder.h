@@ -44,6 +44,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Timer.h"
+#include <optional>
 
 namespace clang {
 
@@ -115,7 +116,7 @@ public:
     /// the result nodes. This API is temporary to facilitate
     /// third parties porting existing code to the default
     /// behavior of clang-tidy.
-    virtual llvm::Optional<TraversalKind> getCheckTraversalKind() const;
+    virtual std::optional<TraversalKind> getCheckTraversalKind() const;
   };
 
   /// Called when parsing is finished. Intended for testing only.
@@ -134,10 +135,15 @@ public:
       llvm::StringMap<llvm::TimeRecord> &Records;
     };
 
+    MatchFinderOptions() {}
+
     /// Enables per-check timers.
     ///
     /// It prints a report after match.
-    llvm::Optional<Profiling> CheckProfiling;
+    std::optional<Profiling> CheckProfiling;
+
+    /// Avoids matching declarations in system headers.
+    bool IgnoreSystemHeaders{false};
   };
 
   MatchFinder(MatchFinderOptions Options = MatchFinderOptions());
@@ -167,6 +173,7 @@ public:
                   MatchCallback *Action);
   void addMatcher(const TemplateArgumentLocMatcher &NodeMatch,
                   MatchCallback *Action);
+  void addMatcher(const AttrMatcher &NodeMatch, MatchCallback *Action);
   /// @}
 
   /// Adds a matcher to execute when running over the AST.
@@ -219,6 +226,7 @@ public:
     std::vector<std::pair<CXXCtorInitializerMatcher, MatchCallback *>> CtorInit;
     std::vector<std::pair<TemplateArgumentLocMatcher, MatchCallback *>>
         TemplateArgumentLoc;
+    std::vector<std::pair<AttrMatcher, MatchCallback *>> Attr;
     /// All the callbacks in one container to simplify iteration.
     llvm::SmallPtrSet<MatchCallback *, 16> AllCallbacks;
   };
@@ -265,7 +273,7 @@ SmallVector<BoundNodes, 1> match(MatcherT Matcher, ASTContext &Context);
 /// Returns \c NULL if there is no match, or if the matching node cannot be
 /// casted to \c NodeT.
 ///
-/// This is useful in combanation with \c match():
+/// This is useful in combination with \c match():
 /// \code
 ///   const Decl *D = selectFirst<Decl>("id", match(Matcher.bind("id"),
 ///                                                 Node, Context));
@@ -287,8 +295,8 @@ public:
     Nodes.push_back(Result.Nodes);
   }
 
-  llvm::Optional<TraversalKind> getCheckTraversalKind() const override {
-    return llvm::None;
+  std::optional<TraversalKind> getCheckTraversalKind() const override {
+    return std::nullopt;
   }
 
   SmallVector<BoundNodes, 1> Nodes;

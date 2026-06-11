@@ -23,6 +23,8 @@ class MipsFrameLowering : public TargetFrameLowering {
 protected:
   const MipsSubtarget &STI;
 
+  bool hasFPImpl(const MachineFunction &MF) const override;
+
 public:
   explicit MipsFrameLowering(const MipsSubtarget &sti, Align Alignment)
       : TargetFrameLowering(StackGrowsDown, Alignment, 0, Alignment), STI(sti) {
@@ -30,11 +32,12 @@ public:
 
   static const MipsFrameLowering *create(const MipsSubtarget &ST);
 
-  bool hasFP(const MachineFunction &MF) const override;
-
   bool hasBP(const MachineFunction &MF) const;
 
-  bool isFPCloseToIncomingSP() const override { return false; }
+  bool allocateScavengingFrameIndexesNearIncomingSP(
+    const MachineFunction &MF) const override {
+    return false;
+  }
 
   bool enableShrinkWrapping(const MachineFunction &MF) const override {
     return true;

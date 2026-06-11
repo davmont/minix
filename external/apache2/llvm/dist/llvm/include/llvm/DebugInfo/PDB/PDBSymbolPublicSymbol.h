@@ -11,13 +11,13 @@
 
 #include "PDBSymbol.h"
 #include "PDBTypes.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
-class raw_ostream;
 namespace pdb {
 
-class PDBSymbolPublicSymbol : public PDBSymbol {
+class LLVM_ABI PDBSymbolPublicSymbol : public PDBSymbol {
   DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::PublicSymbol)
 public:
   void dump(PDBSymDumper &Dumper) const override;
@@ -37,7 +37,7 @@ public:
   FORWARD_SYMBOL_METHOD(getUndecoratedName)
 };
 
+} // namespace pdb
 } // namespace llvm
-}
 
 #endif // LLVM_DEBUGINFO_PDB_PDBSYMBOLPUBLICSYMBOL_H

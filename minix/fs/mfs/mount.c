@@ -85,7 +85,16 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   root_node->fn_gid = root_ip->i_gid;
   root_node->fn_dev = NO_DEV;
 
-  *res_flags = RES_NOFLAGS;
+  /*
+   * MFS implements REQ_PEEK/REQ_BPEEK (see the .fdr_peek/.fdr_bpeek entries in
+   * table.c), so advertise RES_HASPEEK.  Without it VFS rejects every file
+   * mmap() on an MFS-backed mount with EINVAL, which breaks ld.elf_so (it maps
+   * each shared object's header) and hence all dynamically-linked binaries.
+   * The pre-libfsdriver code reported RES_HASPEEK here; the libfsdriver
+   * conversion (commit "MFS: use libfsdriver") regressed it to RES_NOFLAGS,
+   * which went unnoticed because almost everything on MINIX is static.
+   */
+  *res_flags = RES_HASPEEK;
 
   /* Mark it dirty */
   if(!superblock.s_rd_only) {

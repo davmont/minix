@@ -7,28 +7,31 @@
 //===----------------------------------------------------------------------===//
 
 multiclass vgathermh<RegisterClass RC> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = HalfWordAccess in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins  IntRegs:$_dst_, IntRegs:$Rt,
-                                 ModRegs:$Mu, RC:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                IntRegs:$Rt, ModRegs:$Mu, RC:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }
 
 multiclass vgathermw<RegisterClass RC> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = WordAccess in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins IntRegs:$_dst_, IntRegs:$Rt,
-                                ModRegs:$Mu, RC:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                IntRegs:$Rt, ModRegs:$Mu, RC:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }
 
 multiclass vgathermhw<RegisterClass RC> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+   mayStore = 1, addrMode = BaseImmOffset, accessSize = HalfWordAccess in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins IntRegs:$_dst_, IntRegs:$Rt,
-                                ModRegs:$Mu, RC:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                IntRegs:$Rt, ModRegs:$Mu, RC:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }
@@ -37,29 +40,48 @@ defm V6_vgathermh_pseudo  : vgathermh<HvxVR>;
 defm V6_vgathermw_pseudo  : vgathermw<HvxVR>;
 defm V6_vgathermhw_pseudo  : vgathermhw<HvxWR>;
 
-multiclass vgathermhq<RegisterClass RC1, RegisterClass RC2> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+
+multiclass vgather_scatter_mh<RegisterClass RC> {
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = HalfWordAccess in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins  IntRegs:$_dst_, RC2:$Vq, IntRegs:$Rt,
-                                 ModRegs:$Mu, RC1:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                IntRegs:$Rt, ModRegs:$Mu, RC:$Vv),
+                           ".error \"should not emit\" ",
+                           []>;
+}
+
+defm V6_vgather_vscatter_mh_pseudo  : vgather_scatter_mh<HvxVR>;
+
+multiclass vgathermhq<RegisterClass RC1, RegisterClass RC2> {
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = HalfWordAccess in
+  def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                RC2:$Vq, IntRegs:$Rt, ModRegs:$Mu,
+                                RC1:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }
 
 multiclass vgathermwq<RegisterClass RC1, RegisterClass RC2> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = WordAccess in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins IntRegs:$_dst_, RC2:$Vq, IntRegs:$Rt,
-                                ModRegs:$Mu, RC1:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                                RC2:$Vq, IntRegs:$Rt, ModRegs:$Mu,
+                                RC1:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }
 
 multiclass vgathermhwq<RegisterClass RC1, RegisterClass RC2> {
-  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1, mayStore = 1 in
+  let isCodeGenOnly = 1, isPseudo = 1, mayLoad = 1,
+  mayStore = 1, addrMode = BaseImmOffset, accessSize = HalfWordAccess  in
   def NAME : CVI_GATHER_TMP_LD_Resource_NoOpcode<(outs ),
-                           (ins IntRegs:$_dst_, RC2:$Vq, IntRegs:$Rt,
-                                ModRegs:$Mu, RC1:$Vv),
+                           (ins IntRegs:$_dst_, s4_0Imm:$Ii,
+                              RC2:$Vq, IntRegs:$Rt, ModRegs:$Mu,
+                              RC1:$Vv),
                            ".error \"should not emit\" ",
                            []>;
 }

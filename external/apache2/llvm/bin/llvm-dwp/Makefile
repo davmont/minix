@@ -67,6 +67,41 @@ LLVM_LIBS+= \
 LDADD+=	-lz
 DPADD+=	${LIBZ}
 
+.include "${.PARSEDIR}/../../driver.mk"
+
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	DWP \
+	Option \
+	TargetParser \
+	IRPrinter \
+	TransformsCoroutines \
+	ipo \
+	SandboxIR \
+	FrontendOpenMP \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	Linker \
+	HipStdPar \
+	ObjCARC \
+	TransformsAggressiveInstCombine \
+	CGData \
+	BitWriter \
+	CodeGenTypes \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoBTF \
+	FrontendHLSL \
+	IRReader \
+	BitReader \
+	AsmParser \
+	BitstreamReader \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

@@ -17,6 +17,8 @@
 #include "llvm/XRay/InstrumentationMap.h"
 #include "llvm/XRay/Trace.h"
 
+#include <cmath>
+
 using namespace llvm;
 using namespace llvm::xray;
 
@@ -151,7 +153,9 @@ static cl::opt<GraphRenderer::StatType> GraphVertexColorType(
 static cl::alias GraphVertexColorType2("b", cl::aliasopt(GraphVertexColorType),
                                        cl::desc("Alias for -edge-label"));
 
-template <class T> T diff(T L, T R) { return std::max(L, R) - std::min(L, R); }
+template <class T> static T diff(T L, T R) {
+  return std::max(L, R) - std::min(L, R);
+}
 
 // Updates the statistics for a GraphRenderer::TimeStat
 static void updateStat(GraphRenderer::TimeStat &S, int64_t L) {
@@ -198,7 +202,7 @@ static std::string escapeString(StringRef Label) {
 // example caused by tail call elimination and if the option is enabled then
 // then tries to recover from this.
 //
-// This funciton will also error if the records are out of order, as the trace
+// This function will also error if the records are out of order, as the trace
 // is expected to be sorted.
 //
 // The graph generated has an immaginary root for functions called by no-one at
@@ -232,10 +236,11 @@ Error GraphRenderer::accountRecord(const XRayRecord &Record) {
       if (!DeduceSiblingCalls)
         return make_error<StringError>("No matching ENTRY record",
                                        make_error_code(errc::invalid_argument));
-      auto Parent = std::find_if(
-          ThreadStack.rbegin(), ThreadStack.rend(),
-          [&](const FunctionAttr &A) { return A.FuncId == Record.FuncId; });
-      if (Parent == ThreadStack.rend())
+      bool FoundParent =
+          llvm::any_of(llvm::reverse(ThreadStack), [&](const FunctionAttr &A) {
+            return A.FuncId == Record.FuncId;
+          });
+      if (!FoundParent)
         return make_error<StringError>(
             "No matching Entry record in stack",
             make_error_code(errc::invalid_argument)); // There is no matching
@@ -365,7 +370,7 @@ GraphRenderer::TimeStat::getString(GraphRenderer::StatType T) const {
                             static_cast<int>(GraphRenderer::StatType::MIN)];
     break;
   }
-  return S.str();
+  return St;
 }
 
 // Returns the quotient between the property T of this and another TimeStat as
@@ -456,10 +461,9 @@ Expected<GraphRenderer> GraphRenderer::Factory::getGraphRenderer() {
   symbolize::LLVMSymbolizer Symbolizer;
   const auto &Header = Trace.getFileHeader();
 
-  llvm::xray::FuncIdConversionHelper FuncIdHelper(InstrMap, Symbolizer,
-                                                  FunctionAddresses);
+  FuncIdConversionHelper FuncIdHelper(InstrMap, Symbolizer, FunctionAddresses);
 
-  xray::GraphRenderer GR(FuncIdHelper, DeduceSiblingCalls);
+  GraphRenderer GR(FuncIdHelper, DeduceSiblingCalls);
   for (const auto &Record : Trace) {
     auto E = GR.accountRecord(Record);
     if (!E)

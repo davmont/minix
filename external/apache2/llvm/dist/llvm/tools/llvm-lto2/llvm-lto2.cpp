@@ -15,20 +15,22 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/CodeGen/CommandFlags.h"
-#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DiagnosticPrinter.h"
-#include "llvm/LTO/Caching.h"
 #include "llvm/LTO/LTO.h"
-#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Plugins/PassPlugin.h"
 #include "llvm/Remarks/HotnessThresholdParser.h"
+#include "llvm/Support/Caching.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Threading.h"
+#include "llvm/Support/TimeProfiler.h"
+#include <atomic>
 
 using namespace llvm;
 using namespace lto;
@@ -36,9 +38,10 @@ using namespace lto;
 static codegen::RegisterCodeGenFlags CGF;
 
 static cl::opt<char>
-    OptLevel("O", cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
-                           "(default = '-O2')"),
-             cl::Prefix, cl::ZeroOrMore, cl::init('2'));
+    OptLevel("O",
+             cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
+                      "(default = '-O2')"),
+             cl::Prefix, cl::init('2'));
 
 static cl::opt<char> CGOptLevel(
     "cg-opt-level",
@@ -65,11 +68,62 @@ static cl::opt<std::string> AAPipeline("aa-pipeline",
 
 static cl::opt<bool> SaveTemps("save-temps", cl::desc("Save temporary files"));
 
+static cl::list<std::string> SelectSaveTemps(
+    "select-save-temps",
+    cl::value_desc("One, or multiple of: "
+                   "resolution,preopt,promote,internalize,import,opt,precodegen"
+                   ",combinedindex"),
+    cl::desc("Save selected temporary files. Cannot be specified together with "
+             "-save-temps"),
+    cl::CommaSeparated);
+
+constexpr const char *SaveTempsValues[] = {
+    "resolution", "preopt", "promote",    "internalize",
+    "import",     "opt",    "precodegen", "combinedindex"};
+
 static cl::opt<bool>
-    ThinLTODistributedIndexes("thinlto-distributed-indexes", cl::init(false),
+    ThinLTODistributedIndexes("thinlto-distributed-indexes",
                               cl::desc("Write out individual index and "
                                        "import files for the "
                                        "distributed backend case"));
+
+static cl::opt<bool>
+    ThinLTOEmitIndexes("thinlto-emit-indexes",
+                       cl::desc("Write out individual index files via "
+                                "InProcessThinLTO"));
+
+static cl::opt<bool>
+    ThinLTOEmitImports("thinlto-emit-imports",
+                       cl::desc("Write out individual imports files via "
+                                "InProcessThinLTO. Has no effect unless "
+                                "specified with -thinlto-emit-indexes or "
+                                "-thinlto-distributed-indexes"));
+
+static cl::opt<std::string> DTLTODistributor(
+    "dtlto-distributor",
+    cl::desc("Distributor to use for ThinLTO backend compilations. Specifying "
+             "this enables DTLTO."));
+
+static cl::list<std::string> DTLTODistributorArgs(
+    "dtlto-distributor-arg", cl::CommaSeparated,
+    cl::desc("Arguments to pass to the DTLTO distributor process."),
+    cl::value_desc("arg"));
+
+static cl::opt<std::string> DTLTOCompiler(
+    "dtlto-compiler",
+    cl::desc("Compiler to use for DTLTO ThinLTO backend compilations."));
+
+static cl::list<std::string> DTLTOCompilerPrependArgs(
+    "dtlto-compiler-prepend-arg", cl::CommaSeparated,
+    cl::desc("Prepend arguments to pass to the remote compiler for backend "
+             "compilations."),
+    cl::value_desc("arg"));
+
+static cl::list<std::string> DTLTOCompilerArgs(
+    "dtlto-compiler-arg", cl::CommaSeparated,
+    cl::desc("Arguments to pass to the remote compiler for backend "
+             "compilations."),
+    cl::value_desc("arg"));
 
 // Default to using all available threads in the system, but using only one
 // thread per core (no SMT).
@@ -88,8 +142,7 @@ static cl::list<std::string> SymbolResolutions(
              "     runtime and is known to be in this linkage unit\n"
              " x - externally visible: the definition of this symbol is\n"
              "     visible outside of the LTO unit\n"
-             "A resolution for each symbol must be specified."),
-    cl::ZeroOrMore);
+             "A resolution for each symbol must be specified"));
 
 static cl::opt<std::string> OverrideTriple(
     "override-triple",
@@ -105,7 +158,7 @@ static cl::opt<bool> RemarksWithHotness(
     cl::desc("With PGO, include profile count in optimization remarks"),
     cl::Hidden);
 
-cl::opt<Optional<uint64_t>, false, remarks::HotnessThresholdParser>
+static cl::opt<std::optional<uint64_t>, false, remarks::HotnessThresholdParser>
     RemarksHotnessThreshold(
         "pass-remarks-hotness-threshold",
         cl::desc("Minimum profile count required for an "
@@ -140,15 +193,10 @@ static cl::opt<std::string>
 static cl::opt<bool>
     RunCSIRInstr("lto-cspgo-gen",
                  cl::desc("Run PGO context sensitive IR instrumentation"),
-                 cl::init(false), cl::Hidden);
+                 cl::Hidden);
 
 static cl::opt<bool>
-    UseNewPM("use-new-pm",
-             cl::desc("Run LTO passes using the new pass manager"),
-             cl::init(LLVM_ENABLE_NEW_PASS_MANAGER), cl::Hidden);
-
-static cl::opt<bool>
-    DebugPassManager("debug-pass-manager", cl::init(false), cl::Hidden,
+    DebugPassManager("debug-pass-manager", cl::Hidden,
                      cl::desc("Print pass management debugging information"));
 
 static cl::opt<std::string>
@@ -158,10 +206,46 @@ static cl::list<std::string>
     PassPlugins("load-pass-plugin",
                 cl::desc("Load passes from plugin library"));
 
+static cl::opt<LTO::LTOKind> UnifiedLTOMode(
+    "unified-lto", cl::Optional,
+    cl::desc("Set LTO mode with the following options:"),
+    cl::values(clEnumValN(LTO::LTOK_UnifiedThin, "thin",
+                          "ThinLTO with Unified LTO enabled"),
+               clEnumValN(LTO::LTOK_UnifiedRegular, "full",
+                          "Regular LTO with Unified LTO enabled"),
+               clEnumValN(LTO::LTOK_Default, "default",
+                          "Any LTO mode without Unified LTO")),
+    cl::value_desc("mode"), cl::init(LTO::LTOK_Default));
+
 static cl::opt<bool> EnableFreestanding(
     "lto-freestanding",
     cl::desc("Enable Freestanding (disable builtins / TLI) during LTO"),
-    cl::init(false), cl::Hidden);
+    cl::Hidden);
+
+static cl::opt<bool> WholeProgramVisibilityEnabledInLTO(
+    "whole-program-visibility-enabled-in-lto",
+    cl::desc("Enable whole program visibility during LTO"), cl::Hidden);
+
+static cl::opt<bool> ValidateAllVtablesHaveTypeInfos(
+    "validate-all-vtables-have-type-infos",
+    cl::desc("Validate that all vtables have type infos in LTO"), cl::Hidden);
+
+static cl::opt<bool>
+    AllVtablesHaveTypeInfos("all-vtables-have-type-infos", cl::Hidden,
+                            cl::desc("All vtables have type infos"));
+
+static cl::opt<bool> TimeTrace("time-trace", cl::desc("Record time trace"));
+
+static cl::opt<unsigned> TimeTraceGranularity(
+    "time-trace-granularity",
+    cl::desc(
+        "Minimum time granularity (in microseconds) traced by time profiler"),
+    cl::init(500), cl::Hidden);
+
+static cl::opt<std::string>
+    TimeTraceFile("time-trace-file",
+                  cl::desc("Specify time trace file destination"),
+                  cl::value_desc("filename"));
 
 static void check(Error E, std::string Msg) {
   if (!E)
@@ -191,12 +275,22 @@ template <typename T> static T check(ErrorOr<T> E, std::string Msg) {
 }
 
 static int usage() {
-  errs() << "Available subcommands: dump-symtab run\n";
+  errs() << "Available subcommands: dump-symtab run print-guid\n";
   return 1;
 }
 
 static int run(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "Resolution-based LTO test harness");
+
+  if (TimeTrace)
+    timeTraceProfilerInitialize(TimeTraceGranularity, argv[0]);
+  llvm::scope_exit TimeTraceScopeExit([]() {
+    if (TimeTrace) {
+      check(timeTraceProfilerWrite(TimeTraceFile, OutputFilename),
+            "timeTraceProfilerWrite failed");
+      timeTraceProfilerCleanup();
+    }
+  });
 
   // FIXME: Workaround PR30396 which means that a symbol can appear
   // more than once if it is defined in module-level assembly and
@@ -204,10 +298,9 @@ static int run(int argc, char **argv) {
   // resolutions and apply them in the order observed.
   std::map<std::pair<std::string, std::string>, std::list<SymbolResolution>>
       CommandLineResolutions;
-  for (std::string R : SymbolResolutions) {
-    StringRef Rest = R;
-    StringRef FileName, SymbolName;
-    std::tie(FileName, Rest) = Rest.split(',');
+  for (StringRef R : SymbolResolutions) {
+    StringRef Rest, FileName, SymbolName;
+    std::tie(FileName, Rest) = R.split(',');
     if (Rest.empty()) {
       llvm::errs() << "invalid resolution: " << R << '\n';
       return 1;
@@ -236,26 +329,35 @@ static int run(int argc, char **argv) {
   std::vector<std::unique_ptr<MemoryBuffer>> MBs;
 
   Config Conf;
-  Conf.DiagHandler = [](const DiagnosticInfo &DI) {
-    DiagnosticPrinterRawOStream DP(errs());
-    DI.print(DP);
-    errs() << '\n';
-    if (DI.getSeverity() == DS_Error)
-      exit(1);
-  };
-
+  if (TimeTrace) {
+    Conf.TimeTraceEnabled = TimeTrace;
+    Conf.TimeTraceGranularity = TimeTraceGranularity;
+  }
   Conf.CPU = codegen::getMCPU();
   Conf.Options = codegen::InitTargetOptionsFromCodeGenFlags(Triple());
   Conf.MAttrs = codegen::getMAttrs();
   if (auto RM = codegen::getExplicitRelocModel())
-    Conf.RelocModel = RM.getValue();
+    Conf.RelocModel = *RM;
   Conf.CodeModel = codegen::getExplicitCodeModel();
 
   Conf.DebugPassManager = DebugPassManager;
 
-  if (SaveTemps)
-    check(Conf.addSaveTemps(OutputFilename + "."),
+  if (SaveTemps && !SelectSaveTemps.empty()) {
+    llvm::errs() << "-save-temps cannot be specified with -select-save-temps\n";
+    return 1;
+  }
+  if (SaveTemps || !SelectSaveTemps.empty()) {
+    DenseSet<StringRef> SaveTempsArgs;
+    for (auto &S : SelectSaveTemps)
+      if (is_contained(SaveTempsValues, S))
+        SaveTempsArgs.insert(S);
+      else {
+        llvm::errs() << ("invalid -select-save-temps argument: " + S) << '\n';
+        return 1;
+      }
+    check(Conf.addSaveTemps(OutputFilename + ".", false, SaveTempsArgs),
           "Config::addSaveTemps failed");
+  }
 
   // Optimization remarks.
   Conf.RemarksFilename = RemarksFilename;
@@ -273,30 +375,17 @@ static int run(int argc, char **argv) {
   Conf.AAPipeline = AAPipeline;
 
   Conf.OptLevel = OptLevel - '0';
-  Conf.UseNewPM = UseNewPM;
   Conf.Freestanding = EnableFreestanding;
-  for (auto &PluginFN : PassPlugins)
-    Conf.PassPlugins.push_back(PluginFN);
-  switch (CGOptLevel) {
-  case '0':
-    Conf.CGOptLevel = CodeGenOpt::None;
-    break;
-  case '1':
-    Conf.CGOptLevel = CodeGenOpt::Less;
-    break;
-  case '2':
-    Conf.CGOptLevel = CodeGenOpt::Default;
-    break;
-  case '3':
-    Conf.CGOptLevel = CodeGenOpt::Aggressive;
-    break;
-  default:
+  llvm::append_range(Conf.PassPlugins, PassPlugins);
+  if (auto Level = CodeGenOpt::parseLevel(CGOptLevel)) {
+    Conf.CGOptLevel = *Level;
+  } else {
     llvm::errs() << "invalid cg optimization level: " << CGOptLevel << '\n';
     return 1;
   }
 
   if (auto FT = codegen::getExplicitFileType())
-    Conf.CGFileType = FT.getValue();
+    Conf.CGFileType = *FT;
 
   Conf.OverrideTriple = OverrideTriple;
   Conf.DefaultTriple = DefaultTriple;
@@ -304,19 +393,64 @@ static int run(int argc, char **argv) {
   Conf.PTO.LoopVectorization = Conf.OptLevel > 1;
   Conf.PTO.SLPVectorization = Conf.OptLevel > 1;
 
+  if (WholeProgramVisibilityEnabledInLTO.getNumOccurrences() > 0)
+    Conf.HasWholeProgramVisibility = WholeProgramVisibilityEnabledInLTO;
+  if (ValidateAllVtablesHaveTypeInfos.getNumOccurrences() > 0)
+    Conf.ValidateAllVtablesHaveTypeInfos = ValidateAllVtablesHaveTypeInfos;
+  if (AllVtablesHaveTypeInfos.getNumOccurrences() > 0)
+    Conf.AllVtablesHaveTypeInfos = AllVtablesHaveTypeInfos;
+
+  if (ThinLTODistributedIndexes && !DTLTODistributor.empty())
+    llvm::errs() << "-thinlto-distributed-indexes cannot be specfied together "
+                    "with -dtlto-distributor\n";
+  auto DTLTODistributorArgsSV = llvm::to_vector<0>(llvm::map_range(
+      DTLTODistributorArgs, [](const std::string &S) { return StringRef(S); }));
+  auto DTLTOCompilerPrependArgsSV = llvm::to_vector<0>(
+      llvm::map_range(DTLTOCompilerPrependArgs,
+                      [](const std::string &S) { return StringRef(S); }));
+  auto DTLTOCompilerArgsSV = llvm::to_vector<0>(llvm::map_range(
+      DTLTOCompilerArgs, [](const std::string &S) { return StringRef(S); }));
+
   ThinBackend Backend;
   if (ThinLTODistributedIndexes)
-    Backend = createWriteIndexesThinBackend(/* OldPrefix */ "",
-                                            /* NewPrefix */ "",
-                                            /* ShouldEmitImportsFiles */ true,
-                                            /* LinkedObjectsFile */ nullptr,
-                                            /* OnWrite */ {});
-  else
+    Backend = createWriteIndexesThinBackend(llvm::hardware_concurrency(Threads),
+                                            /*OldPrefix=*/"",
+                                            /*NewPrefix=*/"",
+                                            /*NativeObjectPrefix=*/"",
+                                            ThinLTOEmitImports,
+                                            /*LinkedObjectsFile=*/nullptr,
+                                            /*OnWrite=*/{});
+  else if (!DTLTODistributor.empty()) {
+    Backend = createOutOfProcessThinBackend(
+        llvm::heavyweight_hardware_concurrency(Threads),
+        /*OnWrite=*/{}, ThinLTOEmitIndexes, ThinLTOEmitImports, OutputFilename,
+        DTLTODistributor, DTLTODistributorArgsSV, DTLTOCompiler,
+        DTLTOCompilerPrependArgsSV, DTLTOCompilerArgsSV, SaveTemps);
+  } else
     Backend = createInProcessThinBackend(
-        llvm::heavyweight_hardware_concurrency(Threads));
-  LTO Lto(std::move(Conf), std::move(Backend));
+        llvm::heavyweight_hardware_concurrency(Threads),
+        /* OnWrite */ {}, ThinLTOEmitIndexes, ThinLTOEmitImports);
 
-  bool HasErrors = false;
+  // Track whether we hit an error; in particular, in the multi-threaded case,
+  // we can't exit() early because the rest of the threads wouldn't have had a
+  // change to be join-ed, and that would result in a "terminate called without
+  // an active exception". Altogether, this results in nondeterministic
+  // behavior. Instead, we don't exit in the multi-threaded case, but we make
+  // sure to report the error and then at the end (after joining cleanly)
+  // exit(1).
+  std::atomic<bool> HasErrors{false};
+  Conf.DiagHandler = [&](const DiagnosticInfo &DI) {
+    DiagnosticPrinterRawOStream DP(errs());
+    DI.print(DP);
+    errs() << '\n';
+    if (DI.getSeverity() == DS_Error)
+      HasErrors = true;
+  };
+
+  LTO::LTOKind LTOMode = UnifiedLTOMode;
+
+  LTO Lto(std::move(Conf), std::move(Backend), 1, LTOMode);
+
   for (std::string F : InputFilenames) {
     std::unique_ptr<MemoryBuffer> MB = check(MemoryBuffer::getFile(F), F);
     std::unique_ptr<InputFile> Input =
@@ -363,25 +497,30 @@ static int run(int argc, char **argv) {
     return 1;
 
   auto AddStream =
-      [&](size_t Task) -> std::unique_ptr<lto::NativeObjectStream> {
+      [&](size_t Task,
+          const Twine &ModuleName) -> std::unique_ptr<CachedFileStream> {
     std::string Path = OutputFilename + "." + utostr(Task);
 
     std::error_code EC;
     auto S = std::make_unique<raw_fd_ostream>(Path, EC, sys::fs::OF_None);
     check(EC, Path);
-    return std::make_unique<lto::NativeObjectStream>(std::move(S));
+    return std::make_unique<CachedFileStream>(std::move(S), Path);
   };
 
-  auto AddBuffer = [&](size_t Task, std::unique_ptr<MemoryBuffer> MB) {
-    *AddStream(Task)->OS << MB->getBuffer();
+  auto AddBuffer = [&](size_t Task, const Twine &ModuleName,
+                       std::unique_ptr<MemoryBuffer> MB) {
+    auto Stream = AddStream(Task, ModuleName);
+    *Stream->OS << MB->getBuffer();
+    check(Stream->commit(), "Failed to commit cache");
   };
 
-  NativeObjectCache Cache;
+  FileCache Cache;
   if (!CacheDir.empty())
-    Cache = check(localCache(CacheDir, AddBuffer), "failed to create cache");
+    Cache = check(localCache("ThinLTO", "Thin", CacheDir, AddBuffer),
+                  "failed to create cache");
 
   check(Lto.run(AddStream, Cache), "LTO::run failed");
-  return 0;
+  return static_cast<int>(HasErrors);
 }
 
 static int dumpSymtab(int argc, char **argv) {
@@ -418,7 +557,8 @@ static int dumpSymtab(int argc, char **argv) {
       outs() << '\n';
     }
 
-    std::vector<StringRef> ComdatTable = Input->getComdatTable();
+    ArrayRef<std::pair<StringRef, Comdat::SelectionKind>> ComdatTable =
+        Input->getComdatTable();
     for (const InputFile::Symbol &Sym : Input->symbols()) {
       switch (Sym.getVisibility()) {
       case GlobalValue::HiddenVisibility:
@@ -447,11 +587,31 @@ static int dumpSymtab(int argc, char **argv) {
                << Sym.getCommonAlignment() << '\n';
 
       int Comdat = Sym.getComdatIndex();
-      if (Comdat != -1)
-        outs() << "         comdat " << ComdatTable[Comdat] << '\n';
+      if (Comdat != -1) {
+        outs() << "         comdat ";
+        switch (ComdatTable[Comdat].second) {
+        case Comdat::Any:
+          outs() << "any";
+          break;
+        case Comdat::ExactMatch:
+          outs() << "exactmatch";
+          break;
+        case Comdat::Largest:
+          outs() << "largest";
+          break;
+        case Comdat::NoDeduplicate:
+          outs() << "nodeduplicate";
+          break;
+        case Comdat::SameSize:
+          outs() << "samesize";
+          break;
+        }
+        outs() << ' ' << ComdatTable[Comdat].first << '\n';
+      }
 
       if (TT.isOSBinFormatCOFF() && Sym.isWeak() && Sym.isIndirect())
-        outs() << "         fallback " << Sym.getCOFFWeakExternalFallback() << '\n';
+        outs() << "         fallback " << Sym.getCOFFWeakExternalFallback()
+               << '\n';
 
       if (!Sym.getSectionName().empty())
         outs() << "         section " << Sym.getSectionName() << "\n";
@@ -483,5 +643,15 @@ int main(int argc, char **argv) {
     return dumpSymtab(argc - 1, argv + 1);
   if (Subcommand == "run")
     return run(argc - 1, argv + 1);
+  if (Subcommand == "print-guid" && argc > 2) {
+    // Note the name of the function we're calling: this won't return the right
+    // answer for internal linkage symbols.
+    outs() << GlobalValue::getGUIDAssumingExternalLinkage(argv[2]) << '\n';
+    return 0;
+  }
+  if (Subcommand == "--version") {
+    cl::PrintVersionMessage();
+    return 0;
+  }
   return usage();
 }

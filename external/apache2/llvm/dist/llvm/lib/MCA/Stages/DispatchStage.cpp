@@ -17,7 +17,6 @@
 
 #include "llvm/MCA/Stages/DispatchStage.h"
 #include "llvm/MCA/HWEventListener.h"
-#include "llvm/MCA/HardwareUnits/Scheduler.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "llvm-mca"
@@ -30,7 +29,7 @@ DispatchStage::DispatchStage(const MCSubtargetInfo &Subtarget,
                              unsigned MaxDispatchWidth, RetireControlUnit &R,
                              RegisterFile &F)
     : DispatchWidth(MaxDispatchWidth), AvailableEntries(MaxDispatchWidth),
-      CarryOver(0U), CarriedOver(), STI(Subtarget), RCU(R), PRF(F) {
+      CarryOver(0U), STI(Subtarget), RCU(R), PRF(F) {
   if (!DispatchWidth)
     DispatchWidth = Subtarget.getSchedModel().IssueWidth;
 }
@@ -78,7 +77,6 @@ bool DispatchStage::canDispatch(const InstRef &IR) const {
 Error DispatchStage::dispatch(InstRef IR) {
   assert(!CarryOver && "Cannot dispatch another instruction!");
   Instruction &IS = *IR.getInstruction();
-  const InstrDesc &Desc = IS.getDesc();
   const unsigned NumMicroOps = IS.getNumMicroOps();
   if (NumMicroOps > DispatchWidth) {
     assert(AvailableEntries == DispatchWidth);
@@ -91,7 +89,7 @@ Error DispatchStage::dispatch(InstRef IR) {
   }
 
   // Check if this instructions ends the dispatch group.
-  if (Desc.EndGroup)
+  if (IS.getEndGroup())
     AvailableEntries = 0;
 
   // Check if this is an optimizable reg-reg move or an XCHG-like instruction.
@@ -159,12 +157,11 @@ bool DispatchStage::isAvailable(const InstRef &IR) const {
 
   const Instruction &Inst = *IR.getInstruction();
   unsigned NumMicroOps = Inst.getNumMicroOps();
-  const InstrDesc &Desc = Inst.getDesc();
   unsigned Required = std::min(NumMicroOps, DispatchWidth);
   if (Required > AvailableEntries)
     return false;
 
-  if (Desc.BeginGroup && AvailableEntries != DispatchWidth)
+  if (Inst.getBeginGroup() && AvailableEntries != DispatchWidth)
     return false;
 
   // The dispatch logic doesn't internally buffer instructions.  It only accepts

@@ -6,11 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Generic MachO LinkGraph buliding code.
+// Generic MachO LinkGraph building code.
 //
 //===----------------------------------------------------------------------===//
 
 #include "MachOLinkGraphBuilder.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
+#include <optional>
 
 #define DEBUG_TYPE "jitlink"
 
@@ -19,11 +22,11 @@ static const char *CommonSectionName = "__common";
 namespace llvm {
 namespace jitlink {
 
-MachOLinkGraphBuilder::~MachOLinkGraphBuilder() {}
+MachOLinkGraphBuilder::~MachOLinkGraphBuilder() = default;
 
 Expected<std::unique_ptr<LinkGraph>> MachOLinkGraphBuilder::buildGraph() {
 
-  // Sanity check: we only operate on relocatable objects.
+  // We only operate on relocatable objects.
   if (!Obj.isRelocatableObject())
     return make_error<JITLinkError>("Object is not a relocatable MachO");
 
@@ -46,12 +49,17 @@ Expected<std::unique_ptr<LinkGraph>> MachOLinkGraphBuilder::buildGraph() {
 }
 
 MachOLinkGraphBuilder::MachOLinkGraphBuilder(
-    const object::MachOObjectFile &Obj, Triple TT,
+    const object::MachOObjectFile &Obj,
+    std::shared_ptr<orc::SymbolStringPool> SSP, Triple TT,
+    SubtargetFeatures Features,
     LinkGraph::GetEdgeKindNameFunction GetEdgeKindName)
     : Obj(Obj),
       G(std::make_unique<LinkGraph>(
-          std::string(Obj.getFileName()), std::move(TT), getPointerSize(Obj),
-          getEndianness(Obj), std::move(GetEdgeKindName))) {}
+          std::string(Obj.getFileName()), std::move(SSP), std::move(TT),
+          std::move(Features), std::move(GetEdgeKindName))) {
+  auto &MachHeader = Obj.getHeader64();
+  SubsectionsViaSymbols = MachHeader.flags & MachO::MH_SUBSECTIONS_VIA_SYMBOLS;
+}
 
 void MachOLinkGraphBuilder::addCustomSectionParser(
     StringRef SectionName, SectionParserFunction Parser) {
@@ -68,7 +76,7 @@ Linkage MachOLinkGraphBuilder::getLinkage(uint16_t Desc) {
 
 Scope MachOLinkGraphBuilder::getScope(StringRef Name, uint8_t Type) {
   if (Type & MachO::N_EXT) {
-    if ((Type & MachO::N_PEXT) || Name.startswith("l"))
+    if ((Type & MachO::N_PEXT) || Name.starts_with("l"))
       return Scope::Hidden;
     else
       return Scope::Default;
@@ -85,22 +93,21 @@ bool MachOLinkGraphBuilder::isDebugSection(const NormalizedSection &NSec) {
           strcmp(NSec.SegName, "__DWARF") == 0);
 }
 
-unsigned
-MachOLinkGraphBuilder::getPointerSize(const object::MachOObjectFile &Obj) {
-  return Obj.is64Bit() ? 8 : 4;
-}
-
-support::endianness
-MachOLinkGraphBuilder::getEndianness(const object::MachOObjectFile &Obj) {
-  return Obj.isLittleEndian() ? support::little : support::big;
+bool MachOLinkGraphBuilder::isZeroFillSection(const NormalizedSection &NSec) {
+  switch (NSec.Flags & MachO::SECTION_TYPE) {
+  case MachO::S_ZEROFILL:
+  case MachO::S_GB_ZEROFILL:
+  case MachO::S_THREAD_LOCAL_ZEROFILL:
+    return true;
+  default:
+    return false;
+  }
 }
 
 Section &MachOLinkGraphBuilder::getCommonSection() {
-  if (!CommonSection) {
-    auto Prot = static_cast<sys::Memory::ProtectionFlags>(
-        sys::Memory::MF_READ | sys::Memory::MF_WRITE);
-    CommonSection = &G->createSection(CommonSectionName, Prot);
-  }
+  if (!CommonSection)
+    CommonSection = &G->createSection(CommonSectionName,
+                                      orc::MemProt::Read | orc::MemProt::Write);
   return *CommonSection;
 }
 
@@ -125,7 +132,7 @@ Error MachOLinkGraphBuilder::createNormalizedSections() {
       memcpy(&NSec.SegName, Sec64.segname, 16);
       NSec.SegName[16] = '\0';
 
-      NSec.Address = Sec64.addr;
+      NSec.Address = orc::ExecutorAddr(Sec64.addr);
       NSec.Size = Sec64.size;
       NSec.Alignment = 1ULL << Sec64.align;
       NSec.Flags = Sec64.flags;
@@ -138,7 +145,7 @@ Error MachOLinkGraphBuilder::createNormalizedSections() {
       memcpy(&NSec.SegName, Sec32.segname, 16);
       NSec.SegName[16] = '\0';
 
-      NSec.Address = Sec32.addr;
+      NSec.Address = orc::ExecutorAddr(Sec32.addr);
       NSec.Size = Sec32.size;
       NSec.Alignment = 1ULL << Sec32.align;
       NSec.Flags = Sec32.flags;
@@ -154,41 +161,31 @@ Error MachOLinkGraphBuilder::createNormalizedSections() {
     });
 
     // Get the section data if any.
-    {
-      unsigned SectionType = NSec.Flags & MachO::SECTION_TYPE;
-      if (SectionType != MachO::S_ZEROFILL &&
-          SectionType != MachO::S_GB_ZEROFILL) {
+    if (!isZeroFillSection(NSec)) {
+      if (DataOffset + NSec.Size > Obj.getData().size())
+        return make_error<JITLinkError>(
+            "Section data extends past end of file");
 
-        if (DataOffset + NSec.Size > Obj.getData().size())
-          return make_error<JITLinkError>(
-              "Section data extends past end of file");
-
-        NSec.Data = Obj.getData().data() + DataOffset;
-      }
+      NSec.Data = Obj.getData().data() + DataOffset;
     }
 
     // Get prot flags.
     // FIXME: Make sure this test is correct (it's probably missing cases
     // as-is).
-    sys::Memory::ProtectionFlags Prot;
+    orc::MemProt Prot;
     if (NSec.Flags & MachO::S_ATTR_PURE_INSTRUCTIONS)
-      Prot = static_cast<sys::Memory::ProtectionFlags>(sys::Memory::MF_READ |
-                                                       sys::Memory::MF_EXEC);
+      Prot = orc::MemProt::Read | orc::MemProt::Exec;
     else
-      Prot = static_cast<sys::Memory::ProtectionFlags>(sys::Memory::MF_READ |
-                                                       sys::Memory::MF_WRITE);
+      Prot = orc::MemProt::Read | orc::MemProt::Write;
 
-    if (!isDebugSection(NSec)) {
-      auto FullyQualifiedName =
-          G->allocateString(StringRef(NSec.SegName) + "," + NSec.SectName);
-      NSec.GraphSection = &G->createSection(
-          StringRef(FullyQualifiedName.data(), FullyQualifiedName.size()),
-          Prot);
-    } else
-      LLVM_DEBUG({
-        dbgs() << "    " << NSec.SegName << "," << NSec.SectName
-               << " is a debug section: No graph section will be created.\n";
-      });
+    auto FullyQualifiedName =
+        G->allocateContent(StringRef(NSec.SegName) + "," + NSec.SectName);
+    NSec.GraphSection = &G->createSection(
+        StringRef(FullyQualifiedName.data(), FullyQualifiedName.size()), Prot);
+
+    // TODO: Are there any other criteria for NoAlloc lifetime?
+    if (NSec.Flags & MachO::S_ATTR_DEBUG)
+      NSec.GraphSection->setMemLifetime(orc::MemLifetime::NoAlloc);
 
     IndexToSection.insert(std::make_pair(SecIndex, std::move(NSec)));
   }
@@ -206,9 +203,8 @@ Error MachOLinkGraphBuilder::createNormalizedSections() {
   llvm::sort(Sections,
              [](const NormalizedSection *LHS, const NormalizedSection *RHS) {
                assert(LHS && RHS && "Null section?");
-               if (LHS->Address != RHS->Address)
-                 return LHS->Address < RHS->Address;
-               return LHS->Size < RHS->Size;
+               return std::tie(LHS->Address, LHS->Size) <
+                      std::tie(RHS->Address, RHS->Size);
              });
 
   for (unsigned I = 0, E = Sections.size() - 1; I != E; ++I) {
@@ -262,13 +258,17 @@ Error MachOLinkGraphBuilder::createNormalizedSymbols() {
     if (Type & MachO::N_STAB)
       continue;
 
-    Optional<StringRef> Name;
+    std::optional<StringRef> Name;
     if (NStrX) {
       if (auto NameOrErr = SymRef.getName())
         Name = *NameOrErr;
       else
         return NameOrErr.takeError();
-    }
+    } else if (Type & MachO::N_EXT)
+      return make_error<JITLinkError>("Symbol at index " +
+                                      formatv("{0}", SymbolIndex) +
+                                      " has no name (string table index 0), "
+                                      "but N_EXT bit is set");
 
     LLVM_DEBUG({
       dbgs() << "  ";
@@ -286,15 +286,17 @@ Error MachOLinkGraphBuilder::createNormalizedSymbols() {
       dbgs() << "\n";
     });
 
-    // If this symbol has a section, sanity check that the addresses line up.
+    // If this symbol has a section, verify that the addresses line up.
     if (Sect != 0) {
       auto NSec = findSectionByIndex(Sect - 1);
       if (!NSec)
         return NSec.takeError();
 
-      if (Value < NSec->Address || Value > NSec->Address + NSec->Size)
-        return make_error<JITLinkError>("Symbol address does not fall within "
-                                        "section");
+      if (orc::ExecutorAddr(Value) < NSec->Address ||
+          orc::ExecutorAddr(Value) > NSec->Address + NSec->Size)
+        return make_error<JITLinkError>("Address " + formatv("{0:x}", Value) +
+                                        " for symbol " + *Name +
+                                        " does not fall within section");
 
       if (!NSec->GraphSection) {
         LLVM_DEBUG({
@@ -306,25 +308,28 @@ Error MachOLinkGraphBuilder::createNormalizedSymbols() {
       }
     }
 
-    IndexToSymbol[SymbolIndex] =
-        &createNormalizedSymbol(*Name, Value, Type, Sect, Desc,
-                                getLinkage(Desc), getScope(*Name, Type));
+    IndexToSymbol[SymbolIndex] = &createNormalizedSymbol(
+        Name, Value, Type, Sect, Desc, getLinkage(Desc), getScope(*Name, Type));
   }
 
   return Error::success();
 }
 
 void MachOLinkGraphBuilder::addSectionStartSymAndBlock(
-    Section &GraphSec, uint64_t Address, const char *Data, uint64_t Size,
-    uint32_t Alignment, bool IsLive) {
+    unsigned SecIndex, Section &GraphSec, orc::ExecutorAddr Address,
+    const char *Data, orc::ExecutorAddrDiff Size, uint32_t Alignment,
+    bool IsLive) {
   Block &B =
       Data ? G->createContentBlock(GraphSec, ArrayRef<char>(Data, Size),
                                    Address, Alignment, 0)
            : G->createZeroFillBlock(GraphSec, Size, Address, Alignment, 0);
   auto &Sym = G->addAnonymousSymbol(B, 0, Size, false, IsLive);
-  assert(!AddrToCanonicalSymbol.count(Sym.getAddress()) &&
+  auto SecI = IndexToSection.find(SecIndex);
+  assert(SecI != IndexToSection.end() && "SecIndex invalid");
+  auto &NSec = SecI->second;
+  assert(!NSec.CanonicalSymbols.count(Sym.getAddress()) &&
          "Anonymous block start symbol clashes with existing symbol address");
-  AddrToCanonicalSymbol[Sym.getAddress()] = &Sym;
+  NSec.CanonicalSymbols[Sym.getAddress()] = &Sym;
 }
 
 Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
@@ -346,18 +351,20 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
         if (!NSym.Name)
           return make_error<JITLinkError>("Anonymous common symbol at index " +
                                           Twine(KV.first));
-        NSym.GraphSymbol = &G->addCommonSymbol(
-            *NSym.Name, NSym.S, getCommonSection(), 0, NSym.Value,
-            1ull << MachO::GET_COMM_ALIGN(NSym.Desc),
-            NSym.Desc & MachO::N_NO_DEAD_STRIP);
+        NSym.GraphSymbol = &G->addDefinedSymbol(
+            G->createZeroFillBlock(getCommonSection(),
+                                   orc::ExecutorAddrDiff(NSym.Value),
+                                   orc::ExecutorAddr(),
+                                   1ull << MachO::GET_COMM_ALIGN(NSym.Desc), 0),
+            0, *NSym.Name, orc::ExecutorAddrDiff(NSym.Value), Linkage::Weak,
+            NSym.S, false, NSym.Desc & MachO::N_NO_DEAD_STRIP);
       } else {
         if (!NSym.Name)
           return make_error<JITLinkError>("Anonymous external symbol at "
                                           "index " +
                                           Twine(KV.first));
         NSym.GraphSymbol = &G->addExternalSymbol(
-            *NSym.Name, 0,
-            NSym.Desc & MachO::N_WEAK_REF ? Linkage::Weak : Linkage::Strong);
+            *NSym.Name, 0, (NSym.Desc & MachO::N_WEAK_REF) != 0);
       }
       break;
     case MachO::N_ABS:
@@ -365,8 +372,8 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
         return make_error<JITLinkError>("Anonymous absolute symbol at index " +
                                         Twine(KV.first));
       NSym.GraphSymbol = &G->addAbsoluteSymbol(
-          *NSym.Name, NSym.Value, 0, Linkage::Strong, Scope::Default,
-          NSym.Desc & MachO::N_NO_DEAD_STRIP);
+          *NSym.Name, orc::ExecutorAddr(NSym.Value), 0, Linkage::Strong,
+          getScope(*NSym.Name, NSym.Type), NSym.Desc & MachO::N_NO_DEAD_STRIP);
       break;
     case MachO::N_SECT:
       SecIndexToSymbols[NSym.Sect - 1].push_back(&NSym);
@@ -411,10 +418,16 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
                << " as it has a custom parser.\n";
       });
       continue;
+    } else if ((NSec.Flags & MachO::SECTION_TYPE) ==
+               MachO::S_CSTRING_LITERALS) {
+      if (auto Err = graphifyCStringSection(
+              NSec, std::move(SecIndexToSymbols[SecIndex])))
+        return Err;
+      continue;
     } else
       LLVM_DEBUG({
-        dbgs() << "  Processing section " << NSec.GraphSection->getName()
-               << "...\n";
+        dbgs() << "  Graphifying regular section "
+               << NSec.GraphSection->getName() << "...\n";
       });
 
     bool SectionIsNoDeadStrip = NSec.Flags & MachO::S_ATTR_NO_DEAD_STRIP;
@@ -432,8 +445,8 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
                  << formatv("{0:x16}", NSec.Address) << " -- "
                  << formatv("{0:x16}", NSec.Address + NSec.Size) << "\n";
         });
-        addSectionStartSymAndBlock(*NSec.GraphSection, NSec.Address, NSec.Data,
-                                   NSec.Size, NSec.Alignment,
+        addSectionStartSymAndBlock(SecIndex, *NSec.GraphSection, NSec.Address,
+                                   NSec.Data, NSec.Size, NSec.Alignment,
                                    SectionIsNoDeadStrip);
       } else
         LLVM_DEBUG({
@@ -463,40 +476,49 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
 
     // If the section is non-empty but there is no symbol covering the start
     // address then add an anonymous one.
-    if (SecNSymStack.back()->Value != NSec.Address) {
-      auto AnonBlockSize = SecNSymStack.back()->Value - NSec.Address;
+    if (orc::ExecutorAddr(SecNSymStack.back()->Value) != NSec.Address) {
+      auto AnonBlockSize =
+          orc::ExecutorAddr(SecNSymStack.back()->Value) - NSec.Address;
       LLVM_DEBUG({
         dbgs() << "    Section start not covered by symbol. "
-               << "Creating anonymous block to cover [ "
-               << formatv("{0:x16}", NSec.Address) << " -- "
-               << formatv("{0:x16}", NSec.Address + AnonBlockSize) << " ]\n";
+               << "Creating anonymous block to cover [ " << NSec.Address
+               << " -- " << (NSec.Address + AnonBlockSize) << " ]\n";
       });
-      addSectionStartSymAndBlock(*NSec.GraphSection, NSec.Address, NSec.Data,
-                                 AnonBlockSize, NSec.Alignment,
+      addSectionStartSymAndBlock(SecIndex, *NSec.GraphSection, NSec.Address,
+                                 NSec.Data, AnonBlockSize, NSec.Alignment,
                                  SectionIsNoDeadStrip);
     }
 
     // Visit section symbols in order by popping off the reverse-sorted stack,
-    // building blocks for each alt-entry chain and creating symbols as we go.
+    // building graph symbols as we go.
+    //
+    // If MH_SUBSECTIONS_VIA_SYMBOLS is set we'll build a block for each
+    // alt-entry chain.
+    //
+    // If MH_SUBSECTIONS_VIA_SYMBOLS is not set then we'll just build one block
+    // for the whole section.
     while (!SecNSymStack.empty()) {
       SmallVector<NormalizedSymbol *, 8> BlockSyms;
 
+      // Get the symbols in this alt-entry chain, or the whole section (if
+      // !SubsectionsViaSymbols).
       BlockSyms.push_back(SecNSymStack.back());
       SecNSymStack.pop_back();
       while (!SecNSymStack.empty() &&
              (isAltEntry(*SecNSymStack.back()) ||
-              SecNSymStack.back()->Value == BlockSyms.back()->Value)) {
+              SecNSymStack.back()->Value == BlockSyms.back()->Value ||
+             !SubsectionsViaSymbols)) {
         BlockSyms.push_back(SecNSymStack.back());
         SecNSymStack.pop_back();
       }
 
       // BlockNSyms now contains the block symbols in reverse canonical order.
-      JITTargetAddress BlockStart = BlockSyms.front()->Value;
-      JITTargetAddress BlockEnd = SecNSymStack.empty()
-                                      ? NSec.Address + NSec.Size
-                                      : SecNSymStack.back()->Value;
-      JITTargetAddress BlockOffset = BlockStart - NSec.Address;
-      JITTargetAddress BlockSize = BlockEnd - BlockStart;
+      auto BlockStart = orc::ExecutorAddr(BlockSyms.front()->Value);
+      orc::ExecutorAddr BlockEnd =
+          SecNSymStack.empty() ? NSec.Address + NSec.Size
+                               : orc::ExecutorAddr(SecNSymStack.back()->Value);
+      orc::ExecutorAddrDiff BlockOffset = BlockStart - NSec.Address;
+      orc::ExecutorAddrDiff BlockSize = BlockEnd - BlockStart;
 
       LLVM_DEBUG({
         dbgs() << "    Creating block for " << formatv("{0:x16}", BlockStart)
@@ -516,8 +538,8 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
                                        BlockStart, NSec.Alignment,
                                        BlockStart % NSec.Alignment);
 
-      Optional<JITTargetAddress> LastCanonicalAddr;
-      JITTargetAddress SymEnd = BlockEnd;
+      std::optional<orc::ExecutorAddr> LastCanonicalAddr;
+      auto SymEnd = BlockEnd;
       while (!BlockSyms.empty()) {
         auto &NSym = *BlockSyms.back();
         BlockSyms.pop_back();
@@ -525,40 +547,56 @@ Error MachOLinkGraphBuilder::graphifyRegularSymbols() {
         bool SymLive =
             (NSym.Desc & MachO::N_NO_DEAD_STRIP) || SectionIsNoDeadStrip;
 
-        LLVM_DEBUG({
-          dbgs() << "      " << formatv("{0:x16}", NSym.Value) << " -- "
-                 << formatv("{0:x16}", SymEnd) << ": ";
-          if (!NSym.Name)
-            dbgs() << "<anonymous symbol>";
-          else
-            dbgs() << NSym.Name;
-          if (SymLive)
-            dbgs() << " [no-dead-strip]";
-          if (LastCanonicalAddr == NSym.Value)
-            dbgs() << " [non-canonical]";
-          dbgs() << "\n";
-        });
+        auto &Sym = createStandardGraphSymbol(
+            NSym, B, SymEnd - orc::ExecutorAddr(NSym.Value), SectionIsText,
+            SymLive, LastCanonicalAddr != orc::ExecutorAddr(NSym.Value));
 
-        auto &Sym =
-            NSym.Name
-                ? G->addDefinedSymbol(B, NSym.Value - BlockStart, *NSym.Name,
-                                      SymEnd - NSym.Value, NSym.L, NSym.S,
-                                      SectionIsText, SymLive)
-                : G->addAnonymousSymbol(B, NSym.Value - BlockStart,
-                                        SymEnd - NSym.Value, SectionIsText,
-                                        SymLive);
-        NSym.GraphSymbol = &Sym;
         if (LastCanonicalAddr != Sym.getAddress()) {
           if (LastCanonicalAddr)
             SymEnd = *LastCanonicalAddr;
           LastCanonicalAddr = Sym.getAddress();
-          setCanonicalSymbol(Sym);
         }
       }
     }
   }
 
   return Error::success();
+}
+
+Symbol &MachOLinkGraphBuilder::createStandardGraphSymbol(NormalizedSymbol &NSym,
+                                                         Block &B, size_t Size,
+                                                         bool IsText,
+                                                         bool IsNoDeadStrip,
+                                                         bool IsCanonical) {
+
+  LLVM_DEBUG({
+    dbgs() << "      " << formatv("{0:x16}", NSym.Value) << " -- "
+           << formatv("{0:x16}", NSym.Value + Size) << ": ";
+    if (!NSym.Name)
+      dbgs() << "<anonymous symbol>";
+    else
+      dbgs() << *NSym.Name;
+    if (IsText)
+      dbgs() << " [text]";
+    if (IsNoDeadStrip)
+      dbgs() << " [no-dead-strip]";
+    if (!IsCanonical)
+      dbgs() << " [non-canonical]";
+    dbgs() << "\n";
+  });
+
+  auto SymOffset = orc::ExecutorAddr(NSym.Value) - B.getAddress();
+  auto &Sym =
+      NSym.Name
+          ? G->addDefinedSymbol(B, SymOffset, *NSym.Name, Size, NSym.L, NSym.S,
+                                IsText, IsNoDeadStrip)
+          : G->addAnonymousSymbol(B, SymOffset, Size, IsText, IsNoDeadStrip);
+  NSym.GraphSymbol = &Sym;
+
+  if (IsCanonical)
+    setCanonicalSymbol(getSectionByIndex(NSym.Sect - 1), Sym);
+
+  return Sym;
 }
 
 Error MachOLinkGraphBuilder::graphifySectionsWithCustomParsers() {
@@ -577,6 +615,119 @@ Error MachOLinkGraphBuilder::graphifySectionsWithCustomParsers() {
         return Err;
     }
   }
+
+  return Error::success();
+}
+
+Error MachOLinkGraphBuilder::graphifyCStringSection(
+    NormalizedSection &NSec, std::vector<NormalizedSymbol *> NSyms) {
+  assert(NSec.GraphSection && "C string literal section missing graph section");
+  assert(NSec.Data && "C string literal section has no data");
+
+  LLVM_DEBUG({
+    dbgs() << "  Graphifying C-string literal section "
+           << NSec.GraphSection->getName() << "\n";
+  });
+
+  if (NSec.Data[NSec.Size - 1] != '\0')
+    return make_error<JITLinkError>("C string literal section " +
+                                    NSec.GraphSection->getName() +
+                                    " does not end with null terminator");
+
+  /// Sort into reverse order to use as a stack.
+  llvm::sort(NSyms,
+             [](const NormalizedSymbol *LHS, const NormalizedSymbol *RHS) {
+               if (LHS->Value != RHS->Value)
+                 return LHS->Value > RHS->Value;
+               if (LHS->L != RHS->L)
+                 return LHS->L > RHS->L;
+               if (LHS->S != RHS->S)
+                 return LHS->S > RHS->S;
+               if (RHS->Name) {
+                 if (!LHS->Name)
+                   return true;
+                 return *LHS->Name > *RHS->Name;
+               }
+               return false;
+             });
+
+  bool SectionIsNoDeadStrip = NSec.Flags & MachO::S_ATTR_NO_DEAD_STRIP;
+  bool SectionIsText = NSec.Flags & MachO::S_ATTR_PURE_INSTRUCTIONS;
+  orc::ExecutorAddrDiff BlockStart = 0;
+
+  // Scan section for null characters.
+  for (size_t I = 0; I != NSec.Size; ++I) {
+    if (NSec.Data[I] == '\0') {
+      size_t BlockSize = I + 1 - BlockStart;
+      // Create a block for this null terminated string.
+      auto &B = G->createContentBlock(*NSec.GraphSection,
+                                      {NSec.Data + BlockStart, BlockSize},
+                                      NSec.Address + BlockStart, NSec.Alignment,
+                                      BlockStart % NSec.Alignment);
+
+      LLVM_DEBUG({
+        dbgs() << "    Created block " << B.getRange()
+               << ", align = " << B.getAlignment()
+               << ", align-ofs = " << B.getAlignmentOffset() << " for \"";
+        for (size_t J = 0; J != std::min(B.getSize(), size_t(16)); ++J)
+          switch (B.getContent()[J]) {
+          case '\0': break;
+          case '\n': dbgs() << "\\n"; break;
+          case '\t': dbgs() << "\\t"; break;
+          default:   dbgs() << B.getContent()[J]; break;
+          }
+        if (B.getSize() > 16)
+          dbgs() << "...";
+        dbgs() << "\"\n";
+      });
+
+      // If there's no symbol at the start of this block then create one.
+      if (NSyms.empty() ||
+          orc::ExecutorAddr(NSyms.back()->Value) != B.getAddress()) {
+        auto &S = G->addAnonymousSymbol(B, 0, BlockSize, false, false);
+        setCanonicalSymbol(NSec, S);
+        LLVM_DEBUG({
+          dbgs() << "      Adding symbol for c-string block " << B.getRange()
+                 << ": <anonymous symbol> at offset 0\n";
+        });
+      }
+
+      // Process any remaining symbols that point into this block.
+      auto LastCanonicalAddr = B.getAddress() + BlockSize;
+      while (!NSyms.empty() && orc::ExecutorAddr(NSyms.back()->Value) <
+                                   B.getAddress() + BlockSize) {
+        auto &NSym = *NSyms.back();
+        size_t SymSize = (B.getAddress() + BlockSize) -
+                         orc::ExecutorAddr(NSyms.back()->Value);
+        bool SymLive =
+            (NSym.Desc & MachO::N_NO_DEAD_STRIP) || SectionIsNoDeadStrip;
+
+        bool IsCanonical = false;
+        if (LastCanonicalAddr != orc::ExecutorAddr(NSym.Value)) {
+          IsCanonical = true;
+          LastCanonicalAddr = orc::ExecutorAddr(NSym.Value);
+        }
+
+        auto &Sym = createStandardGraphSymbol(NSym, B, SymSize, SectionIsText,
+                                              SymLive, IsCanonical);
+        (void)Sym;
+        LLVM_DEBUG({
+          dbgs() << "      Adding symbol for c-string block " << B.getRange()
+                 << ": "
+                 << (Sym.hasName() ? *Sym.getName() : "<anonymous symbol>")
+                 << " at offset " << formatv("{0:x}", Sym.getOffset()) << "\n";
+        });
+
+        NSyms.pop_back();
+      }
+
+      BlockStart += BlockSize;
+    }
+  }
+
+  assert(llvm::all_of(NSec.GraphSection->blocks(),
+                      [](Block *B) { return isCStringBlock(*B); }) &&
+         "All blocks in section should hold single c-strings");
 
   return Error::success();
 }

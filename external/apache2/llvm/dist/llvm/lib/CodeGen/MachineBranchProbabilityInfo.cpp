@@ -12,24 +12,19 @@
 
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
-INITIALIZE_PASS_BEGIN(MachineBranchProbabilityInfo, "machine-branch-prob",
-                      "Machine Branch Probability Analysis", false, true)
-INITIALIZE_PASS_END(MachineBranchProbabilityInfo, "machine-branch-prob",
-                    "Machine Branch Probability Analysis", false, true)
-
+INITIALIZE_PASS(MachineBranchProbabilityInfoWrapperPass, "machine-branch-prob",
+                "Machine Branch Probability Analysis", false, true)
 namespace llvm {
 cl::opt<unsigned>
     StaticLikelyProb("static-likely-prob",
                      cl::desc("branch probability threshold in percentage"
-                              "to be considered very likely"),
+                              " to be considered very likely"),
                      cl::init(80), cl::Hidden);
 
 cl::opt<unsigned> ProfileLikelyProb(
@@ -39,15 +34,45 @@ cl::opt<unsigned> ProfileLikelyProb(
     cl::init(51), cl::Hidden);
 } // namespace llvm
 
-char MachineBranchProbabilityInfo::ID = 0;
-
-MachineBranchProbabilityInfo::MachineBranchProbabilityInfo()
-    : ImmutablePass(ID) {
-  PassRegistry &Registry = *PassRegistry::getPassRegistry();
-  initializeMachineBranchProbabilityInfoPass(Registry);
+MachineBranchProbabilityAnalysis::Result
+MachineBranchProbabilityAnalysis::run(MachineFunction &,
+                                      MachineFunctionAnalysisManager &) {
+  return MachineBranchProbabilityInfo();
 }
 
-void MachineBranchProbabilityInfo::anchor() {}
+PreservedAnalyses
+MachineBranchProbabilityPrinterPass::run(MachineFunction &MF,
+                                         MachineFunctionAnalysisManager &MFAM) {
+  OS << "Printing analysis 'Machine Branch Probability Analysis' for machine "
+        "function '"
+     << MF.getName() << "':\n";
+  auto &MBPI = MFAM.getResult<MachineBranchProbabilityAnalysis>(MF);
+  for (const MachineBasicBlock &MBB : MF) {
+    for (const MachineBasicBlock *Succ : MBB.successors())
+      MBPI.printEdgeProbability(OS << "  ", &MBB, Succ);
+  }
+  return PreservedAnalyses::all();
+}
+
+char MachineBranchProbabilityInfoWrapperPass::ID = 0;
+
+MachineBranchProbabilityInfoWrapperPass::
+    MachineBranchProbabilityInfoWrapperPass()
+    : ImmutablePass(ID) {
+  PassRegistry &Registry = *PassRegistry::getPassRegistry();
+  initializeMachineBranchProbabilityInfoWrapperPassPass(Registry);
+}
+
+void MachineBranchProbabilityInfoWrapperPass::anchor() {}
+
+AnalysisKey MachineBranchProbabilityAnalysis::Key;
+
+bool MachineBranchProbabilityInfo::invalidate(
+    MachineFunction &, const PreservedAnalyses &PA,
+    MachineFunctionAnalysisManager::Invalidator &) {
+  auto PAC = PA.getChecker<MachineBranchProbabilityAnalysis>();
+  return !PAC.preservedWhenStateless();
+}
 
 BranchProbability MachineBranchProbabilityInfo::getEdgeProbability(
     const MachineBasicBlock *Src,
@@ -66,26 +91,6 @@ bool MachineBranchProbabilityInfo::isEdgeHot(
     const MachineBasicBlock *Src, const MachineBasicBlock *Dst) const {
   BranchProbability HotProb(StaticLikelyProb, 100);
   return getEdgeProbability(Src, Dst) > HotProb;
-}
-
-MachineBasicBlock *
-MachineBranchProbabilityInfo::getHotSucc(MachineBasicBlock *MBB) const {
-  auto MaxProb = BranchProbability::getZero();
-  MachineBasicBlock *MaxSucc = nullptr;
-  for (MachineBasicBlock::const_succ_iterator I = MBB->succ_begin(),
-       E = MBB->succ_end(); I != E; ++I) {
-    auto Prob = getEdgeProbability(MBB, I);
-    if (Prob > MaxProb) {
-      MaxProb = Prob;
-      MaxSucc = *I;
-    }
-  }
-
-  BranchProbability HotProb(StaticLikelyProb, 100);
-  if (getEdgeProbability(MBB, MaxSucc) >= HotProb)
-    return MaxSucc;
-
-  return nullptr;
 }
 
 raw_ostream &MachineBranchProbabilityInfo::printEdgeProbability(

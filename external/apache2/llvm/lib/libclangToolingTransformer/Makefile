@@ -9,8 +9,8 @@ LIB=	clangToolingTransformer
 SRCS+=	Parsing.cpp \
 	RangeSelector.cpp \
 	RewriteRule.cpp \
-	SourceCodeBuilders.cpp \
 	SourceCode.cpp \
+	SourceCodeBuilders.cpp \
 	Stencil.cpp \
 	Transformer.cpp
 

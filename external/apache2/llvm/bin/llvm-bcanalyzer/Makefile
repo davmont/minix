@@ -15,6 +15,13 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	IR \
+	BinaryFormat \
+	Remarks
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

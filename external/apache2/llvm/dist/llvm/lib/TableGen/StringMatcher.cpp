@@ -11,7 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/TableGen/StringMatcher.h"
-#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
 #include <map>
@@ -22,19 +23,17 @@
 using namespace llvm;
 
 /// FindFirstNonCommonLetter - Find the first character in the keys of the
-/// string pairs that is not shared across the whole set of strings.  All
+/// string pairs that is not shared across the whole set of strings. All
 /// strings are assumed to have the same length.
 static unsigned
-FindFirstNonCommonLetter(const std::vector<const
-                              StringMatcher::StringPair*> &Matches) {
+FindFirstNonCommonLetter(ArrayRef<const StringMatcher::StringPair *> Matches) {
   assert(!Matches.empty());
-  for (unsigned i = 0, e = Matches[0]->first.size(); i != e; ++i) {
-    // Check to see if letter i is the same across the set.
-    char Letter = Matches[0]->first[i];
-
-    for (unsigned str = 0, e = Matches.size(); str != e; ++str)
-      if (Matches[str]->first[i] != Letter)
-        return i;
+  for (auto [Idx, Letter] : enumerate(Matches[0]->first)) {
+    // Check to see if `Letter` is the same across the set. Since the letter is
+    // from `Matches[0]`, we can skip `Matches[0]` in the loop below.
+    for (const StringMatcher::StringPair *Match : Matches.drop_front())
+      if (Match->first[Idx] != Letter)
+        return Idx;
   }
 
   return Matches[0]->first.size();
@@ -46,8 +45,8 @@ FindFirstNonCommonLetter(const std::vector<const
 ///
 /// \return - True if control can leave the emitted code fragment.
 bool StringMatcher::EmitStringMatcherForChar(
-    const std::vector<const StringPair *> &Matches, unsigned CharNo,
-    unsigned IndentCount, bool IgnoreDuplicates) const {
+    ArrayRef<const StringPair *> Matches, unsigned CharNo, unsigned IndentCount,
+    bool IgnoreDuplicates) const {
   assert(!Matches.empty() && "Must have at least one string to match!");
   std::string Indent(IndentCount * 2 + 4, ' ');
 
@@ -75,9 +74,8 @@ bool StringMatcher::EmitStringMatcherForChar(
   // Bucket the matches by the character we are comparing.
   std::map<char, std::vector<const StringPair*>> MatchesByLetter;
 
-  for (unsigned i = 0, e = Matches.size(); i != e; ++i)
-    MatchesByLetter[Matches[i]->first[CharNo]].push_back(Matches[i]);
-
+  for (const StringPair *Match : Matches)
+    MatchesByLetter[Match->first[CharNo]].push_back(Match);
 
   // If we have exactly one bucket to match, see how many characters are common
   // across the whole set and match all of them at once.
@@ -110,14 +108,14 @@ bool StringMatcher::EmitStringMatcherForChar(
   OS << Indent << "switch (" << StrVariableName << "[" << CharNo << "]) {\n";
   OS << Indent << "default: break;\n";
 
-  for (const auto &LI : MatchesByLetter) {
+  for (const auto &[Letter, Matches] : MatchesByLetter) {
     // TODO: escape hard stuff (like \n) if we ever care about it.
-    OS << Indent << "case '" << LI.first << "':\t // " << LI.second.size()
+    OS << Indent << "case '" << Letter << "':\t // " << Matches.size()
        << " string";
-    if (LI.second.size() != 1)
+    if (Matches.size() != 1)
       OS << 's';
     OS << " to match.\n";
-    if (EmitStringMatcherForChar(LI.second, CharNo + 1, IndentCount + 1,
+    if (EmitStringMatcherForChar(Matches, CharNo + 1, IndentCount + 1,
                                  IgnoreDuplicates))
       OS << Indent << "  break;\n";
   }
@@ -135,19 +133,19 @@ void StringMatcher::Emit(unsigned Indent, bool IgnoreDuplicates) const {
   // First level categorization: group strings by length.
   std::map<unsigned, std::vector<const StringPair*>> MatchesByLength;
 
-  for (unsigned i = 0, e = Matches.size(); i != e; ++i)
-    MatchesByLength[Matches[i].first.size()].push_back(&Matches[i]);
+  for (const StringPair &Match : Matches)
+    MatchesByLength[Match.first.size()].push_back(&Match);
 
   // Output a switch statement on length and categorize the elements within each
   // bin.
   OS.indent(Indent*2+2) << "switch (" << StrVariableName << ".size()) {\n";
   OS.indent(Indent*2+2) << "default: break;\n";
 
-  for (const auto &LI : MatchesByLength) {
+  for (const auto &[Length, Matches] : MatchesByLength) {
     OS.indent(Indent * 2 + 2)
-        << "case " << LI.first << ":\t // " << LI.second.size() << " string"
-        << (LI.second.size() == 1 ? "" : "s") << " to match.\n";
-    if (EmitStringMatcherForChar(LI.second, 0, Indent, IgnoreDuplicates))
+        << "case " << Length << ":\t // " << Matches.size() << " string"
+        << (Matches.size() == 1 ? "" : "s") << " to match.\n";
+    if (EmitStringMatcherForChar(Matches, 0, Indent, IgnoreDuplicates))
       OS.indent(Indent*2+4) << "break;\n";
   }
 

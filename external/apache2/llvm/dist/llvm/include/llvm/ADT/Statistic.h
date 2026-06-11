@@ -5,21 +5,22 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// This file defines the 'Statistic' class, which is designed to be an easy way
-// to expose various metrics from passes.  These statistics are printed at the
-// end of a run (from llvm_shutdown), when the -stats command line option is
-// passed on the command line.
-//
-// This is useful for reporting information like the number of instructions
-// simplified, optimized or removed by various transformations, like this:
-//
-// static Statistic NumInstsKilled("gcse", "Number of instructions killed");
-//
-// Later, in the code: ++NumInstsKilled;
-//
-// NOTE: Statistics *must* be declared as global variables.
-//
+///
+/// \file
+/// This file defines the 'Statistic' class, which is designed to be an easy way
+/// to expose various metrics from passes.  These statistics are printed at the
+/// end of a run (from llvm_shutdown), when the -stats command line option is
+/// passed on the command line.
+///
+/// This is useful for reporting information like the number of instructions
+/// simplified, optimized or removed by various transformations, like this:
+///
+/// static Statistic NumInstsKilled("gcse", "Number of instructions killed");
+///
+/// Later, in the code: ++NumInstsKilled;
+///
+/// NOTE: Statistics *must* be declared as global variables.
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_ADT_STATISTIC_H
@@ -52,7 +53,7 @@ public:
   const char *const Name;
   const char *const Desc;
 
-  std::atomic<unsigned> Value;
+  std::atomic<uint64_t> Value;
   std::atomic<bool> Initialized;
 
   constexpr TrackingStatistic(const char *DebugType, const char *Name,
@@ -64,12 +65,12 @@ public:
   const char *getName() const { return Name; }
   const char *getDesc() const { return Desc; }
 
-  unsigned getValue() const { return Value.load(std::memory_order_relaxed); }
+  uint64_t getValue() const { return Value.load(std::memory_order_relaxed); }
 
   // Allow use of this class as the value itself.
-  operator unsigned() const { return getValue(); }
+  operator uint64_t() const { return getValue(); }
 
-  const TrackingStatistic &operator=(unsigned Val) {
+  const TrackingStatistic &operator=(uint64_t Val) {
     Value.store(Val, std::memory_order_relaxed);
     return init();
   }
@@ -79,7 +80,7 @@ public:
     return init();
   }
 
-  unsigned operator++(int) {
+  uint64_t operator++(int) {
     init();
     return Value.fetch_add(1, std::memory_order_relaxed);
   }
@@ -89,27 +90,27 @@ public:
     return init();
   }
 
-  unsigned operator--(int) {
+  uint64_t operator--(int) {
     init();
     return Value.fetch_sub(1, std::memory_order_relaxed);
   }
 
-  const TrackingStatistic &operator+=(unsigned V) {
+  const TrackingStatistic &operator+=(uint64_t V) {
     if (V == 0)
       return *this;
     Value.fetch_add(V, std::memory_order_relaxed);
     return init();
   }
 
-  const TrackingStatistic &operator-=(unsigned V) {
+  const TrackingStatistic &operator-=(uint64_t V) {
     if (V == 0)
       return *this;
     Value.fetch_sub(V, std::memory_order_relaxed);
     return init();
   }
 
-  void updateMax(unsigned V) {
-    unsigned PrevMax = Value.load(std::memory_order_relaxed);
+  void updateMax(uint64_t V) {
+    uint64_t PrevMax = Value.load(std::memory_order_relaxed);
     // Keep trying to update max until we succeed or another thread produces
     // a bigger max than us.
     while (V > PrevMax && !Value.compare_exchange_weak(
@@ -125,34 +126,34 @@ protected:
     return *this;
   }
 
-  void RegisterStatistic();
+  LLVM_ABI void RegisterStatistic();
 };
 
 class NoopStatistic {
 public:
-  NoopStatistic(const char * /*DebugType*/, const char * /*Name*/,
-                const char * /*Desc*/) {}
+  constexpr NoopStatistic(const char * /*DebugType*/, const char * /*Name*/,
+                          const char * /*Desc*/) {}
 
-  unsigned getValue() const { return 0; }
+  uint64_t getValue() const { return 0; }
 
   // Allow use of this class as the value itself.
-  operator unsigned() const { return 0; }
+  operator uint64_t() const { return 0; }
 
-  const NoopStatistic &operator=(unsigned Val) { return *this; }
+  const NoopStatistic &operator=(uint64_t Val) { return *this; }
 
   const NoopStatistic &operator++() { return *this; }
 
-  unsigned operator++(int) { return 0; }
+  uint64_t operator++(int) { return 0; }
 
   const NoopStatistic &operator--() { return *this; }
 
-  unsigned operator--(int) { return 0; }
+  uint64_t operator--(int) { return 0; }
 
-  const NoopStatistic &operator+=(const unsigned &V) { return *this; }
+  const NoopStatistic &operator+=(const uint64_t &V) { return *this; }
 
-  const NoopStatistic &operator-=(const unsigned &V) { return *this; }
+  const NoopStatistic &operator-=(const uint64_t &V) { return *this; }
 
-  void updateMax(unsigned V) {}
+  void updateMax(uint64_t V) {}
 };
 
 #if LLVM_ENABLE_STATS
@@ -163,8 +164,13 @@ using Statistic = NoopStatistic;
 
 // STATISTIC - A macro to make definition of statistics really simple.  This
 // automatically passes the DEBUG_TYPE of the file into the statistic.
+#if LLVM_ENABLE_STATS
 #define STATISTIC(VARNAME, DESC)                                               \
   static llvm::Statistic VARNAME = {DEBUG_TYPE, #VARNAME, DESC}
+#else
+#define STATISTIC(VARNAME, DESC)                                               \
+  static llvm::Statistic VARNAME [[maybe_unused]] = {DEBUG_TYPE, #VARNAME, DESC}
+#endif
 
 // ALWAYS_ENABLED_STATISTIC - A macro to define a statistic like STATISTIC but
 // it is enabled even if LLVM_ENABLE_STATS is off.
@@ -172,25 +178,25 @@ using Statistic = NoopStatistic;
   static llvm::TrackingStatistic VARNAME = {DEBUG_TYPE, #VARNAME, DESC}
 
 /// Enable the collection and printing of statistics.
-void EnableStatistics(bool DoPrintOnExit = true);
+LLVM_ABI void EnableStatistics(bool DoPrintOnExit = true);
 
 /// Check if statistics are enabled.
-bool AreStatisticsEnabled();
+LLVM_ABI bool AreStatisticsEnabled();
 
-/// Return a file stream to print our output on.
-std::unique_ptr<raw_fd_ostream> CreateInfoOutputFile();
+/// Return a stream to print our output on.
+LLVM_ABI std::unique_ptr<raw_ostream> CreateInfoOutputFile();
 
 /// Print statistics to the file returned by CreateInfoOutputFile().
-void PrintStatistics();
+LLVM_ABI void PrintStatistics();
 
 /// Print statistics to the given output stream.
-void PrintStatistics(raw_ostream &OS);
+LLVM_ABI void PrintStatistics(raw_ostream &OS);
 
 /// Print statistics in JSON format. This does include all global timers (\see
 /// Timer, TimerGroup). Note that the timers are cleared after printing and will
 /// not be printed in human readable form or in a second call of
 /// PrintStatisticsJSON().
-void PrintStatisticsJSON(raw_ostream &OS);
+LLVM_ABI void PrintStatisticsJSON(raw_ostream &OS);
 
 /// Get the statistics. This can be used to look up the value of
 /// statistics without needing to parse JSON.
@@ -199,7 +205,7 @@ void PrintStatisticsJSON(raw_ostream &OS);
 /// during it's execution. It will return the value at the point that it is
 /// read. However, it will prevent new statistics from registering until it
 /// completes.
-const std::vector<std::pair<StringRef, unsigned>> GetStatistics();
+LLVM_ABI std::vector<std::pair<StringRef, uint64_t>> GetStatistics();
 
 /// Reset the statistics. This can be used to zero and de-register the
 /// statistics in order to measure a compilation.
@@ -214,7 +220,7 @@ const std::vector<std::pair<StringRef, unsigned>> GetStatistics();
 /// compilation should ensure that no compilations are in progress at the point
 /// this function is called and that only one compilation executes until calling
 /// GetStatistics().
-void ResetStatistics();
+LLVM_ABI void ResetStatistics();
 
 } // end namespace llvm
 

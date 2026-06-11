@@ -9,9 +9,8 @@
 #ifndef LLVM_DEBUGINFO_CODEVIEW_CODEVIEWERROR_H
 #define LLVM_DEBUGINFO_CODEVIEW_CODEVIEWERROR_H
 
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
-
-#include <string>
 
 namespace llvm {
 namespace codeview {
@@ -33,7 +32,7 @@ struct is_error_code_enum<llvm::codeview::cv_error_code> : std::true_type {};
 
 namespace llvm {
 namespace codeview {
-const std::error_category &CVErrorCategory();
+LLVM_ABI const std::error_category &CVErrorCategory();
 
 inline std::error_code make_error_code(cv_error_code E) {
   return std::error_code(static_cast<int>(E), CVErrorCategory());
@@ -45,7 +44,7 @@ public:
   using ErrorInfo<CodeViewError,
                   StringError>::ErrorInfo; // inherit constructors
   CodeViewError(const Twine &S) : ErrorInfo(S, cv_error_code::unspecified) {}
-  static char ID;
+  LLVM_ABI static char ID;
 };
 
 } // namespace codeview

@@ -6,10 +6,11 @@ LIB=	clangTooling
 
 .PATH: ${CLANG_SRCDIR}/lib/Tooling
 
-SRCS+=	ArgumentsAdjusters.cpp \
-	AllTUsExecution.cpp \
+SRCS+=	AllTUsExecution.cpp \
+	ArgumentsAdjusters.cpp \
 	CommonOptionsParser.cpp \
 	CompilationDatabase.cpp \
+	DependencyScanningTool.cpp \
 	Execution.cpp \
 	ExpandResponseFilesCompilationDatabase.cpp \
 	FileMatchTrie.cpp \
@@ -17,9 +18,9 @@ SRCS+=	ArgumentsAdjusters.cpp \
 	GuessTargetAndModeCompilationDatabase.cpp \
 	InterpolatingCompilationDatabase.cpp \
 	JSONCompilationDatabase.cpp \
-	NodeIntrospection.cpp \
-	RefactoringCallbacks.cpp \
+	LocateToolCompilationDatabase.cpp \
 	Refactoring.cpp \
+	RefactoringCallbacks.cpp \
 	StandaloneExecution.cpp \
 	Tooling.cpp
 

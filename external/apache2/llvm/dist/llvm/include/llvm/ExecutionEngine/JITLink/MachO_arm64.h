@@ -14,39 +14,19 @@
 #define LLVM_EXECUTIONENGINE_JITLINK_MACHO_ARM64_H
 
 #include "llvm/ExecutionEngine/JITLink/JITLink.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 namespace jitlink {
-
-namespace MachO_arm64_Edges {
-
-enum MachOARM64RelocationKind : Edge::Kind {
-  Branch26 = Edge::FirstRelocation,
-  Pointer32,
-  Pointer64,
-  Pointer64Anon,
-  Page21,
-  PageOffset12,
-  GOTPage21,
-  GOTPageOffset12,
-  PointerToGOT,
-  PairedAddend,
-  LDRLiteral19,
-  Delta32,
-  Delta64,
-  NegDelta32,
-  NegDelta64,
-};
-
-} // namespace MachO_arm64_Edges
 
 /// Create a LinkGraph from a MachO/arm64 relocatable object.
 ///
 /// Note: The graph does not take ownership of the underlying buffer, nor copy
 /// its contents. The caller is responsible for ensuring that the object buffer
 /// outlives the graph.
-Expected<std::unique_ptr<LinkGraph>>
-createLinkGraphFromMachOObject_arm64(MemoryBufferRef ObjectBuffer);
+LLVM_ABI Expected<std::unique_ptr<LinkGraph>>
+createLinkGraphFromMachOObject_arm64(
+    MemoryBufferRef ObjectBuffer, std::shared_ptr<orc::SymbolStringPool> SSP);
 
 /// jit-link the given object buffer, which must be a MachO arm64 object file.
 ///
@@ -57,11 +37,16 @@ createLinkGraphFromMachOObject_arm64(MemoryBufferRef ObjectBuffer);
 /// If PostPrunePasses is empty then a default GOT-and-stubs insertion pass will
 /// be inserted. If PostPrunePasses is not empty then the caller is responsible
 /// for including a pass to insert GOT and stub edges.
-void link_MachO_arm64(std::unique_ptr<LinkGraph> G,
-                      std::unique_ptr<JITLinkContext> Ctx);
+LLVM_ABI void link_MachO_arm64(std::unique_ptr<LinkGraph> G,
+                               std::unique_ptr<JITLinkContext> Ctx);
 
-/// Return the string name of the given MachO arm64 edge kind.
-const char *getMachOARM64RelocationKindName(Edge::Kind R);
+/// Returns a pass suitable for splitting __eh_frame sections in MachO/x86-64
+/// objects.
+LLVM_ABI LinkGraphPassFunction createEHFrameSplitterPass_MachO_arm64();
+
+/// Returns a pass suitable for fixing missing edges in an __eh_frame section
+/// in a MachO/x86-64 object.
+LLVM_ABI LinkGraphPassFunction createEHFrameEdgeFixerPass_MachO_arm64();
 
 } // end namespace jitlink
 } // end namespace llvm

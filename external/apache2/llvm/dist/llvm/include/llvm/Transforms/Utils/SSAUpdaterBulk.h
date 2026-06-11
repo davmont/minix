@@ -13,13 +13,13 @@
 #ifndef LLVM_TRANSFORMS_UTILS_SSAUPDATERBULK_H
 #define LLVM_TRANSFORMS_UTILS_SSAUPDATERBULK_H
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/PredIteratorCache.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
-class BasicBlock;
 class PHINode;
 template <typename T> class SmallVectorImpl;
 class Type;
@@ -38,41 +38,35 @@ class DominatorTree;
 /// is used).
 class SSAUpdaterBulk {
   struct RewriteInfo {
-    DenseMap<BasicBlock *, Value *> Defines;
+    SmallVector<std::pair<BasicBlock *, Value *>, 4> Defines;
     SmallVector<Use *, 4> Uses;
     StringRef Name;
     Type *Ty;
-    RewriteInfo(){};
+    RewriteInfo() = default;
     RewriteInfo(StringRef &N, Type *T) : Name(N), Ty(T){};
   };
   SmallVector<RewriteInfo, 4> Rewrites;
 
   PredIteratorCache PredCache;
 
-  Value *computeValueAt(BasicBlock *BB, RewriteInfo &R, DominatorTree *DT);
-
 public:
-  explicit SSAUpdaterBulk(){};
+  explicit SSAUpdaterBulk() = default;
   SSAUpdaterBulk(const SSAUpdaterBulk &) = delete;
   SSAUpdaterBulk &operator=(const SSAUpdaterBulk &) = delete;
-  ~SSAUpdaterBulk(){};
+  ~SSAUpdaterBulk() = default;
 
   /// Add a new variable to the SSA rewriter. This needs to be called before
   /// AddAvailableValue or AddUse calls. The return value is the variable ID,
   /// which needs to be passed to AddAvailableValue and AddUse.
-  unsigned AddVariable(StringRef Name, Type *Ty);
+  LLVM_ABI unsigned AddVariable(StringRef Name, Type *Ty);
 
   /// Indicate that a rewritten value is available in the specified block with
   /// the specified value.
-  void AddAvailableValue(unsigned Var, BasicBlock *BB, Value *V);
+  LLVM_ABI void AddAvailableValue(unsigned Var, BasicBlock *BB, Value *V);
 
   /// Record a use of the symbolic value. This use will be updated with a
   /// rewritten value when RewriteAllUses is called.
-  void AddUse(unsigned Var, Use *U);
-
-  /// Return true if the SSAUpdater already has a value for the specified
-  /// variable in the specified block.
-  bool HasValueForBlock(unsigned Var, BasicBlock *BB);
+  LLVM_ABI void AddUse(unsigned Var, Use *U);
 
   /// Perform all the necessary updates, including new PHI-nodes insertion and
   /// the requested uses update.
@@ -81,9 +75,18 @@ public:
   /// locations for new phi-nodes insertions. If a nonnull pointer to a vector
   /// InsertedPHIs is passed, all the new phi-nodes will be added to this
   /// vector.
-  void RewriteAllUses(DominatorTree *DT,
-                      SmallVectorImpl<PHINode *> *InsertedPHIs = nullptr);
+  LLVM_ABI void
+  RewriteAllUses(DominatorTree *DT,
+                 SmallVectorImpl<PHINode *> *InsertedPHIs = nullptr);
+
+  /// Rewrite all uses and simplify the inserted PHI nodes.
+  /// Use this method to preserve behavior when replacing SSAUpdater.
+  LLVM_ABI_FOR_TEST void RewriteAndOptimizeAllUses(DominatorTree &DT);
 };
+
+LLVM_ABI_FOR_TEST bool
+EliminateNewDuplicatePHINodes(BasicBlock *BB,
+                              BasicBlock::phi_iterator FirstExistingPN);
 
 } // end namespace llvm
 

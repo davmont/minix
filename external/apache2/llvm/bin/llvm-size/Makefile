@@ -22,6 +22,17 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+.include "${.PARSEDIR}/../../driver.mk"
+
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	Option \
+	TargetParser \
+	IRReader \
+	AsmParser \
+	DebugInfoDWARF
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

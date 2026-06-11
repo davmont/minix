@@ -14,22 +14,20 @@
 #ifndef LLVM_PROFILEDATA_GCOV_H
 #define LLVM_PROFILEDATA_GCOV_H
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataExtractor.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -42,7 +40,7 @@ class GCOVBlock;
 
 namespace GCOV {
 
-enum GCOVVersion { V304, V407, V408, V800, V900 };
+enum GCOVVersion { V304, V407, V408, V800, V900, V1200 };
 
 /// A struct for passing gcov options between functions.
 struct Options {
@@ -108,7 +106,7 @@ public:
   }
 
   /// readGCOVVersion - Read GCOV version.
-  bool readGCOVVersion(GCOV::GCOVVersion &Version) {
+  bool readGCOVVersion(GCOV::GCOVVersion &version) {
     std::string str(de.getBytes(cursor, 4));
     if (str.size() != 4)
       return false;
@@ -117,24 +115,27 @@ public:
     int ver = str[0] >= 'A'
                   ? (str[0] - 'A') * 100 + (str[1] - '0') * 10 + str[2] - '0'
                   : (str[0] - '0') * 10 + str[2] - '0';
-    if (ver >= 90) {
+    if (ver >= 120) {
+      this->version = version = GCOV::V1200;
+      return true;
+    } else if (ver >= 90) {
       // PR gcov-profile/84846, r269678
-      Version = GCOV::V900;
+      this->version = version = GCOV::V900;
       return true;
     } else if (ver >= 80) {
       // PR gcov-profile/48463
-      Version = GCOV::V800;
+      this->version = version = GCOV::V800;
       return true;
     } else if (ver >= 48) {
       // r189778: the exit block moved from the last to the second.
-      Version = GCOV::V408;
+      this->version = version = GCOV::V408;
       return true;
     } else if (ver >= 47) {
       // r173147: split checksum into cfg checksum and line checksum.
-      Version = GCOV::V407;
+      this->version = version = GCOV::V407;
       return true;
     } else if (ver >= 34) {
-      Version = GCOV::V304;
+      this->version = version = GCOV::V304;
       return true;
     }
     errs() << "unexpected version: " << str << "\n";
@@ -167,11 +168,14 @@ public:
     return true;
   }
 
-  bool readString(StringRef &Str) {
+  bool readString(StringRef &str) {
     uint32_t len;
     if (!readInt(len) || len == 0)
       return false;
-    Str = de.getBytes(cursor, len * 4).split('\0').first;
+    if (version >= GCOV::V1200)
+      str = de.getBytes(cursor, len).drop_back();
+    else
+      str = de.getBytes(cursor, len * 4).split('\0').first;
     return bool(cursor);
   }
 
@@ -180,6 +184,7 @@ public:
 
 private:
   MemoryBuffer *Buffer;
+  GCOV::GCOVVersion version{};
 };
 
 /// GCOVFile - Collects coverage information for one pair of coverage file
@@ -188,35 +193,38 @@ class GCOVFile {
 public:
   GCOVFile() = default;
 
-  bool readGCNO(GCOVBuffer &Buffer);
-  bool readGCDA(GCOVBuffer &Buffer);
-  GCOV::GCOVVersion getVersion() const { return Version; }
-  void print(raw_ostream &OS) const;
-  void dump() const;
+  LLVM_ABI bool readGCNO(GCOVBuffer &Buffer);
+  LLVM_ABI bool readGCDA(GCOVBuffer &Buffer);
+  GCOV::GCOVVersion getVersion() const { return version; }
+  LLVM_ABI void print(raw_ostream &OS) const;
+  LLVM_ABI void dump() const;
 
   std::vector<std::string> filenames;
   StringMap<unsigned> filenameToIdx;
 
 public:
   bool GCNOInitialized = false;
-  GCOV::GCOVVersion Version;
-  uint32_t Checksum = 0;
+  GCOV::GCOVVersion version{};
+  uint32_t checksum = 0;
   StringRef cwd;
   SmallVector<std::unique_ptr<GCOVFunction>, 16> functions;
-  std::map<uint32_t, GCOVFunction *> IdentToFunction;
-  uint32_t RunCount = 0;
-  uint32_t ProgramCount = 0;
+  std::map<uint32_t, GCOVFunction *> identToFunction;
+  uint32_t runCount = 0;
+  uint32_t programCount = 0;
 
   using iterator = pointee_iterator<
       SmallVectorImpl<std::unique_ptr<GCOVFunction>>::const_iterator>;
   iterator begin() const { return iterator(functions.begin()); }
   iterator end() const { return iterator(functions.end()); }
+
+private:
+  unsigned addNormalizedPathToMap(StringRef filename);
 };
 
 struct GCOVArc {
   GCOVArc(GCOVBlock &src, GCOVBlock &dst, uint32_t flags)
       : src(src), dst(dst), flags(flags) {}
-  bool onTree() const;
+  LLVM_ABI bool onTree() const;
 
   GCOVBlock &src;
   GCOVBlock &dst;
@@ -233,18 +241,18 @@ public:
 
   GCOVFunction(GCOVFile &file) : file(file) {}
 
-  StringRef getName(bool demangle) const;
-  StringRef getFilename() const;
-  uint64_t getEntryCount() const;
-  GCOVBlock &getExitBlock() const;
+  LLVM_ABI StringRef getName(bool demangle) const;
+  LLVM_ABI StringRef getFilename() const;
+  LLVM_ABI uint64_t getEntryCount() const;
+  LLVM_ABI GCOVBlock &getExitBlock() const;
 
   iterator_range<BlockIterator> blocksRange() const {
     return make_range(blocks.begin(), blocks.end());
   }
 
-  uint64_t propagateCounts(const GCOVBlock &v, GCOVArc *pred);
-  void print(raw_ostream &OS) const;
-  void dump() const;
+  LLVM_ABI void propagateCounts(const GCOVBlock &v, GCOVArc *pred);
+  LLVM_ABI void print(raw_ostream &OS) const;
+  LLVM_ABI void dump() const;
 
   GCOVFile &file;
   uint32_t ident = 0;
@@ -263,6 +271,14 @@ public:
   DenseSet<const GCOVBlock *> visited;
 };
 
+/// Represent file of lines same with block_location_info in gcc.
+struct GCOVBlockLocation {
+  GCOVBlockLocation(unsigned idx) : srcIdx(idx) {}
+
+  unsigned srcIdx;
+  SmallVector<uint32_t, 4> lines;
+};
+
 /// GCOVBlock - Collects block information.
 class GCOVBlock {
 public:
@@ -273,8 +289,13 @@ public:
 
   GCOVBlock(uint32_t N) : number(N) {}
 
-  void addLine(uint32_t N) { lines.push_back(N); }
-  uint32_t getLastLine() const { return lines.back(); }
+  void addLine(uint32_t N) {
+    locations.back().lines.push_back(N);
+    lastLine = N;
+  }
+  void addFile(unsigned fileIdx) { locations.emplace_back(fileIdx); }
+
+  uint32_t getLastLine() const { return lastLine; }
   uint64_t getCount() const { return count; }
 
   void addSrcEdge(GCOVArc *Edge) { pred.push_back(Edge); }
@@ -289,27 +310,28 @@ public:
     return make_range(succ.begin(), succ.end());
   }
 
-  void print(raw_ostream &OS) const;
-  void dump() const;
+  LLVM_ABI void print(raw_ostream &OS) const;
+  LLVM_ABI void dump() const;
 
-  static uint64_t
+  LLVM_ABI static uint64_t
   augmentOneCycle(GCOVBlock *src,
                   std::vector<std::pair<GCOVBlock *, size_t>> &stack);
-  static uint64_t getCyclesCount(const BlockVector &blocks);
-  static uint64_t getLineCount(const BlockVector &Blocks);
+  LLVM_ABI static uint64_t getCyclesCount(const BlockVector &blocks);
+  LLVM_ABI static uint64_t getLineCount(const BlockVector &Blocks);
 
 public:
   uint32_t number;
   uint64_t count = 0;
   SmallVector<GCOVArc *, 2> pred;
   SmallVector<GCOVArc *, 2> succ;
-  SmallVector<uint32_t, 4> lines;
+  SmallVector<GCOVBlockLocation> locations;
+  uint32_t lastLine = 0;
   bool traversable = false;
   GCOVArc *incoming = nullptr;
 };
 
-void gcovOneInput(const GCOV::Options &options, StringRef filename,
-                  StringRef gcno, StringRef gcda, GCOVFile &file);
+LLVM_ABI void gcovOneInput(const GCOV::Options &options, StringRef filename,
+                           StringRef gcno, StringRef gcda, GCOVFile &file);
 
 } // end namespace llvm
 

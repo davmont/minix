@@ -6,12 +6,17 @@ LIB=	LLVMTransformsCoroutines
 
 .PATH: ${LLVM_SRCDIR}/lib/Transforms/Coroutines
 
-SRCS+=	CoroCleanup.cpp \
+SRCS+=	CoroAnnotationElide.cpp \
+	CoroCleanup.cpp \
+	CoroConditionalWrapper.cpp \
 	CoroEarly.cpp \
 	CoroElide.cpp \
 	CoroFrame.cpp \
 	CoroSplit.cpp \
-	Coroutines.cpp
+	Coroutines.cpp \
+	MaterializationUtils.cpp \
+	SpillUtils.cpp \
+	SuspendCrossingInfo.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

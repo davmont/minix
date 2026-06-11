@@ -17,8 +17,8 @@
 #define LLVM_CODEGEN_LAZYMACHINEBLOCKFREQUENCYINFO_H
 
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
-#include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineDominators.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 
 namespace llvm {
@@ -69,7 +69,6 @@ public:
 
   bool runOnMachineFunction(MachineFunction &F) override;
   void releaseMemory() override;
-  void print(raw_ostream &OS, const Module *M) const override;
 };
 }
 #endif

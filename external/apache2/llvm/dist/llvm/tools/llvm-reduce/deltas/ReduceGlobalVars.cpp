@@ -12,63 +12,45 @@
 //===----------------------------------------------------------------------===//
 
 #include "ReduceGlobalVars.h"
-#include "llvm/IR/Constants.h"
-#include <set>
+#include "Utils.h"
+#include "llvm/IR/Value.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 using namespace llvm;
 
+static bool shouldAlwaysKeep(const GlobalVariable &GV) {
+  return GV.getName() == "llvm.used" || GV.getName() == "llvm.compiler.used";
+}
+
 /// Removes all the GVs that aren't inside the desired Chunks.
-static void extractGVsFromModule(std::vector<Chunk> ChunksToKeep,
-                                 Module *Program) {
-  Oracle O(ChunksToKeep);
+void llvm::reduceGlobalsDeltaPass(Oracle &O, ReducerWorkItem &WorkItem) {
+  Module &Program = WorkItem.getModule();
 
   // Get GVs inside desired chunks
-  std::set<GlobalVariable *> GVsToKeep;
-  for (auto &GV : Program->globals())
-    if (O.shouldKeep())
-      GVsToKeep.insert(&GV);
-
-  // Delete out-of-chunk GVs and their uses
-  std::vector<GlobalVariable *> ToRemove;
-  std::vector<WeakVH> InstToRemove;
-  for (auto &GV : Program->globals())
-    if (!GVsToKeep.count(&GV)) {
-      for (auto *U : GV.users())
-        if (auto *Inst = dyn_cast<Instruction>(U))
-          InstToRemove.push_back(Inst);
-
-      GV.replaceAllUsesWith(UndefValue::get(GV.getType()));
-      ToRemove.push_back(&GV);
-    }
-
-  // Delete (unique) Instruction uses of unwanted GVs
-  for (Value *V : InstToRemove) {
-    if (!V)
-      continue;
-    auto *Inst = cast<Instruction>(V);
-    Inst->replaceAllUsesWith(UndefValue::get(Inst->getType()));
-    Inst->eraseFromParent();
+  std::vector<Constant *> InitGVsToKeep;
+  for (auto &GV : Program.globals()) {
+    if (shouldAlwaysKeep(GV) || O.shouldKeep())
+      InitGVsToKeep.push_back(&GV);
   }
 
-  for (auto *GV : ToRemove)
-    GV->eraseFromParent();
-}
+  // We create a vector first, then convert it to a set, so that we don't have
+  // to pay the cost of rebalancing the set frequently if the order we insert
+  // the elements doesn't match the order they should appear inside the set.
+  DenseSet<Constant *> GVsToKeep(InitGVsToKeep.begin(), InitGVsToKeep.end());
 
-/// Counts the amount of GVs and displays their
-/// respective name & index
-static int countGVs(Module *Program) {
-  // TODO: Silence index with --quiet flag
-  outs() << "----------------------------\n";
-  outs() << "GlobalVariable Index Reference:\n";
-  int GVCount = 0;
-  for (auto &GV : Program->globals())
-    outs() << "\t" << ++GVCount << ": " << GV.getName() << "\n";
-  outs() << "----------------------------\n";
-  return GVCount;
-}
+  // Delete out-of-chunk GVs and their uses
+  DenseSet<Constant *> ToRemove;
+  for (auto &GV : Program.globals()) {
+    if (!GVsToKeep.count(&GV))
+      ToRemove.insert(&GV);
+  }
 
-void llvm::reduceGlobalsDeltaPass(TestRunner &Test) {
-  outs() << "*** Reducing GVs...\n";
-  int GVCount = countGVs(Test.getProgram());
-  runDeltaPass(Test, GVCount, extractGVsFromModule);
+  removeFromUsedLists(Program,
+                      [&ToRemove](Constant *C) { return ToRemove.count(C); });
+
+  for (auto *GV : ToRemove) {
+    GV->replaceAllUsesWith(getDefaultValue(GV->getType()));
+    cast<GlobalVariable>(GV)->eraseFromParent();
+  }
 }

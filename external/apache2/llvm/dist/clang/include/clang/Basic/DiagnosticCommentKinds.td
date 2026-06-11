@@ -84,14 +84,17 @@ def warn_doc_function_method_decl_mismatch : Warning<
   InGroup<Documentation>, DefaultIgnore;
 
 def warn_doc_api_container_decl_mismatch : Warning<
-  "'%select{\\|@}0%select{class|interface|protocol|struct|union}1' "
+  "'%select{\\|@}0%enum_select<DeclContainerKind>{%Class{class}"
+  "|%Interface{interface}|%Protocol{protocol}|%Struct{struct}|%Union{union}}1' "
   "command should not be used in a comment attached to a "
   "non-%select{class|interface|protocol|struct|union}2 declaration">,
   InGroup<Documentation>, DefaultIgnore;
 
 def warn_doc_container_decl_mismatch : Warning<
-  "'%select{\\|@}0%select{classdesign|coclass|dependency|helper"
-  "|helperclass|helps|instancesize|ownership|performance|security|superclass}1' "
+  "'%select{\\|@}0%enum_select<DocCommandKind>{%ClassDesign{classdesign}|"
+  "%CoClass{coclass}|%Dependency{dependency}|%Helper{helper}|%HelperClass{helperclass}|"
+  "%Helps{helps}|%InstanceSize{instancesize}|%Ownership{ownership}|"
+  "%Performance{performance}|%Security{security}|%Superclass{superclass}}1' "
   "command should not be used in a comment attached to a non-container declaration">,
   InGroup<Documentation>, DefaultIgnore;
 
@@ -155,8 +158,8 @@ def note_add_deprecation_attr : Note<
 
 // inline contents commands
 
-def warn_doc_inline_contents_no_argument : Warning<
-  "'%select{\\|@}0%1' command does not have a valid word argument">,
+def warn_doc_inline_command_not_enough_arguments : Warning<
+  "'%select{\\|@}0%1' command has %plural{0:no|:%2}2 word argument%s2, expected %3">,
   InGroup<Documentation>, DefaultIgnore;
 
 // verbatim block commands

@@ -14,15 +14,15 @@
 #ifndef LLVM_UTILS_TABLEGEN_WEBASSEMBLYDISASSEMBLEREMITTER_H
 #define LLVM_UTILS_TABLEGEN_WEBASSEMBLYDISASSEMBLEREMITTER_H
 
-#include "CodeGenInstruction.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace llvm {
 
+class CodeGenInstruction;
+class raw_ostream;
+
 void emitWebAssemblyDisassemblerTables(
-    raw_ostream &OS,
-    const ArrayRef<const CodeGenInstruction *> &NumberedInstructions);
+    raw_ostream &OS, ArrayRef<const CodeGenInstruction *> NumberedInstructions);
 
 } // namespace llvm
 

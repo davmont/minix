@@ -13,7 +13,10 @@
 #ifndef LLVM_CODEGEN_TARGETFRAMELOWERING_H
 #define LLVM_CODEGEN_TARGETFRAMELOWERING_H
 
+#include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/TypeSize.h"
 #include <vector>
 
@@ -24,12 +27,14 @@ namespace llvm {
   class RegScavenger;
 
 namespace TargetStackID {
-  enum Value {
-    Default = 0,
-    SGPRSpill = 1,
-    ScalableVector = 2,
-    NoAlloc = 255
-  };
+enum Value {
+  Default = 0,
+  SGPRSpill = 1,
+  ScalableVector = 2,
+  WasmLocal = 3,
+  ScalablePredicateVector = 4,
+  NoAlloc = 255
+};
 }
 
 /// Information about stack frame layout on the target.  It holds the direction
@@ -39,7 +44,7 @@ namespace TargetStackID {
 /// The offset to the local area is the offset from the stack pointer on
 /// function entry to the first location where function data (local variables,
 /// spill locations) can be stored.
-class TargetFrameLowering {
+class LLVM_ABI TargetFrameLowering {
 public:
   enum StackDirection {
     StackGrowsUp,        // Adding to the stack increases the stack address
@@ -49,19 +54,22 @@ public:
   // Maps a callee saved register to a stack slot with a fixed offset.
   struct SpillSlot {
     unsigned Reg;
-    int Offset; // Offset relative to stack pointer on function entry.
+    int64_t Offset; // Offset relative to stack pointer on function entry.
   };
 
   struct DwarfFrameBase {
-    // The frame base may be either a register (the default), the CFA,
-    // or a WebAssembly-specific location description.
+    // The frame base may be either a register (the default), the CFA with an
+    // offset, or a WebAssembly-specific location description.
     enum FrameBaseKind { Register, CFA, WasmFrameBase } Kind;
     struct WasmFrameBase {
       unsigned Kind; // Wasm local, global, or value stack
       unsigned Index;
     };
     union {
+      // Used with FrameBaseKind::Register.
       unsigned Reg;
+      // Used with FrameBaseKind::CFA.
+      int64_t Offset;
       struct WasmFrameBase WasmLoc;
     } Location;
   };
@@ -98,6 +106,10 @@ public:
   ///
   Align getStackAlign() const { return StackAlignment; }
 
+  /// getStackThreshold - Return the maximum stack size
+  ///
+  virtual uint64_t getStackThreshold() const { return UINT_MAX; }
+
   /// alignSPAdjust - This method aligns the stack adjustment to the correct
   /// alignment.
   ///
@@ -122,11 +134,6 @@ public:
     return StackRealignable;
   }
 
-  /// Return the skew that has to be applied to stack alignment under
-  /// certain conditions (e.g. stack was adjusted before function \p MF
-  /// was called).
-  virtual unsigned getStackAlignmentSkew(const MachineFunction &MF) const;
-
   /// This method returns whether or not it is safe for an object with the
   /// given stack id to be bundled into the local area.
   virtual bool isStackIdSafeForLocalArea(unsigned StackId) const {
@@ -138,10 +145,13 @@ public:
   ///
   int getOffsetOfLocalArea() const { return LocalAreaOffset; }
 
-  /// isFPCloseToIncomingSP - Return true if the frame pointer is close to
-  /// the incoming stack pointer, false if it is close to the post-prologue
-  /// stack pointer.
-  virtual bool isFPCloseToIncomingSP() const { return true; }
+  /// Control the placement of special register scavenging spill slots when
+  /// allocating a stack frame.
+  ///
+  /// If this returns true, the frame indexes used by the RegScavenger will be
+  /// allocated closest to the incoming stack pointer.
+  virtual bool allocateScavengingFrameIndexesNearIncomingSP(
+    const MachineFunction &MF) const;
 
   /// assignCalleeSavedSpillSlots - Allows target to override spill slot
   /// assignment logic.  If implemented, assignCalleeSavedSpillSlots() should
@@ -149,14 +159,6 @@ public:
   /// returns false, spill slots will be assigned using generic implementation.
   /// assignCalleeSavedSpillSlots() may add, delete or rearrange elements of
   /// CSI.
-  virtual bool assignCalleeSavedSpillSlots(MachineFunction &MF,
-                                           const TargetRegisterInfo *TRI,
-                                           std::vector<CalleeSavedInfo> &CSI,
-                                           unsigned &MinCSFrameIndex,
-                                           unsigned &MaxCSFrameIndex) const {
-    return assignCalleeSavedSpillSlots(MF, TRI, CSI);
-  }
-
   virtual bool
   assignCalleeSavedSpillSlots(MachineFunction &MF,
                               const TargetRegisterInfo *TRI,
@@ -209,20 +211,37 @@ public:
   virtual void emitEpilogue(MachineFunction &MF,
                             MachineBasicBlock &MBB) const = 0;
 
+  /// emitZeroCallUsedRegs - Zeros out call used registers.
+  virtual void emitZeroCallUsedRegs(BitVector RegsToZero,
+                                    MachineBasicBlock &MBB) const {}
+
   /// With basic block sections, emit callee saved frame moves for basic blocks
   /// that are in a different section.
   virtual void
-  emitCalleeSavedFrameMoves(MachineBasicBlock &MBB,
-                            MachineBasicBlock::iterator MBBI) const {}
+  emitCalleeSavedFrameMovesFullCFA(MachineBasicBlock &MBB,
+                                   MachineBasicBlock::iterator MBBI) const {}
 
-  virtual void emitCalleeSavedFrameMoves(MachineBasicBlock &MBB,
-                                         MachineBasicBlock::iterator MBBI,
-                                         const DebugLoc &DL,
-                                         bool IsPrologue) const {}
+  /// Returns true if we may need to fix the unwind information for the
+  /// function.
+  virtual bool enableCFIFixup(const MachineFunction &MF) const;
+
+  /// enableFullCFIFixup - Returns true if we may need to fix the unwind
+  /// information such that it is accurate for *every* instruction in the
+  /// function (e.g. if the function has an async unwind table).
+  virtual bool enableFullCFIFixup(const MachineFunction &MF) const {
+    return enableCFIFixup(MF);
+  };
+
+  /// Emit CFI instructions that recreate the state of the unwind information
+  /// upon function entry.
+  virtual void resetCFIToInitialState(MachineBasicBlock &MBB) const {}
 
   /// Replace a StackProbe stub (if any) with the actual probe code inline
   virtual void inlineStackProbe(MachineFunction &MF,
                                 MachineBasicBlock &PrologueMBB) const {}
+
+  /// Does the stack probe function call return with a modified stack pointer?
+  virtual bool stackProbeFunctionModifiesSP() const { return false; }
 
   /// Adjust the prologue to have the function use segmented stacks. This works
   /// by adding a check even before the "normal" function prologue.
@@ -245,6 +264,14 @@ public:
     return false;
   }
 
+  /// spillCalleeSavedRegister - Default implementation for spilling a single
+  /// callee saved register.
+  void spillCalleeSavedRegister(MachineBasicBlock &SaveBlock,
+                                MachineBasicBlock::iterator MI,
+                                const CalleeSavedInfo &CS,
+                                const TargetInstrInfo *TII,
+                                const TargetRegisterInfo *TRI) const;
+
   /// restoreCalleeSavedRegisters - Issues instruction(s) to restore all callee
   /// saved registers and returns true if it isn't possible / profitable to do
   /// so by issuing a series of load instructions via loadRegToStackSlot().
@@ -259,16 +286,23 @@ public:
     return false;
   }
 
-  /// Return true if the target wants to keep the frame pointer regardless of
-  /// the function attribute "frame-pointer".
-  virtual bool keepFramePointer(const MachineFunction &MF) const {
-    return false;
-  }
+  // restoreCalleeSavedRegister - Default implementation for restoring a single
+  // callee saved register. Should be called in reverse order. Can insert
+  // multiple instructions.
+  void restoreCalleeSavedRegister(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MI,
+                                  const CalleeSavedInfo &CS,
+                                  const TargetInstrInfo *TII,
+                                  const TargetRegisterInfo *TRI) const;
 
   /// hasFP - Return true if the specified function should have a dedicated
   /// frame pointer register. For most targets this is true only if the function
   /// has variable sized allocas or if frame pointer elimination is disabled.
-  virtual bool hasFP(const MachineFunction &MF) const = 0;
+  /// For all targets, this is false if the function has the naked attribute
+  /// since there is no prologue to set up the frame pointer.
+  bool hasFP(const MachineFunction &MF) const {
+    return !MF.getFunction().hasFnAttribute(Attribute::Naked) && hasFPImpl(MF);
+  }
 
   /// hasReservedCallFrame - Under normal circumstances, when a frame pointer is
   /// not required, we reserve argument space for call sites in the function
@@ -325,6 +359,13 @@ public:
     Register FrameReg;
     return getFrameIndexReference(MF, FI, FrameReg);
   }
+
+  /// getFrameIndexReferenceFromSP - This method returns the offset from the
+  /// stack pointer to the slot of the specified index. This function serves to
+  /// provide a comparable offset from a single reference point (the value of
+  /// the stack-pointer at function entry) that can be used for analysis.
+  virtual StackOffset getFrameIndexReferenceFromSP(const MachineFunction &MF,
+                                                   int FI) const;
 
   /// Returns the callee-saved registers as computed by determineCalleeSaves
   /// in the BitVector \p SavedRegs.
@@ -449,6 +490,18 @@ public:
   /// Return the frame base information to be encoded in the DWARF subprogram
   /// debug info.
   virtual DwarfFrameBase getDwarfFrameBase(const MachineFunction &MF) const;
+
+  /// If frame pointer or base pointer is clobbered by an instruction, we should
+  /// spill/restore it around that instruction.
+  virtual void spillFPBP(MachineFunction &MF) const {}
+
+  /// This method is called at the end of prolog/epilog code insertion, so
+  /// targets can emit remarks based on the final frame layout.
+  virtual void emitRemarks(const MachineFunction &MF,
+                           MachineOptimizationRemarkEmitter *ORE) const {};
+
+protected:
+  virtual bool hasFPImpl(const MachineFunction &MF) const = 0;
 };
 
 } // End llvm namespace

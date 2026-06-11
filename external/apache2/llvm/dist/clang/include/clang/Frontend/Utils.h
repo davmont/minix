@@ -15,14 +15,13 @@
 
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/LLVM.h"
-#include "clang/Driver/OptionUtils.h"
 #include "clang/Frontend/DependencyOutputOptions.h"
+#include "clang/Options/OptionUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Option/OptSpecifier.h"
 #include "llvm/Support/FileCollector.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include <cstdint>
@@ -32,12 +31,6 @@
 #include <utility>
 #include <vector>
 
-namespace llvm {
-
-class Triple;
-
-} // namespace llvm
-
 namespace clang {
 
 class ASTReader;
@@ -46,25 +39,18 @@ class CompilerInvocation;
 class DiagnosticsEngine;
 class ExternalSemaSource;
 class FrontendOptions;
-class HeaderSearch;
-class HeaderSearchOptions;
-class LangOptions;
 class PCHContainerReader;
 class Preprocessor;
 class PreprocessorOptions;
 class PreprocessorOutputOptions;
-
-/// Apply the header search options to get given HeaderSearch object.
-void ApplyHeaderSearchOptions(HeaderSearch &HS,
-                              const HeaderSearchOptions &HSOpts,
-                              const LangOptions &Lang,
-                              const llvm::Triple &triple);
+class CodeGenOptions;
 
 /// InitializePreprocessor - Initialize the preprocessor getting it and the
 /// environment ready to process a single file.
 void InitializePreprocessor(Preprocessor &PP, const PreprocessorOptions &PPOpts,
                             const PCHContainerReader &PCHContainerRdr,
-                            const FrontendOptions &FEOpts);
+                            const FrontendOptions &FEOpts,
+                            const CodeGenOptions &CodeGenOpts);
 
 /// DoPrintPreprocessedInput - Implement -E mode.
 void DoPrintPreprocessedInput(Preprocessor &PP, raw_ostream *OS,
@@ -123,10 +109,10 @@ public:
 
   void finishedMainFile(DiagnosticsEngine &Diags) override;
 
-  bool needSystemDependencies() final override { return IncludeSystemHeaders; }
+  bool needSystemDependencies() final { return IncludeSystemHeaders; }
 
   bool sawDependency(StringRef Filename, bool FromModule, bool IsSystem,
-                     bool IsModuleFile, bool IsMissing) final override;
+                     bool IsModuleFile, bool IsMissing) final;
 
 protected:
   void outputDependencyFile(llvm::raw_ostream &OS);
@@ -157,8 +143,9 @@ class ModuleDependencyCollector : public DependencyCollector {
   std::error_code copyToRoot(StringRef Src, StringRef Dst = {});
 
 public:
-  ModuleDependencyCollector(std::string DestDir)
-      : DestDir(std::move(DestDir)) {}
+  ModuleDependencyCollector(std::string DestDir,
+                            IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
+      : DestDir(std::move(DestDir)), Canonicalizer(std::move(VFS)) {}
   ~ModuleDependencyCollector() override { writeFileMap(); }
 
   StringRef getDest() { return DestDir; }
@@ -203,29 +190,7 @@ void AttachHeaderIncludeGen(Preprocessor &PP,
 /// memory, mainly for testing.
 IntrusiveRefCntPtr<ExternalSemaSource>
 createChainedIncludesSource(CompilerInstance &CI,
-                            IntrusiveRefCntPtr<ExternalSemaSource> &Reader);
-
-/// createInvocationFromCommandLine - Construct a compiler invocation object for
-/// a command line argument vector.
-///
-/// \param ShouldRecoverOnErrors - whether we should attempt to return a
-/// non-null (and possibly incorrect) CompilerInvocation if any errors were
-/// encountered. When this flag is false, always return null on errors.
-///
-/// \param CC1Args - if non-null, will be populated with the args to cc1
-/// expanded from \p Args. May be set even if nullptr is returned.
-///
-/// \return A CompilerInvocation, or nullptr if none was built for the given
-/// argument vector.
-std::unique_ptr<CompilerInvocation> createInvocationFromCommandLine(
-    ArrayRef<const char *> Args,
-    IntrusiveRefCntPtr<DiagnosticsEngine> Diags =
-        IntrusiveRefCntPtr<DiagnosticsEngine>(),
-    IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS = nullptr,
-    bool ShouldRecoverOnErrors = false,
-    std::vector<std::string> *CC1Args = nullptr);
-
-// Frontend timing utils
+                            IntrusiveRefCntPtr<ASTReader> &OutReader);
 
 } // namespace clang
 

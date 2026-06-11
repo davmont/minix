@@ -7,14 +7,17 @@ LIB=	LLVMBinaryFormat
 .PATH: ${LLVM_SRCDIR}/lib/BinaryFormat
 
 SRCS+=	AMDGPUMetadataVerifier.cpp \
+	COFF.cpp \
+	DXContainer.cpp \
 	Dwarf.cpp \
+	ELF.cpp \
 	MachO.cpp \
 	Magic.cpp \
-	Minidump.cpp \
 	MsgPackDocument.cpp \
 	MsgPackDocumentYAML.cpp \
 	MsgPackReader.cpp \
 	MsgPackWriter.cpp \
+	SFrame.cpp \
 	Wasm.cpp \
 	XCOFF.cpp
 

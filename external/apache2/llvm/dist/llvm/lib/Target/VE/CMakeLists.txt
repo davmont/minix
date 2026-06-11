@@ -9,6 +9,7 @@ tablegen(LLVM VEGenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM VEGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM VEGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM VEGenDAGISel.inc -gen-dag-isel)
+tablegen(LLVM VEGenSDNodeInfo.inc -gen-sd-node-info)
 tablegen(LLVM VEGenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM VEGenCallingConv.inc -gen-callingconv)
 add_public_tablegen_target(VECommonTableGen)
@@ -16,6 +17,7 @@ add_public_tablegen_target(VECommonTableGen)
 add_llvm_target(VECodeGen
   LVLGen.cpp
   VEAsmPrinter.cpp
+  VECustomDAG.cpp
   VEFrameLowering.cpp
   VEISelDAGToDAG.cpp
   VEISelLowering.cpp
@@ -23,20 +25,25 @@ add_llvm_target(VECodeGen
   VEMachineFunctionInfo.cpp
   VEMCInstLower.cpp
   VERegisterInfo.cpp
+  VESelectionDAGInfo.cpp
   VESubtarget.cpp
   VETargetMachine.cpp
+  VVPISelLowering.cpp
 
   LINK_COMPONENTS
   Analysis
   AsmPrinter
   CodeGen
+  CodeGenTypes
   Core
   MC
   SelectionDAG
-  VEDesc
-  VEInfo
   Support
   Target
+  TargetParser
+  TransformUtils
+  VEDesc
+  VEInfo
 
   ADD_TO_COMPONENT
   VE

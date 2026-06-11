@@ -17,21 +17,24 @@
 
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/float128.h"
 #include <cassert>
 #include <climits>
 #include <cstring>
-#include <string>
+#include <optional>
+#include <utility>
 
 namespace llvm {
 class FoldingSetNodeID;
 class StringRef;
 class hash_code;
 class raw_ostream;
+struct Align;
+class DynamicAPInt;
 
 template <typename T> class SmallVectorImpl;
 template <typename T> class ArrayRef;
-template <typename T> class Optional;
-template <typename T> struct DenseMapInfo;
+template <typename T, typename Enable> struct DenseMapInfo;
 
 class APInt;
 
@@ -66,18 +69,21 @@ inline APInt operator-(APInt);
 ///     not.
 ///   * In general, the class tries to follow the style of computation that LLVM
 ///     uses in its IR. This simplifies its use for LLVM.
+///   * APInt supports zero-bit-width values, but operations that require bits
+///     are not defined on it (e.g. you cannot ask for the sign of a zero-bit
+///     integer).  This means that operations like zero extension and logical
+///     shifts are defined, but sign extension and ashr is not.  Zero bit values
+///     compare and hash equal to themselves, and countLeadingZeros returns 0.
 ///
-class LLVM_NODISCARD APInt {
+class [[nodiscard]] APInt {
 public:
-  typedef uint64_t WordType;
+  using WordType = uint64_t;
 
-  /// This enum is used to hold the constants we needed for APInt.
-  enum : unsigned {
-    /// Byte size of a word.
-    APINT_WORD_SIZE = sizeof(WordType),
-    /// Bits in a word.
-    APINT_BITS_PER_WORD = APINT_WORD_SIZE * CHAR_BIT
-  };
+  /// Byte size of a word.
+  static constexpr unsigned APINT_WORD_SIZE = sizeof(WordType);
+
+  /// Bits in a word.
+  static constexpr unsigned APINT_BITS_PER_WORD = APINT_WORD_SIZE * CHAR_BIT;
 
   enum class Rounding {
     DOWN,
@@ -87,181 +93,6 @@ public:
 
   static constexpr WordType WORDTYPE_MAX = ~WordType(0);
 
-private:
-  /// This union is used to store the integer value. When the
-  /// integer bit-width <= 64, it uses VAL, otherwise it uses pVal.
-  union {
-    uint64_t VAL;   ///< Used to store the <= 64 bits integer value.
-    uint64_t *pVal; ///< Used to store the >64 bits integer value.
-  } U;
-
-  unsigned BitWidth; ///< The number of bits in this APInt.
-
-  friend struct DenseMapInfo<APInt>;
-
-  friend class APSInt;
-
-  /// Fast internal constructor
-  ///
-  /// This constructor is used only internally for speed of construction of
-  /// temporaries. It is unsafe for general use so it is not public.
-  APInt(uint64_t *val, unsigned bits) : BitWidth(bits) {
-    U.pVal = val;
-  }
-
-  /// Determine if this APInt just has one word to store value.
-  ///
-  /// \returns true if the number of bits <= 64, false otherwise.
-  bool isSingleWord() const { return BitWidth <= APINT_BITS_PER_WORD; }
-
-  /// Determine which word a bit is in.
-  ///
-  /// \returns the word position for the specified bit position.
-  static unsigned whichWord(unsigned bitPosition) {
-    return bitPosition / APINT_BITS_PER_WORD;
-  }
-
-  /// Determine which bit in a word a bit is in.
-  ///
-  /// \returns the bit position in a word for the specified bit position
-  /// in the APInt.
-  static unsigned whichBit(unsigned bitPosition) {
-    return bitPosition % APINT_BITS_PER_WORD;
-  }
-
-  /// Get a single bit mask.
-  ///
-  /// \returns a uint64_t with only bit at "whichBit(bitPosition)" set
-  /// This method generates and returns a uint64_t (word) mask for a single
-  /// bit at a specific bit position. This is used to mask the bit in the
-  /// corresponding word.
-  static uint64_t maskBit(unsigned bitPosition) {
-    return 1ULL << whichBit(bitPosition);
-  }
-
-  /// Clear unused high order bits
-  ///
-  /// This method is used internally to clear the top "N" bits in the high order
-  /// word that are not used by the APInt. This is needed after the most
-  /// significant word is assigned a value to ensure that those bits are
-  /// zero'd out.
-  APInt &clearUnusedBits() {
-    // Compute how many bits are used in the final word
-    unsigned WordBits = ((BitWidth-1) % APINT_BITS_PER_WORD) + 1;
-
-    // Mask out the high bits.
-    uint64_t mask = WORDTYPE_MAX >> (APINT_BITS_PER_WORD - WordBits);
-    if (isSingleWord())
-      U.VAL &= mask;
-    else
-      U.pVal[getNumWords() - 1] &= mask;
-    return *this;
-  }
-
-  /// Get the word corresponding to a bit position
-  /// \returns the corresponding word for the specified bit position.
-  uint64_t getWord(unsigned bitPosition) const {
-    return isSingleWord() ? U.VAL : U.pVal[whichWord(bitPosition)];
-  }
-
-  /// Utility method to change the bit width of this APInt to new bit width,
-  /// allocating and/or deallocating as necessary. There is no guarantee on the
-  /// value of any bits upon return. Caller should populate the bits after.
-  void reallocate(unsigned NewBitWidth);
-
-  /// Convert a char array into an APInt
-  ///
-  /// \param radix 2, 8, 10, 16, or 36
-  /// Converts a string into a number.  The string must be non-empty
-  /// and well-formed as a number of the given base. The bit-width
-  /// must be sufficient to hold the result.
-  ///
-  /// This is used by the constructors that take string arguments.
-  ///
-  /// StringRef::getAsInteger is superficially similar but (1) does
-  /// not assume that the string is well-formed and (2) grows the
-  /// result to hold the input.
-  void fromString(unsigned numBits, StringRef str, uint8_t radix);
-
-  /// An internal division function for dividing APInts.
-  ///
-  /// This is used by the toString method to divide by the radix. It simply
-  /// provides a more convenient form of divide for internal use since KnuthDiv
-  /// has specific constraints on its inputs. If those constraints are not met
-  /// then it provides a simpler form of divide.
-  static void divide(const WordType *LHS, unsigned lhsWords,
-                     const WordType *RHS, unsigned rhsWords, WordType *Quotient,
-                     WordType *Remainder);
-
-  /// out-of-line slow case for inline constructor
-  void initSlowCase(uint64_t val, bool isSigned);
-
-  /// shared code between two array constructors
-  void initFromArray(ArrayRef<uint64_t> array);
-
-  /// out-of-line slow case for inline copy constructor
-  void initSlowCase(const APInt &that);
-
-  /// out-of-line slow case for shl
-  void shlSlowCase(unsigned ShiftAmt);
-
-  /// out-of-line slow case for lshr.
-  void lshrSlowCase(unsigned ShiftAmt);
-
-  /// out-of-line slow case for ashr.
-  void ashrSlowCase(unsigned ShiftAmt);
-
-  /// out-of-line slow case for operator=
-  void AssignSlowCase(const APInt &RHS);
-
-  /// out-of-line slow case for operator==
-  bool EqualSlowCase(const APInt &RHS) const LLVM_READONLY;
-
-  /// out-of-line slow case for countLeadingZeros
-  unsigned countLeadingZerosSlowCase() const LLVM_READONLY;
-
-  /// out-of-line slow case for countLeadingOnes.
-  unsigned countLeadingOnesSlowCase() const LLVM_READONLY;
-
-  /// out-of-line slow case for countTrailingZeros.
-  unsigned countTrailingZerosSlowCase() const LLVM_READONLY;
-
-  /// out-of-line slow case for countTrailingOnes
-  unsigned countTrailingOnesSlowCase() const LLVM_READONLY;
-
-  /// out-of-line slow case for countPopulation
-  unsigned countPopulationSlowCase() const LLVM_READONLY;
-
-  /// out-of-line slow case for intersects.
-  bool intersectsSlowCase(const APInt &RHS) const LLVM_READONLY;
-
-  /// out-of-line slow case for isSubsetOf.
-  bool isSubsetOfSlowCase(const APInt &RHS) const LLVM_READONLY;
-
-  /// out-of-line slow case for setBits.
-  void setBitsSlowCase(unsigned loBit, unsigned hiBit);
-
-  /// out-of-line slow case for flipAllBits.
-  void flipAllBitsSlowCase();
-
-  /// out-of-line slow case for operator&=.
-  void AndAssignSlowCase(const APInt& RHS);
-
-  /// out-of-line slow case for operator|=.
-  void OrAssignSlowCase(const APInt& RHS);
-
-  /// out-of-line slow case for operator^=.
-  void XorAssignSlowCase(const APInt& RHS);
-
-  /// Unsigned comparison. Returns -1, 0, or 1 if this APInt is less than, equal
-  /// to, or greater than RHS.
-  int compare(const APInt &RHS) const LLVM_READONLY;
-
-  /// Signed comparison. Returns -1, 0, or 1 if this APInt is less than, equal
-  /// to, or greater than RHS.
-  int compareSigned(const APInt &RHS) const LLVM_READONLY;
-
-public:
   /// \name Constructors
   /// @{
 
@@ -275,12 +106,33 @@ public:
   /// \param numBits the bit width of the constructed APInt
   /// \param val the initial value of the APInt
   /// \param isSigned how to treat signedness of val
-  APInt(unsigned numBits, uint64_t val, bool isSigned = false)
+  /// \param implicitTrunc allow implicit truncation of non-zero/sign bits of
+  ///                      val beyond the range of numBits
+  APInt(unsigned numBits, uint64_t val, bool isSigned = false,
+        bool implicitTrunc = false)
       : BitWidth(numBits) {
-    assert(BitWidth && "bitwidth too small");
+    if (!implicitTrunc) {
+      if (isSigned) {
+        if (BitWidth == 0) {
+          assert((val == 0 || val == uint64_t(-1)) &&
+                 "Value must be 0 or -1 for signed 0-bit APInt");
+        } else {
+          assert(llvm::isIntN(BitWidth, val) &&
+                 "Value is not an N-bit signed value");
+        }
+      } else {
+        if (BitWidth == 0) {
+          assert(val == 0 && "Value must be zero for unsigned 0-bit APInt");
+        } else {
+          assert(llvm::isUIntN(BitWidth, val) &&
+                 "Value is not an N-bit unsigned value");
+        }
+      }
+    }
     if (isSingleWord()) {
       U.VAL = val;
-      clearUnusedBits();
+      if (implicitTrunc || isSigned)
+        clearUnusedBits();
     } else {
       initSlowCase(val, isSigned);
     }
@@ -293,16 +145,17 @@ public:
   ///
   /// \param numBits the bit width of the constructed APInt
   /// \param bigVal a sequence of words to form the initial value of the APInt
-  APInt(unsigned numBits, ArrayRef<uint64_t> bigVal);
+  LLVM_ABI APInt(unsigned numBits, ArrayRef<uint64_t> bigVal);
 
   /// Equivalent to APInt(numBits, ArrayRef<uint64_t>(bigVal, numWords)), but
   /// deprecated because this constructor is prone to ambiguity with the
   /// APInt(unsigned, uint64_t, bool) constructor.
   ///
-  /// If this overload is ever deleted, care should be taken to prevent calls
-  /// from being incorrectly captured by the APInt(unsigned, uint64_t, bool)
-  /// constructor.
-  APInt(unsigned numBits, unsigned numWords, const uint64_t bigVal[]);
+  /// Once all uses of this constructor are migrated to other constructors,
+  /// consider marking this overload ""= delete" to prevent calls from being
+  /// incorrectly bound to the APInt(unsigned, uint64_t, bool) constructor.
+  [[deprecated("Use other constructors of APInt")]]
+  LLVM_ABI APInt(unsigned numBits, unsigned numWords, const uint64_t bigVal[]);
 
   /// Construct an APInt from a string representation.
   ///
@@ -315,9 +168,11 @@ public:
   /// \param numBits the bit width of the constructed APInt
   /// \param str the string to be interpreted
   /// \param radix the radix to use for the conversion
-  APInt(unsigned numBits, StringRef str, uint8_t radix);
+  LLVM_ABI APInt(unsigned numBits, StringRef str, uint8_t radix);
 
-  /// Simply makes *this a copy of that.
+  /// Default constructor that creates an APInt with a 1-bit zero value.
+  explicit APInt() { U.VAL = 0; }
+
   /// Copy Constructor.
   APInt(const APInt &that) : BitWidth(that.BitWidth) {
     if (isSingleWord())
@@ -338,23 +193,134 @@ public:
       delete[] U.pVal;
   }
 
-  /// Default constructor that creates an uninteresting APInt
-  /// representing a 1-bit zero value.
+  /// @}
+  /// \name Value Generators
+  /// @{
+
+  /// Get the '0' value for the specified bit-width.
+  static APInt getZero(unsigned numBits) { return APInt(numBits, 0); }
+
+  /// Return an APInt zero bits wide.
+  static APInt getZeroWidth() { return getZero(0); }
+
+  /// Gets maximum unsigned value of APInt for specific bit width.
+  static APInt getMaxValue(unsigned numBits) { return getAllOnes(numBits); }
+
+  /// Gets maximum signed value of APInt for a specific bit width.
+  static APInt getSignedMaxValue(unsigned numBits) {
+    APInt API = getAllOnes(numBits);
+    API.clearBit(numBits - 1);
+    return API;
+  }
+
+  /// Gets minimum unsigned value of APInt for a specific bit width.
+  static APInt getMinValue(unsigned numBits) { return APInt(numBits, 0); }
+
+  /// Gets minimum signed value of APInt for a specific bit width.
+  static APInt getSignedMinValue(unsigned numBits) {
+    APInt API(numBits, 0);
+    API.setBit(numBits - 1);
+    return API;
+  }
+
+  /// Get the SignMask for a specific bit width.
   ///
-  /// This is useful for object deserialization (pair this with the static
-  ///  method Read).
-  explicit APInt() : BitWidth(1) { U.VAL = 0; }
+  /// This is just a wrapper function of getSignedMinValue(), and it helps code
+  /// readability when we want to get a SignMask.
+  static APInt getSignMask(unsigned BitWidth) {
+    return getSignedMinValue(BitWidth);
+  }
 
-  /// Returns whether this instance allocated memory.
-  bool needsCleanup() const { return !isSingleWord(); }
+  /// Return an APInt of a specified width with all bits set.
+  static APInt getAllOnes(unsigned numBits) {
+    return APInt(numBits, WORDTYPE_MAX, true);
+  }
 
-  /// Used to insert APInt objects, or objects that contain APInt objects, into
-  ///  FoldingSets.
-  void Profile(FoldingSetNodeID &id) const;
+  /// Return an APInt with exactly one bit set in the result.
+  static APInt getOneBitSet(unsigned numBits, unsigned BitNo) {
+    APInt Res(numBits, 0);
+    Res.setBit(BitNo);
+    return Res;
+  }
+
+  /// Get a value with a block of bits set.
+  ///
+  /// Constructs an APInt value that has a contiguous range of bits set. The
+  /// bits from loBit (inclusive) to hiBit (exclusive) will be set. All other
+  /// bits will be zero. For example, with parameters(32, 0, 16) you would get
+  /// 0x0000FFFF. Please call getBitsSetWithWrap if \p loBit may be greater than
+  /// \p hiBit.
+  ///
+  /// \param numBits the intended bit width of the result
+  /// \param loBit the index of the lowest bit set.
+  /// \param hiBit the index of the highest bit set.
+  ///
+  /// \returns An APInt value with the requested bits set.
+  static APInt getBitsSet(unsigned numBits, unsigned loBit, unsigned hiBit) {
+    APInt Res(numBits, 0);
+    Res.setBits(loBit, hiBit);
+    return Res;
+  }
+
+  /// Wrap version of getBitsSet.
+  /// If \p hiBit is bigger than \p loBit, this is same with getBitsSet.
+  /// If \p hiBit is not bigger than \p loBit, the set bits "wrap". For example,
+  /// with parameters (32, 28, 4), you would get 0xF000000F.
+  /// If \p hiBit is equal to \p loBit, you would get a result with all bits
+  /// set.
+  static APInt getBitsSetWithWrap(unsigned numBits, unsigned loBit,
+                                  unsigned hiBit) {
+    APInt Res(numBits, 0);
+    Res.setBitsWithWrap(loBit, hiBit);
+    return Res;
+  }
+
+  /// Constructs an APInt value that has a contiguous range of bits set. The
+  /// bits from loBit (inclusive) to numBits (exclusive) will be set. All other
+  /// bits will be zero. For example, with parameters(32, 12) you would get
+  /// 0xFFFFF000.
+  ///
+  /// \param numBits the intended bit width of the result
+  /// \param loBit the index of the lowest bit to set.
+  ///
+  /// \returns An APInt value with the requested bits set.
+  static APInt getBitsSetFrom(unsigned numBits, unsigned loBit) {
+    APInt Res(numBits, 0);
+    Res.setBitsFrom(loBit);
+    return Res;
+  }
+
+  /// Constructs an APInt value that has the top hiBitsSet bits set.
+  ///
+  /// \param numBits the bitwidth of the result
+  /// \param hiBitsSet the number of high-order bits set in the result.
+  static APInt getHighBitsSet(unsigned numBits, unsigned hiBitsSet) {
+    APInt Res(numBits, 0);
+    Res.setHighBits(hiBitsSet);
+    return Res;
+  }
+
+  /// Constructs an APInt value that has the bottom loBitsSet bits set.
+  ///
+  /// \param numBits the bitwidth of the result
+  /// \param loBitsSet the number of low-order bits set in the result.
+  static APInt getLowBitsSet(unsigned numBits, unsigned loBitsSet) {
+    APInt Res(numBits, 0);
+    Res.setLowBits(loBitsSet);
+    return Res;
+  }
+
+  /// Return a value containing V broadcasted over NewLen bits.
+  LLVM_ABI static APInt getSplat(unsigned NewLen, const APInt &V);
 
   /// @}
   /// \name Value Tests
   /// @{
+
+  /// Determine if this APInt just has one word to store value.
+  ///
+  /// \returns true if the number of bits <= 64, false otherwise.
+  bool isSingleWord() const { return BitWidth <= APINT_BITS_PER_WORD; }
 
   /// Determine sign of this APInt.
   ///
@@ -373,7 +339,7 @@ public:
   /// This tests the high bit of this APInt to determine if it is set.
   ///
   /// \returns true if this APInt has its sign bit set, false otherwise.
-  bool isSignBitSet() const { return (*this)[BitWidth-1]; }
+  bool isSignBitSet() const { return (*this)[BitWidth - 1]; }
 
   /// Determine if sign bit of this APInt is clear.
   ///
@@ -388,32 +354,40 @@ public:
   /// that 0 is not a positive value.
   ///
   /// \returns true if this APInt is positive.
-  bool isStrictlyPositive() const { return isNonNegative() && !isNullValue(); }
+  bool isStrictlyPositive() const { return isNonNegative() && !isZero(); }
 
   /// Determine if this APInt Value is non-positive (<= 0).
   ///
   /// \returns true if this APInt is non-positive.
   bool isNonPositive() const { return !isStrictlyPositive(); }
 
-  /// Determine if all bits are set
+  /// Determine if this APInt Value only has the specified bit set.
   ///
-  /// This checks to see if the value has all bits of the APInt are set or not.
-  bool isAllOnesValue() const {
+  /// \returns true if this APInt only has the specified bit set.
+  bool isOneBitSet(unsigned BitNo) const {
+    return (*this)[BitNo] && popcount() == 1;
+  }
+
+  /// Determine if all bits are set.  This is true for zero-width values.
+  bool isAllOnes() const {
+    if (BitWidth == 0)
+      return true;
     if (isSingleWord())
       return U.VAL == WORDTYPE_MAX >> (APINT_BITS_PER_WORD - BitWidth);
     return countTrailingOnesSlowCase() == BitWidth;
   }
 
-  /// Determine if all bits are clear
-  ///
-  /// This checks to see if the value has all bits of the APInt are clear or
-  /// not.
-  bool isNullValue() const { return !*this; }
+  /// Determine if this value is zero, i.e. all bits are clear.
+  bool isZero() const {
+    if (isSingleWord())
+      return U.VAL == 0;
+    return countLeadingZerosSlowCase() == BitWidth;
+  }
 
   /// Determine if this is a value of 1.
   ///
   /// This checks to see if the value of this APInt is one.
-  bool isOneValue() const {
+  bool isOne() const {
     if (isSingleWord())
       return U.VAL == 1;
     return countLeadingZerosSlowCase() == BitWidth - 1;
@@ -423,15 +397,17 @@ public:
   ///
   /// This checks to see if the value of this APInt is the maximum unsigned
   /// value for the APInt's bit width.
-  bool isMaxValue() const { return isAllOnesValue(); }
+  bool isMaxValue() const { return isAllOnes(); }
 
   /// Determine if this is the largest signed value.
   ///
   /// This checks to see if the value of this APInt is the maximum signed
   /// value for the APInt's bit width.
   bool isMaxSignedValue() const {
-    if (isSingleWord())
+    if (isSingleWord()) {
+      assert(BitWidth && "zero width values not allowed");
       return U.VAL == ((WordType(1) << (BitWidth - 1)) - 1);
+    }
     return !isNegative() && countTrailingOnesSlowCase() == BitWidth - 1;
   }
 
@@ -439,38 +415,51 @@ public:
   ///
   /// This checks to see if the value of this APInt is the minimum unsigned
   /// value for the APInt's bit width.
-  bool isMinValue() const { return isNullValue(); }
+  bool isMinValue() const { return isZero(); }
 
   /// Determine if this is the smallest signed value.
   ///
   /// This checks to see if the value of this APInt is the minimum signed
   /// value for the APInt's bit width.
   bool isMinSignedValue() const {
-    if (isSingleWord())
+    if (isSingleWord()) {
+      assert(BitWidth && "zero width values not allowed");
       return U.VAL == (WordType(1) << (BitWidth - 1));
+    }
     return isNegative() && countTrailingZerosSlowCase() == BitWidth - 1;
   }
 
   /// Check if this APInt has an N-bits unsigned integer value.
-  bool isIntN(unsigned N) const {
-    assert(N && "N == 0 ???");
-    return getActiveBits() <= N;
-  }
+  bool isIntN(unsigned N) const { return getActiveBits() <= N; }
 
   /// Check if this APInt has an N-bits signed integer value.
-  bool isSignedIntN(unsigned N) const {
-    assert(N && "N == 0 ???");
-    return getMinSignedBits() <= N;
-  }
+  bool isSignedIntN(unsigned N) const { return getSignificantBits() <= N; }
 
   /// Check if this APInt's value is a power of two greater than zero.
   ///
   /// \returns true if the argument APInt value is a power of two > 0.
   bool isPowerOf2() const {
-    if (isSingleWord())
+    if (isSingleWord()) {
+      assert(BitWidth && "zero width values not allowed");
       return isPowerOf2_64(U.VAL);
+    }
     return countPopulationSlowCase() == 1;
   }
+
+  /// Check if this APInt's negated value is a power of two greater than zero.
+  bool isNegatedPowerOf2() const {
+    assert(BitWidth && "zero width values not allowed");
+    if (isNonNegative())
+      return false;
+    // NegatedPowerOf2 - shifted mask in the top bits.
+    unsigned LO = countl_one();
+    unsigned TZ = countr_zero();
+    return (LO + TZ) == BitWidth;
+  }
+
+  /// Checks if this APInt -interpreted as an address- is aligned to the
+  /// provided value.
+  LLVM_ABI bool isAligned(Align A) const;
 
   /// Check if the APInt's value is returned by getSignMask.
   ///
@@ -480,7 +469,7 @@ public:
   /// Convert APInt to a boolean value.
   ///
   /// This converts the APInt to a boolean value as a test against zero.
-  bool getBoolValue() const { return !!*this; }
+  bool getBoolValue() const { return !isZero(); }
 
   /// If this value is smaller than the specified limit, return it, otherwise
   /// return the limit value.  This causes the value to saturate to the limit.
@@ -493,7 +482,7 @@ public:
   /// e.g. 0x01010101 satisfies isSplat(8).
   /// \param SplatSizeInBits The size of the pattern in bits. Must divide bit
   /// width without remainder.
-  bool isSplat(unsigned SplatSizeInBits) const;
+  LLVM_ABI bool isSplat(unsigned SplatSizeInBits) const;
 
   /// \returns true if this APInt value is a sequence of \param numBits ones
   /// starting at the least significant bit with the remainder zero.
@@ -517,161 +506,48 @@ public:
     return (Ones > 0) && ((Ones + countLeadingZerosSlowCase()) == BitWidth);
   }
 
-  /// Return true if this APInt value contains a sequence of ones with
+  /// Return true if this APInt value contains a non-empty sequence of ones with
   /// the remainder zero.
   bool isShiftedMask() const {
     if (isSingleWord())
       return isShiftedMask_64(U.VAL);
     unsigned Ones = countPopulationSlowCase();
     unsigned LeadZ = countLeadingZerosSlowCase();
-    return (Ones + LeadZ + countTrailingZeros()) == BitWidth;
+    return (Ones + LeadZ + countTrailingZerosSlowCase()) == BitWidth;
   }
 
-  /// @}
-  /// \name Value Generators
-  /// @{
-
-  /// Gets maximum unsigned value of APInt for specific bit width.
-  static APInt getMaxValue(unsigned numBits) {
-    return getAllOnesValue(numBits);
+  /// Return true if this APInt value contains a non-empty sequence of ones with
+  /// the remainder zero. If true, \p MaskIdx will specify the index of the
+  /// lowest set bit and \p MaskLen is updated to specify the length of the
+  /// mask, else neither are updated.
+  bool isShiftedMask(unsigned &MaskIdx, unsigned &MaskLen) const {
+    if (isSingleWord())
+      return isShiftedMask_64(U.VAL, MaskIdx, MaskLen);
+    unsigned Ones = countPopulationSlowCase();
+    unsigned LeadZ = countLeadingZerosSlowCase();
+    unsigned TrailZ = countTrailingZerosSlowCase();
+    if ((Ones + LeadZ + TrailZ) != BitWidth)
+      return false;
+    MaskLen = Ones;
+    MaskIdx = TrailZ;
+    return true;
   }
-
-  /// Gets maximum signed value of APInt for a specific bit width.
-  static APInt getSignedMaxValue(unsigned numBits) {
-    APInt API = getAllOnesValue(numBits);
-    API.clearBit(numBits - 1);
-    return API;
-  }
-
-  /// Gets minimum unsigned value of APInt for a specific bit width.
-  static APInt getMinValue(unsigned numBits) { return APInt(numBits, 0); }
-
-  /// Gets minimum signed value of APInt for a specific bit width.
-  static APInt getSignedMinValue(unsigned numBits) {
-    APInt API(numBits, 0);
-    API.setBit(numBits - 1);
-    return API;
-  }
-
-  /// Get the SignMask for a specific bit width.
-  ///
-  /// This is just a wrapper function of getSignedMinValue(), and it helps code
-  /// readability when we want to get a SignMask.
-  static APInt getSignMask(unsigned BitWidth) {
-    return getSignedMinValue(BitWidth);
-  }
-
-  /// Get the all-ones value.
-  ///
-  /// \returns the all-ones value for an APInt of the specified bit-width.
-  static APInt getAllOnesValue(unsigned numBits) {
-    return APInt(numBits, WORDTYPE_MAX, true);
-  }
-
-  /// Get the '0' value.
-  ///
-  /// \returns the '0' value for an APInt of the specified bit-width.
-  static APInt getNullValue(unsigned numBits) { return APInt(numBits, 0); }
 
   /// Compute an APInt containing numBits highbits from this APInt.
   ///
-  /// Get an APInt with the same BitWidth as this APInt, just zero mask
-  /// the low bits and right shift to the least significant bit.
+  /// Get an APInt with the same BitWidth as this APInt, just zero mask the low
+  /// bits and right shift to the least significant bit.
   ///
   /// \returns the high "numBits" bits of this APInt.
-  APInt getHiBits(unsigned numBits) const;
+  LLVM_ABI APInt getHiBits(unsigned numBits) const;
 
   /// Compute an APInt containing numBits lowbits from this APInt.
   ///
-  /// Get an APInt with the same BitWidth as this APInt, just zero mask
-  /// the high bits.
+  /// Get an APInt with the same BitWidth as this APInt, just zero mask the high
+  /// bits.
   ///
   /// \returns the low "numBits" bits of this APInt.
-  APInt getLoBits(unsigned numBits) const;
-
-  /// Return an APInt with exactly one bit set in the result.
-  static APInt getOneBitSet(unsigned numBits, unsigned BitNo) {
-    APInt Res(numBits, 0);
-    Res.setBit(BitNo);
-    return Res;
-  }
-
-  /// Get a value with a block of bits set.
-  ///
-  /// Constructs an APInt value that has a contiguous range of bits set. The
-  /// bits from loBit (inclusive) to hiBit (exclusive) will be set. All other
-  /// bits will be zero. For example, with parameters(32, 0, 16) you would get
-  /// 0x0000FFFF. Please call getBitsSetWithWrap if \p loBit may be greater than
-  /// \p hiBit.
-  ///
-  /// \param numBits the intended bit width of the result
-  /// \param loBit the index of the lowest bit set.
-  /// \param hiBit the index of the highest bit set.
-  ///
-  /// \returns An APInt value with the requested bits set.
-  static APInt getBitsSet(unsigned numBits, unsigned loBit, unsigned hiBit) {
-    assert(loBit <= hiBit && "loBit greater than hiBit");
-    APInt Res(numBits, 0);
-    Res.setBits(loBit, hiBit);
-    return Res;
-  }
-
-  /// Wrap version of getBitsSet.
-  /// If \p hiBit is bigger than \p loBit, this is same with getBitsSet.
-  /// If \p hiBit is not bigger than \p loBit, the set bits "wrap". For example,
-  /// with parameters (32, 28, 4), you would get 0xF000000F.
-  /// If \p hiBit is equal to \p loBit, you would get a result with all bits
-  /// set.
-  static APInt getBitsSetWithWrap(unsigned numBits, unsigned loBit,
-                                  unsigned hiBit) {
-    APInt Res(numBits, 0);
-    Res.setBitsWithWrap(loBit, hiBit);
-    return Res;
-  }
-
-  /// Get a value with upper bits starting at loBit set.
-  ///
-  /// Constructs an APInt value that has a contiguous range of bits set. The
-  /// bits from loBit (inclusive) to numBits (exclusive) will be set. All other
-  /// bits will be zero. For example, with parameters(32, 12) you would get
-  /// 0xFFFFF000.
-  ///
-  /// \param numBits the intended bit width of the result
-  /// \param loBit the index of the lowest bit to set.
-  ///
-  /// \returns An APInt value with the requested bits set.
-  static APInt getBitsSetFrom(unsigned numBits, unsigned loBit) {
-    APInt Res(numBits, 0);
-    Res.setBitsFrom(loBit);
-    return Res;
-  }
-
-  /// Get a value with high bits set
-  ///
-  /// Constructs an APInt value that has the top hiBitsSet bits set.
-  ///
-  /// \param numBits the bitwidth of the result
-  /// \param hiBitsSet the number of high-order bits set in the result.
-  static APInt getHighBitsSet(unsigned numBits, unsigned hiBitsSet) {
-    APInt Res(numBits, 0);
-    Res.setHighBits(hiBitsSet);
-    return Res;
-  }
-
-  /// Get a value with low bits set
-  ///
-  /// Constructs an APInt value that has the bottom loBitsSet bits set.
-  ///
-  /// \param numBits the bitwidth of the result
-  /// \param loBitsSet the number of low-order bits set in the result.
-  static APInt getLowBitsSet(unsigned numBits, unsigned loBitsSet) {
-    APInt Res(numBits, 0);
-    Res.setLowBits(loBitsSet);
-    return Res;
-  }
-
-  /// Return a value containing V broadcasted over NewLen bits.
-  static APInt getSplat(unsigned NewLen, const APInt &V);
+  LLVM_ABI APInt getLoBits(unsigned numBits) const;
 
   /// Determine if two APInts have the same value, after zero-extending
   /// one of them (if needed!) to ensure that the bit-widths match.
@@ -686,7 +562,7 @@ public:
   }
 
   /// Overload to compute a hash_code for an APInt value.
-  friend hash_code hash_value(const APInt &Arg);
+  LLVM_ABI friend hash_code hash_value(const APInt &Arg);
 
   /// This function returns a pointer to the internal storage of the APInt.
   /// This is useful for writing out the APInt in binary form without any
@@ -701,12 +577,10 @@ public:
   /// \name Unary Operators
   /// @{
 
-  /// Postfix increment operator.
-  ///
-  /// Increments *this by 1.
+  /// Postfix increment operator.  Increment *this by 1.
   ///
   /// \returns a new APInt value representing the original value of *this.
-  const APInt operator++(int) {
+  APInt operator++(int) {
     APInt API(*this);
     ++(*this);
     return API;
@@ -715,14 +589,12 @@ public:
   /// Prefix increment operator.
   ///
   /// \returns *this incremented by one
-  APInt &operator++();
+  LLVM_ABI APInt &operator++();
 
-  /// Postfix decrement operator.
-  ///
-  /// Decrements *this by 1.
+  /// Postfix decrement operator. Decrement *this by 1.
   ///
   /// \returns a new APInt value representing the original value of *this.
-  const APInt operator--(int) {
+  APInt operator--(int) {
     APInt API(*this);
     --(*this);
     return API;
@@ -731,18 +603,11 @@ public:
   /// Prefix decrement operator.
   ///
   /// \returns *this decremented by one.
-  APInt &operator--();
+  LLVM_ABI APInt &operator--();
 
-  /// Logical negation operator.
-  ///
-  /// Performs logical negation operation on this APInt.
-  ///
-  /// \returns true if *this is zero, false otherwise.
-  bool operator!() const {
-    if (isSingleWord())
-      return U.VAL == 0;
-    return countLeadingZerosSlowCase() == BitWidth;
-  }
+  /// Logical negation operation on this APInt returns true if zero, like normal
+  /// integers.
+  bool operator!() const { return isZero(); }
 
   /// @}
   /// \name Assignment Operators
@@ -752,14 +617,15 @@ public:
   ///
   /// \returns *this after assignment of RHS.
   APInt &operator=(const APInt &RHS) {
-    // If the bitwidths are the same, we can avoid mucking with memory
+    // The common case (both source or dest being inline) doesn't require
+    // allocation or deallocation.
     if (isSingleWord() && RHS.isSingleWord()) {
       U.VAL = RHS.U.VAL;
       BitWidth = RHS.BitWidth;
-      return clearUnusedBits();
+      return *this;
     }
 
-    AssignSlowCase(RHS);
+    assignSlowCase(RHS);
     return *this;
   }
 
@@ -780,7 +646,6 @@ public:
 
     BitWidth = that.BitWidth;
     that.BitWidth = 0;
-
     return *this;
   }
 
@@ -812,7 +677,7 @@ public:
     if (isSingleWord())
       U.VAL &= RHS.U.VAL;
     else
-      AndAssignSlowCase(RHS);
+      andAssignSlowCase(RHS);
     return *this;
   }
 
@@ -827,7 +692,7 @@ public:
       return *this;
     }
     U.pVal[0] &= RHS;
-    memset(U.pVal+1, 0, (getNumWords() - 1) * APINT_WORD_SIZE);
+    memset(U.pVal + 1, 0, (getNumWords() - 1) * APINT_WORD_SIZE);
     return *this;
   }
 
@@ -842,7 +707,7 @@ public:
     if (isSingleWord())
       U.VAL |= RHS.U.VAL;
     else
-      OrAssignSlowCase(RHS);
+      orAssignSlowCase(RHS);
     return *this;
   }
 
@@ -871,7 +736,7 @@ public:
     if (isSingleWord())
       U.VAL ^= RHS.U.VAL;
     else
-      XorAssignSlowCase(RHS);
+      xorAssignSlowCase(RHS);
     return *this;
   }
 
@@ -894,24 +759,24 @@ public:
   /// Multiplies this APInt by RHS and assigns the result to *this.
   ///
   /// \returns *this
-  APInt &operator*=(const APInt &RHS);
-  APInt &operator*=(uint64_t RHS);
+  LLVM_ABI APInt &operator*=(const APInt &RHS);
+  LLVM_ABI APInt &operator*=(uint64_t RHS);
 
   /// Addition assignment operator.
   ///
   /// Adds RHS to *this and assigns the result to *this.
   ///
   /// \returns *this
-  APInt &operator+=(const APInt &RHS);
-  APInt &operator+=(uint64_t RHS);
+  LLVM_ABI APInt &operator+=(const APInt &RHS);
+  LLVM_ABI APInt &operator+=(uint64_t RHS);
 
   /// Subtraction assignment operator.
   ///
   /// Subtracts RHS from *this and assigns the result to *this.
   ///
   /// \returns *this
-  APInt &operator-=(const APInt &RHS);
-  APInt &operator-=(uint64_t RHS);
+  LLVM_ABI APInt &operator-=(const APInt &RHS);
+  LLVM_ABI APInt &operator-=(uint64_t RHS);
 
   /// Left-shift assignment function.
   ///
@@ -936,7 +801,7 @@ public:
   /// Shifts *this left by shiftAmt and assigns the result to *this.
   ///
   /// \returns *this after shifting left by ShiftAmt
-  APInt &operator<<=(const APInt &ShiftAmt);
+  LLVM_ABI APInt &operator<<=(const APInt &ShiftAmt);
 
   /// @}
   /// \name Binary Operators
@@ -945,7 +810,7 @@ public:
   /// Multiplication operator.
   ///
   /// Multiplies this APInt by RHS and returns the result.
-  APInt operator*(const APInt &RHS) const;
+  LLVM_ABI APInt operator*(const APInt &RHS) const;
 
   /// Left logical shift operator.
   ///
@@ -1012,11 +877,31 @@ public:
     return R;
   }
 
+  /// relative logical shift right
+  APInt relativeLShr(int RelativeShift) const {
+    return RelativeShift > 0 ? lshr(RelativeShift) : shl(-RelativeShift);
+  }
+
+  /// relative logical shift left
+  APInt relativeLShl(int RelativeShift) const {
+    return relativeLShr(-RelativeShift);
+  }
+
+  /// relative arithmetic shift right
+  APInt relativeAShr(int RelativeShift) const {
+    return RelativeShift > 0 ? ashr(RelativeShift) : shl(-RelativeShift);
+  }
+
+  /// relative arithmetic shift left
+  APInt relativeAShl(int RelativeShift) const {
+    return relativeAShr(-RelativeShift);
+  }
+
   /// Rotate left by rotateAmt.
-  APInt rotl(unsigned rotateAmt) const;
+  LLVM_ABI APInt rotl(unsigned rotateAmt) const;
 
   /// Rotate right by rotateAmt.
-  APInt rotr(unsigned rotateAmt) const;
+  LLVM_ABI APInt rotr(unsigned rotateAmt) const;
 
   /// Arithmetic right-shift function.
   ///
@@ -1028,7 +913,7 @@ public:
   }
 
   /// Arithmetic right-shift this APInt by shiftAmt in place.
-  void ashrInPlace(const APInt &shiftAmt);
+  LLVM_ABI void ashrInPlace(const APInt &shiftAmt);
 
   /// Logical right-shift function.
   ///
@@ -1040,7 +925,7 @@ public:
   }
 
   /// Logical right-shift this APInt by ShiftAmt in place.
-  void lshrInPlace(const APInt &ShiftAmt);
+  LLVM_ABI void lshrInPlace(const APInt &ShiftAmt);
 
   /// Left-shift function.
   ///
@@ -1052,10 +937,21 @@ public:
   }
 
   /// Rotate left by rotateAmt.
-  APInt rotl(const APInt &rotateAmt) const;
+  LLVM_ABI APInt rotl(const APInt &rotateAmt) const;
 
   /// Rotate right by rotateAmt.
-  APInt rotr(const APInt &rotateAmt) const;
+  LLVM_ABI APInt rotr(const APInt &rotateAmt) const;
+
+  /// Concatenate the bits from "NewLSB" onto the bottom of *this.  This is
+  /// equivalent to:
+  ///   (this->zext(NewWidth) << NewLSB.getBitWidth()) | NewLSB.zext(NewWidth)
+  APInt concat(const APInt &NewLSB) const {
+    /// If the result will be small, then both the merged values are small.
+    unsigned NewWidth = getBitWidth() + NewLSB.getBitWidth();
+    if (NewWidth <= APINT_BITS_PER_WORD)
+      return APInt(NewWidth, (U.VAL << NewLSB.getBitWidth()) | NewLSB.U.VAL);
+    return concatSlowCase(NewLSB);
+  }
 
   /// Unsigned division operation.
   ///
@@ -1064,34 +960,35 @@ public:
   ///
   /// \returns a new APInt value containing the division result, rounded towards
   /// zero.
-  APInt udiv(const APInt &RHS) const;
-  APInt udiv(uint64_t RHS) const;
+  LLVM_ABI APInt udiv(const APInt &RHS) const;
+  LLVM_ABI APInt udiv(uint64_t RHS) const;
 
   /// Signed division function for APInt.
   ///
   /// Signed divide this APInt by APInt RHS.
   ///
   /// The result is rounded towards zero.
-  APInt sdiv(const APInt &RHS) const;
-  APInt sdiv(int64_t RHS) const;
+  LLVM_ABI APInt sdiv(const APInt &RHS) const;
+  LLVM_ABI APInt sdiv(int64_t RHS) const;
 
   /// Unsigned remainder operation.
   ///
   /// Perform an unsigned remainder operation on this APInt with RHS being the
   /// divisor. Both this and RHS are treated as unsigned quantities for purposes
-  /// of this operation. Note that this is a true remainder operation and not a
-  /// modulo operation because the sign follows the sign of the dividend which
-  /// is *this.
+  /// of this operation.
   ///
   /// \returns a new APInt value containing the remainder result
-  APInt urem(const APInt &RHS) const;
-  uint64_t urem(uint64_t RHS) const;
+  LLVM_ABI APInt urem(const APInt &RHS) const;
+  LLVM_ABI uint64_t urem(uint64_t RHS) const;
 
   /// Function for signed remainder operation.
   ///
   /// Signed remainder operation on APInt.
-  APInt srem(const APInt &RHS) const;
-  int64_t srem(int64_t RHS) const;
+  ///
+  /// Note that this is a true remainder operation and not a modulo operation
+  /// because the sign follows the sign of the dividend which is *this.
+  LLVM_ABI APInt srem(const APInt &RHS) const;
+  LLVM_ABI int64_t srem(int64_t RHS) const;
 
   /// Dual division/remainder interface.
   ///
@@ -1100,36 +997,46 @@ public:
   /// computation making it a little more efficient. The pair of input arguments
   /// may overlap with the pair of output arguments. It is safe to call
   /// udivrem(X, Y, X, Y), for example.
-  static void udivrem(const APInt &LHS, const APInt &RHS, APInt &Quotient,
-                      APInt &Remainder);
-  static void udivrem(const APInt &LHS, uint64_t RHS, APInt &Quotient,
-                      uint64_t &Remainder);
+  LLVM_ABI static void udivrem(const APInt &LHS, const APInt &RHS,
+                               APInt &Quotient, APInt &Remainder);
+  LLVM_ABI static void udivrem(const APInt &LHS, uint64_t RHS, APInt &Quotient,
+                               uint64_t &Remainder);
 
-  static void sdivrem(const APInt &LHS, const APInt &RHS, APInt &Quotient,
-                      APInt &Remainder);
-  static void sdivrem(const APInt &LHS, int64_t RHS, APInt &Quotient,
-                      int64_t &Remainder);
+  LLVM_ABI static void sdivrem(const APInt &LHS, const APInt &RHS,
+                               APInt &Quotient, APInt &Remainder);
+  LLVM_ABI static void sdivrem(const APInt &LHS, int64_t RHS, APInt &Quotient,
+                               int64_t &Remainder);
 
   // Operations that return overflow indicators.
-  APInt sadd_ov(const APInt &RHS, bool &Overflow) const;
-  APInt uadd_ov(const APInt &RHS, bool &Overflow) const;
-  APInt ssub_ov(const APInt &RHS, bool &Overflow) const;
-  APInt usub_ov(const APInt &RHS, bool &Overflow) const;
-  APInt sdiv_ov(const APInt &RHS, bool &Overflow) const;
-  APInt smul_ov(const APInt &RHS, bool &Overflow) const;
-  APInt umul_ov(const APInt &RHS, bool &Overflow) const;
-  APInt sshl_ov(const APInt &Amt, bool &Overflow) const;
-  APInt ushl_ov(const APInt &Amt, bool &Overflow) const;
+  LLVM_ABI APInt sadd_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt uadd_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt ssub_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt usub_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt sdiv_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt smul_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt umul_ov(const APInt &RHS, bool &Overflow) const;
+  LLVM_ABI APInt sshl_ov(const APInt &Amt, bool &Overflow) const;
+  LLVM_ABI APInt sshl_ov(unsigned Amt, bool &Overflow) const;
+  LLVM_ABI APInt ushl_ov(const APInt &Amt, bool &Overflow) const;
+  LLVM_ABI APInt ushl_ov(unsigned Amt, bool &Overflow) const;
+
+  /// Signed integer floor division operation.
+  ///
+  /// Rounds towards negative infinity, i.e. 5 / -2 = -3. Iff minimum value
+  /// divided by -1 set Overflow to true.
+  LLVM_ABI APInt sfloordiv_ov(const APInt &RHS, bool &Overflow) const;
 
   // Operations that saturate
-  APInt sadd_sat(const APInt &RHS) const;
-  APInt uadd_sat(const APInt &RHS) const;
-  APInt ssub_sat(const APInt &RHS) const;
-  APInt usub_sat(const APInt &RHS) const;
-  APInt smul_sat(const APInt &RHS) const;
-  APInt umul_sat(const APInt &RHS) const;
-  APInt sshl_sat(const APInt &RHS) const;
-  APInt ushl_sat(const APInt &RHS) const;
+  LLVM_ABI APInt sadd_sat(const APInt &RHS) const;
+  LLVM_ABI APInt uadd_sat(const APInt &RHS) const;
+  LLVM_ABI APInt ssub_sat(const APInt &RHS) const;
+  LLVM_ABI APInt usub_sat(const APInt &RHS) const;
+  LLVM_ABI APInt smul_sat(const APInt &RHS) const;
+  LLVM_ABI APInt umul_sat(const APInt &RHS) const;
+  LLVM_ABI APInt sshl_sat(const APInt &RHS) const;
+  LLVM_ABI APInt sshl_sat(unsigned RHS) const;
+  LLVM_ABI APInt ushl_sat(const APInt &RHS) const;
+  LLVM_ABI APInt ushl_sat(unsigned RHS) const;
 
   /// Array-indexing support.
   ///
@@ -1151,7 +1058,7 @@ public:
     assert(BitWidth == RHS.BitWidth && "Comparison requires equal bit widths");
     if (isSingleWord())
       return U.VAL == RHS.U.VAL;
-    return EqualSlowCase(RHS);
+    return equalSlowCase(RHS);
   }
 
   /// Equality operator.
@@ -1230,8 +1137,9 @@ public:
   ///
   /// \returns true if *this < RHS when considered signed.
   bool slt(int64_t RHS) const {
-    return (!isSingleWord() && getMinSignedBits() > 64) ? isNegative()
-                                                        : getSExtValue() < RHS;
+    return (!isSingleWord() && getSignificantBits() > 64)
+               ? isNegative()
+               : getSExtValue() < RHS;
   }
 
   /// Unsigned less or equal comparison
@@ -1300,8 +1208,9 @@ public:
   ///
   /// \returns true if *this > RHS when considered signed.
   bool sgt(int64_t RHS) const {
-    return (!isSingleWord() && getMinSignedBits() > 64) ? !isNegative()
-                                                        : getSExtValue() > RHS;
+    return (!isSingleWord() && getSignificantBits() > 64)
+               ? !isNegative()
+               : getSExtValue() > RHS;
   }
 
   /// Unsigned greater or equal comparison
@@ -1360,66 +1269,48 @@ public:
   /// Truncate to new width.
   ///
   /// Truncate the APInt to a specified width. It is an error to specify a width
-  /// that is greater than or equal to the current width.
-  APInt trunc(unsigned width) const;
+  /// that is greater than the current width.
+  LLVM_ABI APInt trunc(unsigned width) const;
 
   /// Truncate to new width with unsigned saturation.
   ///
   /// If the APInt, treated as unsigned integer, can be losslessly truncated to
   /// the new bitwidth, then return truncated APInt. Else, return max value.
-  APInt truncUSat(unsigned width) const;
+  LLVM_ABI APInt truncUSat(unsigned width) const;
 
   /// Truncate to new width with signed saturation.
   ///
   /// If this APInt, treated as signed integer, can be losslessly truncated to
   /// the new bitwidth, then return truncated APInt. Else, return either
   /// signed min value if the APInt was negative, or signed max value.
-  APInt truncSSat(unsigned width) const;
+  LLVM_ABI APInt truncSSat(unsigned width) const;
 
   /// Sign extend to a new width.
   ///
   /// This operation sign extends the APInt to a new width. If the high order
   /// bit is set, the fill on the left will be done with 1 bits, otherwise zero.
-  /// It is an error to specify a width that is less than or equal to the
+  /// It is an error to specify a width that is less than the
   /// current width.
-  APInt sext(unsigned width) const;
+  LLVM_ABI APInt sext(unsigned width) const;
 
   /// Zero extend to a new width.
   ///
   /// This operation zero extends the APInt to a new width. The high order bits
   /// are filled with 0 bits.  It is an error to specify a width that is less
-  /// than or equal to the current width.
-  APInt zext(unsigned width) const;
+  /// than the current width.
+  LLVM_ABI APInt zext(unsigned width) const;
 
   /// Sign extend or truncate to width
   ///
   /// Make this APInt have the bit width given by \p width. The value is sign
   /// extended, truncated, or left alone to make it that width.
-  APInt sextOrTrunc(unsigned width) const;
+  LLVM_ABI APInt sextOrTrunc(unsigned width) const;
 
   /// Zero extend or truncate to width
   ///
   /// Make this APInt have the bit width given by \p width. The value is zero
   /// extended, truncated, or left alone to make it that width.
-  APInt zextOrTrunc(unsigned width) const;
-
-  /// Truncate to width
-  ///
-  /// Make this APInt have the bit width given by \p width. The value is
-  /// truncated or left alone to make it that width.
-  APInt truncOrSelf(unsigned width) const;
-
-  /// Sign extend or truncate to width
-  ///
-  /// Make this APInt have the bit width given by \p width. The value is sign
-  /// extended, or left alone to make it that width.
-  APInt sextOrSelf(unsigned width) const;
-
-  /// Zero extend or truncate to width
-  ///
-  /// Make this APInt have the bit width given by \p width. The value is zero
-  /// extended, or left alone to make it that width.
-  APInt zextOrSelf(unsigned width) const;
+  LLVM_ABI APInt zextOrTrunc(unsigned width) const;
 
   /// @}
   /// \name Bit Manipulation Operators
@@ -1436,8 +1327,6 @@ public:
     clearUnusedBits();
   }
 
-  /// Set a given bit to 1.
-  ///
   /// Set the given bit to 1 whose position is given as "bitPosition".
   void setBit(unsigned BitPosition) {
     assert(BitPosition < BitWidth && "BitPosition out of range");
@@ -1449,9 +1338,7 @@ public:
   }
 
   /// Set the sign bit to 1.
-  void setSignBit() {
-    setBit(BitWidth - 1);
-  }
+  void setSignBit() { setBit(BitWidth - 1); }
 
   /// Set a given bit to a given value.
   void setBitVal(unsigned BitPosition, bool BitValue) {
@@ -1480,11 +1367,10 @@ public:
   /// This function handles case when \p loBit <= \p hiBit.
   void setBits(unsigned loBit, unsigned hiBit) {
     assert(hiBit <= BitWidth && "hiBit out of range");
-    assert(loBit <= BitWidth && "loBit out of range");
     assert(loBit <= hiBit && "loBit greater than hiBit");
     if (loBit == hiBit)
       return;
-    if (loBit < APINT_BITS_PER_WORD && hiBit <= APINT_BITS_PER_WORD) {
+    if (hiBit <= APINT_BITS_PER_WORD) {
       uint64_t mask = WORDTYPE_MAX >> (APINT_BITS_PER_WORD - (hiBit - loBit));
       mask <<= loBit;
       if (isSingleWord())
@@ -1497,14 +1383,10 @@ public:
   }
 
   /// Set the top bits starting from loBit.
-  void setBitsFrom(unsigned loBit) {
-    return setBits(loBit, BitWidth);
-  }
+  void setBitsFrom(unsigned loBit) { return setBits(loBit, BitWidth); }
 
   /// Set the bottom loBits bits.
-  void setLowBits(unsigned loBits) {
-    return setBits(0, loBits);
-  }
+  void setLowBits(unsigned loBits) { return setBits(0, loBits); }
 
   /// Set the top hiBits bits.
   void setHighBits(unsigned hiBits) {
@@ -1531,6 +1413,25 @@ public:
       U.pVal[whichWord(BitPosition)] &= Mask;
   }
 
+  /// Clear the bits from LoBit (inclusive) to HiBit (exclusive) to 0.
+  /// This function handles case when \p LoBit <= \p HiBit.
+  void clearBits(unsigned LoBit, unsigned HiBit) {
+    assert(HiBit <= BitWidth && "HiBit out of range");
+    assert(LoBit <= HiBit && "LoBit greater than HiBit");
+    if (LoBit == HiBit)
+      return;
+    if (HiBit <= APINT_BITS_PER_WORD) {
+      uint64_t Mask = WORDTYPE_MAX >> (APINT_BITS_PER_WORD - (HiBit - LoBit));
+      Mask = ~(Mask << LoBit);
+      if (isSingleWord())
+        U.VAL &= Mask;
+      else
+        U.pVal[0] &= Mask;
+    } else {
+      clearBitsSlowCase(LoBit, HiBit);
+    }
+  }
+
   /// Set bottom loBits bits to 0.
   void clearLowBits(unsigned loBits) {
     assert(loBits <= BitWidth && "More bits than bitwidth");
@@ -1538,10 +1439,15 @@ public:
     *this &= Keep;
   }
 
-  /// Set the sign bit to 0.
-  void clearSignBit() {
-    clearBit(BitWidth - 1);
+  /// Set top hiBits bits to 0.
+  void clearHighBits(unsigned hiBits) {
+    assert(hiBits <= BitWidth && "More bits than bitwidth");
+    APInt Keep = getLowBitsSet(BitWidth, BitWidth - hiBits);
+    *this &= Keep;
   }
+
+  /// Set the sign bit to 0.
+  void clearSignBit() { clearBit(BitWidth - 1); }
 
   /// Toggle every bit to its opposite value.
   void flipAllBits() {
@@ -1557,7 +1463,7 @@ public:
   ///
   /// Toggle a given bit to its opposite value whose position is given
   /// as "bitPosition".
-  void flipBit(unsigned bitPosition);
+  LLVM_ABI void flipBit(unsigned bitPosition);
 
   /// Negate this APInt in place.
   void negate() {
@@ -1566,12 +1472,14 @@ public:
   }
 
   /// Insert the bits from a smaller APInt starting at bitPosition.
-  void insertBits(const APInt &SubBits, unsigned bitPosition);
-  void insertBits(uint64_t SubBits, unsigned bitPosition, unsigned numBits);
+  LLVM_ABI void insertBits(const APInt &SubBits, unsigned bitPosition);
+  LLVM_ABI void insertBits(uint64_t SubBits, unsigned bitPosition,
+                           unsigned numBits);
 
   /// Return an APInt with the extracted bits [bitPosition,bitPosition+numBits).
-  APInt extractBits(unsigned numBits, unsigned bitPosition) const;
-  uint64_t extractBitsAsZExtValue(unsigned numBits, unsigned bitPosition) const;
+  LLVM_ABI APInt extractBits(unsigned numBits, unsigned bitPosition) const;
+  LLVM_ABI uint64_t extractBitsAsZExtValue(unsigned numBits,
+                                           unsigned bitPosition) const;
 
   /// @}
   /// \name Value Characterization Functions
@@ -1602,7 +1510,7 @@ public:
   /// This function returns the number of active bits which is defined as the
   /// bit width minus the number of leading zeros. This is used in several
   /// computations to see how "wide" the value is.
-  unsigned getActiveBits() const { return BitWidth - countLeadingZeros(); }
+  unsigned getActiveBits() const { return BitWidth - countl_zero(); }
 
   /// Compute the number of active words in the value of this APInt.
   ///
@@ -1621,7 +1529,9 @@ public:
   /// returns the smallest bit width that will retain the negative value. For
   /// example, -1 can be written as 0b1 or 0xFFFFFFFFFF. 0b1 is shorter and so
   /// for -1, this function will always return 1.
-  unsigned getMinSignedBits() const { return BitWidth - getNumSignBits() + 1; }
+  unsigned getSignificantBits() const {
+    return BitWidth - getNumSignBits() + 1;
+  }
 
   /// Get zero extended value
   ///
@@ -1635,6 +1545,16 @@ public:
     return U.pVal[0];
   }
 
+  /// Get zero extended value if possible
+  ///
+  /// This method attempts to return the value of this APInt as a zero extended
+  /// uint64_t. The bitwidth must be <= 64 or the value must fit within a
+  /// uint64_t. Otherwise no value is returned.
+  std::optional<uint64_t> tryZExtValue() const {
+    return (getActiveBits() <= 64) ? std::optional<uint64_t>(getZExtValue())
+                                   : std::nullopt;
+  };
+
   /// Get sign extended value
   ///
   /// This method attempts to return the value of this APInt as a sign extended
@@ -1643,103 +1563,129 @@ public:
   int64_t getSExtValue() const {
     if (isSingleWord())
       return SignExtend64(U.VAL, BitWidth);
-    assert(getMinSignedBits() <= 64 && "Too many bits for int64_t");
+    assert(getSignificantBits() <= 64 && "Too many bits for int64_t");
     return int64_t(U.pVal[0]);
   }
+
+  /// Get sign extended value if possible
+  ///
+  /// This method attempts to return the value of this APInt as a sign extended
+  /// int64_t. The bitwidth must be <= 64 or the value must fit within an
+  /// int64_t. Otherwise no value is returned.
+  std::optional<int64_t> trySExtValue() const {
+    return (getSignificantBits() <= 64) ? std::optional<int64_t>(getSExtValue())
+                                        : std::nullopt;
+  };
 
   /// Get bits required for string value.
   ///
   /// This method determines how many bits are required to hold the APInt
   /// equivalent of the string given by \p str.
-  static unsigned getBitsNeeded(StringRef str, uint8_t radix);
+  LLVM_ABI static unsigned getBitsNeeded(StringRef str, uint8_t radix);
 
-  /// The APInt version of the countLeadingZeros functions in
-  ///   MathExtras.h.
+  /// Get the bits that are sufficient to represent the string value. This may
+  /// over estimate the amount of bits required, but it does not require
+  /// parsing the value in the string.
+  LLVM_ABI static unsigned getSufficientBitsNeeded(StringRef Str,
+                                                   uint8_t Radix);
+
+  /// The APInt version of std::countl_zero.
   ///
   /// It counts the number of zeros from the most significant bit to the first
   /// one bit.
   ///
   /// \returns BitWidth if the value is zero, otherwise returns the number of
   ///   zeros from the most significant bit to the first one bits.
-  unsigned countLeadingZeros() const {
+  unsigned countl_zero() const {
     if (isSingleWord()) {
       unsigned unusedBits = APINT_BITS_PER_WORD - BitWidth;
-      return llvm::countLeadingZeros(U.VAL) - unusedBits;
+      return llvm::countl_zero(U.VAL) - unusedBits;
     }
     return countLeadingZerosSlowCase();
   }
 
+  unsigned countLeadingZeros() const { return countl_zero(); }
+
   /// Count the number of leading one bits.
   ///
-  /// This function is an APInt version of the countLeadingOnes
-  /// functions in MathExtras.h. It counts the number of ones from the most
-  /// significant bit to the first zero bit.
+  /// This function is an APInt version of std::countl_one. It counts the number
+  /// of ones from the most significant bit to the first zero bit.
   ///
   /// \returns 0 if the high order bit is not set, otherwise returns the number
   /// of 1 bits from the most significant to the least
-  unsigned countLeadingOnes() const {
-    if (isSingleWord())
-      return llvm::countLeadingOnes(U.VAL << (APINT_BITS_PER_WORD - BitWidth));
+  unsigned countl_one() const {
+    if (isSingleWord()) {
+      if (LLVM_UNLIKELY(BitWidth == 0))
+        return 0;
+      return llvm::countl_one(U.VAL << (APINT_BITS_PER_WORD - BitWidth));
+    }
     return countLeadingOnesSlowCase();
   }
+
+  unsigned countLeadingOnes() const { return countl_one(); }
 
   /// Computes the number of leading bits of this APInt that are equal to its
   /// sign bit.
   unsigned getNumSignBits() const {
-    return isNegative() ? countLeadingOnes() : countLeadingZeros();
+    return isNegative() ? countl_one() : countl_zero();
   }
 
   /// Count the number of trailing zero bits.
   ///
-  /// This function is an APInt version of the countTrailingZeros
-  /// functions in MathExtras.h. It counts the number of zeros from the least
-  /// significant bit to the first set bit.
+  /// This function is an APInt version of std::countr_zero. It counts the
+  /// number of zeros from the least significant bit to the first set bit.
   ///
   /// \returns BitWidth if the value is zero, otherwise returns the number of
   /// zeros from the least significant bit to the first one bit.
-  unsigned countTrailingZeros() const {
+  unsigned countr_zero() const {
     if (isSingleWord()) {
-      unsigned TrailingZeros = llvm::countTrailingZeros(U.VAL);
+      unsigned TrailingZeros = llvm::countr_zero(U.VAL);
       return (TrailingZeros > BitWidth ? BitWidth : TrailingZeros);
     }
     return countTrailingZerosSlowCase();
   }
 
+  unsigned countTrailingZeros() const { return countr_zero(); }
+
   /// Count the number of trailing one bits.
   ///
-  /// This function is an APInt version of the countTrailingOnes
-  /// functions in MathExtras.h. It counts the number of ones from the least
-  /// significant bit to the first zero bit.
+  /// This function is an APInt version of std::countr_one. It counts the number
+  /// of ones from the least significant bit to the first zero bit.
   ///
   /// \returns BitWidth if the value is all ones, otherwise returns the number
   /// of ones from the least significant bit to the first zero bit.
-  unsigned countTrailingOnes() const {
+  unsigned countr_one() const {
     if (isSingleWord())
-      return llvm::countTrailingOnes(U.VAL);
+      return llvm::countr_one(U.VAL);
     return countTrailingOnesSlowCase();
   }
 
+  unsigned countTrailingOnes() const { return countr_one(); }
+
   /// Count the number of bits set.
   ///
-  /// This function is an APInt version of the countPopulation functions
-  /// in MathExtras.h. It counts the number of 1 bits in the APInt value.
+  /// This function is an APInt version of std::popcount. It counts the number
+  /// of 1 bits in the APInt value.
   ///
   /// \returns 0 if the value is zero, otherwise returns the number of set bits.
-  unsigned countPopulation() const {
+  unsigned popcount() const {
     if (isSingleWord())
-      return llvm::countPopulation(U.VAL);
+      return llvm::popcount(U.VAL);
     return countPopulationSlowCase();
   }
 
   /// @}
   /// \name Conversion Functions
   /// @{
-  void print(raw_ostream &OS, bool isSigned) const;
+  LLVM_ABI void print(raw_ostream &OS, bool isSigned) const;
 
   /// Converts an APInt to a string and append it to Str.  Str is commonly a
-  /// SmallString.
-  void toString(SmallVectorImpl<char> &Str, unsigned Radix, bool Signed,
-                bool formatAsCLiteral = false) const;
+  /// SmallString. If Radix > 10, UpperCase determine the case of letter
+  /// digits.
+  LLVM_ABI void toString(SmallVectorImpl<char> &Str, unsigned Radix,
+                         bool Signed, bool formatAsCLiteral = false,
+                         bool UpperCase = true,
+                         bool InsertSeparators = false) const;
 
   /// Considers the APInt to be unsigned and converts it into a string in the
   /// radix given. The radix can be 2, 8, 10 16, or 36.
@@ -1753,22 +1699,15 @@ public:
     toString(Str, Radix, true, false);
   }
 
-  /// Return the APInt as a std::string.
-  ///
-  /// Note that this is an inefficient method.  It is better to pass in a
-  /// SmallVector/SmallString to the methods above to avoid thrashing the heap
-  /// for the string.
-  std::string toString(unsigned Radix, bool Signed) const;
-
   /// \returns a byte-swapped representation of this APInt Value.
-  APInt byteSwap() const;
+  LLVM_ABI APInt byteSwap() const;
 
   /// \returns the value with the bit representation reversed of this APInt
   /// Value.
-  APInt reverseBits() const;
+  LLVM_ABI APInt reverseBits() const;
 
   /// Converts this APInt to a double value.
-  double roundToDouble(bool isSigned) const;
+  LLVM_ABI double roundToDouble(bool isSigned) const;
 
   /// Converts this unsigned APInt to a double value.
   double roundToDouble() const { return roundToDouble(false); }
@@ -1781,9 +1720,14 @@ public:
   /// The conversion does not do a translation from integer to double, it just
   /// re-interprets the bits as a double. Note that it is valid to do this on
   /// any bit width. Exactly 64 bits will be translated.
-  double bitsToDouble() const {
-    return BitsToDouble(getWord(0));
+  double bitsToDouble() const { return llvm::bit_cast<double>(getWord(0)); }
+
+#ifdef HAS_IEE754_FLOAT128
+  float128 bitsToQuad() const {
+    __uint128_t ul = ((__uint128_t)U.pVal[1] << 64) + U.pVal[0];
+    return llvm::bit_cast<float128>(ul);
   }
+#endif
 
   /// Converts APInt bits to a float
   ///
@@ -1791,7 +1735,7 @@ public:
   /// re-interprets the bits as a float. Note that it is valid to do this on
   /// any bit width. Exactly 32 bits will be translated.
   float bitsToFloat() const {
-    return BitsToFloat(static_cast<uint32_t>(getWord(0)));
+    return llvm::bit_cast<float>(static_cast<uint32_t>(getWord(0)));
   }
 
   /// Converts a double to APInt bits.
@@ -1799,7 +1743,7 @@ public:
   /// The conversion does not do a translation from double to integer, it just
   /// re-interprets the bits of the double.
   static APInt doubleToBits(double V) {
-    return APInt(sizeof(double) * CHAR_BIT, DoubleToBits(V));
+    return APInt(sizeof(double) * CHAR_BIT, llvm::bit_cast<uint64_t>(V));
   }
 
   /// Converts a float to APInt bits.
@@ -1807,7 +1751,7 @@ public:
   /// The conversion does not do a translation from float to integer, it just
   /// re-interprets the bits of the float.
   static APInt floatToBits(float V) {
-    return APInt(sizeof(float) * CHAR_BIT, FloatToBits(V));
+    return APInt(sizeof(float) * CHAR_BIT, llvm::bit_cast<uint32_t>(V));
   }
 
   /// @}
@@ -1815,7 +1759,7 @@ public:
   /// @{
 
   /// \returns the floor log base 2 of this APInt.
-  unsigned logBase2() const { return getActiveBits() -  1; }
+  unsigned logBase2() const { return getActiveBits() - 1; }
 
   /// \returns the ceil log base 2 of this APInt.
   unsigned ceilLogBase2() const {
@@ -1833,25 +1777,7 @@ public:
   ///
   /// to get around any mathematical concerns resulting from
   /// referencing 2 in a space where 2 does no exist.
-  unsigned nearestLogBase2() const {
-    // Special case when we have a bitwidth of 1. If VAL is 1, then we
-    // get 0. If VAL is 0, we get WORDTYPE_MAX which gets truncated to
-    // UINT32_MAX.
-    if (BitWidth == 1)
-      return U.VAL - 1;
-
-    // Handle the zero case.
-    if (isNullValue())
-      return UINT32_MAX;
-
-    // The non-zero case is handled by computing:
-    //
-    //   nearestLogBase2(x) = logBase2(x) + x[logBase2(x)-1].
-    //
-    // where x[i] is referring to the value of the ith bit of x.
-    unsigned lg = logBase2();
-    return lg + unsigned((*this)[lg - 1]);
-  }
+  LLVM_ABI unsigned nearestLogBase2() const;
 
   /// \returns the log base 2 of this APInt if its an exact power of two, -1
   /// otherwise
@@ -1861,32 +1787,20 @@ public:
     return logBase2();
   }
 
-  /// Compute the square root
-  APInt sqrt() const;
+  /// Compute the square root.
+  LLVM_ABI APInt sqrt() const;
 
-  /// Get the absolute value;
-  ///
-  /// If *this is < 0 then return -(*this), otherwise *this;
+  /// Get the absolute value.  If *this is < 0 then return -(*this), otherwise
+  /// *this.  Note that the "most negative" signed number (e.g. -128 for 8 bit
+  /// wide APInt) is unchanged due to how negation works.
   APInt abs() const {
     if (isNegative())
       return -(*this);
     return *this;
   }
 
-  /// \returns the multiplicative inverse for a given modulo.
-  APInt multiplicativeInverse(const APInt &modulo) const;
-
-  /// @}
-  /// \name Support for division by constant
-  /// @{
-
-  /// Calculate the magic number for signed division by a constant.
-  struct ms;
-  ms magic() const;
-
-  /// Calculate the magic number for unsigned division by a constant.
-  struct mu;
-  mu magicu(unsigned LeadingZeros = 0) const;
+  /// \returns the multiplicative inverse of an odd APInt modulo 2^BitWidth.
+  LLVM_ABI APInt multiplicativeInverse() const;
 
   /// @}
   /// \name Building-block Operations for APInt and APFloat
@@ -1900,50 +1814,50 @@ public:
 
   /// Sets the least significant part of a bignum to the input value, and zeroes
   /// out higher parts.
-  static void tcSet(WordType *, WordType, unsigned);
+  LLVM_ABI static void tcSet(WordType *, WordType, unsigned);
 
   /// Assign one bignum to another.
-  static void tcAssign(WordType *, const WordType *, unsigned);
+  LLVM_ABI static void tcAssign(WordType *, const WordType *, unsigned);
 
   /// Returns true if a bignum is zero, false otherwise.
-  static bool tcIsZero(const WordType *, unsigned);
+  LLVM_ABI static bool tcIsZero(const WordType *, unsigned);
 
   /// Extract the given bit of a bignum; returns 0 or 1.  Zero-based.
-  static int tcExtractBit(const WordType *, unsigned bit);
+  LLVM_ABI static int tcExtractBit(const WordType *, unsigned bit);
 
   /// Copy the bit vector of width srcBITS from SRC, starting at bit srcLSB, to
   /// DST, of dstCOUNT parts, such that the bit srcLSB becomes the least
   /// significant bit of DST.  All high bits above srcBITS in DST are
   /// zero-filled.
-  static void tcExtract(WordType *, unsigned dstCount,
-                        const WordType *, unsigned srcBits,
-                        unsigned srcLSB);
+  LLVM_ABI static void tcExtract(WordType *, unsigned dstCount,
+                                 const WordType *, unsigned srcBits,
+                                 unsigned srcLSB);
 
   /// Set the given bit of a bignum.  Zero-based.
-  static void tcSetBit(WordType *, unsigned bit);
+  LLVM_ABI static void tcSetBit(WordType *, unsigned bit);
 
   /// Clear the given bit of a bignum.  Zero-based.
-  static void tcClearBit(WordType *, unsigned bit);
+  LLVM_ABI static void tcClearBit(WordType *, unsigned bit);
 
   /// Returns the bit number of the least or most significant set bit of a
   /// number.  If the input number has no bits set -1U is returned.
-  static unsigned tcLSB(const WordType *, unsigned n);
-  static unsigned tcMSB(const WordType *parts, unsigned n);
+  LLVM_ABI static unsigned tcLSB(const WordType *, unsigned n);
+  LLVM_ABI static unsigned tcMSB(const WordType *parts, unsigned n);
 
   /// Negate a bignum in-place.
-  static void tcNegate(WordType *, unsigned);
+  LLVM_ABI static void tcNegate(WordType *, unsigned);
 
   /// DST += RHS + CARRY where CARRY is zero or one.  Returns the carry flag.
-  static WordType tcAdd(WordType *, const WordType *,
-                        WordType carry, unsigned);
+  LLVM_ABI static WordType tcAdd(WordType *, const WordType *, WordType carry,
+                                 unsigned);
   /// DST += RHS.  Returns the carry flag.
-  static WordType tcAddPart(WordType *, WordType, unsigned);
+  LLVM_ABI static WordType tcAddPart(WordType *, WordType, unsigned);
 
   /// DST -= RHS + CARRY where CARRY is zero or one. Returns the carry flag.
-  static WordType tcSubtract(WordType *, const WordType *,
-                             WordType carry, unsigned);
+  LLVM_ABI static WordType tcSubtract(WordType *, const WordType *,
+                                      WordType carry, unsigned);
   /// DST -= RHS.  Returns the carry flag.
-  static WordType tcSubtractPart(WordType *, WordType, unsigned);
+  LLVM_ABI static WordType tcSubtractPart(WordType *, WordType, unsigned);
 
   /// DST += SRC * MULTIPLIER + PART   if add is true
   /// DST  = SRC * MULTIPLIER + PART   if add is false
@@ -1955,22 +1869,22 @@ public:
   /// Otherwise DST is filled with the least significant DSTPARTS parts of the
   /// result, and if all of the omitted higher parts were zero return zero,
   /// otherwise overflow occurred and return one.
-  static int tcMultiplyPart(WordType *dst, const WordType *src,
-                            WordType multiplier, WordType carry,
-                            unsigned srcParts, unsigned dstParts,
-                            bool add);
+  LLVM_ABI static int tcMultiplyPart(WordType *dst, const WordType *src,
+                                     WordType multiplier, WordType carry,
+                                     unsigned srcParts, unsigned dstParts,
+                                     bool add);
 
   /// DST = LHS * RHS, where DST has the same width as the operands and is
   /// filled with the least significant parts of the result.  Returns one if
   /// overflow occurred, otherwise zero.  DST must be disjoint from both
   /// operands.
-  static int tcMultiply(WordType *, const WordType *, const WordType *,
-                        unsigned);
+  LLVM_ABI static int tcMultiply(WordType *, const WordType *, const WordType *,
+                                 unsigned);
 
   /// DST = LHS * RHS, where DST has width the sum of the widths of the
   /// operands. No overflow occurs. DST must be disjoint from both operands.
-  static void tcFullMultiply(WordType *, const WordType *,
-                             const WordType *, unsigned, unsigned);
+  LLVM_ABI static void tcFullMultiply(WordType *, const WordType *,
+                                      const WordType *, unsigned, unsigned);
 
   /// If RHS is zero LHS and REMAINDER are left unchanged, return one.
   /// Otherwise set LHS to LHS / RHS with the fractional part discarded, set
@@ -1981,26 +1895,20 @@ public:
   /// SCRATCH is a bignum of the same size as the operands and result for use by
   /// the routine; its contents need not be initialized and are destroyed.  LHS,
   /// REMAINDER and SCRATCH must be distinct.
-  static int tcDivide(WordType *lhs, const WordType *rhs,
-                      WordType *remainder, WordType *scratch,
-                      unsigned parts);
+  LLVM_ABI static int tcDivide(WordType *lhs, const WordType *rhs,
+                               WordType *remainder, WordType *scratch,
+                               unsigned parts);
 
   /// Shift a bignum left Count bits. Shifted in bits are zero. There are no
   /// restrictions on Count.
-  static void tcShiftLeft(WordType *, unsigned Words, unsigned Count);
+  LLVM_ABI static void tcShiftLeft(WordType *, unsigned Words, unsigned Count);
 
   /// Shift a bignum right Count bits.  Shifted in bits are zero.  There are no
   /// restrictions on Count.
-  static void tcShiftRight(WordType *, unsigned Words, unsigned Count);
-
-  /// The obvious AND, OR and XOR and complement operations.
-  static void tcAnd(WordType *, const WordType *, unsigned);
-  static void tcOr(WordType *, const WordType *, unsigned);
-  static void tcXor(WordType *, const WordType *, unsigned);
-  static void tcComplement(WordType *, unsigned);
+  LLVM_ABI static void tcShiftRight(WordType *, unsigned Words, unsigned Count);
 
   /// Comparison (unsigned) of two bignums.
-  static int tcCompare(const WordType *, const WordType *, unsigned);
+  LLVM_ABI static int tcCompare(const WordType *, const WordType *, unsigned);
 
   /// Increment a bignum in-place.  Return the carry flag.
   static WordType tcIncrement(WordType *dst, unsigned parts) {
@@ -2012,26 +1920,193 @@ public:
     return tcSubtractPart(dst, 1, parts);
   }
 
-  /// Set the least significant BITS and clear the rest.
-  static void tcSetLeastSignificantBits(WordType *, unsigned, unsigned bits);
+  /// Used to insert APInt objects, or objects that contain APInt objects, into
+  ///  FoldingSets.
+  LLVM_ABI void Profile(FoldingSetNodeID &id) const;
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// debug method
-  void dump() const;
+  LLVM_DUMP_METHOD void dump() const;
+#endif
+
+  /// Returns whether this instance allocated memory.
+  bool needsCleanup() const { return !isSingleWord(); }
+
+private:
+  /// This union is used to store the integer value. When the
+  /// integer bit-width <= 64, it uses VAL, otherwise it uses pVal.
+  union {
+    uint64_t VAL;   ///< Used to store the <= 64 bits integer value.
+    uint64_t *pVal; ///< Used to store the >64 bits integer value.
+  } U;
+
+  unsigned BitWidth = 1; ///< The number of bits in this APInt.
+
+  friend struct DenseMapInfo<APInt, void>;
+  friend class APSInt;
+
+  // Make DynamicAPInt a friend so it can access BitWidth directly.
+  friend DynamicAPInt;
+
+  /// This constructor is used only internally for speed of construction of
+  /// temporaries. It is unsafe since it takes ownership of the pointer, so it
+  /// is not public.
+  APInt(uint64_t *val, unsigned bits) : BitWidth(bits) { U.pVal = val; }
+
+  /// Determine which word a bit is in.
+  ///
+  /// \returns the word position for the specified bit position.
+  static unsigned whichWord(unsigned bitPosition) {
+    return bitPosition / APINT_BITS_PER_WORD;
+  }
+
+  /// Determine which bit in a word the specified bit position is in.
+  static unsigned whichBit(unsigned bitPosition) {
+    return bitPosition % APINT_BITS_PER_WORD;
+  }
+
+  /// Get a single bit mask.
+  ///
+  /// \returns a uint64_t with only bit at "whichBit(bitPosition)" set
+  /// This method generates and returns a uint64_t (word) mask for a single
+  /// bit at a specific bit position. This is used to mask the bit in the
+  /// corresponding word.
+  static uint64_t maskBit(unsigned bitPosition) {
+    return 1ULL << whichBit(bitPosition);
+  }
+
+  /// Clear unused high order bits
+  ///
+  /// This method is used internally to clear the top "N" bits in the high order
+  /// word that are not used by the APInt. This is needed after the most
+  /// significant word is assigned a value to ensure that those bits are
+  /// zero'd out.
+  APInt &clearUnusedBits() {
+    // Compute how many bits are used in the final word.
+    unsigned WordBits = ((BitWidth - 1) % APINT_BITS_PER_WORD) + 1;
+
+    // Mask out the high bits.
+    uint64_t mask = WORDTYPE_MAX >> (APINT_BITS_PER_WORD - WordBits);
+    if (LLVM_UNLIKELY(BitWidth == 0))
+      mask = 0;
+
+    if (isSingleWord())
+      U.VAL &= mask;
+    else
+      U.pVal[getNumWords() - 1] &= mask;
+    return *this;
+  }
+
+  /// Get the word corresponding to a bit position
+  /// \returns the corresponding word for the specified bit position.
+  uint64_t getWord(unsigned bitPosition) const {
+    return isSingleWord() ? U.VAL : U.pVal[whichWord(bitPosition)];
+  }
+
+  /// Utility method to change the bit width of this APInt to new bit width,
+  /// allocating and/or deallocating as necessary. There is no guarantee on the
+  /// value of any bits upon return. Caller should populate the bits after.
+  void reallocate(unsigned NewBitWidth);
+
+  /// Convert a char array into an APInt
+  ///
+  /// \param radix 2, 8, 10, 16, or 36
+  /// Converts a string into a number.  The string must be non-empty
+  /// and well-formed as a number of the given base. The bit-width
+  /// must be sufficient to hold the result.
+  ///
+  /// This is used by the constructors that take string arguments.
+  ///
+  /// StringRef::getAsInteger is superficially similar but (1) does
+  /// not assume that the string is well-formed and (2) grows the
+  /// result to hold the input.
+  void fromString(unsigned numBits, StringRef str, uint8_t radix);
+
+  /// An internal division function for dividing APInts.
+  ///
+  /// This is used by the toString method to divide by the radix. It simply
+  /// provides a more convenient form of divide for internal use since KnuthDiv
+  /// has specific constraints on its inputs. If those constraints are not met
+  /// then it provides a simpler form of divide.
+  static void divide(const WordType *LHS, unsigned lhsWords,
+                     const WordType *RHS, unsigned rhsWords, WordType *Quotient,
+                     WordType *Remainder);
+
+  /// out-of-line slow case for inline constructor
+  LLVM_ABI void initSlowCase(uint64_t val, bool isSigned);
+
+  /// shared code between two array constructors
+  void initFromArray(ArrayRef<uint64_t> array);
+
+  /// out-of-line slow case for inline copy constructor
+  LLVM_ABI void initSlowCase(const APInt &that);
+
+  /// out-of-line slow case for shl
+  LLVM_ABI void shlSlowCase(unsigned ShiftAmt);
+
+  /// out-of-line slow case for lshr.
+  LLVM_ABI void lshrSlowCase(unsigned ShiftAmt);
+
+  /// out-of-line slow case for ashr.
+  LLVM_ABI void ashrSlowCase(unsigned ShiftAmt);
+
+  /// out-of-line slow case for operator=
+  LLVM_ABI void assignSlowCase(const APInt &RHS);
+
+  /// out-of-line slow case for operator==
+  LLVM_ABI bool equalSlowCase(const APInt &RHS) const LLVM_READONLY;
+
+  /// out-of-line slow case for countLeadingZeros
+  LLVM_ABI unsigned countLeadingZerosSlowCase() const LLVM_READONLY;
+
+  /// out-of-line slow case for countLeadingOnes.
+  LLVM_ABI unsigned countLeadingOnesSlowCase() const LLVM_READONLY;
+
+  /// out-of-line slow case for countTrailingZeros.
+  LLVM_ABI unsigned countTrailingZerosSlowCase() const LLVM_READONLY;
+
+  /// out-of-line slow case for countTrailingOnes
+  LLVM_ABI unsigned countTrailingOnesSlowCase() const LLVM_READONLY;
+
+  /// out-of-line slow case for countPopulation
+  LLVM_ABI unsigned countPopulationSlowCase() const LLVM_READONLY;
+
+  /// out-of-line slow case for intersects.
+  LLVM_ABI bool intersectsSlowCase(const APInt &RHS) const LLVM_READONLY;
+
+  /// out-of-line slow case for isSubsetOf.
+  LLVM_ABI bool isSubsetOfSlowCase(const APInt &RHS) const LLVM_READONLY;
+
+  /// out-of-line slow case for setBits.
+  LLVM_ABI void setBitsSlowCase(unsigned loBit, unsigned hiBit);
+
+  /// out-of-line slow case for clearBits.
+  LLVM_ABI void clearBitsSlowCase(unsigned LoBit, unsigned HiBit);
+
+  /// out-of-line slow case for flipAllBits.
+  LLVM_ABI void flipAllBitsSlowCase();
+
+  /// out-of-line slow case for concat.
+  LLVM_ABI APInt concatSlowCase(const APInt &NewLSB) const;
+
+  /// out-of-line slow case for operator&=.
+  LLVM_ABI void andAssignSlowCase(const APInt &RHS);
+
+  /// out-of-line slow case for operator|=.
+  LLVM_ABI void orAssignSlowCase(const APInt &RHS);
+
+  /// out-of-line slow case for operator^=.
+  LLVM_ABI void xorAssignSlowCase(const APInt &RHS);
+
+  /// Unsigned comparison. Returns -1, 0, or 1 if this APInt is less than, equal
+  /// to, or greater than RHS.
+  LLVM_ABI int compare(const APInt &RHS) const LLVM_READONLY;
+
+  /// Signed comparison. Returns -1, 0, or 1 if this APInt is less than, equal
+  /// to, or greater than RHS.
+  LLVM_ABI int compareSigned(const APInt &RHS) const LLVM_READONLY;
 
   /// @}
-};
-
-/// Magic data for optimising signed division by a constant.
-struct APInt::ms {
-  APInt m;    ///< magic number
-  unsigned s; ///< shift amount
-};
-
-/// Magic data for optimising unsigned division by a constant.
-struct APInt::mu {
-  APInt m;    ///< magic number
-  bool a;     ///< add indicator
-  unsigned s; ///< shift amount
 };
 
 inline bool operator==(uint64_t V1, const APInt &V2) { return V2 == V1; }
@@ -2168,7 +2243,6 @@ inline APInt operator*(uint64_t LHS, APInt b) {
   return b;
 }
 
-
 namespace APIntOps {
 
 /// Determine the smaller of two APInts considered to be signed.
@@ -2191,13 +2265,53 @@ inline const APInt &umax(const APInt &A, const APInt &B) {
   return A.ugt(B) ? A : B;
 }
 
+/// Determine the absolute difference of two APInts considered to be signed.
+inline APInt abds(const APInt &A, const APInt &B) {
+  return A.sge(B) ? (A - B) : (B - A);
+}
+
+/// Determine the absolute difference of two APInts considered to be unsigned.
+inline APInt abdu(const APInt &A, const APInt &B) {
+  return A.uge(B) ? (A - B) : (B - A);
+}
+
+/// Compute the floor of the signed average of C1 and C2
+LLVM_ABI APInt avgFloorS(const APInt &C1, const APInt &C2);
+
+/// Compute the floor of the unsigned average of C1 and C2
+LLVM_ABI APInt avgFloorU(const APInt &C1, const APInt &C2);
+
+/// Compute the ceil of the signed average of C1 and C2
+LLVM_ABI APInt avgCeilS(const APInt &C1, const APInt &C2);
+
+/// Compute the ceil of the unsigned average of C1 and C2
+LLVM_ABI APInt avgCeilU(const APInt &C1, const APInt &C2);
+
+/// Performs (2*N)-bit multiplication on sign-extended operands.
+/// Returns the high N bits of the multiplication result.
+LLVM_ABI APInt mulhs(const APInt &C1, const APInt &C2);
+
+/// Performs (2*N)-bit multiplication on zero-extended operands.
+/// Returns the high N bits of the multiplication result.
+LLVM_ABI APInt mulhu(const APInt &C1, const APInt &C2);
+
+/// Performs (2*N)-bit multiplication on sign-extended operands.
+LLVM_ABI APInt mulsExtended(const APInt &C1, const APInt &C2);
+
+/// Performs (2*N)-bit multiplication on zero-extended operands.
+LLVM_ABI APInt muluExtended(const APInt &C1, const APInt &C2);
+
+/// Compute X^N for N>=0.
+/// 0^0 is supported and returns 1.
+LLVM_ABI APInt pow(const APInt &X, int64_t N);
+
 /// Compute GCD of two unsigned APInt values.
 ///
 /// This function returns the greatest common divisor of the two APInt values
 /// using Stein's algorithm.
 ///
 /// \returns the greatest common divisor of A and B.
-APInt GreatestCommonDivisor(APInt A, APInt B);
+LLVM_ABI APInt GreatestCommonDivisor(APInt A, APInt B);
 
 /// Converts the given APInt to a double value.
 ///
@@ -2228,7 +2342,7 @@ inline float RoundSignedAPIntToFloat(const APInt &APIVal) {
 /// Converts the given double value into a APInt.
 ///
 /// This function convert a double value to an APInt value.
-APInt RoundDoubleToAPInt(double Double, unsigned width);
+LLVM_ABI APInt RoundDoubleToAPInt(double Double, unsigned width);
 
 /// Converts a float value into a APInt.
 ///
@@ -2238,10 +2352,10 @@ inline APInt RoundFloatToAPInt(float Float, unsigned width) {
 }
 
 /// Return A unsign-divided by B, rounded by the given rounding mode.
-APInt RoundingUDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
+LLVM_ABI APInt RoundingUDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
 
 /// Return A sign-divided by B, rounded by the given rounding mode.
-APInt RoundingSDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
+LLVM_ABI APInt RoundingSDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
 
 /// Let q(n) = An^2 + Bn + C, and BW = bit width of the value range
 /// (e.g. 32 for i32).
@@ -2262,7 +2376,7 @@ APInt RoundingSDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
 /// value to go from [-2^BW, 0) to [0, 2^BW). In that sense, zero is
 /// treated as a special case of an overflow.
 ///
-/// This function returns None if after finding k that minimizes the
+/// This function returns std::nullopt if after finding k that minimizes the
 /// positive solution to q(n) = kR, both solutions are contained between
 /// two consecutive integers.
 ///
@@ -2276,27 +2390,113 @@ APInt RoundingSDiv(const APInt &A, const APInt &B, APInt::Rounding RM);
 ///
 /// The returned value may have a different bit width from the input
 /// coefficients.
-Optional<APInt> SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
-                                           unsigned RangeWidth);
+LLVM_ABI std::optional<APInt>
+SolveQuadraticEquationWrap(APInt A, APInt B, APInt C, unsigned RangeWidth);
 
 /// Compare two values, and if they are different, return the position of the
 /// most significant bit that is different in the values.
-Optional<unsigned> GetMostSignificantDifferentBit(const APInt &A,
-                                                  const APInt &B);
+LLVM_ABI std::optional<unsigned> GetMostSignificantDifferentBit(const APInt &A,
+                                                                const APInt &B);
 
-} // End of APIntOps namespace
+/// Splat/Merge neighboring bits to widen/narrow the bitmask represented
+/// by \param A to \param NewBitWidth bits.
+///
+/// MatchAnyBits: (Default)
+/// e.g. ScaleBitMask(0b0101, 8) -> 0b00110011
+/// e.g. ScaleBitMask(0b00011011, 4) -> 0b0111
+///
+/// MatchAllBits:
+/// e.g. ScaleBitMask(0b0101, 8) -> 0b00110011
+/// e.g. ScaleBitMask(0b00011011, 4) -> 0b0001
+/// A.getBitwidth() or NewBitWidth must be a whole multiples of the other.
+LLVM_ABI APInt ScaleBitMask(const APInt &A, unsigned NewBitWidth,
+                            bool MatchAllBits = false);
+
+/// Perform a funnel shift left.
+///
+/// Concatenate Hi and Lo (Hi is the most significant bits of the wide value),
+/// the combined value is shifted left by Shift (modulo the bit width of the
+/// original arguments), and the most significant bits are extracted to produce
+/// a result that is the same size as the original arguments.
+///
+/// Examples:
+/// (1) fshl(i8 255, i8 0, i8 15) = 128 (0b10000000)
+/// (2) fshl(i8 15, i8 15, i8 11) = 120 (0b01111000)
+/// (3) fshl(i8 0, i8 255, i8 8)  = 0   (0b00000000)
+/// (4) fshl(i8 255, i8 0, i8 15) = fshl(i8 255, i8 0, i8 7) // 15 % 8
+LLVM_ABI APInt fshl(const APInt &Hi, const APInt &Lo, const APInt &Shift);
+
+/// Perform a funnel shift right.
+///
+/// Concatenate Hi and Lo (Hi is the most significant bits of the wide value),
+/// the combined value is shifted right by Shift (modulo the bit width of the
+/// original arguments), and the least significant bits are extracted to produce
+/// a result that is the same size as the original arguments.
+///
+/// Examples:
+/// (1) fshr(i8 255, i8 0, i8 15) = 254 (0b11111110)
+/// (2) fshr(i8 15, i8 15, i8 11) = 225 (0b11100001)
+/// (3) fshr(i8 0, i8 255, i8 8)  = 255 (0b11111111)
+/// (4) fshr(i8 255, i8 0, i8 9)  = fshr(i8 255, i8 0, i8 1) // 9 % 8
+LLVM_ABI APInt fshr(const APInt &Hi, const APInt &Lo, const APInt &Shift);
+
+/// Perform a carry-less multiply, also known as XOR multiplication, and return
+/// low-bits. All arguments and result have the same bitwidth.
+///
+/// Examples:
+/// (1) clmul(i4 1, i4 2)   = 2
+/// (2) clmul(i4 5, i4 6)   = 14
+/// (3) clmul(i4 -4, i4 2)  = -8
+/// (4) clmul(i4 -4, i4 -5) = 4
+LLVM_ABI APInt clmul(const APInt &LHS, const APInt &RHS);
+
+/// Perform a reversed carry-less multiply.
+///
+/// clmulr(a, b) = bitreverse(clmul(bitreverse(a), bitreverse(b)))
+LLVM_ABI APInt clmulr(const APInt &LHS, const APInt &RHS);
+
+/// Perform a carry-less multiply, and return high-bits. All arguments and
+/// result have the same bitwidth.
+///
+/// clmulh(a, b) = clmulr(a, b) >> 1
+LLVM_ABI APInt clmulh(const APInt &LHS, const APInt &RHS);
+
+} // namespace APIntOps
 
 // See friend declaration above. This additional declaration is required in
 // order to compile LLVM with IBM xlC compiler.
-hash_code hash_value(const APInt &Arg);
+LLVM_ABI hash_code hash_value(const APInt &Arg);
 
 /// StoreIntToMemory - Fills the StoreBytes bytes of memory starting from Dst
 /// with the integer held in IntVal.
-void StoreIntToMemory(const APInt &IntVal, uint8_t *Dst, unsigned StoreBytes);
+LLVM_ABI void StoreIntToMemory(const APInt &IntVal, uint8_t *Dst,
+                               unsigned StoreBytes);
 
 /// LoadIntFromMemory - Loads the integer stored in the LoadBytes bytes starting
 /// from Src into IntVal, which is assumed to be wide enough and to hold zero.
-void LoadIntFromMemory(APInt &IntVal, const uint8_t *Src, unsigned LoadBytes);
+LLVM_ABI void LoadIntFromMemory(APInt &IntVal, const uint8_t *Src,
+                                unsigned LoadBytes);
+
+/// Provide DenseMapInfo for APInt.
+template <> struct DenseMapInfo<APInt, void> {
+  static inline APInt getEmptyKey() {
+    APInt V(nullptr, 0);
+    V.U.VAL = ~0ULL;
+    return V;
+  }
+
+  static inline APInt getTombstoneKey() {
+    APInt V(nullptr, 0);
+    V.U.VAL = ~1ULL;
+    return V;
+  }
+
+  LLVM_ABI static unsigned getHashValue(const APInt &Key);
+
+  static bool isEqual(const APInt &LHS, const APInt &RHS) {
+    return LHS.getBitWidth() == RHS.getBitWidth() && LHS == RHS;
+  }
+};
 
 } // namespace llvm
 

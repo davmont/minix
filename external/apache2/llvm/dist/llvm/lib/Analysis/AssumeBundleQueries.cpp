@@ -6,17 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "assume-queries"
-
 #include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/InstIterator.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/DebugCounter.h"
+
+#define DEBUG_TYPE "assume-queries"
 
 using namespace llvm;
 using namespace llvm::PatternMatch;
@@ -44,7 +44,7 @@ bool llvm::hasAttributeInAssume(AssumeInst &Assume, Value *IsOn,
                                 StringRef AttrName, uint64_t *ArgVal) {
   assert(Attribute::isExistingAttribute(AttrName) &&
          "this attribute doesn't exist");
-  assert((ArgVal == nullptr || Attribute::doesAttrKindHaveArgument(
+  assert((ArgVal == nullptr || Attribute::isIntAttrKind(
                                    Attribute::getAttrKindFromName(AttrName))) &&
          "requested value for an attribute that has no argument");
   if (Assume.bundle_op_infos().empty())
@@ -84,14 +84,15 @@ void llvm::fillMapFromAssume(AssumeInst &Assume, RetainedKnowledgeMap &Result) {
         getValueFromBundleOpInfo(Assume, Bundles, ABA_Argument));
     if (!CI)
       continue;
-    unsigned Val = CI->getZExtValue();
-    auto Lookup = Result.find(Key);
-    if (Lookup == Result.end() || !Lookup->second.count(&Assume)) {
-      Result[Key][&Assume] = {Val, Val};
+    uint64_t Val = CI->getZExtValue();
+    auto [It, Inserted] = Result[Key].try_emplace(&Assume);
+    if (Inserted) {
+      It->second = {Val, Val};
       continue;
     }
-    Lookup->second[&Assume].Min = std::min(Val, Lookup->second[&Assume].Min);
-    Lookup->second[&Assume].Max = std::max(Val, Lookup->second[&Assume].Max);
+    auto &MinMax = It->second;
+    MinMax.Min = std::min(Val, MinMax.Min);
+    MinMax.Max = std::max(Val, MinMax.Max);
   }
 }
 
@@ -99,10 +100,13 @@ RetainedKnowledge
 llvm::getKnowledgeFromBundle(AssumeInst &Assume,
                              const CallBase::BundleOpInfo &BOI) {
   RetainedKnowledge Result;
+  if (!DebugCounter::shouldExecute(AssumeQueryCounter))
+    return Result;
+
   Result.AttrKind = Attribute::getAttrKindFromName(BOI.Tag->getKey());
   if (bundleHasArgument(BOI, ABA_WasOn))
     Result.WasOn = getValueFromBundleOpInfo(Assume, BOI, ABA_WasOn);
-  auto GetArgOr1 = [&](unsigned Idx) -> unsigned {
+  auto GetArgOr1 = [&](unsigned Idx) -> uint64_t {
     if (auto *ConstInt = dyn_cast<ConstantInt>(
             getValueFromBundleOpInfo(Assume, BOI, ABA_Argument + Idx)))
       return ConstInt->getZExtValue();
@@ -110,6 +114,9 @@ llvm::getKnowledgeFromBundle(AssumeInst &Assume,
   };
   if (BOI.End - BOI.Begin > ABA_Argument)
     Result.ArgValue = GetArgOr1(0);
+  Result.IRArgValue = bundleHasArgument(BOI, ABA_Argument)
+                          ? getValueFromBundleOpInfo(Assume, BOI, ABA_Argument)
+                          : nullptr;
   if (Result.AttrKind == Attribute::Alignment)
     if (BOI.End - BOI.Begin > ABA_Argument + 1)
       Result.ArgValue = MinAlign(Result.ArgValue, GetArgOr1(1));
@@ -122,7 +129,7 @@ RetainedKnowledge llvm::getKnowledgeFromOperandInAssume(AssumeInst &Assume,
   return getKnowledgeFromBundle(Assume, BOI);
 }
 
-bool llvm::isAssumeWithEmptyBundle(AssumeInst &Assume) {
+bool llvm::isAssumeWithEmptyBundle(const AssumeInst &Assume) {
   return none_of(Assume.bundle_op_infos(),
                  [](const CallBase::BundleOpInfo &BOI) {
                    return BOI.Tag->getKey() != IgnoreBundleTag;
@@ -130,10 +137,10 @@ bool llvm::isAssumeWithEmptyBundle(AssumeInst &Assume) {
 }
 
 static CallInst::BundleOpInfo *getBundleFromUse(const Use *U) {
-  auto *Intr = dyn_cast<IntrinsicInst>(U->getUser());
   if (!match(U->getUser(),
              m_Intrinsic<Intrinsic::assume>(m_Unless(m_Specific(U->get())))))
     return nullptr;
+  auto *Intr = cast<IntrinsicInst>(U->getUser());
   return &Intr->getBundleOpInfoForOperand(U->getOperandNo());
 }
 
@@ -153,49 +160,33 @@ llvm::getKnowledgeFromUse(const Use *U,
 RetainedKnowledge
 llvm::getKnowledgeForValue(const Value *V,
                            ArrayRef<Attribute::AttrKind> AttrKinds,
-                           AssumptionCache *AC,
+                           AssumptionCache &AC,
                            function_ref<bool(RetainedKnowledge, Instruction *,
                                              const CallBase::BundleOpInfo *)>
                                Filter) {
   NumAssumeQueries++;
-  if (!DebugCounter::shouldExecute(AssumeQueryCounter))
-    return RetainedKnowledge::none();
-  if (AC) {
-    for (AssumptionCache::ResultElem &Elem : AC->assumptionsFor(V)) {
-      auto *II = cast_or_null<AssumeInst>(Elem.Assume);
-      if (!II || Elem.Index == AssumptionCache::ExprResultIdx)
-        continue;
-      if (RetainedKnowledge RK = getKnowledgeFromBundle(
-              *II, II->bundle_op_info_begin()[Elem.Index])) {
-        if (V != RK.WasOn)
-          continue;
-        if (is_contained(AttrKinds, RK.AttrKind) &&
-            Filter(RK, II, &II->bundle_op_info_begin()[Elem.Index])) {
-          NumUsefullAssumeQueries++;
-          return RK;
-        }
-      }
-    }
-    return RetainedKnowledge::none();
-  }
-  for (const auto &U : V->uses()) {
-    CallInst::BundleOpInfo* Bundle = getBundleFromUse(&U);
-    if (!Bundle)
+  for (AssumptionCache::ResultElem &Elem : AC.assumptionsFor(V)) {
+    auto *II = cast_or_null<AssumeInst>(Elem.Assume);
+    if (!II || Elem.Index == AssumptionCache::ExprResultIdx)
       continue;
-    if (RetainedKnowledge RK =
-            getKnowledgeFromBundle(*cast<AssumeInst>(U.getUser()), *Bundle))
+    if (RetainedKnowledge RK = getKnowledgeFromBundle(
+            *II, II->bundle_op_info_begin()[Elem.Index])) {
+      if (V != RK.WasOn)
+        continue;
       if (is_contained(AttrKinds, RK.AttrKind) &&
-          Filter(RK, cast<Instruction>(U.getUser()), Bundle)) {
+          Filter(RK, II, &II->bundle_op_info_begin()[Elem.Index])) {
         NumUsefullAssumeQueries++;
         return RK;
       }
+    }
   }
+
   return RetainedKnowledge::none();
 }
 
 RetainedKnowledge llvm::getKnowledgeValidInContext(
     const Value *V, ArrayRef<Attribute::AttrKind> AttrKinds,
-    const Instruction *CtxI, const DominatorTree *DT, AssumptionCache *AC) {
+    AssumptionCache &AC, const Instruction *CtxI, const DominatorTree *DT) {
   return getKnowledgeForValue(V, AttrKinds, AC,
                               [&](auto, Instruction *I, auto) {
                                 return isValidAssumeForContext(I, CtxI, DT);

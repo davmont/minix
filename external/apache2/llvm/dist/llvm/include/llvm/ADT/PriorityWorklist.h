@@ -19,7 +19,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
-#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -151,7 +150,7 @@ public:
     } while (!V.empty() && V.back() == T());
   }
 
-  LLVM_NODISCARD T pop_back_val() {
+  [[nodiscard]] T pop_back_val() {
     T Ret = back();
     pop_back();
     return Ret;
@@ -192,8 +191,17 @@ public:
   /// \returns true if any element is removed.
   template <typename UnaryPredicate>
   bool erase_if(UnaryPredicate P) {
-    typename VectorT::iterator E =
-        remove_if(V, TestAndEraseFromMap<UnaryPredicate>(P, M));
+    typename VectorT::iterator E = remove_if(V, [&](const T &Arg) {
+      if (Arg == T())
+        // Skip null values in the PriorityWorklist.
+        return false;
+
+      if (P(Arg)) {
+        M.erase(Arg);
+        return true;
+      }
+      return false;
+    });
     if (E == V.end())
       return false;
     for (auto I = V.begin(); I != E; ++I)
@@ -215,34 +223,6 @@ public:
   }
 
 private:
-  /// A wrapper predicate designed for use with std::remove_if.
-  ///
-  /// This predicate wraps a predicate suitable for use with std::remove_if to
-  /// call M.erase(x) on each element which is slated for removal. This just
-  /// allows the predicate to be move only which we can't do with lambdas
-  /// today.
-  template <typename UnaryPredicateT>
-  class TestAndEraseFromMap {
-    UnaryPredicateT P;
-    MapT &M;
-
-  public:
-    TestAndEraseFromMap(UnaryPredicateT P, MapT &M)
-        : P(std::move(P)), M(M) {}
-
-    bool operator()(const T &Arg) {
-      if (Arg == T())
-        // Skip null values in the PriorityWorklist.
-        return false;
-
-      if (P(Arg)) {
-        M.erase(Arg);
-        return true;
-      }
-      return false;
-    }
-  };
-
   /// The map from value to index in the vector.
   MapT M;
 

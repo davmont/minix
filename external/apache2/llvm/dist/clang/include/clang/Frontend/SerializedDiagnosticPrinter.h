@@ -19,7 +19,6 @@ class raw_ostream;
 
 namespace clang {
 class DiagnosticConsumer;
-class DiagnosticsEngine;
 class DiagnosticOptions;
 
 namespace serialized_diags {
@@ -33,7 +32,7 @@ namespace serialized_diags {
 /// (via libclang) without needing to parse Clang's command line output.
 ///
 std::unique_ptr<DiagnosticConsumer> create(StringRef OutputFile,
-                                           DiagnosticOptions *Diags,
+                                           DiagnosticOptions &DiagOpts,
                                            bool MergeChildRecords = false);
 
 } // end serialized_diags namespace

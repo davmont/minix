@@ -7,8 +7,10 @@ LIB=	LLVMDebugInfoSymbolize
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/Symbolize
 
 SRCS+=	DIPrinter.cpp \
-	Symbolize.cpp \
-	SymbolizableObjectFile.cpp
+	Markup.cpp \
+	MarkupFilter.cpp \
+	SymbolizableObjectFile.cpp \
+	Symbolize.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

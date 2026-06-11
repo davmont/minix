@@ -26,15 +26,116 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include <cassert>
+#include <optional>
 #include <utility>
 
 namespace clang {
 
 class CXXBasePaths;
+
+enum class LookupResultKind {
+  /// No entity found met the criteria.
+  NotFound = 0,
+
+  /// No entity found met the criteria within the current
+  /// instantiation,, but there were dependent base classes of the
+  /// current instantiation that could not be searched.
+  NotFoundInCurrentInstantiation,
+
+  /// Name lookup found a single declaration that met the
+  /// criteria.  getFoundDecl() will return this declaration.
+  Found,
+
+  /// Name lookup found a set of overloaded functions that
+  /// met the criteria.
+  FoundOverloaded,
+
+  /// Name lookup found an unresolvable value declaration
+  /// and cannot yet complete.  This only happens in C++ dependent
+  /// contexts with dependent using declarations.
+  FoundUnresolvedValue,
+
+  /// Name lookup results in an ambiguity; use
+  /// getAmbiguityKind to figure out what kind of ambiguity
+  /// we have.
+  Ambiguous
+};
+
+enum class LookupAmbiguityKind {
+  /// Name lookup results in an ambiguity because multiple
+  /// entities that meet the lookup criteria were found in
+  /// subobjects of different types. For example:
+  /// @code
+  /// struct A { void f(int); }
+  /// struct B { void f(double); }
+  /// struct C : A, B { };
+  /// void test(C c) {
+  ///   c.f(0); // error: A::f and B::f come from subobjects of different
+  ///           // types. overload resolution is not performed.
+  /// }
+  /// @endcode
+  AmbiguousBaseSubobjectTypes,
+
+  /// Name lookup results in an ambiguity because multiple
+  /// nonstatic entities that meet the lookup criteria were found
+  /// in different subobjects of the same type. For example:
+  /// @code
+  /// struct A { int x; };
+  /// struct B : A { };
+  /// struct C : A { };
+  /// struct D : B, C { };
+  /// int test(D d) {
+  ///   return d.x; // error: 'x' is found in two A subobjects (of B and C)
+  /// }
+  /// @endcode
+  AmbiguousBaseSubobjects,
+
+  /// Name lookup results in an ambiguity because multiple definitions
+  /// of entity that meet the lookup criteria were found in different
+  /// declaration contexts.
+  /// @code
+  /// namespace A {
+  ///   int i;
+  ///   namespace B { int i; }
+  ///   int test() {
+  ///     using namespace B;
+  ///     return i; // error 'i' is found in namespace A and A::B
+  ///    }
+  /// }
+  /// @endcode
+  AmbiguousReference,
+
+  /// Name lookup results in an ambiguity because multiple placeholder
+  /// variables were found in the same scope.
+  /// @code
+  /// void f() {
+  ///    int _ = 0;
+  ///    int _ = 0;
+  ///    return _; // ambiguous use of placeholder variable
+  /// }
+  /// @endcode
+  AmbiguousReferenceToPlaceholderVariable,
+
+  /// Name lookup results in an ambiguity because an entity with a
+  /// tag name was hidden by an entity with an ordinary name from
+  /// a different context.
+  /// @code
+  /// namespace A { struct Foo {}; }
+  /// namespace B { void Foo(); }
+  /// namespace C {
+  ///   using namespace A;
+  ///   using namespace B;
+  /// }
+  /// void test() {
+  ///   C::Foo(); // error: tag 'A::Foo' is hidden by an object in a
+  ///             // different namespace
+  /// }
+  /// @endcode
+  AmbiguousTagHiding
+};
 
 /// Represents the results of name lookup.
 ///
@@ -45,96 +146,6 @@ class CXXBasePaths;
 /// results occurred for a given lookup.
 class LookupResult {
 public:
-  enum LookupResultKind {
-    /// No entity found met the criteria.
-    NotFound = 0,
-
-    /// No entity found met the criteria within the current
-    /// instantiation,, but there were dependent base classes of the
-    /// current instantiation that could not be searched.
-    NotFoundInCurrentInstantiation,
-
-    /// Name lookup found a single declaration that met the
-    /// criteria.  getFoundDecl() will return this declaration.
-    Found,
-
-    /// Name lookup found a set of overloaded functions that
-    /// met the criteria.
-    FoundOverloaded,
-
-    /// Name lookup found an unresolvable value declaration
-    /// and cannot yet complete.  This only happens in C++ dependent
-    /// contexts with dependent using declarations.
-    FoundUnresolvedValue,
-
-    /// Name lookup results in an ambiguity; use
-    /// getAmbiguityKind to figure out what kind of ambiguity
-    /// we have.
-    Ambiguous
-  };
-
-  enum AmbiguityKind {
-    /// Name lookup results in an ambiguity because multiple
-    /// entities that meet the lookup criteria were found in
-    /// subobjects of different types. For example:
-    /// @code
-    /// struct A { void f(int); }
-    /// struct B { void f(double); }
-    /// struct C : A, B { };
-    /// void test(C c) {
-    ///   c.f(0); // error: A::f and B::f come from subobjects of different
-    ///           // types. overload resolution is not performed.
-    /// }
-    /// @endcode
-    AmbiguousBaseSubobjectTypes,
-
-    /// Name lookup results in an ambiguity because multiple
-    /// nonstatic entities that meet the lookup criteria were found
-    /// in different subobjects of the same type. For example:
-    /// @code
-    /// struct A { int x; };
-    /// struct B : A { };
-    /// struct C : A { };
-    /// struct D : B, C { };
-    /// int test(D d) {
-    ///   return d.x; // error: 'x' is found in two A subobjects (of B and C)
-    /// }
-    /// @endcode
-    AmbiguousBaseSubobjects,
-
-    /// Name lookup results in an ambiguity because multiple definitions
-    /// of entity that meet the lookup criteria were found in different
-    /// declaration contexts.
-    /// @code
-    /// namespace A {
-    ///   int i;
-    ///   namespace B { int i; }
-    ///   int test() {
-    ///     using namespace B;
-    ///     return i; // error 'i' is found in namespace A and A::B
-    ///    }
-    /// }
-    /// @endcode
-    AmbiguousReference,
-
-    /// Name lookup results in an ambiguity because an entity with a
-    /// tag name was hidden by an entity with an ordinary name from
-    /// a different context.
-    /// @code
-    /// namespace A { struct Foo {}; }
-    /// namespace B { void Foo(); }
-    /// namespace C {
-    ///   using namespace A;
-    ///   using namespace B;
-    /// }
-    /// void test() {
-    ///   C::Foo(); // error: tag 'A::Foo' is hidden by an object in a
-    ///             // different namespace
-    /// }
-    /// @endcode
-    AmbiguousTagHiding
-  };
-
   /// A little identifier for flagging temporary lookup results.
   enum TemporaryToken {
     Temporary
@@ -142,26 +153,30 @@ public:
 
   using iterator = UnresolvedSetImpl::iterator;
 
-  LookupResult(Sema &SemaRef, const DeclarationNameInfo &NameInfo,
-               Sema::LookupNameKind LookupKind,
-               Sema::RedeclarationKind Redecl = Sema::NotForRedeclaration)
+  LookupResult(
+      Sema &SemaRef, const DeclarationNameInfo &NameInfo,
+      Sema::LookupNameKind LookupKind,
+      RedeclarationKind Redecl = RedeclarationKind::NotForRedeclaration)
       : SemaPtr(&SemaRef), NameInfo(NameInfo), LookupKind(LookupKind),
-        Redecl(Redecl != Sema::NotForRedeclaration),
-        ExternalRedecl(Redecl == Sema::ForExternalRedeclaration),
-        Diagnose(Redecl == Sema::NotForRedeclaration) {
+        Redecl(Redecl != RedeclarationKind::NotForRedeclaration),
+        ExternalRedecl(Redecl == RedeclarationKind::ForExternalRedeclaration),
+        DiagnoseAccess(Redecl == RedeclarationKind::NotForRedeclaration),
+        DiagnoseAmbiguous(Redecl == RedeclarationKind::NotForRedeclaration) {
     configure();
   }
 
   // TODO: consider whether this constructor should be restricted to take
   // as input a const IdentifierInfo* (instead of Name),
   // forcing other cases towards the constructor taking a DNInfo.
-  LookupResult(Sema &SemaRef, DeclarationName Name,
-               SourceLocation NameLoc, Sema::LookupNameKind LookupKind,
-               Sema::RedeclarationKind Redecl = Sema::NotForRedeclaration)
+  LookupResult(
+      Sema &SemaRef, DeclarationName Name, SourceLocation NameLoc,
+      Sema::LookupNameKind LookupKind,
+      RedeclarationKind Redecl = RedeclarationKind::NotForRedeclaration)
       : SemaPtr(&SemaRef), NameInfo(Name, NameLoc), LookupKind(LookupKind),
-        Redecl(Redecl != Sema::NotForRedeclaration),
-        ExternalRedecl(Redecl == Sema::ForExternalRedeclaration),
-        Diagnose(Redecl == Sema::NotForRedeclaration) {
+        Redecl(Redecl != RedeclarationKind::NotForRedeclaration),
+        ExternalRedecl(Redecl == RedeclarationKind::ForExternalRedeclaration),
+        DiagnoseAccess(Redecl == RedeclarationKind::NotForRedeclaration),
+        DiagnoseAmbiguous(Redecl == RedeclarationKind::NotForRedeclaration) {
     configure();
   }
 
@@ -192,12 +207,14 @@ public:
         Redecl(std::move(Other.Redecl)),
         ExternalRedecl(std::move(Other.ExternalRedecl)),
         HideTags(std::move(Other.HideTags)),
-        Diagnose(std::move(Other.Diagnose)),
+        DiagnoseAccess(std::move(Other.DiagnoseAccess)),
+        DiagnoseAmbiguous(std::move(Other.DiagnoseAmbiguous)),
         AllowHidden(std::move(Other.AllowHidden)),
         Shadowed(std::move(Other.Shadowed)),
         TemplateNameLookup(std::move(Other.TemplateNameLookup)) {
     Other.Paths = nullptr;
-    Other.Diagnose = false;
+    Other.DiagnoseAccess = false;
+    Other.DiagnoseAmbiguous = false;
   }
 
   LookupResult &operator=(LookupResult &&Other) {
@@ -215,17 +232,22 @@ public:
     Redecl = std::move(Other.Redecl);
     ExternalRedecl = std::move(Other.ExternalRedecl);
     HideTags = std::move(Other.HideTags);
-    Diagnose = std::move(Other.Diagnose);
+    DiagnoseAccess = std::move(Other.DiagnoseAccess);
+    DiagnoseAmbiguous = std::move(Other.DiagnoseAmbiguous);
     AllowHidden = std::move(Other.AllowHidden);
     Shadowed = std::move(Other.Shadowed);
     TemplateNameLookup = std::move(Other.TemplateNameLookup);
     Other.Paths = nullptr;
-    Other.Diagnose = false;
+    Other.DiagnoseAccess = false;
+    Other.DiagnoseAmbiguous = false;
     return *this;
   }
 
   ~LookupResult() {
-    if (Diagnose) diagnose();
+    if (DiagnoseAccess)
+      diagnoseAccess();
+    if (DiagnoseAmbiguous)
+      diagnoseAmbiguous();
     if (Paths) deletePaths(Paths);
   }
 
@@ -265,9 +287,10 @@ public:
     return ExternalRedecl;
   }
 
-  Sema::RedeclarationKind redeclarationKind() const {
-    return ExternalRedecl ? Sema::ForExternalRedeclaration :
-           Redecl ? Sema::ForVisibleRedeclaration : Sema::NotForRedeclaration;
+  RedeclarationKind redeclarationKind() const {
+    return ExternalRedecl ? RedeclarationKind::ForExternalRedeclaration
+           : Redecl       ? RedeclarationKind::ForVisibleRedeclaration
+                          : RedeclarationKind::NotForRedeclaration;
   }
 
   /// Specify whether hidden declarations are visible, e.g.,
@@ -299,31 +322,31 @@ public:
   bool isTemplateNameLookup() const { return TemplateNameLookup; }
 
   bool isAmbiguous() const {
-    return getResultKind() == Ambiguous;
+    return getResultKind() == LookupResultKind::Ambiguous;
   }
 
   /// Determines if this names a single result which is not an
   /// unresolved value using decl.  If so, it is safe to call
   /// getFoundDecl().
   bool isSingleResult() const {
-    return getResultKind() == Found;
+    return getResultKind() == LookupResultKind::Found;
   }
 
   /// Determines if the results are overloaded.
   bool isOverloadedResult() const {
-    return getResultKind() == FoundOverloaded;
+    return getResultKind() == LookupResultKind::FoundOverloaded;
   }
 
   bool isUnresolvableResult() const {
-    return getResultKind() == FoundUnresolvedValue;
+    return getResultKind() == LookupResultKind::FoundUnresolvedValue;
   }
 
   LookupResultKind getResultKind() const {
-    assert(sanity());
+    assert(checkDebugAssumptions());
     return ResultKind;
   }
 
-  AmbiguityKind getAmbiguityKind() const {
+  LookupAmbiguityKind getAmbiguityKind() const {
     assert(isAmbiguous());
     return Ambiguity;
   }
@@ -346,15 +369,39 @@ public:
 
   /// Determine whether the given declaration is visible to the
   /// program.
-  static bool isVisible(Sema &SemaRef, NamedDecl *D) {
-    // If this declaration is not hidden, it's visible.
-    if (D->isUnconditionallyVisible())
-      return true;
+  static bool isVisible(Sema &SemaRef, NamedDecl *D);
 
-    // During template instantiation, we can refer to hidden declarations, if
-    // they were visible in any module along the path of instantiation.
-    return isVisibleSlow(SemaRef, D);
+  static bool isReachable(Sema &SemaRef, NamedDecl *D);
+
+  static bool isAcceptable(Sema &SemaRef, NamedDecl *D,
+                           Sema::AcceptableKind Kind) {
+    return Kind == Sema::AcceptableKind::Visible ? isVisible(SemaRef, D)
+                                                 : isReachable(SemaRef, D);
   }
+
+  /// Determine whether this lookup is permitted to see the declaration.
+  /// Note that a reachable but not visible declaration inhabiting a namespace
+  /// is not allowed to be seen during name lookup.
+  ///
+  /// For example:
+  /// ```
+  /// // m.cppm
+  /// export module m;
+  /// struct reachable { int v; }
+  /// export auto func() { return reachable{43}; }
+  /// // Use.cpp
+  /// import m;
+  /// auto Use() {
+  ///   // Not valid. We couldn't see reachable here.
+  ///   // So isAvailableForLookup would return false when we look
+  ///   up 'reachable' here.
+  ///   // return reachable(43).v;
+  ///   // Valid. The field name 'v' is allowed during name lookup.
+  ///   // So isAvailableForLookup would return true when we look up 'v' here.
+  ///   return func().v;
+  /// }
+  /// ```
+  static bool isAvailableForLookup(Sema &SemaRef, NamedDecl *ND);
 
   /// Retrieve the accepted (re)declaration of the given declaration,
   /// if there is one.
@@ -362,14 +409,16 @@ public:
     if (!D->isInIdentifierNamespace(IDNS))
       return nullptr;
 
-    if (isVisible(getSema(), D) || isHiddenDeclarationVisible(D))
+    if (isAvailableForLookup(getSema(), D) || isHiddenDeclarationVisible(D))
       return D;
 
     return getAcceptableDeclSlow(D);
   }
 
 private:
-  static bool isVisibleSlow(Sema &SemaRef, NamedDecl *D);
+  static bool isAcceptableSlow(Sema &SemaRef, NamedDecl *D,
+                               Sema::AcceptableKind Kind);
+  static bool isReachableSlow(Sema &SemaRef, NamedDecl *D);
   NamedDecl *getAcceptableDeclSlow(NamedDecl *D) const;
 
 public:
@@ -431,27 +480,29 @@ public:
   /// Does not test the acceptance criteria.
   void addDecl(NamedDecl *D, AccessSpecifier AS) {
     Decls.addDecl(D, AS);
-    ResultKind = Found;
+    ResultKind = LookupResultKind::Found;
   }
 
   /// Add all the declarations from another set of lookup
   /// results.
   void addAllDecls(const LookupResult &Other) {
     Decls.append(Other.Decls.begin(), Other.Decls.end());
-    ResultKind = Found;
+    ResultKind = LookupResultKind::Found;
   }
 
   /// Determine whether no result was found because we could not
   /// search into dependent base classes of the current instantiation.
   bool wasNotFoundInCurrentInstantiation() const {
-    return ResultKind == NotFoundInCurrentInstantiation;
+    return ResultKind == LookupResultKind::NotFoundInCurrentInstantiation;
   }
 
   /// Note that while no result was found in the current instantiation,
   /// there were dependent base classes that could not be searched.
   void setNotFoundInCurrentInstantiation() {
-    assert(ResultKind == NotFound && Decls.empty());
-    ResultKind = NotFoundInCurrentInstantiation;
+    assert((ResultKind == LookupResultKind::NotFound ||
+            ResultKind == LookupResultKind::NotFoundInCurrentInstantiation) &&
+           Decls.empty());
+    ResultKind = LookupResultKind::NotFoundInCurrentInstantiation;
   }
 
   /// Determine whether the lookup result was shadowed by some other
@@ -473,29 +524,29 @@ public:
   /// removals has been performed.
   void resolveKindAfterFilter() {
     if (Decls.empty()) {
-      if (ResultKind != NotFoundInCurrentInstantiation)
-        ResultKind = NotFound;
+      if (ResultKind != LookupResultKind::NotFoundInCurrentInstantiation)
+        ResultKind = LookupResultKind::NotFound;
 
       if (Paths) {
         deletePaths(Paths);
         Paths = nullptr;
       }
     } else {
-      llvm::Optional<AmbiguityKind> SavedAK;
+      std::optional<LookupAmbiguityKind> SavedAK;
       bool WasAmbiguous = false;
-      if (ResultKind == Ambiguous) {
+      if (ResultKind == LookupResultKind::Ambiguous) {
         SavedAK = Ambiguity;
         WasAmbiguous = true;
       }
-      ResultKind = Found;
+      ResultKind = LookupResultKind::Found;
       resolveKind();
 
       // If we didn't make the lookup unambiguous, restore the old
       // ambiguity kind.
-      if (ResultKind == Ambiguous) {
+      if (ResultKind == LookupResultKind::Ambiguous) {
         (void)WasAmbiguous;
         assert(WasAmbiguous);
-        Ambiguity = SavedAK.getValue();
+        Ambiguity = *SavedAK;
       } else if (Paths) {
         deletePaths(Paths);
         Paths = nullptr;
@@ -505,7 +556,8 @@ public:
 
   template <class DeclClass>
   DeclClass *getAsSingle() const {
-    if (getResultKind() != Found) return nullptr;
+    if (getResultKind() != LookupResultKind::Found)
+      return nullptr;
     return dyn_cast<DeclClass>(getFoundDecl());
   }
 
@@ -515,8 +567,8 @@ public:
   /// This is intended for users who have examined the result kind
   /// and are certain that there is only one result.
   NamedDecl *getFoundDecl() const {
-    assert(getResultKind() == Found
-           && "getFoundDecl called on non-unique result");
+    assert(getResultKind() == LookupResultKind::Found &&
+           "getFoundDecl called on non-unique result");
     return (*begin())->getUnderlyingDecl();
   }
 
@@ -528,7 +580,8 @@ public:
 
   /// Asks if the result is a single tag decl.
   bool isSingleTagDecl() const {
-    return getResultKind() == Found && isa<TagDecl>(getFoundDecl());
+    return getResultKind() == LookupResultKind::Found &&
+           isa<TagDecl>(getFoundDecl());
   }
 
   /// Make these results show that the name was found in
@@ -547,12 +600,12 @@ public:
   /// different contexts and a tag decl was hidden by an ordinary
   /// decl in a different context.
   void setAmbiguousQualifiedTagHiding() {
-    setAmbiguous(AmbiguousTagHiding);
+    setAmbiguous(LookupAmbiguityKind::AmbiguousTagHiding);
   }
 
   /// Clears out any current state.
   LLVM_ATTRIBUTE_REINITIALIZES void clear() {
-    ResultKind = NotFound;
+    ResultKind = LookupResultKind::NotFound;
     Decls.clear();
     if (Paths) deletePaths(Paths);
     Paths = nullptr;
@@ -569,9 +622,9 @@ public:
   }
 
   /// Change this lookup's redeclaration kind.
-  void setRedeclarationKind(Sema::RedeclarationKind RK) {
-    Redecl = (RK != Sema::NotForRedeclaration);
-    ExternalRedecl = (RK == Sema::ForExternalRedeclaration);
+  void setRedeclarationKind(RedeclarationKind RK) {
+    Redecl = (RK != RedeclarationKind::NotForRedeclaration);
+    ExternalRedecl = (RK == RedeclarationKind::ForExternalRedeclaration);
     configure();
   }
 
@@ -581,13 +634,20 @@ public:
   /// Suppress the diagnostics that would normally fire because of this
   /// lookup.  This happens during (e.g.) redeclaration lookups.
   void suppressDiagnostics() {
-    Diagnose = false;
+    DiagnoseAccess = false;
+    DiagnoseAmbiguous = false;
   }
 
-  /// Determines whether this lookup is suppressing diagnostics.
-  bool isSuppressingDiagnostics() const {
-    return !Diagnose;
-  }
+  /// Suppress the diagnostics that would normally fire because of this
+  /// lookup due to access control violations.
+  void suppressAccessDiagnostics() { DiagnoseAccess = false; }
+
+  /// Determines whether this lookup is suppressing access control diagnostics.
+  bool isSuppressingAccessDiagnostics() const { return !DiagnoseAccess; }
+
+  /// Determines whether this lookup is suppressing ambiguous lookup
+  /// diagnostics.
+  bool isSuppressingAmbiguousDiagnostics() const { return !DiagnoseAmbiguous; }
 
   /// Sets a 'context' source range.
   void setContextRange(SourceRange SR) {
@@ -630,6 +690,15 @@ public:
           CalledDone(F.CalledDone) {
       F.CalledDone = true;
     }
+
+    // The move assignment operator is defined as deleted pending
+    // further motivation.
+    Filter &operator=(Filter &&) = delete;
+
+    // The copy constrcutor and copy assignment operator is defined as deleted
+    // pending further motivation.
+    Filter(const Filter &) = delete;
+    Filter &operator=(const Filter &) = delete;
 
     ~Filter() {
       assert(CalledDone &&
@@ -691,25 +760,28 @@ public:
   }
 
 private:
-  void diagnose() {
-    if (isAmbiguous())
-      getSema().DiagnoseAmbiguousLookup(*this);
-    else if (isClassLookup() && getSema().getLangOpts().AccessControl)
+  void diagnoseAccess() {
+    if (!isAmbiguous() && isClassLookup() &&
+        getSema().getLangOpts().AccessControl)
       getSema().CheckLookupAccess(*this);
   }
 
-  void setAmbiguous(AmbiguityKind AK) {
-    ResultKind = Ambiguous;
+  void diagnoseAmbiguous() {
+    if (isAmbiguous())
+      getSema().DiagnoseAmbiguousLookup(*this);
+  }
+
+  void setAmbiguous(LookupAmbiguityKind AK) {
+    ResultKind = LookupResultKind::Ambiguous;
     Ambiguity = AK;
   }
 
   void addDeclsFromBasePaths(const CXXBasePaths &P);
   void configure();
 
-  // Sanity checks.
-  bool sanity() const;
+  bool checkDebugAssumptions() const;
 
-  bool sanityCheckUnresolved() const {
+  bool checkUnresolved() const {
     for (iterator I = begin(), E = end(); I != E; ++I)
       if (isa<UnresolvedUsingValueDecl>((*I)->getUnderlyingDecl()))
         return true;
@@ -719,10 +791,10 @@ private:
   static void deletePaths(CXXBasePaths *);
 
   // Results.
-  LookupResultKind ResultKind = NotFound;
+  LookupResultKind ResultKind = LookupResultKind::NotFound;
   // ill-defined unless ambiguous. Still need to be initialized it will be
   // copied/moved.
-  AmbiguityKind Ambiguity = {};
+  LookupAmbiguityKind Ambiguity = {};
   UnresolvedSet<8> Decls;
   CXXBasePaths *Paths = nullptr;
   CXXRecordDecl *NamingClass = nullptr;
@@ -742,7 +814,8 @@ private:
   ///   are present
   bool HideTags = true;
 
-  bool Diagnose = false;
+  bool DiagnoseAccess = false;
+  bool DiagnoseAmbiguous = false;
 
   /// True if we should allow hidden declarations to be 'visible'.
   bool AllowHidden = false;

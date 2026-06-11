@@ -31,22 +31,21 @@
 #include "ProvenanceAnalysis.h"
 #include "PtrState.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/EHPersonalities.h"
-#include "llvm/Analysis/ObjCARCAliasAnalysis.h"
 #include "llvm/Analysis/ObjCARCAnalysisUtils.h"
 #include "llvm/Analysis/ObjCARCInstKind.h"
 #include "llvm/Analysis/ObjCARCUtil.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/EHPersonalities.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/InstIterator.h"
@@ -58,8 +57,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/InitializePasses.h"
-#include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
@@ -136,11 +133,8 @@ static const Value *FindSingleUseIdentifiedObject(const Value *Arg) {
 //
 // The second retain and autorelease can be deleted.
 
-// TODO: It should be possible to delete
-// objc_autoreleasePoolPush and objc_autoreleasePoolPop
-// pairs if nothing is actually autoreleased between them. Also, autorelease
-// calls followed by objc_autoreleasePoolPop calls (perhaps in ObjC++ code
-// after inlining) can be turned into plain release calls.
+// TODO: Autorelease calls followed by objc_autoreleasePoolPop calls (perhaps in
+// ObjC++ code after inlining) can be turned into plain release calls.
 
 // TODO: Critical-edge splitting. If the optimial insertion point is
 // a critical edge, the current algorithm has to fail, because it doesn't
@@ -332,8 +326,7 @@ const unsigned BBState::OverflowOccurredValue = 0xffffffff;
 
 namespace llvm {
 
-raw_ostream &operator<<(raw_ostream &OS,
-                        BBState &BBState) LLVM_ATTRIBUTE_UNUSED;
+[[maybe_unused]] raw_ostream &operator<<(raw_ostream &OS, BBState &BBState);
 
 } // end namespace llvm
 
@@ -483,8 +476,8 @@ namespace {
 
   /// The main ARC optimization pass.
 class ObjCARCOpt {
-  bool Changed;
-  bool CFGChanged;
+  bool Changed = false;
+  bool CFGChanged = false;
   ProvenanceAnalysis PA;
 
   /// A cache of references to runtime entry point constants.
@@ -504,6 +497,8 @@ class ObjCARCOpt {
   /// is in fact used in the current function.
   unsigned UsedInThisFunction;
 
+  DenseMap<BasicBlock *, ColorVector> BlockEHColors;
+
   bool OptimizeRetainRVCall(Function &F, Instruction *RetainRV);
   void OptimizeAutoreleaseRVCall(Function &F, Instruction *AutoreleaseRV,
                                  ARCInstKind &Class);
@@ -511,17 +506,16 @@ class ObjCARCOpt {
 
   /// Optimize an individual call, optionally passing the
   /// GetArgRCIdentityRoot if it has already been computed.
-  void OptimizeIndividualCallImpl(
-      Function &F, DenseMap<BasicBlock *, ColorVector> &BlockColors,
-      Instruction *Inst, ARCInstKind Class, const Value *Arg);
+  void OptimizeIndividualCallImpl(Function &F, Instruction *Inst,
+                                  ARCInstKind Class, const Value *Arg);
 
-  /// Try to optimize an AutoreleaseRV with a RetainRV or ClaimRV.  If the
+  /// Try to optimize an AutoreleaseRV with a RetainRV or UnsafeClaimRV.  If the
   /// optimization occurs, returns true to indicate that the caller should
   /// assume the instructions are dead.
-  bool OptimizeInlinedAutoreleaseRVCall(
-      Function &F, DenseMap<BasicBlock *, ColorVector> &BlockColors,
-      Instruction *Inst, const Value *&Arg, ARCInstKind Class,
-      Instruction *AutoreleaseRV, const Value *&AutoreleaseRVArg);
+  bool OptimizeInlinedAutoreleaseRVCall(Function &F, Instruction *Inst,
+                                        const Value *&Arg, ARCInstKind Class,
+                                        Instruction *AutoreleaseRV,
+                                        const Value *&AutoreleaseRVArg);
 
   void CheckForCFGHazards(const BasicBlock *BB,
                           DenseMap<const BasicBlock *, BBState> &BBStates,
@@ -532,12 +526,15 @@ class ObjCARCOpt {
   bool VisitBottomUp(BasicBlock *BB,
                      DenseMap<const BasicBlock *, BBState> &BBStates,
                      BlotMapVector<Value *, RRInfo> &Retains);
-  bool VisitInstructionTopDown(Instruction *Inst,
-                               DenseMap<Value *, RRInfo> &Releases,
-                               BBState &MyStates);
-  bool VisitTopDown(BasicBlock *BB,
-                    DenseMap<const BasicBlock *, BBState> &BBStates,
-                    DenseMap<Value *, RRInfo> &Releases);
+  bool VisitInstructionTopDown(
+      Instruction *Inst, DenseMap<Value *, RRInfo> &Releases, BBState &MyStates,
+      const DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+          &ReleaseInsertPtToRCIdentityRoots);
+  bool VisitTopDown(
+      BasicBlock *BB, DenseMap<const BasicBlock *, BBState> &BBStates,
+      DenseMap<Value *, RRInfo> &Releases,
+      const DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+          &ReleaseInsertPtToRCIdentityRoots);
   bool Visit(Function &F, DenseMap<const BasicBlock *, BBState> &BBStates,
              BlotMapVector<Value *, RRInfo> &Retains,
              DenseMap<Value *, RRInfo> &Releases);
@@ -566,53 +563,43 @@ class ObjCARCOpt {
 
   void OptimizeReturns(Function &F);
 
+  void OptimizeAutoreleasePools(Function &F);
+
+  template <typename PredicateT>
+  static void cloneOpBundlesIf(CallBase *CI,
+                               SmallVectorImpl<OperandBundleDef> &OpBundles,
+                               PredicateT Predicate) {
+    for (unsigned I = 0, E = CI->getNumOperandBundles(); I != E; ++I) {
+      OperandBundleUse B = CI->getOperandBundleAt(I);
+      if (Predicate(B))
+        OpBundles.emplace_back(B);
+    }
+  }
+
+  void addOpBundleForFunclet(BasicBlock *BB,
+                             SmallVectorImpl<OperandBundleDef> &OpBundles) {
+    if (!BlockEHColors.empty()) {
+      const ColorVector &CV = BlockEHColors.find(BB)->second;
+      assert(CV.size() > 0 && "Uncolored block");
+      for (BasicBlock *EHPadBB : CV)
+        if (auto *EHPad =
+                dyn_cast<FuncletPadInst>(EHPadBB->getFirstNonPHIIt())) {
+          OpBundles.emplace_back("funclet", EHPad);
+          return;
+        }
+    }
+  }
+
 #ifndef NDEBUG
   void GatherStatistics(Function &F, bool AfterOptimization = false);
 #endif
 
   public:
-    void init(Module &M);
+    void init(Function &F);
     bool run(Function &F, AAResults &AA);
-    void releaseMemory();
     bool hasCFGChanged() const { return CFGChanged; }
 };
-
-/// The main ARC optimization pass.
-class ObjCARCOptLegacyPass : public FunctionPass {
-public:
-  ObjCARCOptLegacyPass() : FunctionPass(ID) {
-    initializeObjCARCOptLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-  bool doInitialization(Module &M) override {
-    OCAO.init(M);
-    return false;
-  }
-  bool runOnFunction(Function &F) override {
-    return OCAO.run(F, getAnalysis<AAResultsWrapperPass>().getAAResults());
-  }
-  void releaseMemory() override { OCAO.releaseMemory(); }
-  static char ID;
-
-private:
-  ObjCARCOpt OCAO;
-};
 } // end anonymous namespace
-
-char ObjCARCOptLegacyPass::ID = 0;
-
-INITIALIZE_PASS_BEGIN(ObjCARCOptLegacyPass, "objc-arc", "ObjC ARC optimization",
-                      false, false)
-INITIALIZE_PASS_DEPENDENCY(ObjCARCAAWrapperPass)
-INITIALIZE_PASS_END(ObjCARCOptLegacyPass, "objc-arc", "ObjC ARC optimization",
-                    false, false)
-
-Pass *llvm::createObjCARCOptPass() { return new ObjCARCOptLegacyPass(); }
-
-void ObjCARCOptLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<ObjCARCAAWrapperPass>();
-  AU.addRequired<AAResultsWrapperPass>();
-}
 
 /// Turn objc_retainAutoreleasedReturnValue into objc_retain if the operand is
 /// not a return value.
@@ -661,8 +648,7 @@ ObjCARCOpt::OptimizeRetainRVCall(Function &F, Instruction *RetainRV) {
 }
 
 bool ObjCARCOpt::OptimizeInlinedAutoreleaseRVCall(
-    Function &F, DenseMap<BasicBlock *, ColorVector> &BlockColors,
-    Instruction *Inst, const Value *&Arg, ARCInstKind Class,
+    Function &F, Instruction *Inst, const Value *&Arg, ARCInstKind Class,
     Instruction *AutoreleaseRV, const Value *&AutoreleaseRVArg) {
   if (BundledInsts->contains(Inst))
     return false;
@@ -702,21 +688,21 @@ bool ObjCARCOpt::OptimizeInlinedAutoreleaseRVCall(
     return true;
   }
 
-  // ClaimRV is a frontend peephole for RetainRV + Release.  Since the
-  // AutoreleaseRV and RetainRV cancel out, replace the ClaimRV with a Release.
-  assert(Class == ARCInstKind::ClaimRV);
+  // UnsafeClaimRV is a frontend peephole for RetainRV + Release.  Since the
+  // AutoreleaseRV and RetainRV cancel out, replace UnsafeClaimRV with Release.
+  assert(Class == ARCInstKind::UnsafeClaimRV);
   Value *CallArg = cast<CallInst>(Inst)->getArgOperand(0);
-  CallInst *Release = CallInst::Create(
-      EP.get(ARCRuntimeEntryPointKind::Release), CallArg, "", Inst);
-  assert(IsAlwaysTail(ARCInstKind::ClaimRV) &&
-         "Expected ClaimRV to be safe to tail call");
+  CallInst *Release =
+      CallInst::Create(EP.get(ARCRuntimeEntryPointKind::Release), CallArg, "",
+                       Inst->getIterator());
+  assert(IsAlwaysTail(ARCInstKind::UnsafeClaimRV) &&
+         "Expected UnsafeClaimRV to be safe to tail call");
   Release->setTailCall();
   Inst->replaceAllUsesWith(CallArg);
   EraseInstruction(Inst);
 
   // Run the normal optimizations on Release.
-  OptimizeIndividualCallImpl(F, BlockColors, Release, ARCInstKind::Release,
-                             Arg);
+  OptimizeIndividualCallImpl(F, Release, ARCInstKind::Release, Arg);
   return true;
 }
 
@@ -769,31 +755,6 @@ void ObjCARCOpt::OptimizeAutoreleaseRVCall(Function &F,
   LLVM_DEBUG(dbgs() << "New: " << *AutoreleaseRV << "\n");
 }
 
-namespace {
-Instruction *
-CloneCallInstForBB(CallInst &CI, BasicBlock &BB,
-                   const DenseMap<BasicBlock *, ColorVector> &BlockColors) {
-  SmallVector<OperandBundleDef, 1> OpBundles;
-  for (unsigned I = 0, E = CI.getNumOperandBundles(); I != E; ++I) {
-    auto Bundle = CI.getOperandBundleAt(I);
-    // Funclets will be reassociated in the future.
-    if (Bundle.getTagID() == LLVMContext::OB_funclet)
-      continue;
-    OpBundles.emplace_back(Bundle);
-  }
-
-  if (!BlockColors.empty()) {
-    const ColorVector &CV = BlockColors.find(&BB)->second;
-    assert(CV.size() == 1 && "non-unique color for block!");
-    Instruction *EHPad = CV.front()->getFirstNonPHI();
-    if (EHPad->isEHPad())
-      OpBundles.emplace_back("funclet", EHPad);
-  }
-
-  return CallInst::Create(&CI, OpBundles);
-}
-}
-
 /// Visit each call, one at a time, and make simplifications without doing any
 /// additional analysis.
 void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
@@ -801,13 +762,8 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
   // Reset all the flags in preparation for recomputing them.
   UsedInThisFunction = 0;
 
-  DenseMap<BasicBlock *, ColorVector> BlockColors;
-  if (F.hasPersonalityFn() &&
-      isScopedEHPersonality(classifyEHPersonality(F.getPersonalityFn())))
-    BlockColors = colorEHFunclets(F);
-
   // Store any delayed AutoreleaseRV intrinsics, so they can be easily paired
-  // with RetainRV and ClaimRV.
+  // with RetainRV and UnsafeClaimRV.
   Instruction *DelayedAutoreleaseRV = nullptr;
   const Value *DelayedAutoreleaseRVArg = nullptr;
   auto setDelayedAutoreleaseRV = [&](Instruction *AutoreleaseRV) {
@@ -818,7 +774,7 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
   auto optimizeDelayedAutoreleaseRV = [&]() {
     if (!DelayedAutoreleaseRV)
       return;
-    OptimizeIndividualCallImpl(F, BlockColors, DelayedAutoreleaseRV,
+    OptimizeIndividualCallImpl(F, DelayedAutoreleaseRV,
                                ARCInstKind::AutoreleaseRV,
                                DelayedAutoreleaseRVArg);
     setDelayedAutoreleaseRV(nullptr);
@@ -834,7 +790,7 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
       return false;
 
     // Given the frontend rules for emitting AutoreleaseRV, RetainRV, and
-    // ClaimRV, it's probably safe to skip over even opaque function calls
+    // UnsafeClaimRV, it's probably safe to skip over even opaque function calls
     // here since OptimizeInlinedAutoreleaseRVCall will confirm that they
     // have the same RCIdentityRoot.  However, what really matters is
     // skipping instructions or intrinsics that the inliner could leave behind;
@@ -852,7 +808,7 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
 
     if (auto *CI = dyn_cast<CallInst>(Inst))
       if (objcarc::hasAttachedCallOpBundle(CI)) {
-        BundledInsts->insertRVCall(&*I, CI);
+        BundledInsts->insertRVCall(I->getIterator(), CI);
         Changed = true;
       }
 
@@ -878,10 +834,10 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
       setDelayedAutoreleaseRV(Inst);
       continue;
     case ARCInstKind::RetainRV:
-    case ARCInstKind::ClaimRV:
+    case ARCInstKind::UnsafeClaimRV:
       if (DelayedAutoreleaseRV) {
         // We have a potential RV pair.  Check if they cancel out.
-        if (OptimizeInlinedAutoreleaseRVCall(F, BlockColors, Inst, Arg, Class,
+        if (OptimizeInlinedAutoreleaseRVCall(F, Inst, Arg, Class,
                                              DelayedAutoreleaseRV,
                                              DelayedAutoreleaseRVArg)) {
           setDelayedAutoreleaseRV(nullptr);
@@ -892,7 +848,7 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
       break;
     }
 
-    OptimizeIndividualCallImpl(F, BlockColors, Inst, Class, Arg);
+    OptimizeIndividualCallImpl(F, Inst, Class, Arg);
   }
 
   // Catch the final delayed AutoreleaseRV.
@@ -926,9 +882,9 @@ static bool isInertARCValue(Value *V, SmallPtrSet<Value *, 1> &VisitedPhis) {
   return false;
 }
 
-void ObjCARCOpt::OptimizeIndividualCallImpl(
-    Function &F, DenseMap<BasicBlock *, ColorVector> &BlockColors,
-    Instruction *Inst, ARCInstKind Class, const Value *Arg) {
+void ObjCARCOpt::OptimizeIndividualCallImpl(Function &F, Instruction *Inst,
+                                            ARCInstKind Class,
+                                            const Value *Arg) {
   LLVM_DEBUG(dbgs() << "Visiting: Class: " << Class << "; " << *Inst << "\n");
 
   // We can delete this call if it takes an inert value.
@@ -976,10 +932,10 @@ void ObjCARCOpt::OptimizeIndividualCallImpl(
     CallInst *CI = cast<CallInst>(Inst);
     if (IsNullOrUndef(CI->getArgOperand(0))) {
       Changed = true;
-      Type *Ty = CI->getArgOperand(0)->getType();
-      new StoreInst(UndefValue::get(cast<PointerType>(Ty)->getElementType()),
-                    Constant::getNullValue(Ty), CI);
-      Value *NewValue = UndefValue::get(CI->getType());
+      new StoreInst(ConstantInt::getTrue(CI->getContext()),
+                    PoisonValue::get(PointerType::getUnqual(CI->getContext())),
+                    CI->getIterator());
+      Value *NewValue = PoisonValue::get(CI->getType());
       LLVM_DEBUG(
           dbgs() << "A null pointer-to-weak-pointer is undefined behavior."
                     "\nOld = "
@@ -996,11 +952,11 @@ void ObjCARCOpt::OptimizeIndividualCallImpl(
     if (IsNullOrUndef(CI->getArgOperand(0)) ||
         IsNullOrUndef(CI->getArgOperand(1))) {
       Changed = true;
-      Type *Ty = CI->getArgOperand(0)->getType();
-      new StoreInst(UndefValue::get(cast<PointerType>(Ty)->getElementType()),
-                    Constant::getNullValue(Ty), CI);
+      new StoreInst(ConstantInt::getTrue(CI->getContext()),
+                    PoisonValue::get(PointerType::getUnqual(CI->getContext())),
+                    CI->getIterator());
 
-      Value *NewValue = UndefValue::get(CI->getType());
+      Value *NewValue = PoisonValue::get(CI->getType());
       LLVM_DEBUG(
           dbgs() << "A null pointer-to-weak-pointer is undefined behavior."
                     "\nOld = "
@@ -1034,10 +990,10 @@ void ObjCARCOpt::OptimizeIndividualCallImpl(
       LLVMContext &C = Inst->getContext();
 
       Function *Decl = EP.get(ARCRuntimeEntryPointKind::Release);
-      CallInst *NewCall =
-          CallInst::Create(Decl, Call->getArgOperand(0), "", Call);
+      CallInst *NewCall = CallInst::Create(Decl, Call->getArgOperand(0), "",
+                                           Call->getIterator());
       NewCall->setMetadata(MDKindCache.get(ARCMDKindID::ImpreciseRelease),
-                           MDNode::get(C, None));
+                           MDNode::get(C, {}));
 
       LLVM_DEBUG(dbgs() << "Replacing autorelease{,RV}(x) with objc_release(x) "
                            "since x is otherwise unused.\nOld: "
@@ -1162,7 +1118,7 @@ void ObjCARCOpt::OptimizeIndividualCallImpl(
       DepInst = findSingleDependency(AutoreleasePoolBoundary, Arg,
                                      Inst->getParent(), Inst, PA);
       break;
-    case ARCInstKind::ClaimRV:
+    case ARCInstKind::UnsafeClaimRV:
     case ARCInstKind::RetainRV:
     case ARCInstKind::AutoreleaseRV:
       // Don't move these; the RV optimization depends on the autoreleaseRV
@@ -1187,13 +1143,18 @@ void ObjCARCOpt::OptimizeIndividualCallImpl(
       if (IsNullOrUndef(Incoming))
         continue;
       Value *Op = PN->getIncomingValue(i);
-      Instruction *InsertPos = &PN->getIncomingBlock(i)->back();
-      CallInst *Clone = cast<CallInst>(
-          CloneCallInstForBB(*CInst, *InsertPos->getParent(), BlockColors));
+      BasicBlock::iterator InsertPos =
+          PN->getIncomingBlock(i)->back().getIterator();
+      SmallVector<OperandBundleDef, 1> OpBundles;
+      cloneOpBundlesIf(CInst, OpBundles, [](const OperandBundleUse &B) {
+        return B.getTagID() != LLVMContext::OB_funclet;
+      });
+      addOpBundleForFunclet(InsertPos->getParent(), OpBundles);
+      CallInst *Clone = CallInst::Create(CInst, OpBundles);
       if (Op->getType() != ParamTy)
         Op = new BitCastInst(Op, ParamTy, "", InsertPos);
       Clone->setArgOperand(0, Op);
-      Clone->insertBefore(InsertPos);
+      Clone->insertBefore(*InsertPos->getParent(), InsertPos);
 
       LLVM_DEBUG(dbgs() << "Cloning " << *CInst << "\n"
                                                    "And inserting clone at "
@@ -1495,13 +1456,61 @@ bool ObjCARCOpt::VisitBottomUp(BasicBlock *BB,
   return NestingDetected;
 }
 
-bool
-ObjCARCOpt::VisitInstructionTopDown(Instruction *Inst,
-                                    DenseMap<Value *, RRInfo> &Releases,
-                                    BBState &MyStates) {
+// Fill ReleaseInsertPtToRCIdentityRoots, which is a map from insertion points
+// to the set of RC identity roots that would be released by the release calls
+// moved to the insertion points.
+static void collectReleaseInsertPts(
+    const BlotMapVector<Value *, RRInfo> &Retains,
+    DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+        &ReleaseInsertPtToRCIdentityRoots) {
+  for (const auto &P : Retains) {
+    // Retains is a map from an objc_retain call to a RRInfo of the RC identity
+    // root of the call. Get the RC identity root of the objc_retain call.
+    Instruction *Retain = cast<Instruction>(P.first);
+    Value *Root = GetRCIdentityRoot(Retain->getOperand(0));
+    // Collect all the insertion points of the objc_release calls that release
+    // the RC identity root of the objc_retain call.
+    for (const Instruction *InsertPt : P.second.ReverseInsertPts)
+      ReleaseInsertPtToRCIdentityRoots[InsertPt].insert(Root);
+  }
+}
+
+// Get the RC identity roots from an insertion point of an objc_release call.
+// Return nullptr if the passed instruction isn't an insertion point.
+static const SmallPtrSet<const Value *, 2> *
+getRCIdentityRootsFromReleaseInsertPt(
+    const Instruction *InsertPt,
+    const DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+        &ReleaseInsertPtToRCIdentityRoots) {
+  auto I = ReleaseInsertPtToRCIdentityRoots.find(InsertPt);
+  if (I == ReleaseInsertPtToRCIdentityRoots.end())
+    return nullptr;
+  return &I->second;
+}
+
+bool ObjCARCOpt::VisitInstructionTopDown(
+    Instruction *Inst, DenseMap<Value *, RRInfo> &Releases, BBState &MyStates,
+    const DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+        &ReleaseInsertPtToRCIdentityRoots) {
   bool NestingDetected = false;
   ARCInstKind Class = GetARCInstKind(Inst);
   const Value *Arg = nullptr;
+
+  // Make sure a call to objc_retain isn't moved past insertion points of calls
+  // to objc_release.
+  if (const SmallPtrSet<const Value *, 2> *Roots =
+          getRCIdentityRootsFromReleaseInsertPt(
+              Inst, ReleaseInsertPtToRCIdentityRoots))
+    for (const auto *Root : *Roots) {
+      TopDownPtrState &S = MyStates.getPtrTopDownState(Root);
+      // Disable code motion if the current position is S_Retain to prevent
+      // moving the objc_retain call past objc_release calls. If it's
+      // S_CanRelease or larger, it's not necessary to disable code motion as
+      // the insertion points that prevent the objc_retain call from moving down
+      // should have been set already.
+      if (S.GetSeq() == S_Retain)
+        S.SetCFGHazardAfflicted(true);
+    }
 
   LLVM_DEBUG(dbgs() << "        Class: " << Class << "\n");
 
@@ -1565,10 +1574,11 @@ ObjCARCOpt::VisitInstructionTopDown(Instruction *Inst,
   return NestingDetected;
 }
 
-bool
-ObjCARCOpt::VisitTopDown(BasicBlock *BB,
-                         DenseMap<const BasicBlock *, BBState> &BBStates,
-                         DenseMap<Value *, RRInfo> &Releases) {
+bool ObjCARCOpt::VisitTopDown(
+    BasicBlock *BB, DenseMap<const BasicBlock *, BBState> &BBStates,
+    DenseMap<Value *, RRInfo> &Releases,
+    const DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+        &ReleaseInsertPtToRCIdentityRoots) {
   LLVM_DEBUG(dbgs() << "\n== ObjCARCOpt::VisitTopDown ==\n");
   bool NestingDetected = false;
   BBState &MyStates = BBStates[BB];
@@ -1608,7 +1618,8 @@ ObjCARCOpt::VisitTopDown(BasicBlock *BB,
   for (Instruction &Inst : *BB) {
     LLVM_DEBUG(dbgs() << "    Visiting " << Inst << "\n");
 
-    NestingDetected |= VisitInstructionTopDown(&Inst, Releases, MyStates);
+    NestingDetected |= VisitInstructionTopDown(
+        &Inst, Releases, MyStates, ReleaseInsertPtToRCIdentityRoots);
 
     // Bail out if the number of pointers being tracked becomes too large so
     // that this pass can complete in a reasonable amount of time.
@@ -1728,10 +1739,15 @@ bool ObjCARCOpt::Visit(Function &F,
       return false;
   }
 
+  DenseMap<const Instruction *, SmallPtrSet<const Value *, 2>>
+      ReleaseInsertPtToRCIdentityRoots;
+  collectReleaseInsertPts(Retains, ReleaseInsertPtToRCIdentityRoots);
+
   // Use reverse-postorder for top-down.
   bool TopDownNestingDetected = false;
   for (BasicBlock *BB : llvm::reverse(PostOrder)) {
-    TopDownNestingDetected |= VisitTopDown(BB, BBStates, Releases);
+    TopDownNestingDetected |=
+        VisitTopDown(BB, BBStates, Releases, ReleaseInsertPtToRCIdentityRoots);
     if (DisableRetainReleasePairing)
       return false;
   }
@@ -1746,17 +1762,15 @@ void ObjCARCOpt::MoveCalls(Value *Arg, RRInfo &RetainsToMove,
                            DenseMap<Value *, RRInfo> &Releases,
                            SmallVectorImpl<Instruction *> &DeadInsts,
                            Module *M) {
-  Type *ArgTy = Arg->getType();
-  Type *ParamTy = PointerType::getUnqual(Type::getInt8Ty(ArgTy->getContext()));
-
   LLVM_DEBUG(dbgs() << "== ObjCARCOpt::MoveCalls ==\n");
 
   // Insert the new retain and release calls.
   for (Instruction *InsertPt : ReleasesToMove.ReverseInsertPts) {
-    Value *MyArg = ArgTy == ParamTy ? Arg :
-                   new BitCastInst(Arg, ParamTy, "", InsertPt);
     Function *Decl = EP.get(ARCRuntimeEntryPointKind::Retain);
-    CallInst *Call = CallInst::Create(Decl, MyArg, "", InsertPt);
+    SmallVector<OperandBundleDef, 1> BundleList;
+    addOpBundleForFunclet(InsertPt->getParent(), BundleList);
+    CallInst *Call =
+        CallInst::Create(Decl, Arg, BundleList, "", InsertPt->getIterator());
     Call->setDoesNotThrow();
     Call->setTailCall();
 
@@ -1766,10 +1780,11 @@ void ObjCARCOpt::MoveCalls(Value *Arg, RRInfo &RetainsToMove,
                       << *InsertPt << "\n");
   }
   for (Instruction *InsertPt : RetainsToMove.ReverseInsertPts) {
-    Value *MyArg = ArgTy == ParamTy ? Arg :
-                   new BitCastInst(Arg, ParamTy, "", InsertPt);
     Function *Decl = EP.get(ARCRuntimeEntryPointKind::Release);
-    CallInst *Call = CallInst::Create(Decl, MyArg, "", InsertPt);
+    SmallVector<OperandBundleDef, 1> BundleList;
+    addOpBundleForFunclet(InsertPt->getParent(), BundleList);
+    CallInst *Call =
+        CallInst::Create(Decl, Arg, BundleList, "", InsertPt->getIterator());
     // Attach a clang.imprecise_release metadata tag, if appropriate.
     if (MDNode *M = ReleasesToMove.ReleaseMetadata)
       Call->setMetadata(MDKindCache.get(ARCMDKindID::ImpreciseRelease), M);
@@ -2106,7 +2121,8 @@ void ObjCARCOpt::OptimizeWeakCalls(Function &F) {
           // If the load has a builtin retain, insert a plain retain for it.
           if (Class == ARCInstKind::LoadWeakRetained) {
             Function *Decl = EP.get(ARCRuntimeEntryPointKind::Retain);
-            CallInst *CI = CallInst::Create(Decl, EarlierCall, "", Call);
+            CallInst *CI =
+                CallInst::Create(Decl, EarlierCall, "", Call->getIterator());
             CI->setTailCall();
           }
           // Zap the fully redundant load.
@@ -2135,7 +2151,8 @@ void ObjCARCOpt::OptimizeWeakCalls(Function &F) {
           // If the load has a builtin retain, insert a plain retain for it.
           if (Class == ARCInstKind::LoadWeakRetained) {
             Function *Decl = EP.get(ARCRuntimeEntryPointKind::Retain);
-            CallInst *CI = CallInst::Create(Decl, EarlierCall, "", Call);
+            CallInst *CI =
+                CallInst::Create(Decl, EarlierCall, "", Call->getIterator());
             CI->setTailCall();
           }
           // Zap the fully redundant load.
@@ -2171,13 +2188,12 @@ void ObjCARCOpt::OptimizeWeakCalls(Function &F) {
 
   // Then, for each destroyWeak with an alloca operand, check to see if
   // the alloca and all its users can be zapped.
-  for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ) {
-    Instruction *Inst = &*I++;
-    ARCInstKind Class = GetBasicARCInstKind(Inst);
+  for (Instruction &Inst : llvm::make_early_inc_range(instructions(F))) {
+    ARCInstKind Class = GetBasicARCInstKind(&Inst);
     if (Class != ARCInstKind::DestroyWeak)
       continue;
 
-    CallInst *Call = cast<CallInst>(Inst);
+    CallInst *Call = cast<CallInst>(&Inst);
     Value *Arg = Call->getArgOperand(0);
     if (AllocaInst *Alloca = dyn_cast<AllocaInst>(Arg)) {
       for (User *U : Alloca->users()) {
@@ -2192,8 +2208,8 @@ void ObjCARCOpt::OptimizeWeakCalls(Function &F) {
         }
       }
       Changed = true;
-      for (auto UI = Alloca->user_begin(), UE = Alloca->user_end(); UI != UE;) {
-        CallInst *UserInst = cast<CallInst>(*UI++);
+      for (User *U : llvm::make_early_inc_range(Alloca->users())) {
+        CallInst *UserInst = cast<CallInst>(U);
         switch (GetBasicARCInstKind(UserInst)) {
         case ARCInstKind::InitWeak:
         case ARCInstKind::StoreWeak:
@@ -2284,11 +2300,8 @@ FindPredecessorRetainWithSafePath(const Value *Arg, BasicBlock *BB,
 /// Look for an ``autorelease'' instruction dependent on Arg such that there are
 /// no instructions dependent on Arg that need a positive ref count in between
 /// the autorelease and the ret.
-static CallInst *
-FindPredecessorAutoreleaseWithSafePath(const Value *Arg, BasicBlock *BB,
-                                       ReturnInst *Ret,
-                                       ProvenanceAnalysis &PA) {
-  SmallPtrSet<Instruction *, 4> DepInsts;
+static CallInst *FindPredecessorAutoreleaseWithSafePath(
+    const Value *Arg, BasicBlock *BB, ReturnInst *Ret, ProvenanceAnalysis &PA) {
   auto *Autorelease = dyn_cast_or_null<CallInst>(
       findSingleDependency(NeedsPositiveRetainCount, Arg, BB, Ret, PA));
 
@@ -2386,17 +2399,22 @@ ObjCARCOpt::GatherStatistics(Function &F, bool AfterOptimization) {
 }
 #endif
 
-void ObjCARCOpt::init(Module &M) {
+void ObjCARCOpt::init(Function &F) {
   if (!EnableARCOpts)
     return;
 
   // Intuitively, objc_retain and others are nocapture, however in practice
   // they are not, because they return their argument value. And objc_release
   // calls finalizers which can have arbitrary side effects.
-  MDKindCache.init(&M);
+  MDKindCache.init(F.getParent());
 
   // Initialize our runtime entry point cache.
-  EP.init(&M);
+  EP.init(F.getParent());
+
+  // Compute which blocks are in which funclet.
+  if (F.hasPersonalityFn() &&
+      isScopedEHPersonality(classifyEHPersonality(F.getPersonalityFn())))
+    BlockEHColors = colorEHFunclets(F);
 }
 
 bool ObjCARCOpt::run(Function &F, AAResults &AA) {
@@ -2404,7 +2422,7 @@ bool ObjCARCOpt::run(Function &F, AAResults &AA) {
     return false;
 
   Changed = CFGChanged = false;
-  BundledRetainClaimRVs BRV(EP, false);
+  BundledRetainClaimRVs BRV(EP, /*ContractPass=*/false, /*UseClaimRV=*/false);
   BundledInsts = &BRV;
 
   LLVM_DEBUG(dbgs() << "<<< ObjCARCOpt: Visiting Function: " << F.getName()
@@ -2454,6 +2472,11 @@ bool ObjCARCOpt::run(Function &F, AAResults &AA) {
                             (1 << unsigned(ARCInstKind::AutoreleaseRV))))
     OptimizeReturns(F);
 
+  // Optimizations for autorelease pools.
+  if (UsedInThisFunction & ((1 << unsigned(ARCInstKind::AutoreleasepoolPush)) |
+                            (1 << unsigned(ARCInstKind::AutoreleasepoolPop))))
+    OptimizeAutoreleasePools(F);
+
   // Gather statistics after optimization.
 #ifndef NDEBUG
   if (AreStatisticsEnabled()) {
@@ -2466,8 +2489,181 @@ bool ObjCARCOpt::run(Function &F, AAResults &AA) {
   return Changed;
 }
 
-void ObjCARCOpt::releaseMemory() {
-  PA.clear();
+/// Interprocedurally determine if calls made by the given call site can
+/// possibly produce autoreleases.
+bool MayAutorelease(const CallBase &CB, unsigned Depth = 0) {
+  if (CB.onlyReadsMemory())
+    return false;
+
+  // This recursion depth limit is arbitrary. It's just great
+  // enough to cover known interesting testcases.
+  if (Depth > 5)
+    return true;
+
+  if (const Function *Callee = CB.getCalledFunction()) {
+    if (!Callee->hasExactDefinition())
+      return true;
+    for (const BasicBlock &BB : *Callee) {
+      for (const Instruction &I : BB) {
+        // TODO: Ignore all instructions between autorelease pools
+        ARCInstKind InstKind = GetBasicARCInstKind(&I);
+        switch (InstKind) {
+        case ARCInstKind::Autorelease:
+        case ARCInstKind::AutoreleaseRV:
+        case ARCInstKind::FusedRetainAutorelease:
+        case ARCInstKind::FusedRetainAutoreleaseRV:
+        case ARCInstKind::LoadWeak:
+          // These may produce autoreleases
+          return true;
+
+        case ARCInstKind::Retain:
+        case ARCInstKind::RetainRV:
+        case ARCInstKind::UnsafeClaimRV:
+        case ARCInstKind::RetainBlock:
+        case ARCInstKind::Release:
+        case ARCInstKind::NoopCast:
+        case ARCInstKind::LoadWeakRetained:
+        case ARCInstKind::StoreWeak:
+        case ARCInstKind::InitWeak:
+        case ARCInstKind::MoveWeak:
+        case ARCInstKind::CopyWeak:
+        case ARCInstKind::DestroyWeak:
+        case ARCInstKind::StoreStrong:
+        case ARCInstKind::AutoreleasepoolPush:
+        case ARCInstKind::AutoreleasepoolPop:
+          // These ObjC runtime functions don't produce autoreleases
+          break;
+
+        case ARCInstKind::CallOrUser:
+        case ARCInstKind::Call:
+          // For non-ObjC function calls, recursively analyze
+          if (MayAutorelease(cast<CallBase>(I), Depth + 1))
+            return true;
+          break;
+
+        case ARCInstKind::IntrinsicUser:
+        case ARCInstKind::User:
+        case ARCInstKind::None:
+          // These are not relevant for autorelease analysis
+          break;
+        }
+      }
+    }
+    return false;
+  }
+
+  return true;
+}
+
+/// Optimize autorelease pools by eliminating empty push/pop pairs.
+void ObjCARCOpt::OptimizeAutoreleasePools(Function &F) {
+  LLVM_DEBUG(dbgs() << "\n== ObjCARCOpt::OptimizeAutoreleasePools ==\n");
+
+  OptimizationRemarkEmitter ORE(&F);
+
+  // Process each basic block independently.
+  // TODO: Can we optimize inter-block autorelease pool pairs?
+  // This would involve tracking autorelease pool state across blocks.
+  for (BasicBlock &BB : F) {
+    // Use a stack to track nested autorelease pools
+    SmallVector<std::pair<CallInst *, bool>, 4>
+        PoolStack; // {push_inst, has_autorelease_in_scope}
+
+    for (Instruction &Inst : llvm::make_early_inc_range(BB)) {
+      ARCInstKind Class = GetBasicARCInstKind(&Inst);
+
+      switch (Class) {
+      case ARCInstKind::AutoreleasepoolPush: {
+        // Start tracking a new autorelease pool scope
+        auto *Push = cast<CallInst>(&Inst);
+        PoolStack.push_back(
+            {Push, false}); // {push_inst, has_autorelease_in_scope}
+        LLVM_DEBUG(dbgs() << "Found autorelease pool push: " << *Push << "\n");
+        break;
+      }
+
+      case ARCInstKind::AutoreleasepoolPop: {
+        auto *Pop = cast<CallInst>(&Inst);
+
+        if (PoolStack.empty())
+          break;
+
+        auto &TopPool = PoolStack.back();
+        CallInst *PendingPush = TopPool.first;
+        bool HasAutoreleaseInScope = TopPool.second;
+
+        // Pop the stack - remove this pool scope
+        PoolStack.pop_back();
+
+        // Bail if this pop doesn't match the pending push
+        if (Pop->getArgOperand(0)->stripPointerCasts() != PendingPush)
+          break;
+
+        // Bail if there were autoreleases in this scope
+        if (HasAutoreleaseInScope)
+          break;
+
+        // Optimize: eliminate this empty autorelease pool pair
+        ORE.emit([&]() {
+          return OptimizationRemark(DEBUG_TYPE, "AutoreleasePoolElimination",
+                                    PendingPush)
+                 << "eliminated empty autorelease pool pair";
+        });
+
+        // Replace all uses of push with poison before deletion
+        PendingPush->replaceAllUsesWith(
+            PoisonValue::get(PendingPush->getType()));
+
+        Pop->eraseFromParent();
+        PendingPush->eraseFromParent();
+
+        Changed = true;
+        ++NumNoops;
+        break;
+      }
+      case ARCInstKind::CallOrUser:
+      case ARCInstKind::Call:
+        if (!MayAutorelease(cast<CallBase>(Inst)))
+          break;
+        [[fallthrough]];
+      case ARCInstKind::Autorelease:
+      case ARCInstKind::AutoreleaseRV:
+      case ARCInstKind::FusedRetainAutorelease:
+      case ARCInstKind::FusedRetainAutoreleaseRV:
+      case ARCInstKind::LoadWeak: {
+        // Track that we have autorelease calls in the current pool scope
+        if (!PoolStack.empty()) {
+          PoolStack.back().second = true; // Set has_autorelease_in_scope = true
+          LLVM_DEBUG(
+              dbgs()
+              << "Found autorelease or potential autorelease in pool scope: "
+              << Inst << "\n");
+        }
+        break;
+      }
+
+      // Enumerate all remaining ARCInstKind cases explicitly
+      case ARCInstKind::Retain:
+      case ARCInstKind::RetainRV:
+      case ARCInstKind::UnsafeClaimRV:
+      case ARCInstKind::RetainBlock:
+      case ARCInstKind::Release:
+      case ARCInstKind::NoopCast:
+      case ARCInstKind::LoadWeakRetained:
+      case ARCInstKind::StoreWeak:
+      case ARCInstKind::InitWeak:
+      case ARCInstKind::MoveWeak:
+      case ARCInstKind::CopyWeak:
+      case ARCInstKind::DestroyWeak:
+      case ARCInstKind::StoreStrong:
+      case ARCInstKind::IntrinsicUser:
+      case ARCInstKind::User:
+      case ARCInstKind::None:
+        // These instruction kinds don't affect autorelease pool optimization
+        break;
+      }
+    }
+  }
 }
 
 /// @}
@@ -2476,7 +2672,7 @@ void ObjCARCOpt::releaseMemory() {
 PreservedAnalyses ObjCARCOptPass::run(Function &F,
                                       FunctionAnalysisManager &AM) {
   ObjCARCOpt OCAO;
-  OCAO.init(*F.getParent());
+  OCAO.init(F);
 
   bool Changed = OCAO.run(F, AM.getResult<AAManager>(F));
   bool CFGChanged = OCAO.hasCFGChanged();

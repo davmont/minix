@@ -27,7 +27,10 @@ namespace clang {
 
   /// Call this once on each thread, as soon after starting the thread as
   /// feasible, to note the approximate address of the bottom of the stack.
-  void noteBottomOfStack();
+  ///
+  /// \param ForceSet set to true if you know the call is near the bottom of a
+  ///                 new stack. Used for split stacks.
+  void noteBottomOfStack(bool ForceSet = false);
 
   /// Determine whether the stack is nearly exhausted.
   bool isStackNearlyExhausted();
@@ -39,7 +42,7 @@ namespace clang {
   /// is insufficient, calls Diag to emit a diagnostic before calling Fn.
   inline void runWithSufficientStackSpace(llvm::function_ref<void()> Diag,
                                           llvm::function_ref<void()> Fn) {
-#ifdef LLVM_ENABLE_THREADS
+#if LLVM_ENABLE_THREADS
     if (LLVM_UNLIKELY(isStackNearlyExhausted()))
       runWithSufficientStackSpaceSlow(Diag, Fn);
     else

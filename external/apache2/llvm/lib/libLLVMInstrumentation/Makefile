@@ -7,6 +7,8 @@ LIB=	LLVMInstrumentation
 .PATH: ${LLVM_SRCDIR}/lib/Transforms/Instrumentation
 
 SRCS+=	AddressSanitizer.cpp \
+	AllocToken.cpp \
+	BlockCoverageInference.cpp \
 	BoundsChecking.cpp \
 	CGProfile.cpp \
 	ControlHeightReduction.cpp \
@@ -14,16 +16,23 @@ SRCS+=	AddressSanitizer.cpp \
 	GCOVProfiling.cpp \
 	HWAddressSanitizer.cpp \
 	IndirectCallPromotion.cpp \
-	InstrOrderFile.cpp \
 	InstrProfiling.cpp \
-	Instrumentation.cpp \
+	KCFI.cpp \
+	LowerAllowCheckPass.cpp \
+	MemProfInstrumentation.cpp \
+	MemProfUse.cpp \
 	MemorySanitizer.cpp \
-	MemProfiler.cpp \
+	NumericalStabilitySanitizer.cpp \
+	PGOCtxProfFlattening.cpp \
+	PGOCtxProfLowering.cpp \
+	PGOForceFunctionAttrs.cpp \
 	PGOInstrumentation.cpp \
 	PGOMemOPSizeOpt.cpp \
-	PoisonChecking.cpp \
+	RealtimeSanitizer.cpp \
+	SanitizerBinaryMetadata.cpp \
 	SanitizerCoverage.cpp \
 	ThreadSanitizer.cpp \
+	TypeSanitizer.cpp \
 	ValueProfileCollector.cpp
 
 .if defined(HOSTLIB)

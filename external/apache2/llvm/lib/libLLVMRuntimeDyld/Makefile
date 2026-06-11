@@ -13,9 +13,9 @@ SRCS+=	JITSymbol.cpp \
 	RuntimeDyldCOFF.cpp \
 	RuntimeDyldChecker.cpp \
 	RuntimeDyldELF.cpp \
+	RuntimeDyldELFMips.cpp \
 	RuntimeDyldMachO.cpp
 
-SRCS+=	RuntimeDyldELFMips.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

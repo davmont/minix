@@ -29,6 +29,43 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	ipo \
+	IRPrinter \
+	Passes \
+	TransformsCFGuard \
+	GlobalISel \
+	SelectionDAG \
+	CodeGen \
+	CGData \
+	CodeGenTypes \
+	TransformsCoroutines \
+	FrontendOpenMP \
+	FrontendOffloading \
+	ObjectYAML \
+	FrontendAtomic \
+	FrontendDirective \
+	Linker \
+	Vectorize \
+	SandboxIR \
+	Instrumentation \
+	ScalarOpts \
+	TransformsAggressiveInstCombine \
+	InstCombine \
+	HipStdPar \
+	ObjCARC \
+	FrontendHLSL \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB \
+	DebugInfoCodeView \
+	DebugInfoMSF \
+	DebugInfoBTF \
+	DebugInfoDWARF \
+	TextAPI
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

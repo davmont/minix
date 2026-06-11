@@ -9,34 +9,15 @@
 #ifndef _OPENCL_BASE_H_
 #define _OPENCL_BASE_H_
 
-// Define extension macros
+#if !defined(__opencl_c_generic_address_space)
+// Internal feature macro to provide named (global, local, private) address
+// space overloads for builtin functions that take a pointer argument.
+#define __opencl_c_named_address_space_builtins 1
+#endif // !defined(__opencl_c_generic_address_space)
 
-#if (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ >= 200)
-// For SPIR all extensions are supported.
-#if defined(__SPIR__)
-#define cl_khr_subgroup_extended_types 1
-#define cl_khr_subgroup_non_uniform_vote 1
-#define cl_khr_subgroup_ballot 1
-#define cl_khr_subgroup_non_uniform_arithmetic 1
-#define cl_khr_subgroup_shuffle 1
-#define cl_khr_subgroup_shuffle_relative 1
-#define cl_khr_subgroup_clustered_reduce 1
-#endif // defined(__SPIR__)
-#endif // (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ >= 200)
-
-// Define feature macros for OpenCL C 2.0
-#if (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ == 200)
-#define __opencl_c_pipes 1
-#define __opencl_c_generic_address_space 1
-#define __opencl_c_work_group_collective_functions 1
-#define __opencl_c_atomic_order_acq_rel 1
-#define __opencl_c_atomic_order_seq_cst 1
-#define __opencl_c_atomic_scope_device 1
-#define __opencl_c_atomic_scope_all_devices 1
-#define __opencl_c_device_enqueue 1
-#define __opencl_c_read_write_images 1
-#define __opencl_c_program_scope_global_variables 1
-#define __opencl_c_images 1
+#if defined(cl_intel_subgroups) || defined(cl_khr_subgroups) || defined(__opencl_c_subgroups)
+// Internal feature macro to provide subgroup builtins.
+#define __opencl_subgroup_builtins 1
 #endif
 
 // built-in scalar data types:
@@ -156,7 +137,12 @@ typedef double double8 __attribute__((ext_vector_type(8)));
 typedef double double16 __attribute__((ext_vector_type(16)));
 #endif
 
-#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+// An internal alias for half, for use by OpenCLBuiltins.td.
+#define __half half
+
+#if defined(__OPENCL_CPP_VERSION__)
+#define NULL nullptr
+#elif defined(__OPENCL_C_VERSION__)
 #define NULL ((void*)0)
 #endif
 
@@ -312,8 +298,19 @@ typedef enum memory_scope {
   memory_scope_work_item = __OPENCL_MEMORY_SCOPE_WORK_ITEM,
   memory_scope_work_group = __OPENCL_MEMORY_SCOPE_WORK_GROUP,
   memory_scope_device = __OPENCL_MEMORY_SCOPE_DEVICE,
+#if defined(__opencl_c_atomic_scope_all_devices)
   memory_scope_all_svm_devices = __OPENCL_MEMORY_SCOPE_ALL_SVM_DEVICES,
-#if defined(cl_intel_subgroups) || defined(cl_khr_subgroups)
+#if (__OPENCL_C_VERSION__ >= CL_VERSION_3_0 || __OPENCL_CPP_VERSION__ >= 202100)
+  memory_scope_all_devices = memory_scope_all_svm_devices,
+#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_3_0 || __OPENCL_CPP_VERSION__ >= 202100)
+#endif // defined(__opencl_c_atomic_scope_all_devices)
+/**
+ * Subgroups have different requirements on forward progress, so just test
+ * all the relevant macros.
+ * CL 3.0 sub-groups "they are not guaranteed to make independent forward progress"
+ * KHR subgroups "Subgroups within a workgroup are independent, make forward progress with respect to each other"
+ */
+#if defined(cl_intel_subgroups) || defined(cl_khr_subgroups) || defined(__opencl_c_subgroups)
   memory_scope_sub_group = __OPENCL_MEMORY_SCOPE_SUB_GROUP
 #endif
 } memory_scope;
@@ -337,7 +334,9 @@ typedef enum memory_order
   memory_order_acquire = __ATOMIC_ACQUIRE,
   memory_order_release = __ATOMIC_RELEASE,
   memory_order_acq_rel = __ATOMIC_ACQ_REL,
+#if defined(__opencl_c_atomic_order_seq_cst)
   memory_order_seq_cst = __ATOMIC_SEQ_CST
+#endif
 } memory_order;
 
 #endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
@@ -389,6 +388,24 @@ typedef enum memory_order
 #define CLK_HALF_FLOAT        0x10DD
 #define CLK_FLOAT             0x10DE
 #define CLK_UNORM_INT24       0x10DF
+#if __OPENCL_C_VERSION__ >= CL_VERSION_3_0
+#define CLK_UNORM_INT_101010_2 0x10E0
+#endif // __OPENCL_C_VERSION__ >= CL_VERSION_3_0
+#ifdef __opencl_c_ext_image_raw10_raw12
+#define CLK_UNSIGNED_INT_RAW10_EXT 0x10E3
+#define CLK_UNSIGNED_INT_RAW12_EXT 0x10E4
+#endif // __opencl_c_ext_image_raw10_raw12
+#ifdef __opencl_c_ext_image_unorm_int_2_101010
+#define CLK_UNORM_INT_2_101010_EXT 0x10E5
+#endif // __opencl_c_ext_image_unorm_int_2_101010
+#ifdef __opencl_c_ext_image_unsigned_10x6_12x4_14x2
+#define CLK_UNSIGNED_INT10X6_EXT 0x10E6
+#define CLK_UNSIGNED_INT12X4_EXT 0x10E7
+#define CLK_UNSIGNED_INT14X2_EXT 0x10E8
+#define CLK_UNORM_10X6_EXT 0x10E1
+#define CLK_UNORM_12X4_EXT 0x10E9
+#define CLK_UNORM_14X2_EXT 0x10EA
+#endif // __opencl_c_ext_image_unsigned_10x6_12x4_14x2
 
 // Channel order, numbering must be aligned with cl_channel_order in cl.h
 //
@@ -451,12 +468,14 @@ typedef int clk_profiling_info;
 
 #define MAX_WORK_DIM 3
 
+#ifdef __opencl_c_device_enqueue
 typedef struct {
   unsigned int workDimension;
   size_t globalWorkOffset[MAX_WORK_DIM];
   size_t globalWorkSize[MAX_WORK_DIM];
   size_t localWorkSize[MAX_WORK_DIM];
 } ndrange_t;
+#endif // __opencl_c_device_enqueue
 
 #endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
@@ -550,6 +569,28 @@ typedef struct {
 #define as_intptr_t(x) __builtin_astype((x), intptr_t)
 #define as_uintptr_t(x) __builtin_astype((x), uintptr_t)
 
+// C++ for OpenCL - __remove_address_space
+#if defined(__OPENCL_CPP_VERSION__)
+template <typename _Tp> struct __remove_address_space { using type = _Tp; };
+#if defined(__opencl_c_generic_address_space)
+template <typename _Tp> struct __remove_address_space<__generic _Tp> {
+  using type = _Tp;
+};
+#endif
+template <typename _Tp> struct __remove_address_space<__global _Tp> {
+  using type = _Tp;
+};
+template <typename _Tp> struct __remove_address_space<__private _Tp> {
+  using type = _Tp;
+};
+template <typename _Tp> struct __remove_address_space<__local _Tp> {
+  using type = _Tp;
+};
+template <typename _Tp> struct __remove_address_space<__constant _Tp> {
+  using type = _Tp;
+};
+#endif
+
 // OpenCL v1.1 s6.9, v1.2/2.0 s6.10 - Function qualifiers
 
 #define __kernel_exec(X, typen) __kernel \
@@ -563,7 +604,16 @@ typedef struct {
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 // OpenCL v1.2 s6.12.13, v2.0 s6.13.13 - printf
 
-int printf(__constant const char* st, ...) __attribute__((format(printf, 1, 2)));
+#ifdef __OPENCL_CPP_VERSION__
+#define CLINKAGE extern "C"
+#else
+#define CLINKAGE
+#endif
+
+CLINKAGE int printf(__constant const char *st, ...)
+    __attribute__((format(printf, 1, 2)));
+
+#undef CLINKAGE
 #endif
 
 #ifdef cl_intel_device_side_avc_motion_estimation

@@ -9,17 +9,18 @@
 #ifndef LLVM_DEBUGINFO_PDB_PDBSYMBOLDATA_H
 #define LLVM_DEBUGINFO_PDB_PDBSYMBOLDATA_H
 
-#include "IPDBLineNumber.h"
 #include "PDBSymbol.h"
 #include "PDBTypes.h"
+#include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
-class raw_ostream;
-
 namespace pdb {
 
-class PDBSymbolData : public PDBSymbol {
+class PDBSymDumper;
+
+class LLVM_ABI PDBSymbolData : public PDBSymbol {
   DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::Data)
 public:
   void dump(PDBSymDumper &Dumper) const override;

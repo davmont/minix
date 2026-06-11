@@ -79,6 +79,16 @@ LLVM_LIBS+= \
 	Support \
 	Demangle
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	ObjCopy \
+	IRReader \
+	AsmParser \
+	Remarks \
+	TextAPI \
+	DebugInfoDWARF
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

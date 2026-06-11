@@ -18,11 +18,13 @@
 #include "clang/AST/AbstractBasicReader.h"
 #include "clang/Lex/Token.h"
 #include "clang/Serialization/ASTReader.h"
+#include "clang/Serialization/SourceLocationEncoding.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APSInt.h"
 
 namespace clang {
+class OpenACCClause;
 class OMPTraitInfo;
 class OMPChildren;
 
@@ -72,7 +74,7 @@ public:
   uint64_t readInt() { return Record[Idx++]; }
 
   ArrayRef<uint64_t> readIntArray(unsigned Len) {
-    auto Array = llvm::makeArrayRef(Record).slice(Idx, Len);
+    auto Array = llvm::ArrayRef(Record).slice(Idx, Len);
     Idx += Len;
     return Array;
   }
@@ -98,13 +100,6 @@ public:
   bool readLexicalDeclContextStorage(uint64_t Offset, DeclContext *DC) {
     return Reader->ReadLexicalDeclContextStorage(*F, F->DeclsCursor, Offset,
                                                  DC);
-  }
-
-  /// Read the record that describes the visible contents of a DC.
-  bool readVisibleDeclContextStorage(uint64_t Offset,
-                                     serialization::DeclID ID) {
-    return Reader->ReadVisibleDeclContextStorage(*F, F->DeclsCursor, Offset,
-                                                 ID);
   }
 
   ExplicitSpecifier readExplicitSpec() {
@@ -140,8 +135,7 @@ public:
   /// Reads a declaration with the given local ID in the given module.
   ///
   /// \returns The requested declaration, casted to the given return type.
-  template<typename T>
-  T *GetLocalDeclAs(uint32_t LocalID) {
+  template <typename T> T *GetLocalDeclAs(LocalDeclID LocalID) {
     return cast_or_null<T>(Reader->GetLocalDecl(*F, LocalID));
   }
 
@@ -153,8 +147,13 @@ public:
   /// Reads a TemplateArgumentLoc, advancing Idx.
   TemplateArgumentLoc readTemplateArgumentLoc();
 
+  void readTemplateArgumentListInfo(TemplateArgumentListInfo &Result);
+
   const ASTTemplateArgumentListInfo*
   readASTTemplateArgumentListInfo();
+
+  // Reads a concept reference from the given record.
+  ConceptReference *readConceptReference();
 
   /// Reads a declarator info from the given record, advancing Idx.
   TypeSourceInfo *readTypeSourceInfo();
@@ -162,9 +161,8 @@ public:
   /// Reads the location information for a type.
   void readTypeLoc(TypeLoc TL);
 
-
   /// Map a local type ID within a given AST file to a global type ID.
-  serialization::TypeID getGlobalTypeID(unsigned LocalID) const {
+  serialization::TypeID getGlobalTypeID(serialization::TypeID LocalID) const {
     return Reader->getGlobalTypeID(*F, LocalID);
   }
 
@@ -183,9 +181,7 @@ public:
   /// Reads a declaration ID from the given position in this record.
   ///
   /// \returns The declaration ID read from the record, adjusted to a global ID.
-  serialization::DeclID readDeclID() {
-    return Reader->ReadDeclID(*F, Record, Idx);
-  }
+  GlobalDeclID readDeclID() { return Reader->ReadDeclID(*F, Record, Idx); }
 
   /// Reads a declaration from the given position in a record in the
   /// given module, advancing Idx.
@@ -215,6 +211,10 @@ public:
     return Reader->ReadSelector(*F, Record, Idx);
   }
 
+  TypeCoupledDeclRefInfo readTypeCoupledDeclRefInfo();
+
+  SpirvOperand readHLSLSpirvOperand();
+
   /// Read a declaration name, advancing Idx.
   // DeclarationName readDeclarationName(); (inherited)
   DeclarationNameLoc readDeclarationNameLoc(DeclarationName Name);
@@ -223,7 +223,7 @@ public:
   void readQualifierInfo(QualifierInfo &Info);
 
   /// Return a nested name specifier, advancing Idx.
-  // NestedNameSpecifier *readNestedNameSpecifier(); (inherited)
+  // NestedNameSpecifier readNestedNameSpecifier(); (inherited)
 
   NestedNameSpecifierLoc readNestedNameSpecifierLoc();
 
@@ -270,6 +270,21 @@ public:
   /// Read an OpenMP children, advancing Idx.
   void readOMPChildren(OMPChildren *Data);
 
+  /// Read a list of Exprs used for a var-list.
+  llvm::SmallVector<Expr *> readOpenACCVarList();
+
+  /// Read a list of Exprs used for a int-expr-list.
+  llvm::SmallVector<Expr *> readOpenACCIntExprList();
+
+  /// Read an OpenACC clause, advancing Idx.
+  OpenACCClause *readOpenACCClause();
+
+  /// Read a list of OpenACC clauses into the passed SmallVector, during
+  /// statement reading.
+  void readOpenACCClauseList(MutableArrayRef<const OpenACCClause *> Clauses);
+
+  void readOpenACCRoutineDeclAttr(OpenACCRoutineDeclAttr *A);
+
   /// Read a source location, advancing Idx.
   SourceLocation readSourceLocation() {
     return Reader->ReadSourceLocation(*F, Record, Idx);
@@ -305,6 +320,10 @@ public:
     return readInt();
   }
 
+  UnsignedOrNone readUnsignedOrNone() {
+    return UnsignedOrNone::fromInternalRepresentation(unsigned(readInt()));
+  }
+
   /// Read a string, advancing Idx.
   std::string readString() {
     return Reader->ReadString(Record, Idx);
@@ -325,6 +344,11 @@ public:
 
   /// Reads attributes from the current stream position, advancing Idx.
   void readAttributes(AttrVec &Attrs);
+
+  /// Read an BTFTypeTagAttr object.
+  BTFTypeTagAttr *readBTFTypeTagAttr() {
+    return cast<BTFTypeTagAttr>(readAttr());
+  }
 
   /// Reads a token out of a record, advancing Idx.
   Token readToken() {
@@ -350,7 +374,7 @@ struct SavedStreamPosition {
   ~SavedStreamPosition() {
     if (llvm::Error Err = Cursor.JumpToBit(Offset))
       llvm::report_fatal_error(
-          "Cursor should always be able to go back, failed: " +
+          llvm::Twine("Cursor should always be able to go back, failed: ") +
           toString(std::move(Err)));
   }
 
@@ -358,10 +382,6 @@ private:
   llvm::BitstreamCursor &Cursor;
   uint64_t Offset;
 };
-
-inline void PCHValidator::Error(const char *Msg) {
-  Reader.Error(Msg);
-}
 
 } // namespace clang
 

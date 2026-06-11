@@ -17,8 +17,7 @@
 #include "llvm/XRay/FDRRecords.h"
 #include "llvm/XRay/XRayRecord.h"
 
-namespace llvm {
-namespace xray {
+namespace llvm::xray {
 
 class TraceExpander : public RecordVisitor {
   // Type-erased callback for handling individual XRayRecord instances.
@@ -36,7 +35,7 @@ class TraceExpander : public RecordVisitor {
 
 public:
   explicit TraceExpander(function_ref<void(const XRayRecord &)> F, uint16_t L)
-      : RecordVisitor(), C(std::move(F)), LogVersion(L) {}
+      : C(std::move(F)), LogVersion(L) {}
 
   Error visit(BufferExtents &) override;
   Error visit(WallclockRecord &) override;
@@ -56,7 +55,6 @@ public:
   Error flush();
 };
 
-} // namespace xray
-} // namespace llvm
+} // namespace llvm::xray
 
 #endif // LLVM_XRAY_FDRTRACEEXPANDER_H

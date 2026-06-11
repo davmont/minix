@@ -33,6 +33,13 @@ LLVM_LIBS+= \
 #LDADD+=	-lz
 #DPADD+=	${LIBZ}
 
+LLVM_LIBS+=	TargetParser
+
+LLVM_LIBS+= \
+	IRReader \
+	AsmParser \
+	DebugInfoDWARF
+
 .include "${.PARSEDIR}/../../link.mk"
 
 .include <bsd.prog.mk>

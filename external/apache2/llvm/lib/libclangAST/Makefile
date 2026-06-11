@@ -5,6 +5,7 @@ LIB=	clangAST
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/AST
+.PATH: ${CLANG_SRCDIR}/lib/AST/ByteCode
 
 SRCS+=	APValue.cpp \
 	ASTConcept.cpp \
@@ -16,61 +17,98 @@ SRCS+=	APValue.cpp \
 	ASTImporterLookupTable.cpp \
 	ASTStructuralEquivalence.cpp \
 	ASTTypeTraits.cpp \
+	AttrDocTable.cpp \
 	AttrImpl.cpp \
+	Availability.cpp \
+	BitcastBuffer.cpp \
+	ByteCodeEmitter.cpp \
+	CXXInheritance.cpp \
+	Comment.cpp \
 	CommentBriefParser.cpp \
 	CommentCommandTraits.cpp \
-	Comment.cpp \
 	CommentLexer.cpp \
 	CommentParser.cpp \
 	CommentSema.cpp \
 	ComparisonCategories.cpp \
+	Compiler.cpp \
 	ComputeDependence.cpp \
-	CXXInheritance.cpp \
+	Context.cpp \
 	DataCollection.cpp \
-	DeclarationName.cpp \
-	DeclBase.cpp \
 	Decl.cpp \
+	DeclBase.cpp \
 	DeclCXX.cpp \
 	DeclFriend.cpp \
 	DeclGroup.cpp \
 	DeclObjC.cpp \
+	DeclOpenACC.cpp \
 	DeclOpenMP.cpp \
 	DeclPrinter.cpp \
 	DeclTemplate.cpp \
+	DeclarationName.cpp \
+	Descriptor.cpp \
+	Disasm.cpp \
+	DynamicAllocator.cpp \
+	DynamicRecursiveASTVisitor.cpp \
+	EvalEmitter.cpp \
+	EvaluationResult.cpp \
+	Expr.cpp \
+	ExprCXX.cpp \
 	ExprClassification.cpp \
 	ExprConcepts.cpp \
 	ExprConstant.cpp \
-	Expr.cpp \
-	ExprCXX.cpp \
 	ExprObjC.cpp \
 	ExternalASTMerger.cpp \
 	ExternalASTSource.cpp \
+	Floating.cpp \
 	FormatString.cpp \
+	Function.cpp \
+	FunctionPointer.cpp \
+	InferAlloc.cpp \
 	InheritViz.cpp \
+	InitMap.cpp \
+	Interp.cpp \
+	InterpBlock.cpp \
+	InterpBuiltin.cpp \
+	InterpBuiltinBitCast.cpp \
+	InterpFrame.cpp \
+	InterpShared.cpp \
+	InterpStack.cpp \
+	InterpState.cpp \
 	ItaniumCXXABI.cpp \
 	ItaniumMangle.cpp \
 	JSONNodeDumper.cpp \
 	Mangle.cpp \
+	MemberPointer.cpp \
 	MicrosoftCXXABI.cpp \
 	MicrosoftMangle.cpp \
-	NestedNameSpecifier.cpp \
 	NSAPI.cpp \
+	NestedNameSpecifier.cpp \
+	ODRDiagsEmitter.cpp \
 	ODRHash.cpp \
-	OpenMPClause.cpp \
 	OSLog.cpp \
-	ParentMapContext.cpp \
+	OpenACCClause.cpp \
+	OpenMPClause.cpp \
 	ParentMap.cpp \
+	ParentMapContext.cpp \
+	Pointer.cpp \
+	PrimType.cpp \
 	PrintfFormatString.cpp \
+	Program.cpp \
 	QualTypeNames.cpp \
+	Randstruct.cpp \
 	RawCommentList.cpp \
-	RecordLayoutBuilder.cpp \
+	Record.cpp \
 	RecordLayout.cpp \
+	RecordLayoutBuilder.cpp \
 	ScanfFormatString.cpp \
 	SelectorLocationsKind.cpp \
+	Source.cpp \
+	State.cpp \
 	Stmt.cpp \
 	StmtCXX.cpp \
 	StmtIterator.cpp \
 	StmtObjC.cpp \
+	StmtOpenACC.cpp \
 	StmtOpenMP.cpp \
 	StmtPrinter.cpp \
 	StmtProfile.cpp \
@@ -81,36 +119,20 @@ SRCS+=	APValue.cpp \
 	Type.cpp \
 	TypeLoc.cpp \
 	TypePrinter.cpp \
-	VTableBuilder.cpp \
-	VTTBuilder.cpp
+	VTTBuilder.cpp \
+	VTableBuilder.cpp
 
-.PATH: ${CLANG_SRCDIR}/lib/AST/Interp
 
-SRCS+=	ByteCodeEmitter.cpp \
-	ByteCodeExprGen.cpp \
-	ByteCodeGenError.cpp \
-	ByteCodeStmtGen.cpp \
-	Context.cpp \
-	Descriptor.cpp \
-	Disasm.cpp \
-	EvalEmitter.cpp \
-	Frame.cpp \
-	Function.cpp \
-	Interp.cpp \
-	InterpBlock.cpp \
-	InterpFrame.cpp \
-	InterpStack.cpp \
-	InterpState.cpp \
-	Pointer.cpp \
-	PrimType.cpp \
-	Program.cpp \
-	Record.cpp \
-	Source.cpp \
-	State.cpp
 
-CLANG_TABLEGEN_SRC=	Opcodes.td
-CLANG_TABLEGEN_OUTPUT= \
+.PATH: ${CLANG_SRCDIR}/include/clang/Basic
+
+CLANG_TABLEGEN_SRC=	Opcodes.td Attr.td
+CLANG_TABLEGEN_OUTPUT.Opcodes.td= \
 	Opcodes.inc|-gen-clang-opcodes
+# LLVM 22: the attribute documentation table is generated locally in lib/AST.
+CLANG_TABLEGEN_INCLUDES.Attr.td=	-I${CLANG_SRCDIR}/include
+CLANG_TABLEGEN_OUTPUT.Attr.td= \
+	AttrDocTable.inc|-gen-clang-attr-doc-table
 
 .include "${.PARSEDIR}/../../tablegen.mk"
 

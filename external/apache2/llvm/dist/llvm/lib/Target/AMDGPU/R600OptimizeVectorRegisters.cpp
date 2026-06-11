@@ -26,8 +26,8 @@
 /// to reduce MOV count.
 //===----------------------------------------------------------------------===//
 
-#include "AMDGPU.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "MCTargetDesc/R600MCTargetDesc.h"
+#include "R600.h"
 #include "R600Defines.h"
 #include "R600Subtarget.h"
 #include "llvm/CodeGen/MachineDominators.h"
@@ -58,7 +58,7 @@ public:
       MachineOperand &MO = Instr->getOperand(i);
       unsigned Chan = Instr->getOperand(i + 1).getImm();
       if (isImplicitlyDef(MRI, MO.getReg()))
-        UndefReg.push_back(Chan);
+        UndefReg.emplace_back(Chan);
       else
         RegToChan[MO.getReg()] = Chan;
     }
@@ -103,16 +103,15 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
-    AU.addRequired<MachineDominatorTree>();
-    AU.addPreserved<MachineDominatorTree>();
-    AU.addRequired<MachineLoopInfo>();
-    AU.addPreserved<MachineLoopInfo>();
+    AU.addRequired<MachineDominatorTreeWrapperPass>();
+    AU.addPreserved<MachineDominatorTreeWrapperPass>();
+    AU.addRequired<MachineLoopInfoWrapperPass>();
+    AU.addPreserved<MachineLoopInfoWrapperPass>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
   MachineFunctionProperties getRequiredProperties() const override {
-    return MachineFunctionProperties()
-      .set(MachineFunctionProperties::Property::IsSSA);
+    return MachineFunctionProperties().setIsSSA();
   }
 
   StringRef getPassName() const override {
@@ -150,19 +149,16 @@ bool R600VectorRegMerger::tryMergeVector(const RegSeqInfo *Untouched,
     RegSeqInfo *ToMerge, std::vector< std::pair<unsigned, unsigned>> &Remap)
     const {
   unsigned CurrentUndexIdx = 0;
-  for (DenseMap<Register, unsigned>::iterator It = ToMerge->RegToChan.begin(),
-      E = ToMerge->RegToChan.end(); It != E; ++It) {
+  for (auto &It : ToMerge->RegToChan) {
     DenseMap<Register, unsigned>::const_iterator PosInUntouched =
-        Untouched->RegToChan.find((*It).first);
+        Untouched->RegToChan.find(It.first);
     if (PosInUntouched != Untouched->RegToChan.end()) {
-      Remap.push_back(std::pair<unsigned, unsigned>
-          ((*It).second, (*PosInUntouched).second));
+      Remap.emplace_back(It.second, (*PosInUntouched).second);
       continue;
     }
     if (CurrentUndexIdx >= Untouched->UndefReg.size())
       return false;
-    Remap.push_back(std::pair<unsigned, unsigned>
-        ((*It).second, Untouched->UndefReg[CurrentUndexIdx++]));
+    Remap.emplace_back(It.second, Untouched->UndefReg[CurrentUndexIdx++]);
   }
 
   return true;
@@ -172,9 +168,9 @@ static
 unsigned getReassignedChan(
     const std::vector<std::pair<unsigned, unsigned>> &RemapChan,
     unsigned Chan) {
-  for (unsigned j = 0, je = RemapChan.size(); j < je; j++) {
-    if (RemapChan[j].first == Chan)
-      return RemapChan[j].second;
+  for (const auto &J : RemapChan) {
+    if (J.first == Chan)
+      return J.second;
   }
   llvm_unreachable("Chan wasn't reassigned");
 }
@@ -185,16 +181,15 @@ MachineInstr *R600VectorRegMerger::RebuildVector(
   Register Reg = RSI->Instr->getOperand(0).getReg();
   MachineBasicBlock::iterator Pos = RSI->Instr;
   MachineBasicBlock &MBB = *Pos->getParent();
-  DebugLoc DL = Pos->getDebugLoc();
+  const DebugLoc &DL = Pos->getDebugLoc();
 
   Register SrcVec = BaseRSI->Instr->getOperand(0).getReg();
   DenseMap<Register, unsigned> UpdatedRegToChan = BaseRSI->RegToChan;
   std::vector<Register> UpdatedUndef = BaseRSI->UndefReg;
-  for (DenseMap<Register, unsigned>::iterator It = RSI->RegToChan.begin(),
-      E = RSI->RegToChan.end(); It != E; ++It) {
+  for (const auto &It : RSI->RegToChan) {
     Register DstReg = MRI->createVirtualRegister(&R600::R600_Reg128RegClass);
-    unsigned SubReg = (*It).first;
-    unsigned Swizzle = (*It).second;
+    unsigned SubReg = It.first;
+    unsigned Swizzle = It.second;
     unsigned Chan = getReassignedChan(RemapChan, Swizzle);
 
     MachineInstr *Tmp = BuildMI(MBB, Pos, DL, TII->get(R600::INSERT_SUBREG),
@@ -234,14 +229,12 @@ MachineInstr *R600VectorRegMerger::RebuildVector(
 }
 
 void R600VectorRegMerger::RemoveMI(MachineInstr *MI) {
-  for (InstructionSetMap::iterator It = PreviousRegSeqByReg.begin(),
-      E = PreviousRegSeqByReg.end(); It != E; ++It) {
-    std::vector<MachineInstr *> &MIs = (*It).second;
+  for (auto &It : PreviousRegSeqByReg) {
+    std::vector<MachineInstr *> &MIs = It.second;
     MIs.erase(llvm::find(MIs, MI), MIs.end());
   }
-  for (InstructionSetMap::iterator It = PreviousRegSeqByUndefCount.begin(),
-      E = PreviousRegSeqByUndefCount.end(); It != E; ++It) {
-    std::vector<MachineInstr *> &MIs = (*It).second;
+  for (auto &It : PreviousRegSeqByUndefCount) {
+    std::vector<MachineInstr *> &MIs = It.second;
     MIs.erase(llvm::find(MIs, MI), MIs.end());
   }
 }
@@ -255,9 +248,9 @@ void R600VectorRegMerger::SwizzleInput(MachineInstr &MI,
     Offset = 3;
   for (unsigned i = 0; i < 4; i++) {
     unsigned Swizzle = MI.getOperand(i + Offset).getImm() + 1;
-    for (unsigned j = 0, e = RemapChan.size(); j < e; j++) {
-      if (RemapChan[j].first == Swizzle) {
-        MI.getOperand(i + Offset).setImm(RemapChan[j].second - 1);
+    for (const auto &J : RemapChan) {
+      if (J.first == Swizzle) {
+        MI.getOperand(i + Offset).setImm(J.second - 1);
         break;
       }
     }
@@ -265,12 +258,8 @@ void R600VectorRegMerger::SwizzleInput(MachineInstr &MI,
 }
 
 bool R600VectorRegMerger::areAllUsesSwizzeable(Register Reg) const {
-  for (MachineRegisterInfo::use_instr_iterator It = MRI->use_instr_begin(Reg),
-      E = MRI->use_instr_end(); It != E; ++It) {
-    if (!canSwizzle(*It))
-      return false;
-  }
-  return true;
+  return llvm::all_of(MRI->use_instructions(Reg),
+                      [&](const MachineInstr &MI) { return canSwizzle(MI); });
 }
 
 bool R600VectorRegMerger::tryMergeUsingCommonSlot(RegSeqInfo &RSI,
@@ -280,9 +269,10 @@ bool R600VectorRegMerger::tryMergeUsingCommonSlot(RegSeqInfo &RSI,
       MOE = RSI.Instr->operands_end(); MOp != MOE; ++MOp) {
     if (!MOp->isReg())
       continue;
-    if (PreviousRegSeqByReg[MOp->getReg()].empty())
+    auto &Insts = PreviousRegSeqByReg[MOp->getReg()];
+    if (Insts.empty())
       continue;
-    for (MachineInstr *MI : PreviousRegSeqByReg[MOp->getReg()]) {
+    for (MachineInstr *MI : Insts) {
       CompatibleRSI = PreviousRegSeq[MI];
       if (RSI == CompatibleRSI)
         continue;
@@ -297,10 +287,10 @@ bool R600VectorRegMerger::tryMergeUsingFreeSlot(RegSeqInfo &RSI,
     RegSeqInfo &CompatibleRSI,
     std::vector<std::pair<unsigned, unsigned>> &RemapChan) {
   unsigned NeededUndefs = 4 - RSI.UndefReg.size();
-  if (PreviousRegSeqByUndefCount[NeededUndefs].empty())
-    return false;
   std::vector<MachineInstr *> &MIs =
       PreviousRegSeqByUndefCount[NeededUndefs];
+  if (MIs.empty())
+    return false;
   CompatibleRSI = PreviousRegSeq[MIs.back()];
   tryMergeVector(&CompatibleRSI, &RSI, RemapChan);
   return true;
@@ -323,24 +313,19 @@ bool R600VectorRegMerger::runOnMachineFunction(MachineFunction &Fn) {
   TII = ST.getInstrInfo();
   MRI = &Fn.getRegInfo();
 
-  for (MachineFunction::iterator MBB = Fn.begin(), MBBe = Fn.end();
-       MBB != MBBe; ++MBB) {
-    MachineBasicBlock *MB = &*MBB;
+  for (MachineBasicBlock &MB : Fn) {
     PreviousRegSeq.clear();
     PreviousRegSeqByReg.clear();
     PreviousRegSeqByUndefCount.clear();
 
-    for (MachineBasicBlock::iterator MII = MB->begin(), MIIE = MB->end();
+    for (MachineBasicBlock::iterator MII = MB.begin(), MIIE = MB.end();
          MII != MIIE; ++MII) {
       MachineInstr &MI = *MII;
       if (MI.getOpcode() != R600::REG_SEQUENCE) {
         if (TII->get(MI.getOpcode()).TSFlags & R600_InstFlag::TEX_INST) {
           Register Reg = MI.getOperand(1).getReg();
-          for (MachineRegisterInfo::def_instr_iterator
-               It = MRI->def_instr_begin(Reg), E = MRI->def_instr_end();
-               It != E; ++It) {
-            RemoveMI(&(*It));
-          }
+          for (MachineInstr &DefMI : MRI->def_instructions(Reg))
+            RemoveMI(&DefMI);
         }
         continue;
       }

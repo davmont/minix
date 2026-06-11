@@ -12,44 +12,65 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_AMDGPU_MDGPUPERFHINTANALYSIS_H
-#define LLVM_LIB_TARGET_AMDGPU_MDGPUPERFHINTANALYSIS_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_AMDGPUPERFHINTANALYSIS_H
+#define LLVM_LIB_TARGET_AMDGPU_AMDGPUPERFHINTANALYSIS_H
 
-#include "llvm/Analysis/CallGraphSCCPass.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/ValueMap.h"
+
+#include "llvm/Analysis/CGSCCPassManager.h"
+#include "llvm/Analysis/LazyCallGraph.h"
 
 namespace llvm {
 
-struct AMDGPUPerfHintAnalysis : public CallGraphSCCPass {
-  static char ID;
+class AMDGPUPerfHintAnalysis;
+class CallGraphSCC;
+class GCNTargetMachine;
+class LazyCallGraph;
+
+class AMDGPUPerfHintAnalysis {
+public:
+  struct FuncInfo {
+    unsigned MemInstCost;
+    unsigned InstCost;
+    unsigned IAMInstCost;      // Indirect access memory instruction count
+    unsigned LSMInstCost;      // Large stride memory instruction count
+    bool HasDenseGlobalMemAcc; // Set if at least 1 basic block has relatively
+                               // high global memory access
+    FuncInfo()
+        : MemInstCost(0), InstCost(0), IAMInstCost(0), LSMInstCost(0),
+          HasDenseGlobalMemAcc(false) {}
+  };
+
+  typedef ValueMap<const Function *, FuncInfo> FuncInfoMap;
+
+private:
+  FuncInfoMap FIM;
 
 public:
-  AMDGPUPerfHintAnalysis() : CallGraphSCCPass(ID) {}
+  AMDGPUPerfHintAnalysis() = default;
 
-  bool runOnSCC(CallGraphSCC &SCC) override;
+  // OldPM
+  bool runOnSCC(const GCNTargetMachine &TM, CallGraphSCC &SCC);
 
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesAll();
-  }
+  // NewPM
+  bool run(const GCNTargetMachine &TM, LazyCallGraph &CG);
 
   bool isMemoryBound(const Function *F) const;
 
   bool needsWaveLimiter(const Function *F) const;
-
-  struct FuncInfo {
-    unsigned MemInstCount;
-    unsigned InstCount;
-    unsigned IAMInstCount; // Indirect access memory instruction count
-    unsigned LSMInstCount; // Large stride memory instruction count
-    FuncInfo() : MemInstCount(0), InstCount(0), IAMInstCount(0),
-                 LSMInstCount(0) {}
-  };
-
-  typedef ValueMap<const Function*, FuncInfo> FuncInfoMap;
-
-private:
-
-  FuncInfoMap FIM;
 };
+
+struct AMDGPUPerfHintAnalysisPass
+    : public PassInfoMixin<AMDGPUPerfHintAnalysisPass> {
+  const GCNTargetMachine &TM;
+  std::unique_ptr<AMDGPUPerfHintAnalysis> Impl;
+
+  AMDGPUPerfHintAnalysisPass(const GCNTargetMachine &TM)
+      : TM(TM), Impl(std::make_unique<AMDGPUPerfHintAnalysis>()) {}
+
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+};
+
 } // namespace llvm
-#endif // LLVM_LIB_TARGET_AMDGPU_MDGPUPERFHINTANALYSIS_H
+#endif // LLVM_LIB_TARGET_AMDGPU_AMDGPUPERFHINTANALYSIS_H

@@ -16,14 +16,18 @@
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/MathExtras.h"
+#include "llvm/Support/HashBuilder.h"
 #include "llvm/Transforms/Instrumentation/AddressSanitizerOptions.h"
 #include <cassert>
 #include <cstdint>
 
 namespace llvm {
 class hash_code;
+class Triple;
+namespace opt {
+class ArgList;
 }
+} // namespace llvm
 
 namespace clang {
 
@@ -60,12 +64,7 @@ public:
     return SanitizerMask(mask1, mask2);
   }
 
-  unsigned countPopulation() const {
-    unsigned total = 0;
-    for (const auto &Val : maskLoToHigh)
-      total += llvm::countPopulation(Val);
-    return total;
-  }
+  unsigned countPopulation() const;
 
   void flipAllBits() {
     for (auto &Val : maskLoToHigh)
@@ -77,6 +76,12 @@ public:
   }
 
   llvm::hash_code hash_value() const;
+
+  template <typename HasherT, llvm::endianness Endianness>
+  friend void addHash(llvm::HashBuilder<HasherT, Endianness> &HBuilder,
+                      const SanitizerMask &SM) {
+    HBuilder.addRange(&SM.maskLoToHigh[0], &SM.maskLoToHigh[kNumElem]);
+  }
 
   constexpr explicit operator bool() const {
     return maskLoToHigh[0] || maskLoToHigh[1];
@@ -149,11 +154,30 @@ struct SanitizerKind {
 #include "clang/Basic/Sanitizers.def"
 }; // SanitizerKind
 
+class SanitizerMaskCutoffs {
+  std::vector<double> Cutoffs;
+
+public:
+  std::optional<double> operator[](unsigned Kind) const;
+
+  void set(SanitizerMask K, double V);
+  void clear(SanitizerMask K = SanitizerKind::All);
+
+  // Returns nullopt if all the values are zero.
+  // Otherwise, return value contains a vector of all the scaled values.
+  std::optional<std::vector<unsigned>>
+  getAllScaled(unsigned ScalingFactor) const;
+};
+
 struct SanitizerSet {
   /// Check if a certain (single) sanitizer is enabled.
   bool has(SanitizerMask K) const {
     assert(K.isPowerOf2() && "Has to be a single sanitizer.");
     return static_cast<bool>(Mask & K);
+  }
+
+  bool has(SanitizerKind::SanitizerOrdinal O) const {
+    return has(SanitizerMask::bitPosToMask(O));
   }
 
   /// Check if one or more sanitizers are enabled.
@@ -164,6 +188,8 @@ struct SanitizerSet {
     assert(K.isPowerOf2() && "Has to be a single sanitizer.");
     Mask = Value ? (Mask | K) : (Mask & ~K);
   }
+
+  void set(SanitizerMask K) { Mask = K; }
 
   /// Disable the sanitizers specified in \p K.
   void clear(SanitizerMask K = SanitizerKind::All) { Mask &= ~K; }
@@ -179,9 +205,22 @@ struct SanitizerSet {
 /// Returns a non-zero SanitizerMask, or \c 0 if \p Value is not known.
 SanitizerMask parseSanitizerValue(StringRef Value, bool AllowGroups);
 
+/// Parse a single weighted value (e.g., 'undefined=0.05') from a -fsanitize= or
+/// -fno-sanitize= value list.
+/// The relevant weight(s) are updated in the passed Cutoffs parameter.
+/// Individual Cutoffs are never reset to zero unless explicitly set
+/// (e.g., 'null=0.0').
+/// Returns \c false if \p Value is not known or the weight is not valid.
+bool parseSanitizerWeightedValue(StringRef Value, bool AllowGroups,
+                                 SanitizerMaskCutoffs &Cutoffs);
+
 /// Serialize a SanitizerSet into values for -fsanitize= or -fno-sanitize=.
 void serializeSanitizerSet(SanitizerSet Set,
                            SmallVectorImpl<StringRef> &Values);
+
+/// Serialize a SanitizerMaskCutoffs into command line arguments.
+void serializeSanitizerMaskCutoffs(const SanitizerMaskCutoffs &Cutoffs,
+                                   SmallVectorImpl<std::string> &Values);
 
 /// For each sanitizer group bit set in \p Kinds, set the bits for sanitizers
 /// this group enables.
@@ -197,6 +236,12 @@ inline SanitizerMask getPPTransparentSanitizers() {
 StringRef AsanDtorKindToString(llvm::AsanDtorKind kind);
 
 llvm::AsanDtorKind AsanDtorKindFromString(StringRef kind);
+
+StringRef AsanDetectStackUseAfterReturnModeToString(
+    llvm::AsanDetectStackUseAfterReturnMode mode);
+
+llvm::AsanDetectStackUseAfterReturnMode
+AsanDetectStackUseAfterReturnModeFromString(StringRef modeStr);
 
 } // namespace clang
 

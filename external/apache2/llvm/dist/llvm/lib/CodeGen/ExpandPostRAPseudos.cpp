@@ -11,10 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/ExpandPostRAPseudos.h"
+#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
@@ -28,14 +29,21 @@ using namespace llvm;
 #define DEBUG_TYPE "postrapseudos"
 
 namespace {
-struct ExpandPostRA : public MachineFunctionPass {
-private:
-  const TargetRegisterInfo *TRI;
-  const TargetInstrInfo *TII;
+struct ExpandPostRA {
+  bool run(MachineFunction &);
 
-public:
-  static char ID; // Pass identification, replacement for typeid
-  ExpandPostRA() : MachineFunctionPass(ID) {}
+private:
+  const TargetRegisterInfo *TRI = nullptr;
+  const TargetInstrInfo *TII = nullptr;
+
+  bool LowerSubregToReg(MachineInstr *MI);
+};
+
+struct ExpandPostRALegacy : public MachineFunctionPass {
+  static char ID;
+  ExpandPostRALegacy() : MachineFunctionPass(ID) {
+    initializeExpandPostRALegacyPass(*PassRegistry::getPassRegistry());
+  }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
@@ -45,33 +53,27 @@ public:
   }
 
   /// runOnMachineFunction - pass entry point
-  bool runOnMachineFunction(MachineFunction&) override;
-
-private:
-  bool LowerSubregToReg(MachineInstr *MI);
-  bool LowerCopy(MachineInstr *MI);
-
-  void TransferImplicitOperands(MachineInstr *MI);
+  bool runOnMachineFunction(MachineFunction &) override;
 };
 } // end anonymous namespace
 
-char ExpandPostRA::ID = 0;
-char &llvm::ExpandPostRAPseudosID = ExpandPostRA::ID;
+PreservedAnalyses
+ExpandPostRAPseudosPass::run(MachineFunction &MF,
+                             MachineFunctionAnalysisManager &MFAM) {
+  if (!ExpandPostRA().run(MF))
+    return PreservedAnalyses::all();
 
-INITIALIZE_PASS(ExpandPostRA, DEBUG_TYPE,
-                "Post-RA pseudo instruction expansion pass", false, false)
-
-/// TransferImplicitOperands - MI is a pseudo-instruction, and the lowered
-/// replacement instructions immediately precede it.  Copy any implicit
-/// operands from MI to the replacement instruction.
-void ExpandPostRA::TransferImplicitOperands(MachineInstr *MI) {
-  MachineBasicBlock::iterator CopyMI = MI;
-  --CopyMI;
-
-  for (const MachineOperand &MO : MI->implicit_operands())
-    if (MO.isReg())
-      CopyMI->addOperand(MO);
+  return getMachineFunctionPassPreservedAnalyses()
+      .preserveSet<CFGAnalyses>()
+      .preserve<MachineLoopAnalysis>()
+      .preserve<MachineDominatorTreeAnalysis>();
 }
+
+char ExpandPostRALegacy::ID = 0;
+char &llvm::ExpandPostRAPseudosID = ExpandPostRALegacy::ID;
+
+INITIALIZE_PASS(ExpandPostRALegacy, DEBUG_TYPE,
+                "Post-RA pseudo instruction expansion pass", false, false)
 
 bool ExpandPostRA::LowerSubregToReg(MachineInstr *MI) {
   MachineBasicBlock *MBB = MI->getParent();
@@ -88,17 +90,17 @@ bool ExpandPostRA::LowerSubregToReg(MachineInstr *MI) {
   assert(SubIdx != 0 && "Invalid index for insert_subreg");
   Register DstSubReg = TRI->getSubReg(DstReg, SubIdx);
 
-  assert(Register::isPhysicalRegister(DstReg) &&
+  assert(DstReg.isPhysical() &&
          "Insert destination must be in a physical register");
-  assert(Register::isPhysicalRegister(InsReg) &&
+  assert(InsReg.isPhysical() &&
          "Inserted value must be in a physical register");
 
   LLVM_DEBUG(dbgs() << "subreg: CONVERTING: " << *MI);
 
   if (MI->allDefsAreDead()) {
     MI->setDesc(TII->get(TargetOpcode::KILL));
-    MI->RemoveOperand(3); // SubIdx
-    MI->RemoveOperand(1); // Imm
+    MI->removeOperand(3); // SubIdx
+    MI->removeOperand(1); // Imm
     LLVM_DEBUG(dbgs() << "subreg: replaced by: " << *MI);
     return true;
   }
@@ -110,8 +112,8 @@ bool ExpandPostRA::LowerSubregToReg(MachineInstr *MI) {
     // We must leave %rax live.
     if (DstReg != InsReg) {
       MI->setDesc(TII->get(TargetOpcode::KILL));
-      MI->RemoveOperand(3);     // SubIdx
-      MI->RemoveOperand(1);     // Imm
+      MI->removeOperand(3);     // SubIdx
+      MI->removeOperand(1);     // Imm
       LLVM_DEBUG(dbgs() << "subreg: replace by: " << *MI);
       return true;
     }
@@ -132,54 +134,14 @@ bool ExpandPostRA::LowerSubregToReg(MachineInstr *MI) {
   return true;
 }
 
-bool ExpandPostRA::LowerCopy(MachineInstr *MI) {
-
-  if (MI->allDefsAreDead()) {
-    LLVM_DEBUG(dbgs() << "dead copy: " << *MI);
-    MI->setDesc(TII->get(TargetOpcode::KILL));
-    LLVM_DEBUG(dbgs() << "replaced by: " << *MI);
-    return true;
-  }
-
-  MachineOperand &DstMO = MI->getOperand(0);
-  MachineOperand &SrcMO = MI->getOperand(1);
-
-  bool IdentityCopy = (SrcMO.getReg() == DstMO.getReg());
-  if (IdentityCopy || SrcMO.isUndef()) {
-    LLVM_DEBUG(dbgs() << (IdentityCopy ? "identity copy: " : "undef copy:    ")
-                      << *MI);
-    // No need to insert an identity copy instruction, but replace with a KILL
-    // if liveness is changed.
-    if (SrcMO.isUndef() || MI->getNumOperands() > 2) {
-      // We must make sure the super-register gets killed. Replace the
-      // instruction with KILL.
-      MI->setDesc(TII->get(TargetOpcode::KILL));
-      LLVM_DEBUG(dbgs() << "replaced by:   " << *MI);
-      return true;
-    }
-    // Vanilla identity copy.
-    MI->eraseFromParent();
-    return true;
-  }
-
-  LLVM_DEBUG(dbgs() << "real copy:   " << *MI);
-  TII->copyPhysReg(*MI->getParent(), MI, MI->getDebugLoc(),
-                   DstMO.getReg(), SrcMO.getReg(), SrcMO.isKill());
-
-  if (MI->getNumOperands() > 2)
-    TransferImplicitOperands(MI);
-  LLVM_DEBUG({
-    MachineBasicBlock::iterator dMI = MI;
-    dbgs() << "replaced by: " << *(--dMI);
-  });
-  MI->eraseFromParent();
-  return true;
+bool ExpandPostRALegacy::runOnMachineFunction(MachineFunction &MF) {
+  return ExpandPostRA().run(MF);
 }
 
 /// runOnMachineFunction - Reduce subregister inserts and extracts to register
 /// copies.
 ///
-bool ExpandPostRA::runOnMachineFunction(MachineFunction &MF) {
+bool ExpandPostRA::run(MachineFunction &MF) {
   LLVM_DEBUG(dbgs() << "Machine Function\n"
                     << "********** EXPANDING POST-RA PSEUDO INSTRS **********\n"
                     << "********** Function: " << MF.getName() << '\n');
@@ -189,12 +151,7 @@ bool ExpandPostRA::runOnMachineFunction(MachineFunction &MF) {
   bool MadeChange = false;
 
   for (MachineBasicBlock &MBB : MF) {
-    for (MachineBasicBlock::iterator mi = MBB.begin(), me = MBB.end();
-         mi != me;) {
-      MachineInstr &MI = *mi;
-      // Advance iterator here because MI may be erased.
-      ++mi;
-
+    for (MachineInstr &MI : llvm::make_early_inc_range(MBB)) {
       // Only expand pseudos.
       if (!MI.isPseudo())
         continue;
@@ -211,7 +168,8 @@ bool ExpandPostRA::runOnMachineFunction(MachineFunction &MF) {
         MadeChange |= LowerSubregToReg(&MI);
         break;
       case TargetOpcode::COPY:
-        MadeChange |= LowerCopy(&MI);
+        TII->lowerCopy(&MI, TRI);
+        MadeChange = true;
         break;
       case TargetOpcode::DBG_VALUE:
         continue;

@@ -11,6 +11,7 @@ SRCS+=	BuildTree.cpp \
 	Mutations.cpp \
 	Nodes.cpp \
 	Synthesis.cpp \
+	TokenBufferTokenManager.cpp \
 	Tokens.cpp \
 	Tree.cpp
 

@@ -13,18 +13,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "NVPTXLowerAggrCopies.h"
+#include "NVPTX.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/StackProtector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/LowerMemIntrinsics.h"
 
@@ -60,16 +59,15 @@ bool NVPTXLowerAggrCopies::runOnFunction(Function &F) {
   SmallVector<LoadInst *, 4> AggrLoads;
   SmallVector<MemIntrinsic *, 4> MemCalls;
 
-  const DataLayout &DL = F.getParent()->getDataLayout();
+  const DataLayout &DL = F.getDataLayout();
   LLVMContext &Context = F.getParent()->getContext();
   const TargetTransformInfo &TTI =
       getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
 
   // Collect all aggregate loads and mem* calls.
-  for (Function::iterator BI = F.begin(), BE = F.end(); BI != BE; ++BI) {
-    for (BasicBlock::iterator II = BI->begin(), IE = BI->end(); II != IE;
-         ++II) {
-      if (LoadInst *LI = dyn_cast<LoadInst>(II)) {
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      if (LoadInst *LI = dyn_cast<LoadInst>(&I)) {
         if (!LI->hasOneUse())
           continue;
 
@@ -81,7 +79,7 @@ bool NVPTXLowerAggrCopies::runOnFunction(Function &F) {
             continue;
           AggrLoads.push_back(LI);
         }
-      } else if (MemIntrinsic *IntrCall = dyn_cast<MemIntrinsic>(II)) {
+      } else if (MemIntrinsic *IntrCall = dyn_cast<MemIntrinsic>(&I)) {
         // Convert intrinsic calls with variable size or with constant size
         // larger than the MaxAggrCopySize threshold.
         if (ConstantInt *LenCI = dyn_cast<ConstantInt>(IntrCall->getLength())) {
@@ -116,7 +114,8 @@ bool NVPTXLowerAggrCopies::runOnFunction(Function &F) {
                               /* SrcAlign */ LI->getAlign(),
                               /* DestAlign */ SI->getAlign(),
                               /* SrcIsVolatile */ LI->isVolatile(),
-                              /* DstIsVolatile */ SI->isVolatile(), TTI);
+                              /* DstIsVolatile */ SI->isVolatile(),
+                              /* CanOverlap */ true, TTI);
 
     SI->eraseFromParent();
     LI->eraseFromParent();
@@ -127,7 +126,7 @@ bool NVPTXLowerAggrCopies::runOnFunction(Function &F) {
     if (MemCpyInst *Memcpy = dyn_cast<MemCpyInst>(MemCall)) {
       expandMemCpyAsLoop(Memcpy, TTI);
     } else if (MemMoveInst *Memmove = dyn_cast<MemMoveInst>(MemCall)) {
-      expandMemMoveAsLoop(Memmove);
+      expandMemMoveAsLoop(Memmove, TTI);
     } else if (MemSetInst *Memset = dyn_cast<MemSetInst>(MemCall)) {
       expandMemSetAsLoop(Memset);
     }
@@ -138,10 +137,6 @@ bool NVPTXLowerAggrCopies::runOnFunction(Function &F) {
 }
 
 } // namespace
-
-namespace llvm {
-void initializeNVPTXLowerAggrCopiesPass(PassRegistry &);
-}
 
 INITIALIZE_PASS(NVPTXLowerAggrCopies, "nvptx-lower-aggr-copies",
                 "Lower aggregate copies, and llvm.mem* intrinsics into loops",

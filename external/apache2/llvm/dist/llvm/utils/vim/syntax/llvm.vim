@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 1.1.1.2 $
+" Version:      $Revision$
 
 if version < 600
   syntax clear
@@ -16,7 +16,7 @@ syn case match
 " benefit as much from having dedicated highlighting rules.
 syn keyword llvmType void half bfloat float double x86_fp80 fp128 ppc_fp128
 syn keyword llvmType label metadata x86_mmx x86_amx
-syn keyword llvmType type label opaque token
+syn keyword llvmType type label opaque token ptr
 syn match   llvmType /\<i\d\+\>/
 
 " Instructions.
@@ -24,17 +24,20 @@ syn match   llvmType /\<i\d\+\>/
 " much more common for these tokens to be used for boolean constants.
 syn keyword llvmStatement add addrspacecast alloca and arcp ashr atomicrmw
 syn keyword llvmStatement bitcast br catchpad catchswitch catchret call callbr
-syn keyword llvmStatement cleanuppad cleanupret cmpxchg eq exact extractelement
-syn keyword llvmStatement extractvalue fadd fast fcmp fdiv fence fmul fpext
-syn keyword llvmStatement fptosi fptoui fptrunc free frem fsub fneg getelementptr
-syn keyword llvmStatement icmp inbounds indirectbr insertelement insertvalue
-syn keyword llvmStatement inttoptr invoke landingpad load lshr malloc max min
-syn keyword llvmStatement mul nand ne ninf nnan nsw nsz nuw oeq oge ogt ole
-syn keyword llvmStatement olt one or ord phi ptrtoint resume ret sdiv select
-syn keyword llvmStatement sext sge sgt shl shufflevector sitofp sle slt srem
-syn keyword llvmStatement store sub switch trunc udiv ueq uge ugt uitofp ule ult
-syn keyword llvmStatement umax umin une uno unreachable unwind urem va_arg
-syn keyword llvmStatement xchg xor zext
+syn keyword llvmStatement cleanuppad cleanupret cmpxchg disjoint eq exact
+syn keyword llvmStatement extractelement extractvalue fadd fast fcmp fdiv fence
+syn keyword llvmStatement fmul fneg fpext fptosi fptoui fptrunc free freeze
+syn keyword llvmStatement frem fsub getelementptr icmp inbounds indirectbr
+syn keyword llvmStatement insertelement insertvalue inttoptr invoke landingpad
+syn keyword llvmStatement load lshr malloc max min mul nand ne ninf nnan nsw
+syn keyword llvmStatement nsz nuw oeq oge ogt ole olt one or ord phi ptrtoint
+syn keyword llvmStatement resume ret sdiv select sext sge sgt shl shufflevector
+syn keyword llvmStatement sitofp sle slt srem store sub switch trunc udiv ueq
+syn keyword llvmStatement uge ugt uitofp ule ult umax umin une uno unreachable
+syn keyword llvmStatement unwind urem va_arg xchg xor zext
+
+" Debug records.
+syn match llvmStatement /\v#dbg_(assign|declare|label|value)/
 
 " Keywords.
 syn keyword llvmKeyword
@@ -124,6 +127,7 @@ syn keyword llvmKeyword
       \ nocallback
       \ nocapture
       \ nocf_check
+      \ no_cfi
       \ noduplicate
       \ nofree
       \ noimplicitfloat
@@ -138,7 +142,10 @@ syn keyword llvmKeyword
       \ nosync
       \ noundef
       \ nounwind
+      \ nosanitize_bounds
+      \ nosanitize_coverage
       \ null_pointer_is_valid
+      \ optdebug
       \ optforfuzzing
       \ optnone
       \ optsize
@@ -146,6 +153,7 @@ syn keyword llvmKeyword
       \ preallocated
       \ private
       \ protected
+      \ ptrauth
       \ ptx_device
       \ ptx_kernel
       \ readnone
@@ -155,6 +163,7 @@ syn keyword llvmKeyword
       \ returns_twice
       \ safestack
       \ sanitize_address
+      \ sanitize_alloc_token
       \ sanitize_hwaddress
       \ sanitize_memory
       \ sanitize_memtag
@@ -169,6 +178,7 @@ syn keyword llvmKeyword
       \ speculative_load_hardening
       \ spir_func
       \ spir_kernel
+      \ splat
       \ sret
       \ ssp
       \ sspreq
@@ -210,7 +220,7 @@ syn keyword llvmError  getresult begin end
 syn match   llvmNoName /[%@!]\d\+\>/
 syn match   llvmNumber /-\?\<\d\+\>/
 syn match   llvmFloat  /-\?\<\d\+\.\d*\(e[+-]\d\+\)\?\>/
-syn match   llvmFloat  /\<0x\x\+\>/
+syn match   llvmFloat  /\<\(u\|s\)\?0x[KLMHR]\?\x\+\>/
 syn keyword llvmBoolean true false
 syn keyword llvmConstant zeroinitializer undef null none poison vscale
 syn match   llvmComment /;.*$/

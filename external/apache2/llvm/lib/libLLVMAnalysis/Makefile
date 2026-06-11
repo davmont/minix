@@ -8,7 +8,6 @@ LIB=	LLVMAnalysis
 
 SRCS+=	AliasAnalysis.cpp \
 	AliasAnalysisEvaluator.cpp \
-	AliasAnalysisSummary.cpp \
 	AliasSetTracker.cpp \
 	Analysis.cpp \
 	AssumeBundleQueries.cpp \
@@ -17,56 +16,63 @@ SRCS+=	AliasAnalysis.cpp \
 	BlockFrequencyInfo.cpp \
 	BlockFrequencyInfoImpl.cpp \
 	BranchProbabilityInfo.cpp \
+	CFG.cpp \
+	CFGPrinter.cpp \
+	CFGSCCPrinter.cpp \
+	CGSCCPassManager.cpp \
 	CallGraph.cpp \
 	CallGraphSCCPass.cpp \
 	CallPrinter.cpp \
 	CaptureTracking.cpp \
-	CFG.cpp \
-	CFGPrinter.cpp \
-	CFLAndersAliasAnalysis.cpp \
-	CFLSteensAliasAnalysis.cpp \
-	CGSCCPassManager.cpp \
 	CmpInstAnalysis.cpp \
 	CodeMetrics.cpp \
 	ConstantFolding.cpp \
 	ConstraintSystem.cpp \
 	CostModel.cpp \
+	CtxProfAnalysis.cpp \
+	CycleAnalysis.cpp \
 	DDG.cpp \
 	DDGPrinter.cpp \
+	DXILMetadataAnalysis.cpp \
+	DXILResource.cpp \
 	Delinearization.cpp \
 	DemandedBits.cpp \
 	DependenceAnalysis.cpp \
 	DependenceGraphBuilder.cpp \
 	DevelopmentModeInlineAdvisor.cpp \
-	DivergenceAnalysis.cpp \
-	DominanceFrontier.cpp \
+	DomConditionCache.cpp \
 	DomPrinter.cpp \
 	DomTreeUpdater.cpp \
-	EHPersonalities.cpp \
+	DominanceFrontier.cpp \
+	EphemeralValuesCache.cpp \
+	FloatingPointPredicateUtils.cpp \
 	FunctionPropertiesAnalysis.cpp \
 	GlobalsModRef.cpp \
 	GuardUtils.cpp \
+	HashRecognize.cpp \
 	HeatUtils.cpp \
+	IR2Vec.cpp \
+	IRSimilarityIdentifier.cpp \
+	IVDescriptors.cpp \
+	IVUsers.cpp \
 	ImportedFunctionsInliningStatistics.cpp \
 	IndirectCallPromotionAnalysis.cpp \
 	InlineAdvisor.cpp \
 	InlineCost.cpp \
-	InlineSizeEstimatorAnalysis.cpp \
+	InlineOrder.cpp \
 	InstCount.cpp \
 	InstructionPrecedenceTracking.cpp \
 	InstructionSimplify.cpp \
-	Interval.cpp \
-	IntervalPartition.cpp \
-	IRSimilarityIdentifier.cpp \
-	IVDescriptors.cpp \
-	IVUsers.cpp \
+	InteractiveModelRunner.cpp \
+	KernelInfo.cpp \
+	LastRunTrackingAnalysis.cpp \
 	LazyBlockFrequencyInfo.cpp \
 	LazyBranchProbabilityInfo.cpp \
 	LazyCallGraph.cpp \
 	LazyValueInfo.cpp \
-	LegacyDivergenceAnalysis.cpp \
 	Lint.cpp \
 	Loads.cpp \
+	Local.cpp \
 	LoopAccessAnalysis.cpp \
 	LoopAnalysisManager.cpp \
 	LoopCacheAnalysis.cpp \
@@ -74,17 +80,19 @@ SRCS+=	AliasAnalysis.cpp \
 	LoopNestAnalysis.cpp \
 	LoopPass.cpp \
 	LoopUnrollAnalyzer.cpp \
-	MemDepPrinter.cpp \
+	MLInlineAdvisor.cpp \
 	MemDerefPrinter.cpp \
 	MemoryBuiltins.cpp \
 	MemoryDependenceAnalysis.cpp \
 	MemoryLocation.cpp \
+	MemoryProfileInfo.cpp \
 	MemorySSA.cpp \
 	MemorySSAUpdater.cpp \
-	MLInlineAdvisor.cpp \
+	ModelUnderTrainingRunner.cpp \
 	ModuleDebugInfoPrinter.cpp \
 	ModuleSummaryAnalysis.cpp \
 	MustExecute.cpp \
+	NoInferenceModelRunner.cpp \
 	ObjCARCAliasAnalysis.cpp \
 	ObjCARCAnalysisUtils.cpp \
 	ObjCARCInstKind.cpp \
@@ -98,28 +106,31 @@ SRCS+=	AliasAnalysis.cpp \
 	RegionInfo.cpp \
 	RegionPass.cpp \
 	RegionPrinter.cpp \
-	ReleaseModeModelRunner.cpp \
 	ReplayInlineAdvisor.cpp \
-	ScalarEvolutionAliasAnalysis.cpp \
+	RuntimeLibcallInfo.cpp \
 	ScalarEvolution.cpp \
+	ScalarEvolutionAliasAnalysis.cpp \
 	ScalarEvolutionDivision.cpp \
 	ScalarEvolutionNormalization.cpp \
 	ScopedNoAliasAA.cpp \
 	StackLifetime.cpp \
 	StackSafetyAnalysis.cpp \
-	SyncDependenceAnalysis.cpp \
+	StaticDataProfileInfo.cpp \
+	StructuralHash.cpp \
 	SyntheticCountsUtils.cpp \
+	TFLiteUtils.cpp \
 	TargetLibraryInfo.cpp \
 	TargetTransformInfo.cpp \
-	TFUtils.cpp \
+	TensorSpec.cpp \
 	Trace.cpp \
+	TrainingLogger.cpp \
 	TypeBasedAliasAnalysis.cpp \
 	TypeMetadataUtils.cpp \
+	UniformityAnalysis.cpp \
 	ValueLattice.cpp \
 	ValueLatticeUtils.cpp \
 	ValueTracking.cpp \
-	VectorUtils.cpp \
-	VFABIDemangling.cpp
+	VectorUtils.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

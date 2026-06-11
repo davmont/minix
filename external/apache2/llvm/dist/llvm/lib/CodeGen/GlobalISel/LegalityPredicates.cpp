@@ -49,13 +49,24 @@ LegalityPredicate LegalityPredicates::typePairInSet(
   };
 }
 
+LegalityPredicate LegalityPredicates::typeTupleInSet(
+    unsigned TypeIdx0, unsigned TypeIdx1, unsigned TypeIdx2,
+    std::initializer_list<std::tuple<LLT, LLT, LLT>> TypesInit) {
+  SmallVector<std::tuple<LLT, LLT, LLT>, 4> Types = TypesInit;
+  return [=](const LegalityQuery &Query) {
+    std::tuple<LLT, LLT, LLT> Match = {
+        Query.Types[TypeIdx0], Query.Types[TypeIdx1], Query.Types[TypeIdx2]};
+    return llvm::is_contained(Types, Match);
+  };
+}
+
 LegalityPredicate LegalityPredicates::typePairAndMemDescInSet(
     unsigned TypeIdx0, unsigned TypeIdx1, unsigned MMOIdx,
     std::initializer_list<TypePairAndMemDesc> TypesAndMemDescInit) {
   SmallVector<TypePairAndMemDesc, 4> TypesAndMemDesc = TypesAndMemDescInit;
   return [=](const LegalityQuery &Query) {
     TypePairAndMemDesc Match = {Query.Types[TypeIdx0], Query.Types[TypeIdx1],
-                                Query.MMODescrs[MMOIdx].SizeInBits,
+                                Query.MMODescrs[MMOIdx].MemoryTy,
                                 Query.MMODescrs[MMOIdx].AlignInBits};
     return llvm::any_of(TypesAndMemDesc,
                         [=](const TypePairAndMemDesc &Entry) -> bool {
@@ -87,6 +98,12 @@ LegalityPredicate LegalityPredicates::isPointer(unsigned TypeIdx,
   return [=](const LegalityQuery &Query) {
     LLT Ty = Query.Types[TypeIdx];
     return Ty.isPointer() && Ty.getAddressSpace() == AddrSpace;
+  };
+}
+
+LegalityPredicate LegalityPredicates::isPointerVector(unsigned TypeIdx) {
+  return [=](const LegalityQuery &Query) {
+    return Query.Types[TypeIdx].isPointerVector();
   };
 }
 
@@ -138,6 +155,26 @@ LegalityPredicate LegalityPredicates::scalarOrEltNarrowerThan(unsigned TypeIdx,
   };
 }
 
+LegalityPredicate
+LegalityPredicates::vectorElementCountIsGreaterThan(unsigned TypeIdx,
+                                                    unsigned Size) {
+
+  return [=](const LegalityQuery &Query) {
+    const LLT QueryTy = Query.Types[TypeIdx];
+    return QueryTy.isFixedVector() && QueryTy.getNumElements() > Size;
+  };
+}
+
+LegalityPredicate
+LegalityPredicates::vectorElementCountIsLessThanOrEqualTo(unsigned TypeIdx,
+                                                          unsigned Size) {
+
+  return [=](const LegalityQuery &Query) {
+    const LLT QueryTy = Query.Types[TypeIdx];
+    return QueryTy.isFixedVector() && QueryTy.getNumElements() <= Size;
+  };
+}
+
 LegalityPredicate LegalityPredicates::scalarOrEltWiderThan(unsigned TypeIdx,
                                                            unsigned Size) {
   return [=](const LegalityQuery &Query) {
@@ -153,10 +190,19 @@ LegalityPredicate LegalityPredicates::scalarOrEltSizeNotPow2(unsigned TypeIdx) {
   };
 }
 
+LegalityPredicate LegalityPredicates::sizeNotMultipleOf(unsigned TypeIdx,
+                                                        unsigned Size) {
+  return [=](const LegalityQuery &Query) {
+    const LLT QueryTy = Query.Types[TypeIdx];
+    return QueryTy.isScalar() && QueryTy.getSizeInBits() % Size != 0;
+  };
+}
+
 LegalityPredicate LegalityPredicates::sizeNotPow2(unsigned TypeIdx) {
   return [=](const LegalityQuery &Query) {
     const LLT QueryTy = Query.Types[TypeIdx];
-    return QueryTy.isScalar() && !isPowerOf2_32(QueryTy.getSizeInBits());
+    return QueryTy.isScalar() &&
+           !llvm::has_single_bit<uint32_t>(QueryTy.getSizeInBits());
   };
 }
 
@@ -176,14 +222,24 @@ LegalityPredicate LegalityPredicates::sameSize(unsigned TypeIdx0,
 
 LegalityPredicate LegalityPredicates::memSizeInBytesNotPow2(unsigned MMOIdx) {
   return [=](const LegalityQuery &Query) {
-    return !isPowerOf2_32(Query.MMODescrs[MMOIdx].SizeInBits / 8);
+    return !llvm::has_single_bit<uint32_t>(
+        Query.MMODescrs[MMOIdx].MemoryTy.getSizeInBytes());
+  };
+}
+
+LegalityPredicate LegalityPredicates::memSizeNotByteSizePow2(unsigned MMOIdx) {
+  return [=](const LegalityQuery &Query) {
+    const LLT MemTy = Query.MMODescrs[MMOIdx].MemoryTy;
+    return !MemTy.isByteSized() ||
+           !llvm::has_single_bit<uint32_t>(
+               MemTy.getSizeInBytes().getKnownMinValue());
   };
 }
 
 LegalityPredicate LegalityPredicates::numElementsNotPow2(unsigned TypeIdx) {
   return [=](const LegalityQuery &Query) {
     const LLT QueryTy = Query.Types[TypeIdx];
-    return QueryTy.isVector() && !isPowerOf2_32(QueryTy.getNumElements());
+    return QueryTy.isFixedVector() && !isPowerOf2_32(QueryTy.getNumElements());
   };
 }
 

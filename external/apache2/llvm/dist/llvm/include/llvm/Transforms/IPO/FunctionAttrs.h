@@ -15,28 +15,29 @@
 #ifndef LLVM_TRANSFORMS_IPO_FUNCTIONATTRS_H
 #define LLVM_TRANSFORMS_IPO_FUNCTIONATTRS_H
 
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
-class AAResults;
+class GlobalValueSummary;
+class ModuleSummaryIndex;
 class Function;
 class Module;
-class Pass;
-
-/// The three kinds of memory access relevant to 'readonly' and
-/// 'readnone' attributes.
-enum MemoryAccessKind {
-  MAK_ReadNone = 0,
-  MAK_ReadOnly = 1,
-  MAK_MayWrite = 2,
-  MAK_WriteOnly = 3
-};
 
 /// Returns the memory access properties of this copy of the function.
-MemoryAccessKind computeFunctionBodyMemoryAccess(Function &F, AAResults &AAR);
+LLVM_ABI MemoryEffects computeFunctionBodyMemoryAccess(Function &F,
+                                                       AAResults &AAR);
+
+/// Propagate function attributes for function summaries along the index's
+/// callgraph during thinlink
+LLVM_ABI bool thinLTOPropagateFunctionAttrs(
+    ModuleSummaryIndex &Index,
+    function_ref<bool(GlobalValue::GUID, const GlobalValueSummary *)>
+        isPrevailing);
 
 /// Computes function attributes in post-order over the call graph.
 ///
@@ -48,13 +49,19 @@ MemoryAccessKind computeFunctionBodyMemoryAccess(Function &F, AAResults &AAR);
 /// attribute. It also discovers function arguments that are not captured by
 /// the function and marks them with the nocapture attribute.
 struct PostOrderFunctionAttrsPass : PassInfoMixin<PostOrderFunctionAttrsPass> {
-  PreservedAnalyses run(LazyCallGraph::SCC &C, CGSCCAnalysisManager &AM,
-                        LazyCallGraph &CG, CGSCCUpdateResult &UR);
-};
+  PostOrderFunctionAttrsPass(bool SkipNonRecursive = false)
+      : SkipNonRecursive(SkipNonRecursive) {}
+  LLVM_ABI PreservedAnalyses run(LazyCallGraph::SCC &C,
+                                 CGSCCAnalysisManager &AM, LazyCallGraph &CG,
+                                 CGSCCUpdateResult &UR);
 
-/// Create a legacy pass manager instance of a pass to compute function attrs
-/// in post-order.
-Pass *createPostOrderFunctionAttrsLegacyPass();
+  LLVM_ABI void
+  printPipeline(raw_ostream &OS,
+                function_ref<StringRef(StringRef)> MapClassName2PassName);
+
+private:
+  bool SkipNonRecursive;
+};
 
 /// A pass to do RPO deduction and propagation of function attributes.
 ///
@@ -69,9 +76,22 @@ Pass *createPostOrderFunctionAttrsLegacyPass();
 class ReversePostOrderFunctionAttrsPass
     : public PassInfoMixin<ReversePostOrderFunctionAttrsPass> {
 public:
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 };
 
+/// Additional 'norecurse' attribute deduction during postlink LTO phase.
+///
+/// This is a module pass that infers 'norecurse' attribute on functions.
+/// It runs during LTO and analyzes the module's call graph to find functions
+/// that are guaranteed not to call themselves, either directly or indirectly.
+/// The pass uses a module-wide flag which checks if any function's address is
+/// taken or any function in the module has external linkage, to safely handle
+/// indirect and library function calls from current function.
+class NoRecurseLTOInferencePass
+    : public PassInfoMixin<NoRecurseLTOInferencePass> {
+public:
+  LLVM_ABI PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+};
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_IPO_FUNCTIONATTRS_H

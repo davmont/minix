@@ -24,7 +24,9 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCTargetOptionsCommandFlags.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
@@ -32,15 +34,18 @@
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/LLVMDriver.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/WithColor.h"
+#include "llvm/TargetParser/Host.h"
+#include <ctime>
+#include <optional>
 
 using namespace llvm;
 using namespace llvm::opt;
@@ -49,32 +54,30 @@ namespace {
 
 enum ID {
   OPT_INVALID = 0, // This is not an option ID.
-#define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM,  \
-               HELPTEXT, METAVAR, VALUES)                                      \
-  OPT_##ID,
+#define OPTION(...) LLVM_MAKE_OPT_ID(__VA_ARGS__),
 #include "Opts.inc"
 #undef OPTION
 };
 
-#define PREFIX(NAME, VALUE) const char *const NAME[] = VALUE;
+#define OPTTABLE_STR_TABLE_CODE
 #include "Opts.inc"
-#undef PREFIX
+#undef OPTTABLE_STR_TABLE_CODE
 
-static const opt::OptTable::Info InfoTable[] = {
-#define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM,  \
-               HELPTEXT, METAVAR, VALUES)                                      \
-  {                                                                            \
-      PREFIX,      NAME,      HELPTEXT,                                        \
-      METAVAR,     OPT_##ID,  opt::Option::KIND##Class,                        \
-      PARAM,       FLAGS,     OPT_##GROUP,                                     \
-      OPT_##ALIAS, ALIASARGS, VALUES},
+#define OPTTABLE_PREFIXES_TABLE_CODE
+#include "Opts.inc"
+#undef OPTTABLE_PREFIXES_TABLE_CODE
+
+static constexpr opt::OptTable::Info InfoTable[] = {
+#define OPTION(...) LLVM_CONSTRUCT_OPT_INFO(__VA_ARGS__),
 #include "Opts.inc"
 #undef OPTION
 };
 
-class MLOptTable : public opt::OptTable {
+class MLOptTable : public opt::GenericOptTable {
 public:
-  MLOptTable() : OptTable(InfoTable, /*IgnoreCase=*/false) {}
+  MLOptTable()
+      : opt::GenericOptTable(OptionStrTable, OptionPrefixesTable, InfoTable,
+                             /*IgnoreCase=*/false) {}
 };
 } // namespace
 
@@ -83,7 +86,7 @@ static Triple GetTriple(StringRef ProgName, opt::InputArgList &Args) {
   StringRef DefaultBitness = "32";
   SmallString<255> Program = ProgName;
   sys::path::replace_extension(Program, "");
-  if (Program.endswith("ml64"))
+  if (Program.ends_with("ml64"))
     DefaultBitness = "64";
 
   StringRef TripleName =
@@ -129,8 +132,31 @@ static int AssembleInput(StringRef ProgName, const Target *TheTarget,
                          MCAsmInfo &MAI, MCSubtargetInfo &STI,
                          MCInstrInfo &MCII, MCTargetOptions &MCOptions,
                          const opt::ArgList &InputArgs) {
+  struct tm TM;
+  time_t Timestamp;
+  if (InputArgs.hasArg(OPT_timestamp)) {
+    StringRef TimestampStr = InputArgs.getLastArgValue(OPT_timestamp);
+    int64_t IntTimestamp;
+    if (TimestampStr.getAsInteger(10, IntTimestamp)) {
+      WithColor::error(errs(), ProgName)
+          << "invalid timestamp '" << TimestampStr
+          << "'; must be expressed in seconds since the UNIX epoch.\n";
+      return 1;
+    }
+    Timestamp = IntTimestamp;
+  } else {
+    Timestamp = time(nullptr);
+  }
+  if (InputArgs.hasArg(OPT_utc)) {
+    // Not thread-safe.
+    TM = *gmtime(&Timestamp);
+  } else {
+    // Not thread-safe.
+    TM = *localtime(&Timestamp);
+  }
+
   std::unique_ptr<MCAsmParser> Parser(
-      createMCMasmParser(SrcMgr, Ctx, Str, MAI, 0));
+      createMCMasmParser(SrcMgr, Ctx, Str, MAI, TM, 0));
   std::unique_ptr<MCTargetAsmParser> TAP(
       TheTarget->createMCAsmParser(STI, *Parser, MCII, MCOptions));
 
@@ -163,8 +189,7 @@ static int AssembleInput(StringRef ProgName, const Target *TheTarget,
   return Res;
 }
 
-int main(int Argc, char **Argv) {
-  InitLLVM X(Argc, Argv);
+int llvm_ml_main(int Argc, char **Argv, const llvm::ToolContext &) {
   StringRef ProgName = sys::path::filename(Argv[0]);
 
   // Initialize targets and assembly printers/parsers.
@@ -175,14 +200,17 @@ int main(int Argc, char **Argv) {
 
   MLOptTable T;
   unsigned MissingArgIndex, MissingArgCount;
-  ArrayRef<const char *> ArgsArr = makeArrayRef(Argv + 1, Argc - 1);
+  ArrayRef<const char *> ArgsArr = ArrayRef(Argv + 1, Argc - 1);
   opt::InputArgList InputArgs =
       T.ParseArgs(ArgsArr, MissingArgIndex, MissingArgCount);
 
   std::string InputFilename;
   for (auto *Arg : InputArgs.filtered(OPT_INPUT)) {
     std::string ArgString = Arg->getAsString(InputArgs);
-    if (ArgString == "-" || StringRef(ArgString).endswith(".asm")) {
+    bool IsFile = false;
+    std::error_code IsFileEC =
+        llvm::sys::fs::is_regular_file(ArgString, IsFile);
+    if (ArgString == "-" || IsFile) {
       if (!InputFilename.empty()) {
         WithColor::warning(errs(), ProgName)
             << "does not support multiple assembly files in one command; "
@@ -192,7 +220,7 @@ int main(int Argc, char **Argv) {
     } else {
       std::string Diag;
       raw_string_ostream OS(Diag);
-      OS << "invalid option '" << ArgString << "'";
+      OS << ArgString << ": " << IsFileEC.message();
 
       std::string Nearest;
       if (T.findNearest(ArgString, Nearest) < 2)
@@ -208,7 +236,7 @@ int main(int Argc, char **Argv) {
           << "does not support multiple assembly files in one command; "
           << "ignoring '" << InputFilename << "'\n";
     }
-    InputFilename = Arg->getAsString(InputArgs);
+    InputFilename = Arg->getValue();
   }
 
   for (auto *Arg : InputArgs.filtered(OPT_unsupported_Group)) {
@@ -217,9 +245,16 @@ int main(int Argc, char **Argv) {
         << "' option\n";
   }
 
+  if (InputArgs.hasArg(OPT_debug)) {
+    DebugFlag = true;
+  }
+  for (auto *Arg : InputArgs.filtered(OPT_debug_only)) {
+    setCurrentDebugTypes(Arg->getValues().data(), Arg->getNumValues());
+  }
+
   if (InputArgs.hasArg(OPT_help)) {
     std::string Usage = llvm::formatv("{0} [ /options ] file", ProgName).str();
-    T.PrintHelp(outs(), Usage.c_str(), "LLVM MASM Assembler",
+    T.printHelp(outs(), Usage.c_str(), "LLVM MASM Assembler",
                 /*ShowHidden=*/false);
     return 0;
   } else if (InputFilename.empty()) {
@@ -232,6 +267,9 @@ int main(int Argc, char **Argv) {
   MCTargetOptions MCOptions;
   MCOptions.AssemblyLanguage = "masm";
   MCOptions.MCFatalWarnings = InputArgs.hasArg(OPT_fatal_warnings);
+  MCOptions.MCSaveTempLabels = InputArgs.hasArg(OPT_save_temp_labels);
+  MCOptions.ShowMCInst = InputArgs.hasArg(OPT_show_inst);
+  MCOptions.AsmVerbose = true;
 
   Triple TheTriple = GetTriple(ProgName, InputArgs);
   std::string Error;
@@ -240,8 +278,6 @@ int main(int Argc, char **Argv) {
     WithColor::error(errs(), ProgName) << Error;
     return 1;
   }
-  const std::string &TripleName = TheTriple.getTriple();
-
   bool SafeSEH = InputArgs.hasArg(OPT_safeseh);
   if (SafeSEH && !(TheTriple.isArch32Bit() && TheTriple.isX86())) {
     WithColor::warning()
@@ -263,21 +299,38 @@ int main(int Argc, char **Argv) {
   SrcMgr.AddNewSourceBuffer(std::move(*BufferPtr), SMLoc());
 
   // Record the location of the include directories so that the lexer can find
-  // it later.
-  SrcMgr.setIncludeDirs(InputArgs.getAllArgValues(OPT_include_path));
+  // included files later.
+  std::vector<std::string> IncludeDirs =
+      InputArgs.getAllArgValues(OPT_include_path);
+  if (!InputArgs.hasArg(OPT_ignore_include_envvar)) {
+    if (std::optional<std::string> IncludeEnvVar =
+            llvm::sys::Process::GetEnv("INCLUDE")) {
+      SmallVector<StringRef, 8> Dirs;
+      StringRef(*IncludeEnvVar)
+          .split(Dirs, ";", /*MaxSplit=*/-1, /*KeepEmpty=*/false);
+      IncludeDirs.reserve(IncludeDirs.size() + Dirs.size());
+      for (StringRef Dir : Dirs)
+        IncludeDirs.push_back(Dir.str());
+    }
+  }
+  SrcMgr.setIncludeDirs(IncludeDirs);
+  SrcMgr.setVirtualFileSystem(vfs::getRealFileSystem());
 
-  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TripleName));
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TheTriple));
   assert(MRI && "Unable to create target register info!");
 
   std::unique_ptr<MCAsmInfo> MAI(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, MCOptions));
+      TheTarget->createMCAsmInfo(*MRI, TheTriple, MCOptions));
   assert(MAI && "Unable to create target asm info!");
 
   MAI->setPreserveAsmComments(InputArgs.hasArg(OPT_preserve_comments));
 
-  std::unique_ptr<MCSubtargetInfo> STI(TheTarget->createMCSubtargetInfo(
-      TripleName, /*CPU=*/"", /*Features=*/""));
-  assert(STI && "Unable to create subtarget info!");
+  std::unique_ptr<MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TheTriple, /*CPU=*/"", /*Features=*/""));
+  if (!STI) {
+    WithColor::error(errs(), ProgName) << "unable to create subtarget info\n";
+    exit(1);
+  }
 
   // FIXME: This is not pretty. MCContext has a ptr to MCObjectFileInfo and
   // MCObjectFileInfo needs a MCContext reference in order to initialize itself.
@@ -285,9 +338,6 @@ int main(int Argc, char **Argv) {
   std::unique_ptr<MCObjectFileInfo> MOFI(TheTarget->createMCObjectFileInfo(
       Ctx, /*PIC=*/false, /*LargeCodeModel=*/true));
   Ctx.setObjectFileInfo(MOFI.get());
-
-  if (InputArgs.hasArg(OPT_save_temp_labels))
-    Ctx.setAllowTemporaryLabels(false);
 
   // Set compilation information.
   SmallString<128> CWD;
@@ -316,13 +366,12 @@ int main(int Argc, char **Argv) {
   std::unique_ptr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
   assert(MCII && "Unable to create instruction info!");
 
-  MCInstPrinter *IP = nullptr;
   if (FileType == "s") {
     const bool OutputATTAsm = InputArgs.hasArg(OPT_output_att_asm);
     const unsigned OutputAsmVariant = OutputATTAsm ? 0U   // ATT dialect
                                                    : 1U;  // Intel dialect
-    IP = TheTarget->createMCInstPrinter(TheTriple, OutputAsmVariant, *MAI,
-                                        *MCII, *MRI);
+    std::unique_ptr<MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+        TheTriple, OutputAsmVariant, *MAI, *MCII, *MRI));
 
     if (!IP) {
       WithColor::error()
@@ -338,15 +387,13 @@ int main(int Argc, char **Argv) {
     // Set up the AsmStreamer.
     std::unique_ptr<MCCodeEmitter> CE;
     if (InputArgs.hasArg(OPT_show_encoding))
-      CE.reset(TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx));
+      CE.reset(TheTarget->createMCCodeEmitter(*MCII, Ctx));
 
     std::unique_ptr<MCAsmBackend> MAB(
         TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions));
     auto FOut = std::make_unique<formatted_raw_ostream>(*OS);
-    Str.reset(TheTarget->createAsmStreamer(
-        Ctx, std::move(FOut), /*asmverbose*/ true,
-        /*useDwarfDirectory*/ true, IP, std::move(CE), std::move(MAB),
-        InputArgs.hasArg(OPT_show_inst)));
+    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), std::move(IP),
+                                           std::move(CE), std::move(MAB)));
 
   } else if (FileType == "null") {
     Str.reset(TheTarget->createNullStreamer(Ctx));
@@ -356,13 +403,12 @@ int main(int Argc, char **Argv) {
       OS = BOS.get();
     }
 
-    MCCodeEmitter *CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
+    MCCodeEmitter *CE = TheTarget->createMCCodeEmitter(*MCII, Ctx);
     MCAsmBackend *MAB = TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions);
     Str.reset(TheTarget->createMCObjectStreamer(
         TheTriple, Ctx, std::unique_ptr<MCAsmBackend>(MAB),
-        MAB->createObjectWriter(*OS), std::unique_ptr<MCCodeEmitter>(CE), *STI,
-        MCOptions.MCRelaxAll, MCOptions.MCIncrementalLinkerCompatible,
-        /*DWARFMustBeAtTheEnd*/ false));
+        MAB->createObjectWriter(*OS), std::unique_ptr<MCCodeEmitter>(CE),
+        *STI));
   } else {
     llvm_unreachable("Invalid file type!");
   }
@@ -383,9 +429,6 @@ int main(int Argc, char **Argv) {
     Str->emitSymbolAttribute(Feat00Sym, MCSA_Global);
     Str->emitAssignment(Feat00Sym, MCConstantExpr::create(Feat00Flags, Ctx));
   }
-
-  // Use Assembler information for parsing.
-  Str->setUseAssemblerInfoForParsing(true);
 
   int Res = 1;
   if (InputArgs.hasArg(OPT_as_lex)) {

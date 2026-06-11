@@ -21,19 +21,16 @@
 
 namespace clang {
 
-class Preprocessor;
-class DiagnosticsEngine;
-class CodeInjector;
 class CompilerInstance;
 
 namespace ento {
 class PathDiagnosticConsumer;
-class CheckerManager;
 class CheckerRegistry;
 
 class AnalysisASTConsumer : public ASTConsumer {
 public:
-  virtual void AddDiagnosticConsumer(PathDiagnosticConsumer *Consumer) = 0;
+  virtual void
+  AddDiagnosticConsumer(std::unique_ptr<PathDiagnosticConsumer> Consumer) = 0;
 
   /// This method allows registering statically linked custom checkers that are
   /// not a part of the Clang tree. It employs the same mechanism that is used

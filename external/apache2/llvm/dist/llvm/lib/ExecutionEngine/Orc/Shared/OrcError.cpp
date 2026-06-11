@@ -12,7 +12,6 @@
 
 #include "llvm/ExecutionEngine/Orc/Shared/OrcError.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ManagedStatic.h"
 
 #include <type_traits>
 
@@ -70,7 +69,10 @@ public:
   }
 };
 
-static ManagedStatic<OrcErrorCategory> OrcErrCat;
+OrcErrorCategory &getOrcErrCat() {
+  static OrcErrorCategory OrcErrCat;
+  return OrcErrCat;
+}
 } // namespace
 
 namespace llvm {
@@ -80,32 +82,39 @@ char DuplicateDefinition::ID = 0;
 char JITSymbolNotFound::ID = 0;
 
 std::error_code orcError(OrcErrorCode ErrCode) {
-  typedef std::underlying_type<OrcErrorCode>::type UT;
-  return std::error_code(static_cast<UT>(ErrCode), *OrcErrCat);
+  typedef std::underlying_type_t<OrcErrorCode> UT;
+  return std::error_code(static_cast<UT>(ErrCode), getOrcErrCat());
 }
 
-DuplicateDefinition::DuplicateDefinition(std::string SymbolName)
-    : SymbolName(std::move(SymbolName)) {}
+DuplicateDefinition::DuplicateDefinition(std::string SymbolName,
+                                         std::optional<std::string> Context)
+    : SymbolName(std::move(SymbolName)), Context(std::move(Context)) {}
 
 std::error_code DuplicateDefinition::convertToErrorCode() const {
   return orcError(OrcErrorCode::DuplicateDefinition);
 }
 
 void DuplicateDefinition::log(raw_ostream &OS) const {
-  OS << "Duplicate definition of symbol '" << SymbolName << "'";
+  if (Context)
+    OS << "In " << *Context << ", ";
+  OS << "duplicate definition of symbol '" << SymbolName << "'";
 }
 
 const std::string &DuplicateDefinition::getSymbolName() const {
   return SymbolName;
 }
 
+const std::optional<std::string> &DuplicateDefinition::getContext() const {
+  return Context;
+}
+
 JITSymbolNotFound::JITSymbolNotFound(std::string SymbolName)
     : SymbolName(std::move(SymbolName)) {}
 
 std::error_code JITSymbolNotFound::convertToErrorCode() const {
-  typedef std::underlying_type<OrcErrorCode>::type UT;
+  typedef std::underlying_type_t<OrcErrorCode> UT;
   return std::error_code(static_cast<UT>(OrcErrorCode::JITSymbolNotFound),
-                         *OrcErrCat);
+                         getOrcErrCat());
 }
 
 void JITSymbolNotFound::log(raw_ostream &OS) const {

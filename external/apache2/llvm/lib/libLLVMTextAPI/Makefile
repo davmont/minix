@@ -5,15 +5,23 @@ LIB=	LLVMTextAPI
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/TextAPI
+.PATH: ${LLVM_SRCDIR}/lib/TextAPI/BinaryReader
 SRCS+=	Architecture.cpp \
 	ArchitectureSet.cpp \
+	DylibReader.cpp \
 	InterfaceFile.cpp \
 	PackedVersion.cpp \
 	Platform.cpp \
+	RecordVisitor.cpp \
+	RecordsSlice.cpp \
 	Symbol.cpp \
+	SymbolSet.cpp \
 	Target.cpp \
+	TextAPIError.cpp \
 	TextStub.cpp \
-	TextStubCommon.cpp
+	TextStubCommon.cpp \
+	TextStubV5.cpp \
+	Utils.cpp
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

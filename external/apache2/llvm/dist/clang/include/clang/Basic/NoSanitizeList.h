@@ -29,6 +29,8 @@ class SanitizerSpecialCaseList;
 class NoSanitizeList {
   std::unique_ptr<SanitizerSpecialCaseList> SSCL;
   SourceManager &SM;
+  bool containsPrefix(SanitizerMask Mask, StringRef Prefix, StringRef Name,
+                      StringRef Category) const;
 
 public:
   NoSanitizeList(const std::vector<std::string> &NoSanitizeListPaths,
@@ -41,6 +43,8 @@ public:
   bool containsFunction(SanitizerMask Mask, StringRef FunctionName) const;
   bool containsFile(SanitizerMask Mask, StringRef FileName,
                     StringRef Category = StringRef()) const;
+  bool containsMainFile(SanitizerMask Mask, StringRef FileName,
+                        StringRef Category = StringRef()) const;
   bool containsLocation(SanitizerMask Mask, SourceLocation Loc,
                         StringRef Category = StringRef()) const;
 };

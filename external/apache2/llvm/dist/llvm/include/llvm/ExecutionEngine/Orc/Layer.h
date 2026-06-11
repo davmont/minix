@@ -18,6 +18,7 @@
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/ExtensibleRTTI.h"
 #include "llvm/Support/MemoryBuffer.h"
 
@@ -28,7 +29,7 @@ namespace orc {
 /// wrapping LLVM IR. Represents materialization responsibility for all symbols
 /// in the given module. If symbols are overridden by other definitions, then
 /// their linkage is changed to available-externally.
-class IRMaterializationUnit : public MaterializationUnit {
+class LLVM_ABI IRMaterializationUnit : public MaterializationUnit {
 public:
   using SymbolNameToDefinitionMap = std::map<SymbolStringPtr, GlobalValue *>;
 
@@ -43,8 +44,7 @@ public:
   /// entries for each definition in M.
   /// This constructor is useful for delegating work from one
   /// IRMaterializationUnit to another.
-  IRMaterializationUnit(ThreadSafeModule TSM, SymbolFlagsMap SymbolFlags,
-                        SymbolStringPtr InitSymbol,
+  IRMaterializationUnit(ThreadSafeModule TSM, Interface I,
                         SymbolNameToDefinitionMap SymbolToDefinition);
 
   /// Return the ModuleIdentifier as the name for this MaterializationUnit.
@@ -65,7 +65,7 @@ private:
 };
 
 /// Interface for layers that accept LLVM IR.
-class IRLayer {
+class LLVM_ABI IRLayer {
 public:
   IRLayer(ExecutionSession &ES, const IRSymbolMapper::ManglingOptions *&MO)
       : ES(ES), MO(MO) {}
@@ -118,7 +118,7 @@ private:
 
 /// MaterializationUnit that materializes modules by calling the 'emit' method
 /// on the given IRLayer.
-class BasicIRLayerMaterializationUnit : public IRMaterializationUnit {
+class LLVM_ABI BasicIRLayerMaterializationUnit : public IRMaterializationUnit {
 public:
   BasicIRLayerMaterializationUnit(IRLayer &L,
                                   const IRSymbolMapper::ManglingOptions &MO,
@@ -131,23 +131,37 @@ private:
 };
 
 /// Interface for Layers that accept object files.
-class ObjectLayer : public RTTIExtends<ObjectLayer, RTTIRoot> {
+class LLVM_ABI ObjectLayer : public RTTIExtends<ObjectLayer, RTTIRoot> {
 public:
   static char ID;
 
   ObjectLayer(ExecutionSession &ES);
-  virtual ~ObjectLayer();
+  ~ObjectLayer() override;
 
   /// Returns the execution session for this layer.
   ExecutionSession &getExecutionSession() { return ES; }
 
-  /// Adds a MaterializationUnit representing the given IR to the given
-  /// JITDylib.
-  virtual Error add(ResourceTrackerSP RT, std::unique_ptr<MemoryBuffer> O);
+  /// Adds a MaterializationUnit for the object file in the given memory buffer
+  /// to the JITDylib for the given ResourceTracker.
+  virtual Error add(ResourceTrackerSP RT, std::unique_ptr<MemoryBuffer> O,
+                    MaterializationUnit::Interface I);
 
-  Error add(JITDylib &JD, std::unique_ptr<MemoryBuffer> O) {
-    return add(JD.getDefaultResourceTracker(), std::move(O));
+  /// Adds a MaterializationUnit for the object file in the given memory buffer
+  /// to the JITDylib for the given ResourceTracker. The interface for the
+  /// object will be built using the default object interface builder.
+  Error add(ResourceTrackerSP RT, std::unique_ptr<MemoryBuffer> O);
+
+  /// Adds a MaterializationUnit for the object file in the given memory buffer
+  /// to the given JITDylib.
+  Error add(JITDylib &JD, std::unique_ptr<MemoryBuffer> O,
+            MaterializationUnit::Interface I) {
+    return add(JD.getDefaultResourceTracker(), std::move(O), std::move(I));
   }
+
+  /// Adds a MaterializationUnit for the object file in the given memory buffer
+  /// to the given JITDylib. The interface for the object will be built using
+  /// the default object interface builder.
+  Error add(JITDylib &JD, std::unique_ptr<MemoryBuffer> O);
 
   /// Emit should materialize the given IR.
   virtual void emit(std::unique_ptr<MaterializationResponsibility> R,
@@ -159,15 +173,16 @@ private:
 
 /// Materializes the given object file (represented by a MemoryBuffer
 /// instance) by calling 'emit' on the given ObjectLayer.
-class BasicObjectLayerMaterializationUnit : public MaterializationUnit {
+class LLVM_ABI BasicObjectLayerMaterializationUnit
+    : public MaterializationUnit {
 public:
+  /// Create using the default object interface builder function.
   static Expected<std::unique_ptr<BasicObjectLayerMaterializationUnit>>
   Create(ObjectLayer &L, std::unique_ptr<MemoryBuffer> O);
 
   BasicObjectLayerMaterializationUnit(ObjectLayer &L,
                                       std::unique_ptr<MemoryBuffer> O,
-                                      SymbolFlagsMap SymbolFlags,
-                                      SymbolStringPtr InitSymbol);
+                                      Interface I);
 
   /// Return the buffer's identifier as the name for this MaterializationUnit.
   StringRef getName() const override;

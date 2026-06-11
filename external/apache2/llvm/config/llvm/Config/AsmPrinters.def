@@ -1,9 +1,9 @@
 /*===- llvm/Config/AsmPrinters.def - LLVM Assembly Printers -----*- C++ -*-===*\
 |*                                                                            *|
-|*                     The LLVM Compiler Infrastructure                       *|
-|*                                                                            *|
-|* This file is distributed under the University of Illinois Open Source      *|
-|* License. See LICENSE.TXT for details.                                      *|
+|* Part of the LLVM Project, under the Apache License v2.0 with LLVM          *|
+|* Exceptions.                                                                *|
+|* See https://llvm.org/LICENSE.txt for license information.                  *|
+|* SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception                    *|
 |*                                                                            *|
 |*===----------------------------------------------------------------------===*|
 |*                                                                            *|
@@ -24,13 +24,13 @@
 #  error Please define the macro LLVM_ASM_PRINTER(TargetName)
 #endif
 
-LLVM_ASM_PRINTER(AMDGPU)
-LLVM_ASM_PRINTER(Mips)
-LLVM_ASM_PRINTER(ARM)
-LLVM_ASM_PRINTER(AArch64)
-LLVM_ASM_PRINTER(Sparc)
-LLVM_ASM_PRINTER(PowerPC)
 LLVM_ASM_PRINTER(X86)
+LLVM_ASM_PRINTER(PowerPC)
+LLVM_ASM_PRINTER(Sparc)
+LLVM_ASM_PRINTER(AArch64)
+LLVM_ASM_PRINTER(ARM)
+LLVM_ASM_PRINTER(Mips)
+LLVM_ASM_PRINTER(AMDGPU)
 
 
 #undef LLVM_ASM_PRINTER

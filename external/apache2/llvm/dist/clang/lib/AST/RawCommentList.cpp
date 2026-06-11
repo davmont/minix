@@ -15,7 +15,6 @@
 #include "clang/AST/CommentParser.h"
 #include "clang/AST/CommentSema.h"
 #include "clang/Basic/CharInfo.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
 
 using namespace clang;
@@ -140,8 +139,8 @@ RawComment::RawComment(const SourceManager &SourceMgr, SourceRange SR,
     Kind = K.first;
     IsTrailingComment |= K.second;
 
-    IsAlmostTrailingComment = RawText.startswith("//<") ||
-                                 RawText.startswith("/*<");
+    IsAlmostTrailingComment =
+        RawText.starts_with("//<") || RawText.starts_with("/*<");
   } else {
     Kind = RCK_Merged;
     IsTrailingComment =
@@ -225,8 +224,8 @@ comments::FullComment *RawComment::parse(const ASTContext &Context,
 static bool onlyWhitespaceBetween(SourceManager &SM,
                                   SourceLocation Loc1, SourceLocation Loc2,
                                   unsigned MaxNewlinesAllowed) {
-  std::pair<FileID, unsigned> Loc1Info = SM.getDecomposedLoc(Loc1);
-  std::pair<FileID, unsigned> Loc2Info = SM.getDecomposedLoc(Loc2);
+  FileIDAndOffset Loc1Info = SM.getDecomposedLoc(Loc1);
+  FileIDAndOffset Loc2Info = SM.getDecomposedLoc(Loc2);
 
   // Question does not make sense if locations are in different files.
   if (Loc1Info.first != Loc2Info.first)
@@ -280,21 +279,20 @@ void RawCommentList::addComment(const RawComment &RC,
   if (RC.isOrdinary() && !CommentOpts.ParseAllComments)
     return;
 
-  std::pair<FileID, unsigned> Loc =
-      SourceMgr.getDecomposedLoc(RC.getBeginLoc());
+  FileIDAndOffset Loc = SourceMgr.getDecomposedLoc(RC.getBeginLoc());
 
   const FileID CommentFile = Loc.first;
   const unsigned CommentOffset = Loc.second;
 
   // If this is the first Doxygen comment, save it (because there isn't
   // anything to merge it with).
-  if (OrderedComments[CommentFile].empty()) {
-    OrderedComments[CommentFile][CommentOffset] =
-        new (Allocator) RawComment(RC);
+  auto &OC = OrderedComments[CommentFile];
+  if (OC.empty()) {
+    OC[CommentOffset] = new (Allocator) RawComment(RC);
     return;
   }
 
-  const RawComment &C1 = *OrderedComments[CommentFile].rbegin()->second;
+  const RawComment &C1 = *OC.rbegin()->second;
   const RawComment &C2 = RC;
 
   // Merge comments only if there is only whitespace between them.
@@ -362,6 +360,24 @@ std::string RawComment::getFormattedText(const SourceManager &SourceMgr,
   if (CommentText.empty())
     return "";
 
+  std::string Result;
+  for (const RawComment::CommentLine &Line :
+       getFormattedLines(SourceMgr, Diags))
+    Result += Line.Text + "\n";
+
+  auto LastChar = Result.find_last_not_of('\n');
+  Result.erase(LastChar + 1, Result.size());
+
+  return Result;
+}
+
+std::vector<RawComment::CommentLine>
+RawComment::getFormattedLines(const SourceManager &SourceMgr,
+                              DiagnosticsEngine &Diags) const {
+  llvm::StringRef CommentText = getRawText(SourceMgr);
+  if (CommentText.empty())
+    return {};
+
   llvm::BumpPtrAllocator Allocator;
   // We do not parse any commands, so CommentOptions are ignored by
   // comments::Lexer. Therefore, we just use default-constructed options.
@@ -371,12 +387,22 @@ std::string RawComment::getFormattedText(const SourceManager &SourceMgr,
                     CommentText.begin(), CommentText.end(),
                     /*ParseCommands=*/false);
 
-  std::string Result;
+  std::vector<RawComment::CommentLine> Result;
   // A column number of the first non-whitespace token in the comment text.
   // We skip whitespace up to this column, but keep the whitespace after this
   // column. IndentColumn is calculated when lexing the first line and reused
   // for the rest of lines.
   unsigned IndentColumn = 0;
+
+  // Record the line number of the last processed comment line.
+  // For block-style comments, an extra newline token will be produced after
+  // the end-comment marker, e.g.:
+  //   /** This is a multi-line comment block.
+  //       The lexer will produce two newline tokens here > */
+  // previousLine will record the line number when we previously saw a newline
+  // token and recorded a comment line. If we see another newline token on the
+  // same line, don't record anything in between.
+  unsigned PreviousLine = 0;
 
   // Processes one line of the comment and adds it to the result.
   // Handles skipping the indent at the start of the line.
@@ -389,9 +415,14 @@ std::string RawComment::getFormattedText(const SourceManager &SourceMgr,
     if (Tok.is(comments::tok::eof))
       return false;
     if (Tok.is(comments::tok::newline)) {
-      Result += "\n";
+      PresumedLoc Loc = SourceMgr.getPresumedLoc(Tok.getLocation());
+      if (Loc.getLine() != PreviousLine) {
+        Result.emplace_back("", Loc, Loc);
+        PreviousLine = Loc.getLine();
+      }
       return true;
     }
+    SmallString<124> Line;
     llvm::StringRef TokText = L.getSpelling(Tok, SourceMgr);
     bool LocInvalid = false;
     unsigned TokColumn =
@@ -417,32 +448,35 @@ std::string RawComment::getFormattedText(const SourceManager &SourceMgr,
                   WhitespaceLen,
                   std::max<int>(static_cast<int>(IndentColumn) - TokColumn, 0));
     llvm::StringRef Trimmed = TokText.drop_front(SkipLen);
-    Result += Trimmed;
+    Line += Trimmed;
+    // Get the beginning location of the adjusted comment line.
+    PresumedLoc Begin =
+        SourceMgr.getPresumedLoc(Tok.getLocation().getLocWithOffset(SkipLen));
+
     // Lex all tokens in the rest of the line.
     for (L.lex(Tok); Tok.isNot(comments::tok::eof); L.lex(Tok)) {
       if (Tok.is(comments::tok::newline)) {
-        Result += "\n";
+        // Get the ending location of the comment line.
+        PresumedLoc End = SourceMgr.getPresumedLoc(Tok.getLocation());
+        if (End.getLine() != PreviousLine) {
+          Result.emplace_back(Line, Begin, End);
+          PreviousLine = End.getLine();
+        }
         return true;
       }
-      Result += L.getSpelling(Tok, SourceMgr);
+      Line += L.getSpelling(Tok, SourceMgr);
     }
+    PresumedLoc End = SourceMgr.getPresumedLoc(Tok.getLocation());
+    Result.emplace_back(Line, Begin, End);
     // We've reached the end of file token.
     return false;
   };
 
-  auto DropTrailingNewLines = [](std::string &Str) {
-    while (!Str.empty() && Str.back() == '\n')
-      Str.pop_back();
-  };
-
   // Process first line separately to remember indent for the following lines.
-  if (!LexLine(/*IsFirstLine=*/true)) {
-    DropTrailingNewLines(Result);
+  if (!LexLine(/*IsFirstLine=*/true))
     return Result;
-  }
   // Process the rest of the lines.
   while (LexLine(/*IsFirstLine=*/false))
     ;
-  DropTrailingNewLines(Result);
   return Result;
 }

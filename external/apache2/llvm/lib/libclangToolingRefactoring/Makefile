@@ -5,25 +5,25 @@ LIB=	clangToolingRefactoring
 .include <bsd.init.mk>
 
 .PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring
+.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Extract
+.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Rename
 
 SRCS+=	ASTSelection.cpp \
 	ASTSelectionRequirements.cpp \
 	AtomicChange.cpp \
+	Extract.cpp \
 	Lookup.cpp \
-	RefactoringActions.cpp
-
-.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Extract
-
-SRCS+=	Extract.cpp \
-	SourceExtraction.cpp
-
-.PATH: ${CLANG_SRCDIR}/lib/Tooling/Refactoring/Rename
-
-SRCS+=	RenamingAction.cpp \
+	RefactoringActions.cpp \
+	RenamingAction.cpp \
+	SourceExtraction.cpp \
 	SymbolOccurrences.cpp \
 	USRFinder.cpp \
 	USRFindingAction.cpp \
 	USRLocFinder.cpp
+
+
+
+
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

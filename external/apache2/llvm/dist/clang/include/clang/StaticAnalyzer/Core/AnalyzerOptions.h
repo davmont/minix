@@ -17,10 +17,9 @@
 #include "clang/Analysis/PathDiagnostic.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/Compiler.h"
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,20 +31,6 @@ namespace ento {
 class CheckerBase;
 
 } // namespace ento
-
-/// Analysis - Set of available source code analyses.
-enum Analyses {
-#define ANALYSIS(NAME, CMDFLAG, DESC, SCOPE) NAME,
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-NumAnalyses
-};
-
-/// AnalysisStores - Set of available analysis store models.
-enum AnalysisStores {
-#define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATFN) NAME##Model,
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-NumStores
-};
 
 /// AnalysisConstraints - Set of available constraint models.
 enum AnalysisConstraints {
@@ -138,6 +123,38 @@ enum UserModeKind {
   UMK_Deep = 2
 };
 
+enum class CTUPhase1InliningKind { None, Small, All };
+
+class PositiveAnalyzerOption {
+public:
+  constexpr PositiveAnalyzerOption() = default;
+  constexpr PositiveAnalyzerOption(unsigned Value) : Value(Value) {
+    assert(Value > 0 && "only positive values are accepted");
+  }
+  constexpr PositiveAnalyzerOption(const PositiveAnalyzerOption &) = default;
+  constexpr PositiveAnalyzerOption &
+  operator=(const PositiveAnalyzerOption &Other) {
+    Value = Other.Value;
+    return *this;
+  }
+
+  static constexpr std::optional<PositiveAnalyzerOption> create(unsigned Val) {
+    if (Val == 0)
+      return std::nullopt;
+    return PositiveAnalyzerOption{Val};
+  }
+  static std::optional<PositiveAnalyzerOption> create(StringRef Str) {
+    unsigned Parsed = 0;
+    if (Str.getAsInteger(0, Parsed))
+      return std::nullopt;
+    return PositiveAnalyzerOption::create(Parsed);
+  }
+  constexpr operator unsigned() const { return Value; }
+
+private:
+  unsigned Value = 1;
+};
+
 /// Stores options for the analyzer from the command line.
 ///
 /// Some options are frontend flags (e.g.: -analyzer-output), but some are
@@ -160,7 +177,7 @@ enum UserModeKind {
 /// and should be eventually converted into -analyzer-config flags. New analyzer
 /// options should not be implemented as frontend flags. Frontend flags still
 /// make sense for things that do not affect the actual analysis.
-class AnalyzerOptions : public RefCountedBase<AnalyzerOptions> {
+class AnalyzerOptions {
 public:
   using ConfigTable = llvm::StringMap<std::string>;
 
@@ -205,7 +222,6 @@ public:
   /// A key-value table of use-specified configuration values.
   // TODO: This shouldn't be public.
   ConfigTable Config;
-  AnalysisStores AnalysisStoreOpt = RegionStoreModel;
   AnalysisConstraints AnalysisConstraintsOpt = RangeConstraintsModel;
   AnalysisDiagClients AnalysisDiagOpt = PD_HTML;
   AnalysisPurgeMode AnalysisPurgeOpt = PurgeStmt;
@@ -242,9 +258,7 @@ public:
   unsigned ShouldEmitErrorsOnInvalidConfigValue : 1;
   unsigned AnalyzeAll : 1;
   unsigned AnalyzerDisplayProgress : 1;
-  unsigned AnalyzeNestedBlocks : 1;
-
-  unsigned eagerlyAssumeBinOpBifurcation : 1;
+  unsigned AnalyzerNoteAnalysisEntryPoints : 1;
 
   unsigned TrimGraph : 1;
   unsigned visualizeExplodedGraphWithGraphViz : 1;
@@ -256,7 +270,8 @@ public:
   unsigned NoRetryExhausted : 1;
 
   /// Emit analyzer warnings as errors.
-  bool AnalyzerWerror : 1;
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned AnalyzerWerror : 1;
 
   /// The inlining stack depth limit.
   unsigned InlineMaxStackDepth;
@@ -276,9 +291,10 @@ public:
 #undef ANALYZER_OPTION
 #undef ANALYZER_OPTION_DEPENDS_ON_USER_MODE
 
-  // Create an array of all -analyzer-config command line options. Sort it in
-  // the constructor.
-  std::vector<llvm::StringLiteral> AnalyzerConfigCmdFlags = {
+  bool isUnknownAnalyzerConfig(llvm::StringRef Name) {
+    static std::vector<llvm::StringLiteral> AnalyzerConfigCmdFlags = []() {
+      // Create an array of all -analyzer-config command line options.
+      std::vector<llvm::StringLiteral> AnalyzerConfigCmdFlags = {
 #define ANALYZER_OPTION_DEPENDS_ON_USER_MODE(TYPE, NAME, CMDFLAG, DESC,        \
                                              SHALLOW_VAL, DEEP_VAL)            \
   ANALYZER_OPTION(TYPE, NAME, CMDFLAG, DESC, SHALLOW_VAL)
@@ -289,13 +305,13 @@ public:
 #include "clang/StaticAnalyzer/Core/AnalyzerOptions.def"
 #undef ANALYZER_OPTION
 #undef ANALYZER_OPTION_DEPENDS_ON_USER_MODE
-  };
+      };
+      // FIXME: Sort this at compile-time when we get constexpr sort (C++20).
+      llvm::sort(AnalyzerConfigCmdFlags);
+      return AnalyzerConfigCmdFlags;
+    }();
 
-  bool isUnknownAnalyzerConfig(StringRef Name) const {
-    assert(llvm::is_sorted(AnalyzerConfigCmdFlags));
-
-    return !std::binary_search(AnalyzerConfigCmdFlags.begin(),
-                               AnalyzerConfigCmdFlags.end(), Name);
+    return !llvm::binary_search(AnalyzerConfigCmdFlags, Name);
   }
 
   AnalyzerOptions()
@@ -303,13 +319,12 @@ public:
         ShowCheckerHelpAlpha(false), ShowCheckerHelpDeveloper(false),
         ShowCheckerOptionList(false), ShowCheckerOptionAlphaList(false),
         ShowCheckerOptionDeveloperList(false), ShowEnabledCheckerList(false),
-        ShowConfigOptionsList(false), AnalyzeAll(false),
-        AnalyzerDisplayProgress(false), AnalyzeNestedBlocks(false),
-        eagerlyAssumeBinOpBifurcation(false), TrimGraph(false),
-        visualizeExplodedGraphWithGraphViz(false), UnoptimizedCFG(false),
-        PrintStats(false), NoRetryExhausted(false), AnalyzerWerror(false) {
-    llvm::sort(AnalyzerConfigCmdFlags);
-  }
+        ShowConfigOptionsList(false),
+        ShouldEmitErrorsOnInvalidConfigValue(false), AnalyzeAll(false),
+        AnalyzerDisplayProgress(false), AnalyzerNoteAnalysisEntryPoints(false),
+        TrimGraph(false), visualizeExplodedGraphWithGraphViz(false),
+        UnoptimizedCFG(false), PrintStats(false), NoRetryExhausted(false),
+        AnalyzerWerror(false) {}
 
   /// Interprets an option's string value as a boolean. The "true" string is
   /// interpreted as true and the "false" string is interpreted as false.
@@ -373,12 +388,8 @@ public:
                                    StringRef OptionName,
                                    bool SearchInParents = false) const;
 
-  /// Retrieves and sets the UserMode. This is a high-level option,
-  /// which is used to set other low-level options. It is not accessible
-  /// outside of AnalyzerOptions.
-  UserModeKind getUserMode() const;
-
   ExplorationStrategyKind getExplorationStrategy() const;
+  CTUPhase1InliningKind getCTUPhase1Inlining() const;
 
   /// Returns the inter-procedural analysis mode.
   IPAKind getIPAMode() const;
@@ -395,14 +406,16 @@ public:
     return {FullCompilerInvocation,
             ShouldDisplayMacroExpansions,
             ShouldSerializeStats,
-            ShouldWriteStableReportFilename,
-            AnalyzerWerror,
+            // The stable report filename option is deprecated because
+            // file names are now always stable. Now the old option acts as
+            // an alias to the new verbose filename option because this
+            // closely mimics the behavior under the old option.
+            ShouldWriteStableReportFilename || ShouldWriteVerboseReportFilename,
+            static_cast<bool>(AnalyzerWerror),
             ShouldApplyFixIts,
             ShouldDisplayCheckerNameForText};
   }
 };
-
-using AnalyzerOptionsRef = IntrusiveRefCntPtr<AnalyzerOptions>;
 
 //===----------------------------------------------------------------------===//
 // We'll use AnalyzerOptions in the frontend, but we can't link the frontend
@@ -411,15 +424,6 @@ using AnalyzerOptionsRef = IntrusiveRefCntPtr<AnalyzerOptions>;
 //
 // For this reason, implement some methods in this header file.
 //===----------------------------------------------------------------------===//
-
-inline UserModeKind AnalyzerOptions::getUserMode() const {
-  auto K = llvm::StringSwitch<llvm::Optional<UserModeKind>>(UserMode)
-    .Case("shallow", UMK_Shallow)
-    .Case("deep", UMK_Deep)
-    .Default(None);
-  assert(K.hasValue() && "User mode is invalid.");
-  return K.getValue();
-}
 
 inline std::vector<StringRef>
 AnalyzerOptions::getRegisteredCheckers(bool IncludeExperimental) {
@@ -433,8 +437,8 @@ AnalyzerOptions::getRegisteredCheckers(bool IncludeExperimental) {
   };
   std::vector<StringRef> Checkers;
   for (StringRef CheckerName : StaticAnalyzerCheckerNames) {
-    if (!CheckerName.startswith("debug.") &&
-        (IncludeExperimental || !CheckerName.startswith("alpha.")))
+    if (!CheckerName.starts_with("debug.") &&
+        (IncludeExperimental || !CheckerName.starts_with("alpha.")))
       Checkers.push_back(CheckerName);
   }
   return Checkers;

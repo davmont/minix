@@ -10,17 +10,19 @@
 #define LLVM_TRANSFORMS_VECTORIZE_LOADSTOREVECTORIZER_H
 
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
+class Pass;
+class Function;
 
 class LoadStoreVectorizerPass : public PassInfoMixin<LoadStoreVectorizerPass> {
 public:
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  LLVM_ABI PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
 /// Create a legacy pass manager instance of the LoadStoreVectorizer pass
-Pass *createLoadStoreVectorizerPass();
-
+LLVM_ABI Pass *createLoadStoreVectorizerPass();
 }
 
 #endif /* LLVM_TRANSFORMS_VECTORIZE_LOADSTOREVECTORIZER_H */

@@ -9,14 +9,17 @@ LIB=	LLVMObject
 SRCS+=	Archive.cpp \
 	ArchiveWriter.cpp \
 	Binary.cpp \
+	BuildID.cpp \
 	COFFImportFile.cpp \
 	COFFModuleDefinition.cpp \
 	COFFObjectFile.cpp \
+	DXContainer.cpp \
 	Decompressor.cpp \
 	ELF.cpp \
 	ELFObjectFile.cpp \
 	Error.cpp \
 	FaultMapParser.cpp \
+	GOFFObjectFile.cpp \
 	IRObjectFile.cpp \
 	IRSymtab.cpp \
 	MachOObjectFile.cpp \
@@ -26,10 +29,13 @@ SRCS+=	Archive.cpp \
 	ModuleSymbolTable.cpp \
 	Object.cpp \
 	ObjectFile.cpp \
+	OffloadBinary.cpp \
+	OffloadBundle.cpp \
 	RecordStreamer.cpp \
 	RelocationResolver.cpp \
-	SymbolicFile.cpp \
+	SFrameParser.cpp \
 	SymbolSize.cpp \
+	SymbolicFile.cpp \
 	TapiFile.cpp \
 	TapiUniversal.cpp \
 	WasmObjectFile.cpp \

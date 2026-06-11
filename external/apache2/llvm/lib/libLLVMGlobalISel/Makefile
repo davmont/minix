@@ -6,29 +6,35 @@ LIB=	LLVMGlobalISel
 
 .PATH: ${LLVM_SRCDIR}/lib/CodeGen/GlobalISel
 
-SRCS+=	CallLowering.cpp \
+SRCS+=	CSEInfo.cpp \
+	CSEMIRBuilder.cpp \
+	CallLowering.cpp \
 	Combiner.cpp \
 	CombinerHelper.cpp \
-	CSEInfo.cpp \
-	CSEMIRBuilder.cpp \
+	CombinerHelperArtifacts.cpp \
+	CombinerHelperCasts.cpp \
+	CombinerHelperCompares.cpp \
+	CombinerHelperVectorOps.cpp \
+	GIMatchTableExecutor.cpp \
 	GISelChangeObserver.cpp \
-	GISelKnownBits.cpp \
+	GISelValueTracking.cpp \
 	GlobalISel.cpp \
+	IRTranslator.cpp \
 	InlineAsmLowering.cpp \
 	InstructionSelect.cpp \
 	InstructionSelector.cpp \
-	IRTranslator.cpp \
+	LegacyLegalizerInfo.cpp \
 	LegalityPredicates.cpp \
 	LegalizeMutations.cpp \
 	Legalizer.cpp \
 	LegalizerHelper.cpp \
 	LegalizerInfo.cpp \
+	LoadStoreOpt.cpp \
 	Localizer.cpp \
 	LostDebugLocObserver.cpp \
+	MachineFloatingPointPredicateUtils.cpp \
 	MachineIRBuilder.cpp \
 	RegBankSelect.cpp \
-	RegisterBank.cpp \
-	RegisterBankInfo.cpp \
 	Utils.cpp
 
 .if defined(HOSTLIB)

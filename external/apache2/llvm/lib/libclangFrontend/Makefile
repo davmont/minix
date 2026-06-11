@@ -13,7 +13,6 @@ SRCS+=	ASTConsumers.cpp \
 	ChainedIncludesSource.cpp \
 	CompilerInstance.cpp \
 	CompilerInvocation.cpp \
-	CreateInvocationFromCommandLine.cpp \
 	DependencyFile.cpp \
 	DependencyGraph.cpp \
 	DiagnosticRenderer.cpp \
@@ -21,7 +20,6 @@ SRCS+=	ASTConsumers.cpp \
 	FrontendActions.cpp \
 	FrontendOptions.cpp \
 	HeaderIncludeGen.cpp \
-	InitHeaderSearch.cpp \
 	InitPreprocessor.cpp \
 	InterfaceStubFunctionsConsumer.cpp \
 	LayoutOverrideSource.cpp \
@@ -30,8 +28,11 @@ SRCS+=	ASTConsumers.cpp \
 	MultiplexConsumer.cpp \
 	PrecompiledPreamble.cpp \
 	PrintPreprocessedOutput.cpp \
+	SARIFDiagnostic.cpp \
+	SARIFDiagnosticPrinter.cpp \
 	SerializedDiagnosticPrinter.cpp \
 	SerializedDiagnosticReader.cpp \
+	StandaloneDiagnostic.cpp \
 	TestModuleFileExtension.cpp \
 	TextDiagnostic.cpp \
 	TextDiagnosticBuffer.cpp \

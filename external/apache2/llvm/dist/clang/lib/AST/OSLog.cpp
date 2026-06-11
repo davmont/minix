@@ -1,4 +1,16 @@
-// TODO: header template
+//===--- OSLog.cpp - OS log format string analysis ------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This file implements analysis functions for OS log format strings and
+/// buffer layout computation for __builtin_os_log_format and related builtins.
+///
+//===----------------------------------------------------------------------===//
 
 #include "clang/AST/OSLog.h"
 #include "clang/AST/Attr.h"
@@ -7,7 +19,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/FormatString.h"
 #include "clang/Basic/Builtins.h"
-#include "llvm/ADT/SmallBitVector.h"
+#include <optional>
 
 using namespace clang;
 
@@ -20,11 +32,11 @@ class OSLogFormatStringHandler
 private:
   struct ArgData {
     const Expr *E = nullptr;
-    Optional<OSLogBufferItem::Kind> Kind;
-    Optional<unsigned> Size;
-    Optional<const Expr *> Count;
-    Optional<const Expr *> Precision;
-    Optional<const Expr *> FieldWidth;
+    std::optional<OSLogBufferItem::Kind> Kind;
+    std::optional<unsigned> Size;
+    std::optional<const Expr *> Count;
+    std::optional<const Expr *> Precision;
+    std::optional<const Expr *> FieldWidth;
     unsigned char Flags = 0;
     StringRef MaskType;
   };
@@ -56,8 +68,8 @@ public:
   }
 
   bool HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier &FS,
-                             const char *StartSpecifier,
-                             unsigned SpecifierLen) override {
+                             const char *StartSpecifier, unsigned SpecifierLen,
+                             const TargetInfo &) override {
     if (!FS.consumesDataArgument() &&
         FS.getConversionSpecifier().getKind() !=
             clang::analyze_format_string::ConversionSpecifier::PrintErrno)
@@ -137,8 +149,8 @@ public:
     for (auto &Data : ArgsData) {
       if (!Data.MaskType.empty()) {
         CharUnits Size = CharUnits::fromQuantity(8);
-        Layout.Items.emplace_back(OSLogBufferItem::MaskKind, nullptr,
-                                  Size, 0, Data.MaskType);
+        Layout.Items.emplace_back(OSLogBufferItem::MaskKind, nullptr, Size, 0,
+                                  Data.MaskType);
       }
 
       if (Data.FieldWidth) {
@@ -201,7 +213,7 @@ bool clang::analyze_os_log::computeOSLogBufferLayout(
   }
 
   const StringLiteral *Lit = cast<StringLiteral>(StringArg->IgnoreParenCasts());
-  assert(Lit && (Lit->isAscii() || Lit->isUTF8()));
+  assert(Lit && (Lit->isOrdinary() || Lit->isUTF8()));
   StringRef Data = Lit->getString();
   OSLogFormatStringHandler H(VarArgs);
   ParsePrintfString(H, Data.begin(), Data.end(), Ctx.getLangOpts(),

@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 /// \file
-/// This file a TargetTransformInfo::Concept conforming object specific to the
+/// This file a TargetTransformInfoImplBase conforming object specific to the
 /// VE target machine. It uses the target's detailed information to
 /// provide more precise answers to certain TTI queries, while letting the
 /// target independent and default TTI implementations handle the rest.
@@ -21,9 +21,35 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/BasicTTIImpl.h"
 
+static llvm::Type *getVectorElementType(llvm::Type *Ty) {
+  return llvm::cast<llvm::FixedVectorType>(Ty)->getElementType();
+}
+
+static llvm::Type *getLaneType(llvm::Type *Ty) {
+  using namespace llvm;
+  if (!isa<VectorType>(Ty))
+    return Ty;
+  return getVectorElementType(Ty);
+}
+
+static bool isVectorLaneType(llvm::Type &ElemTy) {
+  // check element sizes for vregs
+  if (ElemTy.isIntegerTy()) {
+    unsigned ScaBits = ElemTy.getScalarSizeInBits();
+    return ScaBits == 1 || ScaBits == 32 || ScaBits == 64;
+  }
+  if (ElemTy.isPointerTy()) {
+    return true;
+  }
+  if (ElemTy.isFloatTy() || ElemTy.isDoubleTy()) {
+    return true;
+  }
+  return false;
+}
+
 namespace llvm {
 
-class VETTIImpl : public BasicTTIImplBase<VETTIImpl> {
+class VETTIImpl final : public BasicTTIImplBase<VETTIImpl> {
   using BaseT = BasicTTIImplBase<VETTIImpl>;
   friend BaseT;
 
@@ -35,12 +61,31 @@ class VETTIImpl : public BasicTTIImplBase<VETTIImpl> {
 
   bool enableVPU() const { return getST()->enableVPU(); }
 
+  static bool isSupportedReduction(Intrinsic::ID ReductionID) {
+#define VEC_VP_CASE(SUFFIX)                                                    \
+  case Intrinsic::vp_reduce_##SUFFIX:                                          \
+  case Intrinsic::vector_reduce_##SUFFIX:
+
+    switch (ReductionID) {
+      VEC_VP_CASE(add)
+      VEC_VP_CASE(and)
+      VEC_VP_CASE(or)
+      VEC_VP_CASE(xor)
+      VEC_VP_CASE(smax)
+      return true;
+
+    default:
+      return false;
+    }
+#undef VEC_VP_CASE
+  }
+
 public:
   explicit VETTIImpl(const VETargetMachine *TM, const Function &F)
-      : BaseT(TM, F.getParent()->getDataLayout()), ST(TM->getSubtargetImpl(F)),
+      : BaseT(TM, F.getDataLayout()), ST(TM->getSubtargetImpl(F)),
         TLI(ST->getTargetLowering()) {}
 
-  unsigned getNumberOfRegisters(unsigned ClassID) const {
+  unsigned getNumberOfRegisters(unsigned ClassID) const override {
     bool VectorRegs = (ClassID == 1);
     if (VectorRegs) {
       // TODO report vregs once vector isel is stable.
@@ -50,7 +95,8 @@ public:
     return 64;
   }
 
-  TypeSize getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
+  TypeSize
+  getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const override {
     switch (K) {
     case TargetTransformInfo::RGK_Scalar:
       return TypeSize::getFixed(64);
@@ -67,14 +113,49 @@ public:
   /// \returns How the target needs this vector-predicated operation to be
   /// transformed.
   TargetTransformInfo::VPLegalization
-  getVPLegalizationStrategy(const VPIntrinsic &PI) const {
+  getVPLegalizationStrategy(const VPIntrinsic &PI) const override {
     using VPLegalization = TargetTransformInfo::VPLegalization;
     return VPLegalization(VPLegalization::Legal, VPLegalization::Legal);
   }
 
-  unsigned getMinVectorRegisterBitWidth() const {
+  unsigned getMinVectorRegisterBitWidth() const override {
     // TODO report vregs once vector isel is stable.
     return 0;
+  }
+
+  bool shouldBuildRelLookupTables() const override {
+    // NEC nld doesn't support relative lookup tables.  It shows following
+    // errors.  So, we disable it at the moment.
+    //   /opt/nec/ve/bin/nld: src/CMakeFiles/cxxabi_shared.dir/cxa_demangle.cpp
+    //   .o(.rodata+0x17b4): reloc against `.L.str.376': error 2
+    //   /opt/nec/ve/bin/nld: final link failed: Nonrepresentable section on
+    //   output
+    return false;
+  }
+
+  // Load & Store {
+  bool
+  isLegalMaskedLoad(Type *DataType, Align Alignment, unsigned /*AddressSpace*/,
+                    TargetTransformInfo::MaskKind /*MaskKind*/) const override {
+    return isVectorLaneType(*getLaneType(DataType));
+  }
+  bool isLegalMaskedStore(
+      Type *DataType, Align Alignment, unsigned /*AddressSpace*/,
+      TargetTransformInfo::MaskKind /*MaskKind*/) const override {
+    return isVectorLaneType(*getLaneType(DataType));
+  }
+  bool isLegalMaskedGather(Type *DataType, Align Alignment) const override {
+    return isVectorLaneType(*getLaneType(DataType));
+  };
+  bool isLegalMaskedScatter(Type *DataType, Align Alignment) const override {
+    return isVectorLaneType(*getLaneType(DataType));
+  }
+  // } Load & Store
+
+  bool shouldExpandReduction(const IntrinsicInst *II) const override {
+    if (!enableVPU())
+      return true;
+    return !isSupportedReduction(II->getIntrinsicID());
   }
 };
 

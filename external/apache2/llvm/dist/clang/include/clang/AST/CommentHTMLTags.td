@@ -51,12 +51,17 @@ def Col     : Tag<"col"> { let EndTagForbidden = 1; }
 def Tr      : Tag<"tr"> { let EndTagOptional = 1; }
 def Th      : Tag<"th"> { let EndTagOptional = 1; }
 def Td      : Tag<"td"> { let EndTagOptional = 1; }
+def Summary : Tag<"summary">;
+def Details : Tag<"details">;
+def Mark    : Tag<"mark">;
+def Figure  : Tag<"figure">;
+def FigCaption : Tag<"figcaption">;
 
-// Define a blacklist of attributes that are not safe to pass through to HTML
+// Define a list of attributes that are not safe to pass through to HTML
 // output if the input is untrusted.
 //
-// FIXME: this should be a whitelist.  When changing this to a whitelist, don't
-// forget to change the default in the TableGen backend.
+// FIXME: This should be a list of attributes that _are_ safe.  When changing
+// this change, don't forget to change the default in the TableGen backend.
 class Attribute<string spelling> {
   string Spelling = spelling;
   bit IsSafeToPassThrough = 1;

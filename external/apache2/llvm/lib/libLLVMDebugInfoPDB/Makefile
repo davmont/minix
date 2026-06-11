@@ -5,13 +5,61 @@ LIB=	LLVMDebugInfoPDB
 .include <bsd.init.mk>
 
 .PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB
+.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB/Native
 
-SRCS+=	GenericError.cpp \
+SRCS+=	DbiModuleDescriptor.cpp \
+	DbiModuleDescriptorBuilder.cpp \
+	DbiModuleList.cpp \
+	DbiStream.cpp \
+	DbiStreamBuilder.cpp \
+	EnumTables.cpp \
+	FormatUtil.cpp \
+	GSIStreamBuilder.cpp \
+	GenericError.cpp \
+	GlobalsStream.cpp \
+	Hash.cpp \
+	HashTable.cpp \
 	IPDBSourceFile.cpp \
+	InfoStream.cpp \
+	InfoStreamBuilder.cpp \
+	InjectedSourceStream.cpp \
+	InputFile.cpp \
+	LinePrinter.cpp \
+	ModuleDebugStream.cpp \
+	NamedStreamMap.cpp \
+	NativeCompilandSymbol.cpp \
+	NativeEnumGlobals.cpp \
+	NativeEnumInjectedSources.cpp \
+	NativeEnumLineNumbers.cpp \
+	NativeEnumModules.cpp \
+	NativeEnumSymbols.cpp \
+	NativeEnumTypes.cpp \
+	NativeExeSymbol.cpp \
+	NativeFunctionSymbol.cpp \
+	NativeInlineSiteSymbol.cpp \
+	NativeLineNumber.cpp \
+	NativePublicSymbol.cpp \
+	NativeRawSymbol.cpp \
+	NativeSession.cpp \
+	NativeSourceFile.cpp \
+	NativeSymbolEnumerator.cpp \
+	NativeTypeArray.cpp \
+	NativeTypeBuiltin.cpp \
+	NativeTypeEnum.cpp \
+	NativeTypeFunctionSig.cpp \
+	NativeTypePointer.cpp \
+	NativeTypeTypedef.cpp \
+	NativeTypeUDT.cpp \
+	NativeTypeVTShape.cpp \
 	PDB.cpp \
 	PDBContext.cpp \
 	PDBExtras.cpp \
+	PDBFile.cpp \
+	PDBFileBuilder.cpp \
 	PDBInterfaceAnchors.cpp \
+	PDBStringTable.cpp \
+	PDBStringTableBuilder.cpp \
+	PDBSymDumper.cpp \
 	PDBSymbol.cpp \
 	PDBSymbolAnnotation.cpp \
 	PDBSymbolBlock.cpp \
@@ -44,62 +92,17 @@ SRCS+=	GenericError.cpp \
 	PDBSymbolTypeVTableShape.cpp \
 	PDBSymbolUnknown.cpp \
 	PDBSymbolUsingNamespace.cpp \
-	PDBSymDumper.cpp \
-	UDTLayout.cpp
-
-.PATH: ${LLVM_SRCDIR}/lib/DebugInfo/PDB/Native
-
-
-SRCS+=	DbiModuleDescriptorBuilder.cpp \
-	DbiModuleDescriptor.cpp \
-	DbiModuleList.cpp \
-	DbiStreamBuilder.cpp \
-	DbiStream.cpp \
-	EnumTables.cpp \
-	GlobalsStream.cpp \
-	GSIStreamBuilder.cpp \
-	Hash.cpp \
-	HashTable.cpp \
-	InfoStreamBuilder.cpp \
-	InfoStream.cpp \
-	InjectedSourceStream.cpp \
-	ModuleDebugStream.cpp \
-	NamedStreamMap.cpp \
-	NativeCompilandSymbol.cpp \
-	NativeEnumGlobals.cpp \
-	NativeEnumInjectedSources.cpp \
-	NativeEnumLineNumbers.cpp \
-	NativeEnumModules.cpp \
-	NativeEnumSymbols.cpp \
-	NativeEnumTypes.cpp \
-	NativeExeSymbol.cpp \
-	NativeFunctionSymbol.cpp \
-	NativeInlineSiteSymbol.cpp \
-	NativeLineNumber.cpp \
-	NativePublicSymbol.cpp \
-	NativeRawSymbol.cpp \
-	NativeSession.cpp \
-	NativeSourceFile.cpp \
-	NativeSymbolEnumerator.cpp \
-	NativeTypeArray.cpp \
-	NativeTypeBuiltin.cpp \
-	NativeTypeEnum.cpp \
-	NativeTypeFunctionSig.cpp \
-	NativeTypePointer.cpp \
-	NativeTypeTypedef.cpp \
-	NativeTypeUDT.cpp \
-	NativeTypeVTShape.cpp \
-	PDBFileBuilder.cpp \
-	PDBFile.cpp \
-	PDBStringTableBuilder.cpp \
-	PDBStringTable.cpp \
 	PublicsStream.cpp \
 	RawError.cpp \
 	SymbolCache.cpp \
 	SymbolStream.cpp \
 	TpiHashing.cpp \
+	TpiStream.cpp \
 	TpiStreamBuilder.cpp \
-	TpiStream.cpp
+	UDTLayout.cpp
+
+
+
 
 .if defined(HOSTLIB)
 .include <bsd.hostlib.mk>

@@ -14,16 +14,41 @@
 #ifndef LLVM_MCA_INSTRBUILDER_H
 #define LLVM_MCA_INSTRBUILDER_H
 
+#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MCA/CustomBehaviour.h"
 #include "llvm/MCA/Instruction.h"
 #include "llvm/MCA/Support.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 
 namespace llvm {
 namespace mca {
+
+class RecycledInstErr : public ErrorInfo<RecycledInstErr> {
+  Instruction *RecycledInst;
+
+public:
+  LLVM_ABI static char ID;
+
+  explicit RecycledInstErr(Instruction *Inst) : RecycledInst(Inst) {}
+  // Always need to carry an Instruction
+  RecycledInstErr() = delete;
+
+  Instruction *getInst() const { return RecycledInst; }
+
+  void log(raw_ostream &OS) const override {
+    OS << "Instruction is recycled\n";
+  }
+
+  std::error_code convertToErrorCode() const override {
+    return llvm::inconvertibleErrorCode();
+  }
+};
 
 /// A builder class that knows how to construct Instruction objects.
 ///
@@ -40,16 +65,36 @@ class InstrBuilder {
   const MCInstrInfo &MCII;
   const MCRegisterInfo &MRI;
   const MCInstrAnalysis *MCIA;
+  const InstrumentManager &IM;
   SmallVector<uint64_t, 8> ProcResourceMasks;
 
-  DenseMap<unsigned short, std::unique_ptr<const InstrDesc>> Descriptors;
-  DenseMap<const MCInst *, std::unique_ptr<const InstrDesc>> VariantDescriptors;
+  // Key is the MCI.Opcode and SchedClassID the describe the value InstrDesc
+  DenseMap<std::pair<unsigned short, unsigned>,
+           std::unique_ptr<const InstrDesc>>
+      Descriptors;
+
+  // Key is a hash of the MCInstruction and a SchedClassID that describe the
+  // value InstrDesc
+  DenseMap<std::pair<hash_code, unsigned>, std::unique_ptr<const InstrDesc>>
+      VariantDescriptors;
+
+  // These descriptors are customized for particular instructions and cannot
+  // be reused
+  SmallVector<std::unique_ptr<const InstrDesc>> CustomDescriptors;
 
   bool FirstCallInst;
   bool FirstReturnInst;
+  unsigned CallLatency;
 
-  Expected<const InstrDesc &> createInstrDescImpl(const MCInst &MCI);
-  Expected<const InstrDesc &> getOrCreateInstrDesc(const MCInst &MCI);
+  using InstRecycleCallback = std::function<Instruction *(const InstrDesc &)>;
+  InstRecycleCallback InstRecycleCB;
+
+  Expected<unsigned> getVariantSchedClassID(const MCInst &MCI, unsigned SchedClassID);
+  Expected<const InstrDesc &>
+  createInstrDescImpl(const MCInst &MCI, const SmallVector<Instrument *> &IVec);
+  Expected<const InstrDesc &>
+  getOrCreateInstrDesc(const MCInst &MCI,
+                       const SmallVector<Instrument *> &IVec);
 
   InstrBuilder(const InstrBuilder &) = delete;
   InstrBuilder &operator=(const InstrBuilder &) = delete;
@@ -59,16 +104,23 @@ class InstrBuilder {
   Error verifyInstrDesc(const InstrDesc &ID, const MCInst &MCI) const;
 
 public:
-  InstrBuilder(const MCSubtargetInfo &STI, const MCInstrInfo &MCII,
-               const MCRegisterInfo &RI, const MCInstrAnalysis *IA);
+  LLVM_ABI InstrBuilder(const MCSubtargetInfo &STI, const MCInstrInfo &MCII,
+                        const MCRegisterInfo &RI, const MCInstrAnalysis *IA,
+                        const InstrumentManager &IM, unsigned CallLatency);
 
   void clear() {
-    VariantDescriptors.shrink_and_clear();
+    Descriptors.clear();
+    VariantDescriptors.clear();
     FirstCallInst = true;
     FirstReturnInst = true;
   }
 
-  Expected<std::unique_ptr<Instruction>> createInstruction(const MCInst &MCI);
+  /// Set a callback which is invoked to retrieve a recycled mca::Instruction
+  /// or null if there isn't any.
+  void setInstRecycleCallback(InstRecycleCallback CB) { InstRecycleCB = CB; }
+
+  LLVM_ABI Expected<std::unique_ptr<Instruction>>
+  createInstruction(const MCInst &MCI, const SmallVector<Instrument *> &IVec);
 };
 } // namespace mca
 } // namespace llvm

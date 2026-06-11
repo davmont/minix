@@ -28,28 +28,39 @@
 
 using namespace llvm;
 
-cl::opt<bool> DumpBackReferences("backrefs", cl::Optional,
-                                 cl::desc("dump backreferences"), cl::Hidden,
-                                 cl::init(false));
-cl::opt<bool> NoAccessSpecifier("no-access-specifier", cl::Optional,
-                                cl::desc("skip access specifiers"), cl::Hidden,
-                                cl::init(false));
-cl::opt<bool> NoCallingConvention("no-calling-convention", cl::Optional,
-                                  cl::desc("skip calling convention"),
-                                  cl::Hidden, cl::init(false));
-cl::opt<bool> NoReturnType("no-return-type", cl::Optional,
-                           cl::desc("skip return types"), cl::Hidden,
-                           cl::init(false));
-cl::opt<bool> NoMemberType("no-member-type", cl::Optional,
-                           cl::desc("skip member types"), cl::Hidden,
-                           cl::init(false));
-cl::opt<std::string> RawFile("raw-file", cl::Optional,
-                             cl::desc("for fuzzer data"), cl::Hidden);
-cl::opt<bool> WarnTrailing("warn-trailing", cl::Optional,
-                           cl::desc("warn on trailing characters"), cl::Hidden,
-                           cl::init(false));
-cl::list<std::string> Symbols(cl::Positional, cl::desc("<input symbols>"),
-                              cl::ZeroOrMore);
+static cl::OptionCategory UndNameCategory("UndName Options");
+
+static cl::opt<bool> DumpBackReferences("backrefs", cl::Optional,
+                                        cl::desc("dump backreferences"),
+                                        cl::Hidden, cl::init(false),
+                                        cl::cat(UndNameCategory));
+static cl::opt<bool> NoAccessSpecifier("no-access-specifier", cl::Optional,
+                                       cl::desc("skip access specifiers"),
+                                       cl::Hidden, cl::init(false),
+                                       cl::cat(UndNameCategory));
+static cl::opt<bool> NoCallingConvention("no-calling-convention", cl::Optional,
+                                         cl::desc("skip calling convention"),
+                                         cl::Hidden, cl::init(false),
+                                         cl::cat(UndNameCategory));
+static cl::opt<bool> NoReturnType("no-return-type", cl::Optional,
+                                  cl::desc("skip return types"), cl::Hidden,
+                                  cl::init(false), cl::cat(UndNameCategory));
+static cl::opt<bool> NoMemberType("no-member-type", cl::Optional,
+                                  cl::desc("skip member types"), cl::Hidden,
+                                  cl::init(false), cl::cat(UndNameCategory));
+static cl::opt<bool> NoVariableType("no-variable-type", cl::Optional,
+                                    cl::desc("skip variable types"), cl::Hidden,
+                                    cl::init(false), cl::cat(UndNameCategory));
+static cl::opt<std::string> RawFile("raw-file", cl::Optional,
+                                    cl::desc("for fuzzer data"), cl::Hidden,
+                                    cl::cat(UndNameCategory));
+static cl::opt<bool> WarnTrailing("warn-trailing", cl::Optional,
+                                  cl::desc("warn on trailing characters"),
+                                  cl::Hidden, cl::init(false),
+                                  cl::cat(UndNameCategory));
+static cl::list<std::string> Symbols(cl::Positional,
+                                     cl::desc("<input symbols>"),
+                                     cl::cat(UndNameCategory));
 
 static bool msDemangle(const std::string &S) {
   int Status;
@@ -64,10 +75,11 @@ static bool msDemangle(const std::string &S) {
     Flags = MSDemangleFlags(Flags | MSDF_NoReturnType);
   if (NoMemberType)
     Flags = MSDemangleFlags(Flags | MSDF_NoMemberType);
+  if (NoVariableType)
+    Flags = MSDemangleFlags(Flags | MSDF_NoVariableType);
 
   size_t NRead;
-  char *ResultBuf =
-      microsoftDemangle(S.c_str(), &NRead, nullptr, nullptr, &Status, Flags);
+  char *ResultBuf = microsoftDemangle(S, &NRead, &Status, Flags);
   if (Status == llvm::demangle_success) {
     outs() << ResultBuf << "\n";
     outs().flush();
@@ -84,6 +96,7 @@ static bool msDemangle(const std::string &S) {
 int main(int argc, char **argv) {
   InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&UndNameCategory, &getColorCategory()});
   cl::ParseCommandLineOptions(argc, argv, "llvm-undname\n");
 
   if (!RawFile.empty()) {
@@ -107,7 +120,7 @@ int main(int argc, char **argv) {
 
       StringRef Line(LineStr);
       Line = Line.trim();
-      if (Line.empty() || Line.startswith("#") || Line.startswith(";"))
+      if (Line.empty() || Line.starts_with("#") || Line.starts_with(";"))
         continue;
 
       // If the user is manually typing in these decorated names, don't echo

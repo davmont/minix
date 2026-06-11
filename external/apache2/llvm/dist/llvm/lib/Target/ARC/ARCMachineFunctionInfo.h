@@ -14,7 +14,6 @@
 #define LLVM_LIB_TARGET_ARC_ARCMACHINEFUNCTIONINFO_H
 
 #include "llvm/CodeGen/MachineFunction.h"
-#include <vector>
 
 namespace llvm {
 
@@ -27,15 +26,15 @@ class ARCFunctionInfo : public MachineFunctionInfo {
   unsigned ReturnStackOffset;
 
 public:
-  ARCFunctionInfo()
+  explicit ARCFunctionInfo(const Function &F, const TargetSubtargetInfo *STI)
       : ReturnStackOffsetSet(false), VarArgsFrameIndex(0),
         ReturnStackOffset(-1U), MaxCallStackReq(0) {}
-
-  explicit ARCFunctionInfo(MachineFunction &MF)
-      : ReturnStackOffsetSet(false), VarArgsFrameIndex(0),
-        ReturnStackOffset(-1U), MaxCallStackReq(0) {}
-
   ~ARCFunctionInfo() {}
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
 
   void setVarArgsFrameIndex(int off) { VarArgsFrameIndex = off; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }

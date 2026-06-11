@@ -10,6 +10,10 @@ LIB_BASE=	${NETBSDSRCDIR}/tools/llvm-lib
 LIB_BASE=	${LLVM_TOPLEVEL}/lib
 .endif
 
+# LLVM 22 has circular dependencies among the static libraries; wrap the whole
+# set in a linker group so a single ld pass resolves them regardless of order.
+LDADD+=	-Wl,--start-group
+
 .for l in ${CLANG_LIBS}
 CLANG_OBJDIR.${l}!=	cd ${LIB_BASE}/lib${l} && ${PRINTOBJDIR}
 LDADD+=	-L${CLANG_OBJDIR.${l}} -l${l}
@@ -27,6 +31,8 @@ LLVMRT_OBJDIR.${l}!=	cd ${LLVM_TOPLEVEL}/librt/libLLVM${l} && ${PRINTOBJDIR}
 LDADD+=	${LLVMRT_OBJDIR.${l}}/libLLVM${l}_pic.a
 DPADD+=	${LLVMRT_OBJDIR.${l}}/libLLVM${l}_pic.a
 .endfor
+
+LDADD+=	-Wl,--end-group
 
 .if defined(HOSTPROG)
 LDADD_NEED_DL=		cat ${LLVM_TOOLCONF_OBJDIR}/need-dl 2> /dev/null || true

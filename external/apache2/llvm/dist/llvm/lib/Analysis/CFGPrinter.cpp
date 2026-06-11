@@ -19,11 +19,10 @@
 
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/InitializePasses.h"
-#include "llvm/Pass.h"
+#include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
-#include <algorithm>
+#include "llvm/Support/GraphWriter.h"
 
 using namespace llvm;
 
@@ -41,6 +40,10 @@ static cl::opt<bool> HideUnreachablePaths("cfg-hide-unreachable-paths",
 
 static cl::opt<bool> HideDeoptimizePaths("cfg-hide-deoptimize-paths",
                                          cl::init(false));
+
+static cl::opt<double> HideColdPaths(
+    "cfg-hide-cold-paths", cl::init(0.0),
+    cl::desc("Hide blocks with relative frequency below the given value"));
 
 static cl::opt<bool> ShowHeatColors("cfg-heat-colors", cl::init(true),
                                     cl::Hidden,
@@ -88,147 +91,57 @@ static void viewCFG(Function &F, const BlockFrequencyInfo *BFI,
   ViewGraph(&CFGInfo, "cfg." + F.getName(), CFGOnly);
 }
 
-namespace {
-struct CFGViewerLegacyPass : public FunctionPass {
-  static char ID; // Pass identifcation, replacement for typeid
-  CFGViewerLegacyPass() : FunctionPass(ID) {
-    initializeCFGViewerLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnFunction(Function &F) override {
-    auto *BPI = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
-    auto *BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
-    viewCFG(F, BFI, BPI, getMaxFreq(F, BFI));
-    return false;
-  }
-
-  void print(raw_ostream &OS, const Module * = nullptr) const override {}
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    FunctionPass::getAnalysisUsage(AU);
-    AU.addRequired<BlockFrequencyInfoWrapperPass>();
-    AU.addRequired<BranchProbabilityInfoWrapperPass>();
-    AU.setPreservesAll();
-  }
-};
+DOTFuncInfo::DOTFuncInfo(const Function *F, const BlockFrequencyInfo *BFI,
+                         const BranchProbabilityInfo *BPI, uint64_t MaxFreq,
+                         std::optional<NodeIdFormatterTy> NodeIdFormatter)
+    : F(F), BFI(BFI), BPI(BPI), MaxFreq(MaxFreq),
+      NodeIdFormatter(NodeIdFormatter) {
+  ShowHeat = false;
+  EdgeWeights = !!BPI; // Print EdgeWeights when BPI is available.
+  RawWeights = !!BFI;  // Print RawWeights when BFI is available.
 }
 
-char CFGViewerLegacyPass::ID = 0;
-INITIALIZE_PASS(CFGViewerLegacyPass, "view-cfg", "View CFG of function", false,
-                true)
+DOTFuncInfo::~DOTFuncInfo() = default;
+
+ModuleSlotTracker *DOTFuncInfo::getModuleSlotTracker() {
+  if (!MSTStorage)
+    MSTStorage = std::make_unique<ModuleSlotTracker>(F->getParent());
+  return &*MSTStorage;
+}
 
 PreservedAnalyses CFGViewerPass::run(Function &F, FunctionAnalysisManager &AM) {
+  if (!CFGFuncName.empty() && !F.getName().contains(CFGFuncName))
+    return PreservedAnalyses::all();
   auto *BFI = &AM.getResult<BlockFrequencyAnalysis>(F);
   auto *BPI = &AM.getResult<BranchProbabilityAnalysis>(F);
   viewCFG(F, BFI, BPI, getMaxFreq(F, BFI));
   return PreservedAnalyses::all();
 }
 
-namespace {
-struct CFGOnlyViewerLegacyPass : public FunctionPass {
-  static char ID; // Pass identifcation, replacement for typeid
-  CFGOnlyViewerLegacyPass() : FunctionPass(ID) {
-    initializeCFGOnlyViewerLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnFunction(Function &F) override {
-    auto *BPI = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
-    auto *BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
-    viewCFG(F, BFI, BPI, getMaxFreq(F, BFI), /*CFGOnly=*/true);
-    return false;
-  }
-
-  void print(raw_ostream &OS, const Module * = nullptr) const override {}
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    FunctionPass::getAnalysisUsage(AU);
-    AU.addRequired<BlockFrequencyInfoWrapperPass>();
-    AU.addRequired<BranchProbabilityInfoWrapperPass>();
-    AU.setPreservesAll();
-  }
-};
-}
-
-char CFGOnlyViewerLegacyPass::ID = 0;
-INITIALIZE_PASS(CFGOnlyViewerLegacyPass, "view-cfg-only",
-                "View CFG of function (with no function bodies)", false, true)
-
 PreservedAnalyses CFGOnlyViewerPass::run(Function &F,
                                          FunctionAnalysisManager &AM) {
+  if (!CFGFuncName.empty() && !F.getName().contains(CFGFuncName))
+    return PreservedAnalyses::all();
   auto *BFI = &AM.getResult<BlockFrequencyAnalysis>(F);
   auto *BPI = &AM.getResult<BranchProbabilityAnalysis>(F);
   viewCFG(F, BFI, BPI, getMaxFreq(F, BFI), /*CFGOnly=*/true);
   return PreservedAnalyses::all();
 }
 
-namespace {
-struct CFGPrinterLegacyPass : public FunctionPass {
-  static char ID; // Pass identification, replacement for typeid
-  CFGPrinterLegacyPass() : FunctionPass(ID) {
-    initializeCFGPrinterLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnFunction(Function &F) override {
-    auto *BPI = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
-    auto *BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
-    writeCFGToDotFile(F, BFI, BPI, getMaxFreq(F, BFI));
-    return false;
-  }
-
-  void print(raw_ostream &OS, const Module * = nullptr) const override {}
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    FunctionPass::getAnalysisUsage(AU);
-    AU.addRequired<BlockFrequencyInfoWrapperPass>();
-    AU.addRequired<BranchProbabilityInfoWrapperPass>();
-    AU.setPreservesAll();
-  }
-};
-}
-
-char CFGPrinterLegacyPass::ID = 0;
-INITIALIZE_PASS(CFGPrinterLegacyPass, "dot-cfg",
-                "Print CFG of function to 'dot' file", false, true)
-
 PreservedAnalyses CFGPrinterPass::run(Function &F,
                                       FunctionAnalysisManager &AM) {
+  if (!CFGFuncName.empty() && !F.getName().contains(CFGFuncName))
+    return PreservedAnalyses::all();
   auto *BFI = &AM.getResult<BlockFrequencyAnalysis>(F);
   auto *BPI = &AM.getResult<BranchProbabilityAnalysis>(F);
   writeCFGToDotFile(F, BFI, BPI, getMaxFreq(F, BFI));
   return PreservedAnalyses::all();
 }
 
-namespace {
-struct CFGOnlyPrinterLegacyPass : public FunctionPass {
-  static char ID; // Pass identification, replacement for typeid
-  CFGOnlyPrinterLegacyPass() : FunctionPass(ID) {
-    initializeCFGOnlyPrinterLegacyPassPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnFunction(Function &F) override {
-    auto *BPI = &getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
-    auto *BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
-    writeCFGToDotFile(F, BFI, BPI, getMaxFreq(F, BFI), /*CFGOnly=*/true);
-    return false;
-  }
-  void print(raw_ostream &OS, const Module * = nullptr) const override {}
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    FunctionPass::getAnalysisUsage(AU);
-    AU.addRequired<BlockFrequencyInfoWrapperPass>();
-    AU.addRequired<BranchProbabilityInfoWrapperPass>();
-    AU.setPreservesAll();
-  }
-};
-}
-
-char CFGOnlyPrinterLegacyPass::ID = 0;
-INITIALIZE_PASS(CFGOnlyPrinterLegacyPass, "dot-cfg-only",
-                "Print CFG of function to 'dot' file (with no function bodies)",
-                false, true)
-
 PreservedAnalyses CFGOnlyPrinterPass::run(Function &F,
                                           FunctionAnalysisManager &AM) {
+  if (!CFGFuncName.empty() && !F.getName().contains(CFGFuncName))
+    return PreservedAnalyses::all();
   auto *BFI = &AM.getResult<BlockFrequencyAnalysis>(F);
   auto *BPI = &AM.getResult<BranchProbabilityAnalysis>(F);
   writeCFGToDotFile(F, BFI, BPI, getMaxFreq(F, BFI), /*CFGOnly=*/true);
@@ -242,12 +155,18 @@ PreservedAnalyses CFGOnlyPrinterPass::run(Function &F,
 ///
 void Function::viewCFG() const { viewCFG(false, nullptr, nullptr); }
 
+void Function::viewCFG(const char *OutputFileName) const {
+  viewCFG(false, nullptr, nullptr, OutputFileName);
+}
+
 void Function::viewCFG(bool ViewCFGOnly, const BlockFrequencyInfo *BFI,
-                       const BranchProbabilityInfo *BPI) const {
+                       const BranchProbabilityInfo *BPI,
+                       const char *OutputFileName) const {
   if (!CFGFuncName.empty() && !getName().contains(CFGFuncName))
     return;
   DOTFuncInfo CFGInfo(this, BFI, BPI, BFI ? getMaxFreq(*this, BFI) : 0);
-  ViewGraph(&CFGInfo, "cfg" + getName(), ViewCFGOnly);
+  ViewGraph(&CFGInfo, OutputFileName ? OutputFileName : "cfg" + getName(),
+            ViewCFGOnly);
 }
 
 /// viewCFGOnly - This function is meant for use from the debugger.  It works
@@ -257,44 +176,89 @@ void Function::viewCFG(bool ViewCFGOnly, const BlockFrequencyInfo *BFI,
 ///
 void Function::viewCFGOnly() const { viewCFGOnly(nullptr, nullptr); }
 
+void Function::viewCFGOnly(const char *OutputFileName) const {
+  viewCFG(true, nullptr, nullptr, OutputFileName);
+}
+
 void Function::viewCFGOnly(const BlockFrequencyInfo *BFI,
                            const BranchProbabilityInfo *BPI) const {
   viewCFG(true, BFI, BPI);
 }
 
-FunctionPass *llvm::createCFGPrinterLegacyPassPass() {
-  return new CFGPrinterLegacyPass();
-}
-
-FunctionPass *llvm::createCFGOnlyPrinterLegacyPassPass() {
-  return new CFGOnlyPrinterLegacyPass();
-}
-
-void DOTGraphTraits<DOTFuncInfo *>::computeHiddenNodes(const Function *F) {
+/// Find all blocks on the paths which terminate with a deoptimize or 
+/// unreachable (i.e. all blocks which are post-dominated by a deoptimize 
+/// or unreachable). These paths are hidden if the corresponding cl::opts
+/// are enabled.
+void DOTGraphTraits<DOTFuncInfo *>::computeDeoptOrUnreachablePaths(
+    const Function *F) {
   auto evaluateBB = [&](const BasicBlock *Node) {
     if (succ_empty(Node)) {
       const Instruction *TI = Node->getTerminator();
-      isHiddenBasicBlock[Node] =
+      isOnDeoptOrUnreachablePath[Node] =
           (HideUnreachablePaths && isa<UnreachableInst>(TI)) ||
           (HideDeoptimizePaths && Node->getTerminatingDeoptimizeCall());
       return;
     }
-    isHiddenBasicBlock[Node] =
+    isOnDeoptOrUnreachablePath[Node] =
         llvm::all_of(successors(Node), [this](const BasicBlock *BB) {
-          return isHiddenBasicBlock[BB];
+          return isOnDeoptOrUnreachablePath[BB];
         });
   };
   /// The post order traversal iteration is done to know the status of
-  /// isHiddenBasicBlock for all the successors on the current BB.
+  /// isOnDeoptOrUnreachablePath for all the successors on the current BB.
   llvm::for_each(post_order(&F->getEntryBlock()), evaluateBB);
 }
 
 bool DOTGraphTraits<DOTFuncInfo *>::isNodeHidden(const BasicBlock *Node,
                                                  const DOTFuncInfo *CFGInfo) {
-  // If both restricting flags are false, all nodes are displayed.
-  if (!HideUnreachablePaths && !HideDeoptimizePaths)
-    return false;
-  if (isHiddenBasicBlock.find(Node) == isHiddenBasicBlock.end())
-    computeHiddenNodes(Node->getParent());
-  return isHiddenBasicBlock[Node];
+  if (HideColdPaths.getNumOccurrences() > 0)
+    if (auto *BFI = CFGInfo->getBFI()) {
+      BlockFrequency NodeFreq = BFI->getBlockFreq(Node);
+      BlockFrequency EntryFreq = BFI->getEntryFreq();
+      // Hide blocks with relative frequency below HideColdPaths threshold.
+      if ((double)NodeFreq.getFrequency() / EntryFreq.getFrequency() <
+          HideColdPaths)
+        return true;
+    }
+  if (HideUnreachablePaths || HideDeoptimizePaths) {
+    if (!isOnDeoptOrUnreachablePath.contains(Node))
+      computeDeoptOrUnreachablePaths(Node->getParent());
+    return isOnDeoptOrUnreachablePath[Node];
+  }
+  return false;
+}
+
+std::string DOTGraphTraits<DOTFuncInfo *>::getCompleteNodeLabel(
+    const BasicBlock *Node, DOTFuncInfo *CFGInfo,
+    function_ref<void(raw_string_ostream &, const BasicBlock &)>
+        HandleBasicBlock,
+    function_ref<void(std::string &, unsigned &, unsigned)> HandleComment) {
+  if (HandleBasicBlock)
+    return CompleteNodeLabelString(Node, HandleBasicBlock, HandleComment);
+
+  // Default basic block printing
+  std::optional<ModuleSlotTracker> MSTStorage;
+  ModuleSlotTracker *MST = nullptr;
+
+  if (CFGInfo) {
+    MST = CFGInfo->getModuleSlotTracker();
+  } else {
+    MSTStorage.emplace(Node->getModule());
+    MST = &*MSTStorage;
+  }
+
+  return CompleteNodeLabelString(
+      Node,
+      function_ref<void(raw_string_ostream &, const BasicBlock &)>(
+          [MST](raw_string_ostream &OS, const BasicBlock &Node) -> void {
+            // Prepend label name
+            Node.printAsOperand(OS, false, *MST);
+            OS << ":\n";
+
+            for (const Instruction &Inst : Node) {
+              Inst.print(OS, *MST, /* IsForDebug */ false);
+              OS << '\n';
+            }
+          }),
+      HandleComment);
 }
