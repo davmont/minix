@@ -1321,3 +1321,17 @@ void lmfs_may_use_vmcache(int ok)
 {
 	may_use_vmcache = ok;
 }
+
+/*
+ * Whether the VM secondary (page) cache is actually in use for this file
+ * system right now.  It is enabled by lmfs_set_blocksize() only when the FS
+ * opted in with lmfs_may_use_vmcache() AND the block size is a multiple of the
+ * page size -- which is exactly the condition under which file mmap() and
+ * demand-paged exec() (REQ_PEEK/REQ_BPEEK) can be served correctly.  A file
+ * system should therefore advertise RES_HASPEEK to VFS only when this returns
+ * nonzero; otherwise a sub-page block size would hand VM half-populated pages.
+ */
+int lmfs_vmcache_enabled(void)
+{
+	return vmcache;
+}

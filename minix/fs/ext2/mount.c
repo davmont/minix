@@ -136,11 +136,13 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 
   /*
    * ext2 implements REQ_PEEK/REQ_BPEEK (.fdr_peek/.fdr_bpeek in table.c), so
-   * advertise RES_HASPEEK; otherwise VFS rejects file mmap() with EINVAL and
-   * dynamically-linked binaries fail to load.  Same regression as MFS from the
-   * libfsdriver conversion.
+   * advertise RES_HASPEEK -- but only when the VM page cache is active, i.e.
+   * when the block size is a multiple of the page size (ext2 also supports
+   * 1024/2048 blocks, for which demand-paged mmap would corrupt pages).  See
+   * the matching comment in mfs/mount.c.  Without RES_HASPEEK, VFS rejects
+   * file mmap() with EINVAL and dynamically-linked binaries fail to load.
    */
-  *res_flags = RES_HASPEEK;
+  *res_flags = lmfs_vmcache_enabled() ? RES_HASPEEK : RES_NOFLAGS;
 
   return(r);
 }

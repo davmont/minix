@@ -37,6 +37,7 @@ void lmfs_flushall(void);
 void lmfs_flushdev(dev_t dev);
 size_t lmfs_fs_block_size(void);
 void lmfs_may_use_vmcache(int);
+int lmfs_vmcache_enabled(void);
 void lmfs_set_blocksize(size_t blocksize);
 void lmfs_buf_pool(int new_nr_bufs);
 int lmfs_get_block(struct buf **bpp, dev_t dev, block64_t block, int how);
