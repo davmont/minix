@@ -972,6 +972,9 @@
 ./usr/lib/libprop.so                                    minix-base
 ./usr/lib/libprop.so.1                                  minix-base
 ./usr/lib/libprop.so.1.1                                minix-base
+./usr/lib/libpthread.so                                 minix-base
+./usr/lib/libpthread.so.1                               minix-base
+./usr/lib/libpthread.so.1.4                             minix-base
 ./usr/lib/libpuffs.so                                   minix-base
 ./usr/lib/libpuffs.so.2                                 minix-base
 ./usr/lib/libpuffs.so.2.0                               minix-base

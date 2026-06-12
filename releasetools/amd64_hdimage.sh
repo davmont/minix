@@ -122,7 +122,11 @@ else
        ${CROSS_TOOLS}/nbpartition -m ${IMG} ${BOOTXX_SECS} 81:${_ROOT_SIZE}* 81:${_USR_SIZE} 81:${_HOME_SIZE}
 fi
 
-${CROSS_TOOLS}/nbinstallboot -f -m ${ARCH} ${IMG} ${DESTDIR}/usr/mdec/bootxx_minixfs3
+# The BIOS boot block (bootxx_minixfs3) is i386 real-mode code regardless of
+# the kernel architecture, and nbinstallboot only knows the "i386" machine.
+# (Same reason the CD image uses bootimage=i386.)  Forcing amd64 here fails
+# with "Invalid machine `amd64'".
+${CROSS_TOOLS}/nbinstallboot -f -m i386 ${IMG} ${DESTDIR}/usr/mdec/bootxx_minixfs3
 
 echo ""
 echo "Disk image at `pwd`/${IMG}"
