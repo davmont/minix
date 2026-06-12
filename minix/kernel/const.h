@@ -34,19 +34,22 @@
 #ifndef _MINIX_MAGIC
 #ifdef __x86_64__
 /*
- * On amd64 the VM server currently uses a single PD covering 0-1 GB.
- * freepde_start = 256 reserves PD[256..511] for kernel/pagedir use,
- * so user virtual space is limited to 0-512 MB (PD[0..255]).
+ * On amd64 the VM server uses a single PD covering 0-1 GB.  pg_mapkernel()
+ * returns freepde_start = 448, reserving PD[448..511] (896 MB-1 GB) for VM's
+ * device and pagedir mappings; PD[0..447] (0-896 MB) is user virtual space.
+ * The 896 MB ceiling lets a large executable (e.g. clang, ~156 MB text) plus
+ * its libraries and stack all fit (the old 512 MB / 128 MB-stack layout could
+ * not).  Keep this in sync with pg_mapkernel()'s return value.
  */
-#define USR_DATATOP 0x20000000
+#define USR_DATATOP 0x38000000		/* 896 MB */
 /*
- * Place the initial VM server stack at 128 MB so it is always within
- * physical RAM even with minimal QEMU configurations (-m 256).
- * USR_DATATOP (512 MB) exceeds typical minimum RAM; using it as the
- * initial stack pointer puts the stack above physical memory, so
- * KVM silently drops stack writes and returns garbage on reads.
+ * Stack top at 864 MB, just below USR_DATATOP and above the mmap region (see
+ * VM_MMAPTOP in servers/vm/vm.h).  NOTE: the kernel sets the *initial* VM
+ * server stack here too, so it must be within physical RAM at boot -- fine for
+ * the >=1 GB configurations needed to run a self-hosting toolchain, but this
+ * raises the previous 128 MB value that supported tiny (-m 256) configs.
  */
-#define USR_STACKTOP 0x08000000
+#define USR_STACKTOP 0x36000000		/* 864 MB */
 #else
 #define USR_DATATOP 0xF0000000
 #endif
