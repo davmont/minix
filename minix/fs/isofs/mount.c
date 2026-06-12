@@ -27,6 +27,16 @@ int fs_mount(dev_t dev, unsigned int __unused flags,
 	root_node->fn_gid = SYS_GID; /* wheel */
 	root_node->fn_dev = NO_DEV;
 
+	/*
+	 * Deliberately NOT RES_HASPEEK.  RES_HASPEEK would let VFS use this fs
+	 * for file mmap() and demand-paged exec(), but isofs cannot serve those
+	 * correctly: its block peek is plain lmfs_bio (raw device blocks), with
+	 * no file-offset -> CD-extent translation (cf. read_extent_block() in
+	 * fs_read()).  Demand-paging would therefore fetch the wrong device
+	 * blocks and the faulted-in pages would be garbage, crashing every
+	 * binary exec'd from an isofs root.  Supporting mmap here needs a real
+	 * extent-translating bpeek first.
+	 */
 	*res_flags = RES_NOFLAGS;
 
 	return r;
