@@ -87,14 +87,19 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 
   /*
    * MFS implements REQ_PEEK/REQ_BPEEK (see the .fdr_peek/.fdr_bpeek entries in
-   * table.c), so advertise RES_HASPEEK.  Without it VFS rejects every file
-   * mmap() on an MFS-backed mount with EINVAL, which breaks ld.elf_so (it maps
-   * each shared object's header) and hence all dynamically-linked binaries.
-   * The pre-libfsdriver code reported RES_HASPEEK here; the libfsdriver
-   * conversion (commit "MFS: use libfsdriver") regressed it to RES_NOFLAGS,
-   * which went unnoticed because almost everything on MINIX is static.
+   * table.c), so advertise RES_HASPEEK -- but ONLY when the VM page cache is
+   * actually active for this mount.  Without RES_HASPEEK, VFS rejects every
+   * file mmap() with EINVAL, which breaks ld.elf_so (it maps each shared
+   * object's header) and hence all dynamically-linked binaries.  But peek/mmap
+   * only works when lmfs uses the VM cache, which requires the block size to be
+   * a multiple of the page size; with a sub-page block size (e.g. a small RAM
+   * disk) demand-paged pages would be half-populated and crash.  Tie the flag
+   * to lmfs_vmcache_enabled() (set by the earlier lmfs_set_blocksize()) so it
+   * is correct for every block size.  The pre-libfsdriver code reported
+   * RES_HASPEEK unconditionally; the libfsdriver conversion regressed it to
+   * RES_NOFLAGS, unnoticed because almost everything on MINIX is static.
    */
-  *res_flags = RES_HASPEEK;
+  *res_flags = lmfs_vmcache_enabled() ? RES_HASPEEK : RES_NOFLAGS;
 
   /* Mark it dirty */
   if(!superblock.s_rd_only) {
