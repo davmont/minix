@@ -833,8 +833,18 @@ struct vir_region *map_copy_region(struct vmproc *vmp, struct vir_region *vr)
 		struct phys_region *newph;
 
 		if(!(ph = physblock_get(vr, p*VM_PAGE_SIZE))) continue;
+		/*
+		 * Propagate the page's ACTUAL memtype, not the region default.
+		 * Within a file-mapped region, pages that were written go
+		 * through cow_block() which switches ph->memtype to anon; the
+		 * child's copy of such a page must be anon as well, so that
+		 * its writability is governed by anon_writable() (refcount
+		 * based COW) and its faults by anon_pagefault().  Tagging it
+		 * with the region's default (mappedfile) would tie the child's
+		 * page to the file again even though its content diverged.
+		 */
 		newph = pb_reference(ph->ph, ph->offset, newvr,
-			vr->def_memtype);
+			ph->memtype);
 
 		if(!newph) { map_free(newvr); return NULL; }
 
