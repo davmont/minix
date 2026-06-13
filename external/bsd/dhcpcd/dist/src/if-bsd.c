@@ -53,6 +53,9 @@
 #include <net/if_vlanvar.h> /* Needs netinet/if_ether.h */
 #elif defined(__DragonFly__)
 #include <net/vlan/if_vlan_var.h>
+#elif defined(__minix)
+/* MINIX has no VLAN support; if_vlanid() degrades gracefully because
+ * SIOCGETVLAN is then undefined. */
 #else
 #include <net/if_vlan_var.h>
 #endif

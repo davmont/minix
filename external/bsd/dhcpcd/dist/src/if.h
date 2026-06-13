@@ -36,6 +36,24 @@
 #include <netinet/in_var.h>	/* for IN_IFF_TENTATIVE et all */
 #endif
 
+#if defined(__minix)
+/*
+ * These flags are used for IPv4 autoconfiguration (RFC 3927).  The MINIX 3
+ * TCP/IP service does not support IPv4 autoconfiguration, because lwIP's
+ * AUTOIP implementation is all-or-nothing by nature: either it implements the
+ * whole thing fully itself, or no support is present at all.  dhcpcd(8) needs
+ * a more hybrid implementation if at all.  It appears that by undefining the
+ * following flags, dhcpcd(8) will assume that no support is present for them
+ * in the operating system, and do everything itself instead, which is exactly
+ * what we want.
+ */
+#undef IN_IFF_TENTATIVE
+#undef IN_IFF_DUPLICATED
+#undef IN_IFF_DETACHED
+#undef IN_IFF_TRYTENTATIVE
+#undef IN_IFF_NOTREADY
+#endif /* defined(__minix) */
+
 #include <ifaddrs.h>
 
 /* If the interface does not support carrier status (ie PPP),

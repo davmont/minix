@@ -199,7 +199,32 @@ eloop_ppoll(struct pollfd * fds, nfds_t nfds,
 		}
 	}
 
+#if defined(__minix)
+	/*
+	 * MINIX has no pselect(2).  Emulate it with select(2) bracketed by
+	 * sigprocmask(2).  This carries the well-known race between unblocking
+	 * the signals and entering select(), but it matches what dhcpcd used on
+	 * MINIX before pselect-based eloop and is good enough in practice.
+	 */
+	{
+		sigset_t omask;
+		struct timeval tv, *tvp;
+
+		if (sigmask != NULL)
+			sigprocmask(SIG_SETMASK, sigmask, &omask);
+		if (ts != NULL) {
+			tv.tv_sec = ts->tv_sec;
+			tv.tv_usec = (suseconds_t)(ts->tv_nsec / 1000);
+			tvp = &tv;
+		} else
+			tvp = NULL;
+		r = select(maxfd + 1, &read_fds, &write_fds, NULL, tvp);
+		if (sigmask != NULL)
+			sigprocmask(SIG_SETMASK, &omask, NULL);
+	}
+#else
 	r = pselect(maxfd + 1, &read_fds, &write_fds, NULL, ts, sigmask);
+#endif
 	if (r > 0) {
 		for (n = 0; n < nfds; n++) {
 			fds[n].revents =
@@ -609,14 +634,30 @@ eloop_signal3(int sig, __unused siginfo_t *siginfo, __unused void *arg)
 	_eloop_sig[_eloop_nsig++] = sig;
 }
 
+#if defined(__minix)
+/* MINIX does not implement SA_SIGINFO / sa_sigaction.  eloop_signal3 ignores
+ * its siginfo/ucontext arguments, so a plain one-argument handler suffices. */
+static void
+eloop_signal1(int sig)
+{
+
+	eloop_signal3(sig, NULL, NULL);
+}
+#endif
+
 int
 eloop_signal_mask(struct eloop *eloop, sigset_t *oldset)
 {
 	sigset_t newset;
 	size_t i;
 	struct sigaction sa = {
+#if defined(__minix)
+	    .sa_handler = eloop_signal1,
+	    .sa_flags = 0,
+#else
 	    .sa_sigaction = eloop_signal3,
 	    .sa_flags = SA_SIGINFO,
+#endif
 	};
 
 	assert(eloop != NULL);
