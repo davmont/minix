@@ -172,13 +172,19 @@ FILES=		tags
 FILESNAME=	libc.tags
 FILESDIR=	/var/db
 .endif
+.endif # defined(__MINIX)
 
 
 # workaround for I18N stuffs: build singlebyte setlocale() for libc.a,
 # multibyte for libc.so.  the quirk should be removed when we support
 # dlopen() from within statically linked binaries.
+#
+# MINIX: ld.elf_so supports dlopen() at runtime, so enable the multibyte
+# (dynamic) setlocale path for the shared libc here too -- without this the
+# shared libc only gets the _citrus_load_module() stub (returns EINVAL) and
+# setlocale(LC_CTYPE,"*.UTF-8") fails for every dynamically-linked program.
+# Must be paired with the correct I18NMODULE_MAJOR in citrus/Makefile.inc.
 CSHLIBFLAGS+=	-D_I18N_DYNAMIC
-.endif # defined(__MINIX)
 
 .include <bsd.lib.mk>
 

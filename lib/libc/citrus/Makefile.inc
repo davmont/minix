@@ -6,7 +6,13 @@
 .if !defined(__MINIX)
 MODULE_SHLIB_MAJOR!= . ${NETBSDSRCDIR}/lib/i18n_module/shlib_version ; echo $$major
 .else
-MODULE_SHLIB_MAJOR=1
+# MINIX cannot run the shell-sourcing .for above during the cross-build, so the
+# value is hardcoded here.  It MUST match major= in lib/i18n_module/shlib_version,
+# which is what the i18n modules (e.g. libUTF8.so.5.0) are actually installed as.
+# citrus _findshlib() only matches a module whose major equals I18NMODULE_MAJOR;
+# a stale value (was 1, modules are 5) makes setlocale(LC_CTYPE,"*.UTF-8") fail
+# with EINVAL for every dynamically-linked program.
+MODULE_SHLIB_MAJOR=5
 .endif # !defined(__MINIX)
 CPPFLAGS.citrus_module.c+=-DI18NMODULE_MAJOR=${MODULE_SHLIB_MAJOR}
 SRCS+=	citrus_bcs.c citrus_bcs_strtol.c citrus_bcs_strtoul.c \
