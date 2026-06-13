@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,39 +28,59 @@
  * List all sessions.
  */
 
-enum cmd_retval	 cmd_list_sessions_exec(struct cmd *, struct cmd_q *);
+#define LIST_SESSIONS_TEMPLATE				\
+	"#{session_name}: #{session_windows} windows "	\
+	"(created #{t:session_created})"		\
+	"#{?session_grouped, (group ,}"			\
+	"#{session_group}#{?session_grouped,),}"	\
+	"#{?session_attached, (attached),}"
+
+static enum cmd_retval	cmd_list_sessions_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_list_sessions_entry = {
-	"list-sessions", "ls",
-	"F:", 0, 0,
-	"[-F format]",
-	0,
-	NULL,
-	cmd_list_sessions_exec
+	.name = "list-sessions",
+	.alias = "ls",
+
+	.args = { "F:f:", 0, 0, NULL },
+	.usage = "[-F format] [-f filter]",
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_list_sessions_exec
 };
 
-enum cmd_retval
-cmd_list_sessions_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_list_sessions_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
+	struct args		*args = cmd_get_args(self);
 	struct session		*s;
 	u_int		 	 n;
 	struct format_tree	*ft;
-	const char		*template;
-	char			*line;
+	const char		*template, *filter;
+	char			*line, *expanded;
+	int			 flag;
 
 	if ((template = args_get(args, 'F')) == NULL)
 		template = LIST_SESSIONS_TEMPLATE;
+	filter = args_get(args, 'f');
 
 	n = 0;
 	RB_FOREACH(s, sessions, &sessions) {
-		ft = format_create();
+		ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
 		format_add(ft, "line", "%u", n);
-		format_session(ft, s);
+		format_defaults(ft, NULL, s, NULL, NULL);
 
-		line = format_expand(ft, template);
-		cmdq_print(cmdq, "%s", line);
-		free(line);
+		if (filter != NULL) {
+			expanded = format_expand(ft, filter);
+			flag = format_true(expanded);
+			free(expanded);
+		} else
+			flag = 1;
+		if (flag) {
+			line = format_expand(ft, template);
+			cmdq_print(item, "%s", line);
+			free(line);
+		}
 
 		format_free(ft);
 		n++;

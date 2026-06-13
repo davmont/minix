@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,32 +18,84 @@
 
 #include <sys/types.h>
 
-#include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "tmux.h"
 
-void	screen_resize_x(struct screen *, u_int);
-void	screen_resize_y(struct screen *, u_int);
+/* Selected area in screen. */
+struct screen_sel {
+	int		 hidden;
+	int		 rectangle;
+	int		 modekeys;
+
+	u_int		 sx;
+	u_int		 sy;
+
+	u_int		 ex;
+	u_int		 ey;
+
+	struct grid_cell cell;
+};
+
+/* Entry on title stack. */
+struct screen_title_entry {
+	char				*text;
+
+	TAILQ_ENTRY(screen_title_entry)	 entry;
+};
+TAILQ_HEAD(screen_titles, screen_title_entry);
+
+static void	screen_resize_y(struct screen *, u_int, int, u_int *);
+static void	screen_reflow(struct screen *, u_int, u_int *, u_int *, int);
+
+/* Free titles stack. */
+static void
+screen_free_titles(struct screen *s)
+{
+	struct screen_title_entry	*title_entry;
+
+	if (s->titles == NULL)
+		return;
+
+	while ((title_entry = TAILQ_FIRST(s->titles)) != NULL) {
+		TAILQ_REMOVE(s->titles, title_entry, entry);
+		free(title_entry->text);
+		free(title_entry);
+	}
+
+	free(s->titles);
+	s->titles = NULL;
+}
 
 /* Create a new screen. */
 void
 screen_init(struct screen *s, u_int sx, u_int sy, u_int hlimit)
 {
-	char hn[MAXHOSTNAMELEN];
-
 	s->grid = grid_create(sx, sy, hlimit);
+	s->saved_grid = NULL;
 
-	if (gethostname(hn, MAXHOSTNAMELEN) == 0)
-		s->title = xstrdup(hn);
-	else
-		s->title = xstrdup("");
+	s->title = xstrdup("");
+	s->titles = NULL;
+	s->path = NULL;
 
-	s->cstyle = 0;
-	s->ccolour = xstrdup("");
+	s->cstyle = SCREEN_CURSOR_DEFAULT;
+	s->default_cstyle = SCREEN_CURSOR_DEFAULT;
+	s->mode = MODE_CURSOR;
+	s->default_mode = 0;
+	s->ccolour = -1;
+	s->default_ccolour = -1;
 	s->tabs = NULL;
+	s->sel = NULL;
+
+#ifdef ENABLE_SIXEL
+	TAILQ_INIT(&s->images);
+	TAILQ_INIT(&s->saved_images);
+#endif
+
+	s->write_list = NULL;
+	s->hyperlinks = NULL;
 
 	screen_reinit(s);
 }
@@ -58,23 +110,63 @@ screen_reinit(struct screen *s)
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
 
-	s->mode = MODE_CURSOR | MODE_WRAP;
+	s->mode = MODE_CURSOR|MODE_WRAP|(s->mode & MODE_CRLF);
+
+	if (options_get_number(global_options, "extended-keys") == 2)
+		s->mode = (s->mode & ~EXTENDED_KEY_MODES)|MODE_KEYS_EXTENDED;
+
+	if (SCREEN_IS_ALTERNATE(s))
+		screen_alternate_off(s, NULL, 0);
+	s->saved_cx = UINT_MAX;
+	s->saved_cy = UINT_MAX;
 
 	screen_reset_tabs(s);
 
-	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy);
+	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy, 8);
 
 	screen_clear_selection(s);
+	screen_free_titles(s);
+
+#ifdef ENABLE_SIXEL
+	image_free_all(s);
+#endif
+
+	screen_reset_hyperlinks(s);
+}
+
+/* Reset hyperlinks of a screen. */
+void
+screen_reset_hyperlinks(struct screen *s)
+{
+	if (s->hyperlinks == NULL)
+		s->hyperlinks = hyperlinks_init();
+	else
+		hyperlinks_reset(s->hyperlinks);
 }
 
 /* Destroy a screen. */
 void
 screen_free(struct screen *s)
 {
+	free(s->sel);
 	free(s->tabs);
+	free(s->path);
 	free(s->title);
-	free(s->ccolour);
+
+	if (s->write_list != NULL)
+		screen_write_free_list(s);
+
+	if (SCREEN_IS_ALTERNATE(s))
+		grid_destroy(s->saved_grid);
 	grid_destroy(s->grid);
+
+	if (s->hyperlinks != NULL)
+		hyperlinks_free(s->hyperlinks);
+	screen_free_titles(s);
+
+#ifdef ENABLE_SIXEL
+	image_free_all(s);
+#endif
 }
 
 /* Reset tabs to default, eight spaces apart. */
@@ -91,81 +183,178 @@ screen_reset_tabs(struct screen *s)
 		bit_set(s->tabs, i);
 }
 
-/* Set screen cursor style. */
+/* Set default cursor style and colour from options. */
 void
-screen_set_cursor_style(struct screen *s, u_int style)
+screen_set_default_cursor(struct screen *s, struct options *oo)
 {
-	if (style <= 6)
-		s->cstyle = style;
+	int	c;
+
+	c = options_get_number(oo, "cursor-colour");
+	s->default_ccolour = c;
+
+	c = options_get_number(oo, "cursor-style");
+	s->default_mode = 0;
+	screen_set_cursor_style(c, &s->default_cstyle, &s->default_mode);
+}
+
+/* Set screen cursor style and mode. */
+void
+screen_set_cursor_style(u_int style, enum screen_cursor_style *cstyle,
+    int *mode)
+{
+	switch (style) {
+	case 0:
+		*cstyle = SCREEN_CURSOR_DEFAULT;
+		break;
+	case 1:
+		*cstyle = SCREEN_CURSOR_BLOCK;
+		*mode |= MODE_CURSOR_BLINKING;
+		break;
+	case 2:
+		*cstyle = SCREEN_CURSOR_BLOCK;
+		*mode &= ~MODE_CURSOR_BLINKING;
+		break;
+	case 3:
+		*cstyle = SCREEN_CURSOR_UNDERLINE;
+		*mode |= MODE_CURSOR_BLINKING;
+		break;
+	case 4:
+		*cstyle = SCREEN_CURSOR_UNDERLINE;
+		*mode &= ~MODE_CURSOR_BLINKING;
+		break;
+	case 5:
+		*cstyle = SCREEN_CURSOR_BAR;
+		*mode |= MODE_CURSOR_BLINKING;
+		break;
+	case 6:
+		*cstyle = SCREEN_CURSOR_BAR;
+		*mode &= ~MODE_CURSOR_BLINKING;
+		break;
+	}
 }
 
 /* Set screen cursor colour. */
 void
-screen_set_cursor_colour(struct screen *s, const char *colour_string)
+screen_set_cursor_colour(struct screen *s, int colour)
 {
-	free(s->ccolour);
-	s->ccolour = xstrdup(colour_string);
+	s->ccolour = colour;
 }
 
 /* Set screen title. */
-void
+int
 screen_set_title(struct screen *s, const char *title)
 {
+	if (!utf8_isvalid(title))
+		return (0);
 	free(s->title);
 	s->title = xstrdup(title);
+	return (1);
 }
 
-/* Resize screen. */
+/* Set screen path. */
 void
-screen_resize(struct screen *s, u_int sx, u_int sy, int reflow)
+screen_set_path(struct screen *s, const char *path)
 {
+	free(s->path);
+	utf8_stravis(&s->path, path, VIS_OCTAL|VIS_CSTYLE|VIS_TAB|VIS_NL);
+}
+
+/* Push the current title onto the stack. */
+void
+screen_push_title(struct screen *s)
+{
+	struct screen_title_entry *title_entry;
+
+	if (s->titles == NULL) {
+		s->titles = xmalloc(sizeof *s->titles);
+		TAILQ_INIT(s->titles);
+	}
+	title_entry = xmalloc(sizeof *title_entry);
+	title_entry->text = xstrdup(s->title);
+	TAILQ_INSERT_HEAD(s->titles, title_entry, entry);
+}
+
+/*
+ * Pop a title from the stack and set it as the screen title. If the stack is
+ * empty, do nothing.
+ */
+void
+screen_pop_title(struct screen *s)
+{
+	struct screen_title_entry *title_entry;
+
+	if (s->titles == NULL)
+		return;
+
+	title_entry = TAILQ_FIRST(s->titles);
+	if (title_entry != NULL) {
+		screen_set_title(s, title_entry->text);
+
+		TAILQ_REMOVE(s->titles, title_entry, entry);
+		free(title_entry->text);
+		free(title_entry);
+	}
+}
+
+/* Resize screen with options. */
+void
+screen_resize_cursor(struct screen *s, u_int sx, u_int sy, int reflow,
+    int eat_empty, int cursor)
+{
+	u_int	cx = s->cx, cy = s->grid->hsize + s->cy;
+
+	if (s->write_list != NULL)
+		screen_write_free_list(s);
+
+	log_debug("%s: new size %ux%u, now %ux%u (cursor %u,%u = %u,%u)",
+	    __func__, sx, sy, screen_size_x(s), screen_size_y(s), s->cx, s->cy,
+	    cx, cy);
+
 	if (sx < 1)
 		sx = 1;
 	if (sy < 1)
 		sy = 1;
 
 	if (sx != screen_size_x(s)) {
-		screen_resize_x(s, sx);
-
-		/*
-		 * It is unclear what should happen to tabs on resize. xterm
-		 * seems to try and maintain them, rxvt resets them. Resetting
-		 * is simpler and more reliable so let's do that.
-		 */
+		s->grid->sx = sx;
 		screen_reset_tabs(s);
-	}
+	} else
+		reflow = 0;
 
 	if (sy != screen_size_y(s))
-		screen_resize_y(s, sy);
+		screen_resize_y(s, sy, eat_empty, &cy);
+
+#ifdef ENABLE_SIXEL
+	image_free_all(s);
+#endif
 
 	if (reflow)
-		screen_reflow(s, sx);
+		screen_reflow(s, sx, &cx, &cy, cursor);
+
+	if (cy >= s->grid->hsize) {
+		s->cx = cx;
+		s->cy = cy - s->grid->hsize;
+	} else {
+		s->cx = 0;
+		s->cy = 0;
+	}
+
+	log_debug("%s: cursor finished at %u,%u = %u,%u", __func__, s->cx,
+	    s->cy, cx, cy);
+
+	if (s->write_list != NULL)
+		screen_write_make_list(s);
 }
 
+/* Resize screen. */
 void
-screen_resize_x(struct screen *s, u_int sx)
+screen_resize(struct screen *s, u_int sx, u_int sy, int reflow)
 {
-	struct grid		*gd = s->grid;
-
-	if (sx == 0)
-		fatalx("zero size");
-
-	/*
-	 * Treat resizing horizontally simply: just ensure the cursor is
-	 * on-screen and change the size. Don't bother to truncate any lines -
-	 * then the data should be accessible if the size is then incrased.
-	 *
-	 * The only potential wrinkle is if UTF-8 double-width characters are
-	 * left in the last column, but UTF-8 terminals should deal with this
-	 * sanely.
-	 */
-	if (s->cx >= sx)
-		s->cx = sx - 1;
-	gd->sx = sx;
+	screen_resize_cursor(s, sx, sy, reflow, 1, 1);
 }
 
-void
-screen_resize_y(struct screen *s, u_int sy)
+static void
+screen_resize_y(struct screen *s, u_int sy, int eat_empty, u_int *cy)
 {
 	struct grid	*gd = s->grid;
 	u_int		 needed, available, oldy, i;
@@ -180,8 +369,9 @@ screen_resize_y(struct screen *s, u_int sy)
 	 * If the height is decreasing, delete lines from the bottom until
 	 * hitting the cursor, then push lines from the top into the history.
 	 *
-	 * When increasing, pull as many lines as possible from the history to
-	 * the top, then fill the remaining with blanks at the bottom.
+	 * When increasing, pull as many lines as possible from scrolled
+	 * history (not explicitly cleared from view) to the top, then fill the
+	 * remaining with blanks at the bottom.
 	 */
 
 	/* Size decreasing. */
@@ -189,57 +379,58 @@ screen_resize_y(struct screen *s, u_int sy)
 		needed = oldy - sy;
 
 		/* Delete as many lines as possible from the bottom. */
-		available = oldy - 1 - s->cy;
-		if (available > 0) {
-			if (available > needed)
-				available = needed;
-			grid_view_delete_lines(gd, oldy - available, available);
+		if (eat_empty) {
+			available = oldy - 1 - s->cy;
+			if (available > 0) {
+				if (available > needed)
+					available = needed;
+				grid_view_delete_lines(gd, oldy - available,
+				    available, 8);
+			}
+			needed -= available;
 		}
-		needed -= available;
 
 		/*
 		 * Now just increase the history size, if possible, to take
 		 * over the lines which are left. If history is off, delete
 		 * lines from the top.
-		 *
-		 * XXX Should apply history limit?
 		 */
 		available = s->cy;
-		if (gd->flags & GRID_HISTORY)
+		if (gd->flags & GRID_HISTORY) {
+			gd->hscrolled += needed;
 			gd->hsize += needed;
-		else if (needed > 0 && available > 0) {
+		} else if (needed > 0 && available > 0) {
 			if (available > needed)
 				available = needed;
-			grid_view_delete_lines(gd, 0, available);
+			grid_view_delete_lines(gd, 0, available, 8);
+			(*cy) -= available;
 		}
-		s->cy -= needed;
 	}
 
-	/* Resize line arrays. */
-	gd->linedata = xrealloc(
-	    gd->linedata, gd->hsize + sy, sizeof *gd->linedata);
+	/* Resize line array. */
+	grid_adjust_lines(gd, gd->hsize + sy);
 
 	/* Size increasing. */
 	if (sy > oldy) {
 		needed = sy - oldy;
 
 		/*
-		 * Try to pull as much as possible out of the history, if is
-		 * is enabled.
+		 * Try to pull as much as possible out of scrolled history, if
+		 * it is enabled.
 		 */
-		available = gd->hsize;
+		available = gd->hscrolled;
 		if (gd->flags & GRID_HISTORY && available > 0) {
 			if (available > needed)
 				available = needed;
+			gd->hscrolled -= available;
 			gd->hsize -= available;
-			s->cy += available;
 		} else
 			available = 0;
 		needed -= available;
 
 		/* Then fill the rest in with blanks. */
 		for (i = gd->hsize + sy - needed; i < gd->hsize + sy; i++)
-			memset(&gd->linedata[i], 0, sizeof gd->linedata[i]);
+			grid_empty_line(gd, i, 8);
 	}
 
 	/* Set the new size, and reset the scroll region. */
@@ -251,37 +442,49 @@ screen_resize_y(struct screen *s, u_int sy)
 /* Set selection. */
 void
 screen_set_selection(struct screen *s, u_int sx, u_int sy,
-    u_int ex, u_int ey, u_int rectflag, struct grid_cell *gc)
+    u_int ex, u_int ey, u_int rectangle, int modekeys, struct grid_cell *gc)
 {
-	struct screen_sel	*sel = &s->sel;
+	if (s->sel == NULL)
+		s->sel = xcalloc(1, sizeof *s->sel);
 
-	memcpy(&sel->cell, gc, sizeof sel->cell);
-	sel->flag = 1;
-	sel->rectflag = rectflag;
+	memcpy(&s->sel->cell, gc, sizeof s->sel->cell);
+	s->sel->hidden = 0;
+	s->sel->rectangle = rectangle;
+	s->sel->modekeys = modekeys;
 
-	sel->sx = sx; sel->sy = sy;
-	sel->ex = ex; sel->ey = ey;
+	s->sel->sx = sx;
+	s->sel->sy = sy;
+	s->sel->ex = ex;
+	s->sel->ey = ey;
 }
 
 /* Clear selection. */
 void
 screen_clear_selection(struct screen *s)
 {
-	struct screen_sel	*sel = &s->sel;
+	free(s->sel);
+	s->sel = NULL;
+}
 
-	sel->flag = 0;
+/* Hide selection. */
+void
+screen_hide_selection(struct screen *s)
+{
+	if (s->sel != NULL)
+		s->sel->hidden = 1;
 }
 
 /* Check if cell in selection. */
 int
 screen_check_selection(struct screen *s, u_int px, u_int py)
 {
-	struct screen_sel	*sel = &s->sel;
+	struct screen_sel	*sel = s->sel;
+	u_int			 xx;
 
-	if (!sel->flag)
+	if (sel == NULL || sel->hidden)
 		return (0);
 
-	if (sel->rectflag) {
+	if (sel->rectangle) {
 		if (sel->sy < sel->ey) {
 			/* start line < end line -- downward selection. */
 			if (py < sel->sy || py > sel->ey)
@@ -326,16 +529,28 @@ screen_check_selection(struct screen *s, u_int px, u_int py)
 			if (py < sel->sy || py > sel->ey)
 				return (0);
 
-			if ((py == sel->sy && px < sel->sx)
-			    || (py == sel->ey && px > sel->ex))
+			if (py == sel->sy && px < sel->sx)
+				return (0);
+
+			if (sel->modekeys == MODEKEY_EMACS)
+				xx = (sel->ex == 0 ? 0 : sel->ex - 1);
+			else
+				xx = sel->ex;
+			if (py == sel->ey && px > xx)
 				return (0);
 		} else if (sel->sy > sel->ey) {
 			/* starting line > ending line -- upward selection. */
 			if (py > sel->sy || py < sel->ey)
 				return (0);
 
-			if ((py == sel->sy && px >= sel->sx)
-			    || (py == sel->ey && px < sel->ex))
+			if (py == sel->ey && px < sel->ex)
+				return (0);
+
+			if (sel->modekeys == MODEKEY_EMACS)
+				xx = sel->sx - 1;
+			else
+				xx = sel->sx;
+			if (py == sel->sy && (sel->sx == 0 || px > xx))
 				return (0);
 		} else {
 			/* starting line == ending line. */
@@ -344,11 +559,19 @@ screen_check_selection(struct screen *s, u_int px, u_int py)
 
 			if (sel->ex < sel->sx) {
 				/* cursor (ex) is on the left */
-				if (px > sel->sx || px < sel->ex)
+				if (sel->modekeys == MODEKEY_EMACS)
+					xx = sel->sx - 1;
+				else
+					xx = sel->sx;
+				if (px > xx || px < sel->ex)
 					return (0);
 			} else {
 				/* selection start (sx) is on the left */
-				if (px < sel->sx || px > sel->ex)
+				if (sel->modekeys == MODEKEY_EMACS)
+					xx = (sel->ex == 0 ? 0 : sel->ex - 1);
+				else
+					xx = sel->ex;
+				if (px < sel->sx || px > xx)
 					return (0);
 			}
 		}
@@ -357,18 +580,191 @@ screen_check_selection(struct screen *s, u_int px, u_int py)
 	return (1);
 }
 
-/* Reflow wrapped lines. */
+/* Get selected grid cell. */
 void
-screen_reflow(struct screen *s, u_int new_x)
+screen_select_cell(struct screen *s, struct grid_cell *dst,
+    const struct grid_cell *src)
 {
-	struct grid	*old = s->grid;
-	u_int		 change;
+	if (s->sel == NULL || s->sel->hidden)
+		return;
 
-	s->grid = grid_create(old->sx, old->sy, old->hlimit);
+	memcpy(dst, &s->sel->cell, sizeof *dst);
+	if (COLOUR_DEFAULT(dst->fg))
+		dst->fg = src->fg;
+	if (COLOUR_DEFAULT(dst->bg))
+		dst->bg = src->bg;
+	utf8_copy(&dst->data, &src->data);
+	dst->flags = src->flags;
 
-	change = grid_reflow(s->grid, old, new_x);
-	if (change < s->cy)
-		s->cy -= change;
+	if (dst->attr & GRID_ATTR_NOATTR)
+		dst->attr |= (src->attr & GRID_ATTR_CHARSET);
 	else
-		s->cy = 0;
+		dst->attr |= src->attr;
+}
+
+/* Reflow wrapped lines. */
+static void
+screen_reflow(struct screen *s, u_int new_x, u_int *cx, u_int *cy, int cursor)
+{
+	u_int	wx, wy;
+
+	if (cursor) {
+		grid_wrap_position(s->grid, *cx, *cy, &wx, &wy);
+		log_debug("%s: cursor %u,%u is %u,%u", __func__, *cx, *cy, wx,
+		    wy);
+	}
+
+	grid_reflow(s->grid, new_x);
+
+	if (cursor) {
+		grid_unwrap_position(s->grid, cx, cy, wx, wy);
+		log_debug("%s: new cursor is %u,%u", __func__, *cx, *cy);
+	}
+	else {
+		*cx = 0;
+		*cy = s->grid->hsize;
+	}
+}
+
+/*
+ * Enter alternative screen mode. A copy of the visible screen is saved and the
+ * history is not updated.
+ */
+void
+screen_alternate_on(struct screen *s, struct grid_cell *gc, int cursor)
+{
+	u_int	sx, sy;
+
+	if (SCREEN_IS_ALTERNATE(s))
+		return;
+	sx = screen_size_x(s);
+	sy = screen_size_y(s);
+
+	s->saved_grid = grid_create(sx, sy, 0);
+	grid_duplicate_lines(s->saved_grid, 0, s->grid, screen_hsize(s), sy);
+	if (cursor) {
+		s->saved_cx = s->cx;
+		s->saved_cy = s->cy;
+	}
+	memcpy(&s->saved_cell, gc, sizeof s->saved_cell);
+
+#ifdef ENABLE_SIXEL
+	TAILQ_CONCAT(&s->saved_images, &s->images, entry);
+#endif
+
+	grid_view_clear(s->grid, 0, 0, sx, sy, 8);
+
+	s->saved_flags = s->grid->flags;
+	s->grid->flags &= ~GRID_HISTORY;
+}
+
+/* Exit alternate screen mode and restore the copied grid. */
+void
+screen_alternate_off(struct screen *s, struct grid_cell *gc, int cursor)
+{
+	u_int	sx = screen_size_x(s), sy = screen_size_y(s);
+
+	/*
+	 * If the current size is different, temporarily resize to the old size
+	 * before copying back.
+	 */
+	if (SCREEN_IS_ALTERNATE(s))
+		screen_resize(s, s->saved_grid->sx, s->saved_grid->sy, 0);
+
+	/*
+	 * Restore the cursor position and cell. This happens even if not
+	 * currently in the alternate screen.
+	 */
+	if (cursor && s->saved_cx != UINT_MAX && s->saved_cy != UINT_MAX) {
+		s->cx = s->saved_cx;
+		s->cy = s->saved_cy;
+		if (gc != NULL)
+			memcpy(gc, &s->saved_cell, sizeof *gc);
+	}
+
+	/* If not in the alternate screen, do nothing more. */
+	if (!SCREEN_IS_ALTERNATE(s)) {
+		if (s->cx > screen_size_x(s) - 1)
+			s->cx = screen_size_x(s) - 1;
+		if (s->cy > screen_size_y(s) - 1)
+			s->cy = screen_size_y(s) - 1;
+		return;
+	}
+
+	/* Restore the saved grid. */
+	grid_duplicate_lines(s->grid, screen_hsize(s), s->saved_grid, 0,
+	    s->saved_grid->sy);
+
+	/*
+	 * Turn history back on (so resize can use it) and then resize back to
+	 * the current size.
+	 */
+	if (s->saved_flags & GRID_HISTORY)
+		s->grid->flags |= GRID_HISTORY;
+	screen_resize(s, sx, sy, 1);
+
+	grid_destroy(s->saved_grid);
+	s->saved_grid = NULL;
+
+#ifdef ENABLE_SIXEL
+	image_free_all(s);
+	TAILQ_CONCAT(&s->images, &s->saved_images, entry);
+#endif
+
+	if (s->cx > screen_size_x(s) - 1)
+		s->cx = screen_size_x(s) - 1;
+	if (s->cy > screen_size_y(s) - 1)
+		s->cy = screen_size_y(s) - 1;
+}
+
+/* Get mode as a string. */
+const char *
+screen_mode_to_string(int mode)
+{
+	static char	tmp[1024];
+
+	if (mode == 0)
+		return ("NONE");
+	if (mode == ALL_MODES)
+		return ("ALL");
+
+	*tmp = '\0';
+	if (mode & MODE_CURSOR)
+		strlcat(tmp, "CURSOR,", sizeof tmp);
+	if (mode & MODE_INSERT)
+		strlcat(tmp, "INSERT,", sizeof tmp);
+	if (mode & MODE_KCURSOR)
+		strlcat(tmp, "KCURSOR,", sizeof tmp);
+	if (mode & MODE_KKEYPAD)
+		strlcat(tmp, "KKEYPAD,", sizeof tmp);
+	if (mode & MODE_WRAP)
+		strlcat(tmp, "WRAP,", sizeof tmp);
+	if (mode & MODE_MOUSE_STANDARD)
+		strlcat(tmp, "MOUSE_STANDARD,", sizeof tmp);
+	if (mode & MODE_MOUSE_BUTTON)
+		strlcat(tmp, "MOUSE_BUTTON,", sizeof tmp);
+	if (mode & MODE_CURSOR_BLINKING)
+		strlcat(tmp, "CURSOR_BLINKING,", sizeof tmp);
+	if (mode & MODE_CURSOR_VERY_VISIBLE)
+		strlcat(tmp, "CURSOR_VERY_VISIBLE,", sizeof tmp);
+	if (mode & MODE_MOUSE_UTF8)
+		strlcat(tmp, "MOUSE_UTF8,", sizeof tmp);
+	if (mode & MODE_MOUSE_SGR)
+		strlcat(tmp, "MOUSE_SGR,", sizeof tmp);
+	if (mode & MODE_BRACKETPASTE)
+		strlcat(tmp, "BRACKETPASTE,", sizeof tmp);
+	if (mode & MODE_FOCUSON)
+		strlcat(tmp, "FOCUSON,", sizeof tmp);
+	if (mode & MODE_MOUSE_ALL)
+		strlcat(tmp, "MOUSE_ALL,", sizeof tmp);
+	if (mode & MODE_ORIGIN)
+		strlcat(tmp, "ORIGIN,", sizeof tmp);
+	if (mode & MODE_CRLF)
+		strlcat(tmp, "CRLF,", sizeof tmp);
+	if (mode & MODE_KEYS_EXTENDED)
+		strlcat(tmp, "KEYS_EXTENDED,", sizeof tmp);
+	if (mode & MODE_KEYS_EXTENDED_2)
+		strlcat(tmp, "KEYS_EXTENDED_2,", sizeof tmp);
+	tmp[strlen(tmp) - 1] = '\0';
+	return (tmp);
 }

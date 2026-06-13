@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,50 +26,60 @@
  * Swap one window with another.
  */
 
-enum cmd_retval	cmd_swap_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_swap_window_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_swap_window_entry = {
-	"swap-window", "swapw",
-	"ds:t:", 0, 0,
-	"[-d] " CMD_SRCDST_WINDOW_USAGE,
-	0,
-	NULL,
-	cmd_swap_window_exec
+	.name = "swap-window",
+	.alias = "swapw",
+
+	.args = { "ds:t:", 0, 0, NULL },
+	.usage = "[-d] " CMD_SRCDST_WINDOW_USAGE,
+
+	.source = { 's', CMD_FIND_WINDOW, CMD_FIND_DEFAULT_MARKED },
+	.target = { 't', CMD_FIND_WINDOW, 0 },
+
+	.flags = 0,
+	.exec = cmd_swap_window_exec
 };
 
-enum cmd_retval
-cmd_swap_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_swap_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	const char		*target_src, *target_dst;
-	struct session		*src, *dst;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*source = cmdq_get_source(item);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct session		*src = source->s, *dst = target->s;
 	struct session_group	*sg_src, *sg_dst;
-	struct winlink		*wl_src, *wl_dst;
-	struct window		*w;
+	struct winlink		*wl_src = source->wl, *wl_dst = target->wl;
+	struct window		*w_src, *w_dst;
 
-	target_src = args_get(args, 's');
-	if ((wl_src = cmd_find_window(cmdq, target_src, &src)) == NULL)
-		return (CMD_RETURN_ERROR);
-	target_dst = args_get(args, 't');
-	if ((wl_dst = cmd_find_window(cmdq, target_dst, &dst)) == NULL)
-		return (CMD_RETURN_ERROR);
+	sg_src = session_group_contains(src);
+	sg_dst = session_group_contains(dst);
 
-	sg_src = session_group_find(src);
-	sg_dst = session_group_find(dst);
 	if (src != dst &&
-	    sg_src != NULL && sg_dst != NULL && sg_src == sg_dst) {
-		cmdq_error(cmdq, "can't move window, sessions are grouped");
+	    sg_src != NULL &&
+	    sg_dst != NULL &&
+	    sg_src == sg_dst) {
+		cmdq_error(item, "can't move window, sessions are grouped");
 		return (CMD_RETURN_ERROR);
 	}
 
 	if (wl_dst->window == wl_src->window)
 		return (CMD_RETURN_NORMAL);
 
-	w = wl_dst->window;
-	wl_dst->window = wl_src->window;
-	wl_src->window = w;
+	w_dst = wl_dst->window;
+	TAILQ_REMOVE(&w_dst->winlinks, wl_dst, wentry);
+	w_src = wl_src->window;
+	TAILQ_REMOVE(&w_src->winlinks, wl_src, wentry);
 
-	if (!args_has(self->args, 'd')) {
+	wl_dst->window = w_src;
+	TAILQ_INSERT_TAIL(&w_src->winlinks, wl_dst, wentry);
+	wl_src->window = w_dst;
+	TAILQ_INSERT_TAIL(&w_dst->winlinks, wl_src, wentry);
+
+	if (marked_pane.wl == wl_src)
+		marked_pane.wl = wl_dst;
+	if (args_has(args, 'd')) {
 		session_select(dst, wl_dst->idx);
 		if (src != dst)
 			session_select(src, wl_src->idx);

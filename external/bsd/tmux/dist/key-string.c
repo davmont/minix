@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,98 +18,201 @@
 
 #include <sys/types.h>
 
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "tmux.h"
 
-int	key_string_search_table(const char *);
-int	key_string_get_modifiers(const char **);
+static key_code	key_string_search_table(const char *);
+static key_code	key_string_get_modifiers(const char **);
 
-const struct {
+static const struct {
 	const char     *string;
-	int	 	key;
+	key_code	key;
 } key_string_table[] = {
 	/* Function keys. */
-	{ "F1",		KEYC_F1 },
-	{ "F2",		KEYC_F2 },
-	{ "F3",		KEYC_F3 },
-	{ "F4",		KEYC_F4 },
-	{ "F5",		KEYC_F5 },
-	{ "F6",		KEYC_F6 },
-	{ "F7",		KEYC_F7 },
-	{ "F8",		KEYC_F8 },
-	{ "F9",		KEYC_F9 },
-	{ "F10",	KEYC_F10 },
-	{ "F11",	KEYC_F11 },
-	{ "F12",	KEYC_F12 },
-	{ "F13",	KEYC_F13 },
-	{ "F14",	KEYC_F14 },
-	{ "F15",	KEYC_F15 },
-	{ "F16",	KEYC_F16 },
-	{ "F17",	KEYC_F17 },
-	{ "F18",	KEYC_F18 },
-	{ "F19",	KEYC_F19 },
-	{ "F20",	KEYC_F20 },
-	{ "IC",		KEYC_IC },
-	{ "DC",		KEYC_DC },
-	{ "Home",	KEYC_HOME },
-	{ "End",	KEYC_END },
-	{ "NPage",	KEYC_NPAGE },
-	{ "PageDown",	KEYC_NPAGE },
-	{ "PgDn",	KEYC_NPAGE },
-	{ "PPage",	KEYC_PPAGE },
-	{ "PageUp",	KEYC_PPAGE },
-	{ "PgUp",	KEYC_PPAGE },
-	{ "Tab",	'\011' },
+	{ "F1",		KEYC_F1|KEYC_IMPLIED_META },
+	{ "F2",		KEYC_F2|KEYC_IMPLIED_META },
+	{ "F3",		KEYC_F3|KEYC_IMPLIED_META },
+	{ "F4",		KEYC_F4|KEYC_IMPLIED_META },
+	{ "F5",		KEYC_F5|KEYC_IMPLIED_META },
+	{ "F6",		KEYC_F6|KEYC_IMPLIED_META },
+	{ "F7",		KEYC_F7|KEYC_IMPLIED_META },
+	{ "F8",		KEYC_F8|KEYC_IMPLIED_META },
+	{ "F9",		KEYC_F9|KEYC_IMPLIED_META },
+	{ "F10",	KEYC_F10|KEYC_IMPLIED_META },
+	{ "F11",	KEYC_F11|KEYC_IMPLIED_META },
+	{ "F12",	KEYC_F12|KEYC_IMPLIED_META },
+	{ "IC",		KEYC_IC|KEYC_IMPLIED_META },
+	{ "Insert",	KEYC_IC|KEYC_IMPLIED_META },
+	{ "DC",		KEYC_DC|KEYC_IMPLIED_META },
+	{ "Delete",	KEYC_DC|KEYC_IMPLIED_META },
+	{ "Home",	KEYC_HOME|KEYC_IMPLIED_META },
+	{ "End",	KEYC_END|KEYC_IMPLIED_META },
+	{ "NPage",	KEYC_NPAGE|KEYC_IMPLIED_META },
+	{ "PageDown",	KEYC_NPAGE|KEYC_IMPLIED_META },
+	{ "PgDn",	KEYC_NPAGE|KEYC_IMPLIED_META },
+	{ "PPage",	KEYC_PPAGE|KEYC_IMPLIED_META },
+	{ "PageUp",	KEYC_PPAGE|KEYC_IMPLIED_META },
+	{ "PgUp",	KEYC_PPAGE|KEYC_IMPLIED_META },
 	{ "BTab",	KEYC_BTAB },
 	{ "Space",	' ' },
 	{ "BSpace",	KEYC_BSPACE },
-	{ "Enter",	'\r' },
-	{ "Escape",	'\033' },
+
+	/*
+	 * C0 control characters, with the exception of Tab, Enter,
+	 * and Esc, should never appear as keys. We still render them,
+	 * so to be able to spot them in logs in case of an abnormality.
+	 */
+	{ "[NUL]",	C0_NUL },
+	{ "[SOH]",	C0_SOH },
+	{ "[STX]",	C0_STX },
+	{ "[ETX]",	C0_ETX },
+	{ "[EOT]",	C0_EOT },
+	{ "[ENQ]",	C0_ENQ },
+	{ "[ASC]",	C0_ASC },
+	{ "[BEL]",	C0_BEL },
+	{ "[BS]",	C0_BS },
+	{ "Tab",	C0_HT },
+	{ "[LF]",	C0_LF },
+	{ "[VT]",	C0_VT },
+	{ "[FF]",	C0_FF },
+	{ "Enter",	C0_CR },
+	{ "[SO]",	C0_SO },
+	{ "[SI]",	C0_SI },
+	{ "[DLE]",	C0_DLE },
+	{ "[DC1]",	C0_DC1 },
+	{ "[DC2]",	C0_DC2 },
+	{ "[DC3]",	C0_DC3 },
+	{ "[DC4]",	C0_DC4 },
+	{ "[NAK]",	C0_NAK },
+	{ "[SYN]",	C0_SYN },
+	{ "[ETB]",	C0_ETB },
+	{ "[CAN]",	C0_CAN },
+	{ "[EM]",	C0_EM },
+	{ "[SUB]",	C0_SUB },
+	{ "Escape",	C0_ESC },
+	{ "[FS]",	C0_FS },
+	{ "[GS]",	C0_GS },
+	{ "[RS]",	C0_RS },
+	{ "[US]",	C0_US },
 
 	/* Arrow keys. */
-	{ "Up",		KEYC_UP },
-	{ "Down",	KEYC_DOWN },
-	{ "Left",	KEYC_LEFT },
-	{ "Right",	KEYC_RIGHT },
+	{ "Up",		KEYC_UP|KEYC_CURSOR|KEYC_IMPLIED_META },
+	{ "Down",	KEYC_DOWN|KEYC_CURSOR|KEYC_IMPLIED_META },
+	{ "Left",	KEYC_LEFT|KEYC_CURSOR|KEYC_IMPLIED_META },
+	{ "Right",	KEYC_RIGHT|KEYC_CURSOR|KEYC_IMPLIED_META },
 
 	/* Numeric keypad. */
-	{ "KP/", 	KEYC_KP_SLASH },
-	{ "KP*",	KEYC_KP_STAR },
-	{ "KP-",	KEYC_KP_MINUS },
-	{ "KP7",	KEYC_KP_SEVEN },
-	{ "KP8",	KEYC_KP_EIGHT },
-	{ "KP9",	KEYC_KP_NINE },
-	{ "KP+",	KEYC_KP_PLUS },
-	{ "KP4",	KEYC_KP_FOUR },
-	{ "KP5",	KEYC_KP_FIVE },
-	{ "KP6",	KEYC_KP_SIX },
-	{ "KP1",	KEYC_KP_ONE },
-	{ "KP2",	KEYC_KP_TWO },
-	{ "KP3",	KEYC_KP_THREE },
-	{ "KPEnter",	KEYC_KP_ENTER },
-	{ "KP0",	KEYC_KP_ZERO },
-	{ "KP.",	KEYC_KP_PERIOD },
+	{ "KP/",	KEYC_KP_SLASH|KEYC_KEYPAD },
+	{ "KP*",	KEYC_KP_STAR|KEYC_KEYPAD },
+	{ "KP-",	KEYC_KP_MINUS|KEYC_KEYPAD },
+	{ "KP7",	KEYC_KP_SEVEN|KEYC_KEYPAD },
+	{ "KP8",	KEYC_KP_EIGHT|KEYC_KEYPAD },
+	{ "KP9",	KEYC_KP_NINE|KEYC_KEYPAD },
+	{ "KP+",	KEYC_KP_PLUS|KEYC_KEYPAD },
+	{ "KP4",	KEYC_KP_FOUR|KEYC_KEYPAD },
+	{ "KP5",	KEYC_KP_FIVE|KEYC_KEYPAD },
+	{ "KP6",	KEYC_KP_SIX|KEYC_KEYPAD },
+	{ "KP1",	KEYC_KP_ONE|KEYC_KEYPAD },
+	{ "KP2",	KEYC_KP_TWO|KEYC_KEYPAD },
+	{ "KP3",	KEYC_KP_THREE|KEYC_KEYPAD },
+	{ "KPEnter",	KEYC_KP_ENTER|KEYC_KEYPAD },
+	{ "KP0",	KEYC_KP_ZERO|KEYC_KEYPAD },
+	{ "KP.",	KEYC_KP_PERIOD|KEYC_KEYPAD },
+
+	/* Mouse keys. */
+	KEYC_MOUSE_STRING(MOUSEDOWN1, MouseDown1),
+	KEYC_MOUSE_STRING(MOUSEDOWN2, MouseDown2),
+	KEYC_MOUSE_STRING(MOUSEDOWN3, MouseDown3),
+	KEYC_MOUSE_STRING(MOUSEDOWN6, MouseDown6),
+	KEYC_MOUSE_STRING(MOUSEDOWN7, MouseDown7),
+	KEYC_MOUSE_STRING(MOUSEDOWN8, MouseDown8),
+	KEYC_MOUSE_STRING(MOUSEDOWN9, MouseDown9),
+	KEYC_MOUSE_STRING(MOUSEDOWN10, MouseDown10),
+	KEYC_MOUSE_STRING(MOUSEDOWN11, MouseDown11),
+	KEYC_MOUSE_STRING(MOUSEUP1, MouseUp1),
+	KEYC_MOUSE_STRING(MOUSEUP2, MouseUp2),
+	KEYC_MOUSE_STRING(MOUSEUP3, MouseUp3),
+	KEYC_MOUSE_STRING(MOUSEUP6, MouseUp6),
+	KEYC_MOUSE_STRING(MOUSEUP7, MouseUp7),
+	KEYC_MOUSE_STRING(MOUSEUP8, MouseUp8),
+	KEYC_MOUSE_STRING(MOUSEUP9, MouseUp9),
+	KEYC_MOUSE_STRING(MOUSEUP10, MouseUp10),
+	KEYC_MOUSE_STRING(MOUSEUP11, MouseUp11),
+	KEYC_MOUSE_STRING(MOUSEDRAG1, MouseDrag1),
+	KEYC_MOUSE_STRING(MOUSEDRAG2, MouseDrag2),
+	KEYC_MOUSE_STRING(MOUSEDRAG3, MouseDrag3),
+	KEYC_MOUSE_STRING(MOUSEDRAG6, MouseDrag6),
+	KEYC_MOUSE_STRING(MOUSEDRAG7, MouseDrag7),
+	KEYC_MOUSE_STRING(MOUSEDRAG8, MouseDrag8),
+	KEYC_MOUSE_STRING(MOUSEDRAG9, MouseDrag9),
+	KEYC_MOUSE_STRING(MOUSEDRAG10, MouseDrag10),
+	KEYC_MOUSE_STRING(MOUSEDRAG11, MouseDrag11),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND1, MouseDragEnd1),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND2, MouseDragEnd2),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND3, MouseDragEnd3),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND6, MouseDragEnd6),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND7, MouseDragEnd7),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND8, MouseDragEnd8),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND9, MouseDragEnd9),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND10, MouseDragEnd10),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND11, MouseDragEnd11),
+	KEYC_MOUSE_STRING(WHEELUP, WheelUp),
+	KEYC_MOUSE_STRING(WHEELDOWN, WheelDown),
+	KEYC_MOUSE_STRING(SECONDCLICK1, SecondClick1),
+	KEYC_MOUSE_STRING(SECONDCLICK2, SecondClick2),
+	KEYC_MOUSE_STRING(SECONDCLICK3, SecondClick3),
+	KEYC_MOUSE_STRING(SECONDCLICK6, SecondClick6),
+	KEYC_MOUSE_STRING(SECONDCLICK7, SecondClick7),
+	KEYC_MOUSE_STRING(SECONDCLICK8, SecondClick8),
+	KEYC_MOUSE_STRING(SECONDCLICK9, SecondClick9),
+	KEYC_MOUSE_STRING(SECONDCLICK10, SecondClick10),
+	KEYC_MOUSE_STRING(SECONDCLICK11, SecondClick11),
+	KEYC_MOUSE_STRING(DOUBLECLICK1, DoubleClick1),
+	KEYC_MOUSE_STRING(DOUBLECLICK2, DoubleClick2),
+	KEYC_MOUSE_STRING(DOUBLECLICK3, DoubleClick3),
+	KEYC_MOUSE_STRING(DOUBLECLICK6, DoubleClick6),
+	KEYC_MOUSE_STRING(DOUBLECLICK7, DoubleClick7),
+	KEYC_MOUSE_STRING(DOUBLECLICK8, DoubleClick8),
+	KEYC_MOUSE_STRING(DOUBLECLICK9, DoubleClick9),
+	KEYC_MOUSE_STRING(DOUBLECLICK10, DoubleClick10),
+	KEYC_MOUSE_STRING(DOUBLECLICK11, DoubleClick11),
+	KEYC_MOUSE_STRING(TRIPLECLICK1, TripleClick1),
+	KEYC_MOUSE_STRING(TRIPLECLICK2, TripleClick2),
+	KEYC_MOUSE_STRING(TRIPLECLICK3, TripleClick3),
+	KEYC_MOUSE_STRING(TRIPLECLICK6, TripleClick6),
+	KEYC_MOUSE_STRING(TRIPLECLICK7, TripleClick7),
+	KEYC_MOUSE_STRING(TRIPLECLICK8, TripleClick8),
+	KEYC_MOUSE_STRING(TRIPLECLICK9, TripleClick9),
+	KEYC_MOUSE_STRING(TRIPLECLICK10, TripleClick10),
+	KEYC_MOUSE_STRING(TRIPLECLICK11, TripleClick11)
 };
 
 /* Find key string in table. */
-int
+static key_code
 key_string_search_table(const char *string)
 {
-	u_int	i;
+	u_int	i, user;
 
 	for (i = 0; i < nitems(key_string_table); i++) {
 		if (strcasecmp(string, key_string_table[i].string) == 0)
 			return (key_string_table[i].key);
 	}
-	return (KEYC_NONE);
+
+	if (sscanf(string, "User%u", &user) == 1 && user < KEYC_NUSER)
+		return (KEYC_USER + user);
+
+	return (KEYC_UNKNOWN);
 }
 
 /* Find modifiers. */
-int
+static key_code
 key_string_get_modifiers(const char **string)
 {
-	int	modifiers;
+	key_code	modifiers;
 
 	modifiers = 0;
 	while (((*string)[0] != '\0') && (*string)[1] == '-') {
@@ -120,12 +223,15 @@ key_string_get_modifiers(const char **string)
 			break;
 		case 'M':
 		case 'm':
-			modifiers |= KEYC_ESCAPE;
+			modifiers |= KEYC_META;
 			break;
 		case 'S':
 		case 's':
 			modifiers |= KEYC_SHIFT;
 			break;
+		default:
+			*string = NULL;
+			return (0);
 		}
 		*string += 2;
 	}
@@ -133,119 +239,239 @@ key_string_get_modifiers(const char **string)
 }
 
 /* Lookup a string and convert to a key value. */
-int
+key_code
 key_string_lookup_string(const char *string)
 {
-	static const char	*other = "!#()+,-.0123456789:;<=>?'\r\t";
-	int			 key, modifiers;
-	u_short			 u;
-	int			 size;
+	key_code		 key, modifiers = 0;
+	u_int			 u, i;
+	struct utf8_data	 ud, *udp;
+	enum utf8_state		 more;
+	utf8_char		 uc;
+	char			 m[MB_LEN_MAX + 1];
+	int			 mlen;
+
+	/* Is this no key or any key? */
+	if (strcasecmp(string, "None") == 0)
+		return (KEYC_NONE);
+	if (strcasecmp(string, "Any") == 0)
+		return (KEYC_ANY);
 
 	/* Is this a hexadecimal value? */
 	if (string[0] == '0' && string[1] == 'x') {
-	        if (sscanf(string + 2, "%hx%n", &u, &size) != 1 || size > 4)
-	                return (KEYC_NONE);
-	        return (u);
+		if (sscanf(string + 2, "%x", &u) != 1)
+			return (KEYC_UNKNOWN);
+		if (u < 32)
+			return (u);
+		mlen = wctomb(m, u);
+		if (mlen <= 0 || mlen > MB_LEN_MAX)
+			return (KEYC_UNKNOWN);
+		m[mlen] = '\0';
+
+		udp = utf8_fromcstr(m);
+		if (udp == NULL ||
+		    udp[0].size == 0 ||
+		    udp[1].size != 0 ||
+		    utf8_from_data(&udp[0], &uc) != UTF8_DONE) {
+			free(udp);
+			return (KEYC_UNKNOWN);
+		}
+		free(udp);
+		return (uc);
 	}
 
-	/* Check for modifiers. */
-	modifiers = 0;
+	/* Check for short Ctrl key. */
 	if (string[0] == '^' && string[1] != '\0') {
+		if (string[2] == '\0')
+			return (tolower((u_char)string[1])|KEYC_CTRL);
 		modifiers |= KEYC_CTRL;
 		string++;
 	}
+
+	/* Check for modifiers. */
 	modifiers |= key_string_get_modifiers(&string);
-	if (string[0] == '\0')
-		return (KEYC_NONE);
+	if (string == NULL || string[0] == '\0')
+		return (KEYC_UNKNOWN);
 
 	/* Is this a standard ASCII key? */
-	if (string[1] == '\0') {
-		key = (u_char) string[0];
-		if (key < 32 || key == 127 || key > 255)
-			return (KEYC_NONE);
+	if (string[1] == '\0' && (u_char)string[0] <= 127) {
+		key = (u_char)string[0];
+		if (key < 32)
+			return (KEYC_UNKNOWN);
 	} else {
+		/* Try as a UTF-8 key. */
+		if ((more = utf8_open(&ud, (u_char)*string)) == UTF8_MORE) {
+			if (strlen(string) != ud.size)
+				return (KEYC_UNKNOWN);
+			for (i = 1; i < ud.size; i++)
+				more = utf8_append(&ud, (u_char)string[i]);
+			if (more != UTF8_DONE)
+				return (KEYC_UNKNOWN);
+			if (utf8_from_data(&ud, &uc) != UTF8_DONE)
+				return (KEYC_UNKNOWN);
+			return (uc|modifiers);
+		}
+
 		/* Otherwise look the key up in the table. */
 		key = key_string_search_table(string);
-		if (key == KEYC_NONE)
-			return (KEYC_NONE);
+		if (key == KEYC_UNKNOWN)
+			return (KEYC_UNKNOWN);
+		if (~modifiers & KEYC_META)
+			key &= ~KEYC_IMPLIED_META;
 	}
 
-	/* Convert the standard control keys. */
-	if (key < KEYC_BASE && (modifiers & KEYC_CTRL) && !strchr(other, key)) {
-		if (key >= 97 && key <= 122)
-			key -= 96;
-		else if (key >= 64 && key <= 95)
-			key -= 64;
-		else if (key == 32)
-			key = 0;
-		else if (key == 63)
-			key = KEYC_BSPACE;
-		else
-			return (KEYC_NONE);
-		modifiers &= ~KEYC_CTRL;
-	}
-
-	return (key | modifiers);
+	return (key|modifiers);
 }
 
 /* Convert a key code into string format, with prefix if necessary. */
 const char *
-key_string_lookup_key(int key)
+key_string_lookup_key(key_code key, int with_flags)
 {
-	static char	out[24];
-	char		tmp[8];
-	u_int		i;
+	key_code		 saved = key;
+	static char		 out[64];
+	char			 tmp[8];
+	const char		*s;
+	u_int			 i;
+	struct utf8_data	 ud;
+	size_t			 off;
 
 	*out = '\0';
 
-	/* Handle no key. */
-	if (key == KEYC_NONE)
-		return ("none");
-
-	/*
-	 * Special case: display C-@ as C-Space. Could do this below in
-	 * the (key >= 0 && key <= 32), but this way we let it be found
-	 * in key_string_table, for the unlikely chance that we might
-	 * change its name.
-	 */
-	if ((key & KEYC_MASK_KEY) == 0)
-	    key = ' ' | KEYC_CTRL | (key & KEYC_MASK_MOD);
+	/* Literal keys are themselves. */
+	if (key & KEYC_LITERAL) {
+		snprintf(out, sizeof out, "%c", (int)(key & 0xff));
+		goto out;
+	}
 
 	/* Fill in the modifiers. */
 	if (key & KEYC_CTRL)
 		strlcat(out, "C-", sizeof out);
-	if (key & KEYC_ESCAPE)
+	if (key & KEYC_META)
 		strlcat(out, "M-", sizeof out);
 	if (key & KEYC_SHIFT)
 		strlcat(out, "S-", sizeof out);
 	key &= KEYC_MASK_KEY;
 
+	/* Handle no key. */
+	if (key == KEYC_NONE) {
+		s = "None";
+		goto append;
+	}
+
+	/* Handle special keys. */
+	if (key == KEYC_UNKNOWN) {
+		s = "Unknown";
+		goto append;
+	}
+	if (key == KEYC_ANY) {
+		s = "Any";
+		goto append;
+	}
+	if (key == KEYC_FOCUS_IN) {
+		s = "FocusIn";
+		goto append;
+	}
+	if (key == KEYC_FOCUS_OUT) {
+		s = "FocusOut";
+		goto append;
+	}
+	if (key == KEYC_PASTE_START) {
+		s = "PasteStart";
+		goto append;
+	}
+	if (key == KEYC_PASTE_END) {
+		s = "PasteEnd";
+		goto append;
+	}
+	if (key == KEYC_MOUSE) {
+		s = "Mouse";
+		goto append;
+	}
+	if (key == KEYC_DRAGGING) {
+		s = "Dragging";
+		goto append;
+	}
+	if (key == KEYC_MOUSEMOVE_PANE) {
+		s = "MouseMovePane";
+		goto append;
+	}
+	if (key == KEYC_MOUSEMOVE_STATUS) {
+		s = "MouseMoveStatus";
+		goto append;
+	}
+	if (key == KEYC_MOUSEMOVE_STATUS_LEFT) {
+		s = "MouseMoveStatusLeft";
+		goto append;
+	}
+	if (key == KEYC_MOUSEMOVE_STATUS_RIGHT) {
+		s = "MouseMoveStatusRight";
+		goto append;
+	}
+	if (key == KEYC_MOUSEMOVE_BORDER) {
+		s = "MouseMoveBorder";
+		goto append;
+	}
+	if (key >= KEYC_USER && key < KEYC_USER_END) {
+		snprintf(tmp, sizeof tmp, "User%u", (u_int)(key - KEYC_USER));
+		strlcat(out, tmp, sizeof out);
+		goto out;
+	}
+
 	/* Try the key against the string table. */
 	for (i = 0; i < nitems(key_string_table); i++) {
-		if (key == key_string_table[i].key)
+		if (key == (key_string_table[i].key & KEYC_MASK_KEY))
 			break;
 	}
 	if (i != nitems(key_string_table)) {
 		strlcat(out, key_string_table[i].string, sizeof out);
-		return (out);
+		goto out;
+	}
+
+	/* Is this a Unicode key? */
+	if (KEYC_IS_UNICODE(key)) {
+		utf8_to_data(key, &ud);
+		off = strlen(out);
+		memcpy(out + off, ud.data, ud.size);
+		out[off + ud.size] = '\0';
+		goto out;
 	}
 
 	/* Invalid keys are errors. */
-	if (key == 127 || key > 255)
-		return (NULL);
+	if (key > 255) {
+		snprintf(out, sizeof out, "Invalid#%llx", saved);
+		goto out;
+	}
 
-	/* Check for standard or control key. */
-	if (key >= 0 && key <= 32) {
-		if (key == 0 || key > 26)
-			xsnprintf(tmp, sizeof tmp, "C-%c", 64 + key);
-		else
-			xsnprintf(tmp, sizeof tmp, "C-%c", 96 + key);
-	} else if (key >= 32 && key <= 126) {
+	/* Printable ASCII keys. */
+	if (key > 32 && key <= 126) {
 		tmp[0] = key;
 		tmp[1] = '\0';
-	} else if (key >= 128)
-		xsnprintf(tmp, sizeof tmp, "\\%o", key);
+	} else if (key == 127)
+		xsnprintf(tmp, sizeof tmp, "C-?");
+	else if (key >= 128)
+		xsnprintf(tmp, sizeof tmp, "\\%llo", key);
 
 	strlcat(out, tmp, sizeof out);
+	goto out;
+
+append:
+	strlcat(out, s, sizeof out);
+
+out:
+	if (with_flags && (saved & KEYC_MASK_FLAGS) != 0) {
+		strlcat(out, "[", sizeof out);
+		if (saved & KEYC_LITERAL)
+			strlcat(out, "L", sizeof out);
+		if (saved & KEYC_KEYPAD)
+			strlcat(out, "K", sizeof out);
+		if (saved & KEYC_CURSOR)
+			strlcat(out, "C", sizeof out);
+		if (saved & KEYC_IMPLIED_META)
+			strlcat(out, "I", sizeof out);
+		if (saved & KEYC_BUILD_MODIFIERS)
+			strlcat(out, "B", sizeof out);
+		if (saved & KEYC_SENT)
+			strlcat(out, "S", sizeof out);
+		strlcat(out, "]", sizeof out);
+	}
 	return (out);
 }

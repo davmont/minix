@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Joshua Elsasser <josh@elsasser.org>
@@ -23,22 +23,30 @@
 #include "tmux.h"
 
 const char *
-attributes_tostring(u_char attr)
+attributes_tostring(int attr)
 {
-	static char	buf[128];
+	static char	buf[512];
 	size_t		len;
 
 	if (attr == 0)
 		return ("none");
 
-	len = xsnprintf(buf, sizeof buf, "%s%s%s%s%s%s%s",
-		attr & GRID_ATTR_BRIGHT ? "bright," : "",
-		attr & GRID_ATTR_DIM ? "dim," : "",
-		attr & GRID_ATTR_UNDERSCORE ? "underscore," : "",
-		attr & GRID_ATTR_BLINK ? "blink," : "",
-		attr & GRID_ATTR_REVERSE ? "reverse," : "",
-		attr & GRID_ATTR_HIDDEN ? "hidden," : "",
-		attr & GRID_ATTR_ITALICS ? "italics," : "");
+	len = xsnprintf(buf, sizeof buf, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+	    (attr & GRID_ATTR_CHARSET) ? "acs," : "",
+	    (attr & GRID_ATTR_BRIGHT) ? "bright," : "",
+	    (attr & GRID_ATTR_DIM) ? "dim," : "",
+	    (attr & GRID_ATTR_UNDERSCORE) ? "underscore," : "",
+	    (attr & GRID_ATTR_BLINK)? "blink," : "",
+	    (attr & GRID_ATTR_REVERSE) ? "reverse," : "",
+	    (attr & GRID_ATTR_HIDDEN) ? "hidden," : "",
+	    (attr & GRID_ATTR_ITALICS) ? "italics," : "",
+	    (attr & GRID_ATTR_STRIKETHROUGH) ? "strikethrough," : "",
+	    (attr & GRID_ATTR_UNDERSCORE_2) ? "double-underscore," : "",
+	    (attr & GRID_ATTR_UNDERSCORE_3) ? "curly-underscore," : "",
+	    (attr & GRID_ATTR_UNDERSCORE_4) ? "dotted-underscore," : "",
+	    (attr & GRID_ATTR_UNDERSCORE_5) ? "dashed-underscore," : "",
+        (attr & GRID_ATTR_OVERLINE) ? "overline," : "",
+	    (attr & GRID_ATTR_NOATTR) ? "noattr," : "");
 	if (len > 0)
 		buf[len - 1] = '\0';
 
@@ -49,8 +57,29 @@ int
 attributes_fromstring(const char *str)
 {
 	const char	delimiters[] = " ,|";
-	u_char		attr;
+	int		attr;
 	size_t		end;
+	u_int		i;
+	struct {
+		const char	*name;
+		int		 attr;
+	} table[] = {
+		{ "acs", GRID_ATTR_CHARSET },
+		{ "bright", GRID_ATTR_BRIGHT },
+		{ "bold", GRID_ATTR_BRIGHT },
+		{ "dim", GRID_ATTR_DIM },
+		{ "underscore", GRID_ATTR_UNDERSCORE },
+		{ "blink", GRID_ATTR_BLINK },
+		{ "reverse", GRID_ATTR_REVERSE },
+		{ "hidden", GRID_ATTR_HIDDEN },
+		{ "italics", GRID_ATTR_ITALICS },
+		{ "strikethrough", GRID_ATTR_STRIKETHROUGH },
+		{ "double-underscore", GRID_ATTR_UNDERSCORE_2 },
+		{ "curly-underscore", GRID_ATTR_UNDERSCORE_3 },
+		{ "dotted-underscore", GRID_ATTR_UNDERSCORE_4 },
+		{ "dashed-underscore", GRID_ATTR_UNDERSCORE_5 },
+		{ "overline", GRID_ATTR_OVERLINE }
+	};
 
 	if (*str == '\0' || strcspn(str, delimiters) == 0)
 		return (-1);
@@ -63,22 +92,15 @@ attributes_fromstring(const char *str)
 	attr = 0;
 	do {
 		end = strcspn(str, delimiters);
-		if ((end == 6 && strncasecmp(str, "bright", end) == 0) ||
-		    (end == 4 && strncasecmp(str, "bold", end) == 0))
-			attr |= GRID_ATTR_BRIGHT;
-		else if (end == 3 && strncasecmp(str, "dim", end) == 0)
-			attr |= GRID_ATTR_DIM;
-		else if (end == 10 && strncasecmp(str, "underscore", end) == 0)
-			attr |= GRID_ATTR_UNDERSCORE;
-		else if (end == 5 && strncasecmp(str, "blink", end) == 0)
-			attr |= GRID_ATTR_BLINK;
-		else if (end == 7 && strncasecmp(str, "reverse", end) == 0)
-			attr |= GRID_ATTR_REVERSE;
-		else if (end == 6 && strncasecmp(str, "hidden", end) == 0)
-			attr |= GRID_ATTR_HIDDEN;
-		else if (end == 7 && strncasecmp(str, "italics", end) == 0)
-			attr |= GRID_ATTR_ITALICS;
-		else
+		for (i = 0; i < nitems(table); i++) {
+			if (end != strlen(table[i].name))
+				continue;
+			if (strncasecmp(str, table[i].name, end) == 0) {
+				attr |= table[i].attr;
+				break;
+			}
+		}
+		if (i == nitems(table))
 			return (-1);
 		str += end + strspn(str + end, delimiters);
 	} while (*str != '\0');

@@ -1,7 +1,7 @@
 /* $OpenBSD$ */
 
 /*
- * Copyright (c) 2012 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2012 Nicholas Marriott <nicholas.marriott@gmail.com>
  * Copyright (c) 2012 George Nachman <tmux@georgester.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -19,56 +19,39 @@
 
 #include <sys/types.h>
 
+#include <stdlib.h>
+
 #include "tmux.h"
 
 #define CONTROL_SHOULD_NOTIFY_CLIENT(c) \
 	((c) != NULL && ((c)->flags & CLIENT_CONTROL))
 
 void
-control_notify_input(struct client *c, struct window_pane *wp,
-    struct evbuffer *input)
+control_notify_pane_mode_changed(int pane)
 {
-	u_char		*buf;
-	size_t		 len;
-	struct evbuffer *message;
-	u_int		 i;
+	struct client	*c;
 
-	if (c->session == NULL)
-	    return;
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
 
-	buf = EVBUFFER_DATA(input);
-	len = EVBUFFER_LENGTH(input);
-
-	/*
-	 * Only write input if the window pane is linked to a window belonging
-	 * to the client's session.
-	 */
-	if (winlink_find_by_window(&c->session->windows, wp->window) != NULL) {
-		message = evbuffer_new();
-		evbuffer_add_printf(message, "%%output %%%u ", wp->id);
-		for (i = 0; i < len; i++) {
-			if (buf[i] < ' ' || buf[i] == '\\')
-			    evbuffer_add_printf(message, "\\%03o", buf[i]);
-			else
-			    evbuffer_add_printf(message, "%c", buf[i]);
-		}
-		control_write_buffer(c, message);
-		evbuffer_free(message);
+		control_write(c, "%%pane-mode-changed %%%u", pane);
 	}
 }
 
 void
 control_notify_window_layout_changed(struct window *w)
 {
-	struct client		*c;
-	struct session		*s;
-	struct format_tree	*ft;
-	struct winlink		*wl;
-	u_int			 i;
-	const char		*template;
+	struct client	*c;
+	struct session	*s;
+	struct winlink	*wl;
+	const char	*template;
+	char		*cp;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	template = "%layout-change #{window_id} #{window_layout} "
+	    "#{window_visible_layout} #{window_raw_flags}";
+
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
 			continue;
 		s = c->session;
@@ -83,42 +66,55 @@ control_notify_window_layout_changed(struct window *w)
 		 */
 		if (w->layout_root == NULL)
 			continue;
-		template = "%layout-change #{window_id} #{window_layout}";
 
-		ft = format_create();
 		wl = winlink_find_by_window(&s->windows, w);
 		if (wl != NULL) {
-			format_winlink(ft, c->session, wl);
-			control_write(c, "%s", format_expand(ft, template));
+			cp = format_single(NULL, template, c, NULL, wl, NULL);
+			control_write(c, "%s", cp);
+			free(cp);
 		}
-		format_free(ft);
 	}
 }
 
 void
-control_notify_window_unlinked(unused struct session *s, struct window *w)
+control_notify_window_pane_changed(struct window *w)
 {
 	struct client	*c;
-	u_int		 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
 			continue;
 
-		control_write(c, "%%window-close @%u", w->id);
+		control_write(c, "%%window-pane-changed @%u %%%u", w->id,
+		    w->active->id);
 	}
 }
 
 void
-control_notify_window_linked(unused struct session *s, struct window *w)
+control_notify_window_unlinked(__unused struct session *s, struct window *w)
 {
 	struct client	*c;
 	struct session	*cs;
-	u_int		 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
+			continue;
+		cs = c->session;
+
+		if (winlink_find_by_window_id(&cs->windows, w->id) != NULL)
+			control_write(c, "%%window-close @%u", w->id);
+		else
+			control_write(c, "%%unlinked-window-close @%u", w->id);
+	}
+}
+
+void
+control_notify_window_linked(__unused struct session *s, struct window *w)
+{
+	struct client	*c;
+	struct session	*cs;
+
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
 			continue;
 		cs = c->session;
@@ -134,37 +130,64 @@ void
 control_notify_window_renamed(struct window *w)
 {
 	struct client	*c;
-	u_int		 i;
+	struct session	*cs;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
 			continue;
+		cs = c->session;
 
-		control_write(c, "%%window-renamed @%u %s", w->id, w->name);
+		if (winlink_find_by_window_id(&cs->windows, w->id) != NULL) {
+			control_write(c, "%%window-renamed @%u %s", w->id,
+			    w->name);
+		} else {
+			control_write(c, "%%unlinked-window-renamed @%u %s",
+			    w->id, w->name);
+		}
 	}
 }
 
 void
-control_notify_attached_session_changed(struct client *c)
+control_notify_client_session_changed(struct client *cc)
 {
+	struct client	*c;
 	struct session	*s;
 
-	if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
+	if (cc->session == NULL)
 		return;
-	s = c->session;
+	s = cc->session;
 
-	control_write(c, "%%session-changed $%u %s", s->id, s->name);
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c) || c->session == NULL)
+			continue;
+
+		if (cc == c) {
+			control_write(c, "%%session-changed $%u %s", s->id,
+			    s->name);
+		} else {
+			control_write(c, "%%client-session-changed %s $%u %s",
+			    cc->name, s->id, s->name);
+		}
+	}
+}
+
+void
+control_notify_client_detached(struct client *cc)
+{
+	struct client	*c;
+
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			control_write(c, "%%client-detached %s", cc->name);
+	}
 }
 
 void
 control_notify_session_renamed(struct session *s)
 {
 	struct client	*c;
-	u_int		 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
 			continue;
 
@@ -173,13 +196,11 @@ control_notify_session_renamed(struct session *s)
 }
 
 void
-control_notify_session_created(unused struct session *s)
+control_notify_session_created(__unused struct session *s)
 {
 	struct client	*c;
-	u_int		 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
 			continue;
 
@@ -188,16 +209,54 @@ control_notify_session_created(unused struct session *s)
 }
 
 void
-control_notify_session_close(unused struct session *s)
+control_notify_session_closed(__unused struct session *s)
 {
 	struct client	*c;
-	u_int		 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
+	TAILQ_FOREACH(c, &clients, entry) {
 		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
 			continue;
 
 		control_write(c, "%%sessions-changed");
+	}
+}
+
+void
+control_notify_session_window_changed(struct session *s)
+{
+	struct client	*c;
+
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
+
+		control_write(c, "%%session-window-changed $%u @%u", s->id,
+		    s->curw->window->id);
+	}
+}
+
+void
+control_notify_paste_buffer_changed(const char *name)
+{
+	struct client	*c;
+
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
+
+		control_write(c, "%%paste-buffer-changed %s", name);
+	}
+}
+
+void
+control_notify_paste_buffer_deleted(const char *name)
+{
+	struct client	*c;
+
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
+
+		control_write(c, "%%paste-buffer-deleted %s", name);
 	}
 }

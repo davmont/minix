@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,7 +17,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/stat.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -27,140 +26,256 @@
 
 #include "tmux.h"
 
-struct cmd_q		*cfg_cmd_q;
-int			 cfg_finished;
-int			 cfg_references;
-struct causelist	 cfg_causes;
-struct client		*cfg_client;
+struct client		 *cfg_client;
+int			  cfg_finished;
+static char		**cfg_causes;
+static u_int		  cfg_ncauses;
+static struct cmdq_item	 *cfg_item;
 
-int
-load_cfg(const char *path, struct cmd_q *cmdq, char **cause)
+int                       cfg_quiet = 1;
+char                    **cfg_files;
+u_int                     cfg_nfiles;
+
+static enum cmd_retval
+cfg_client_done(__unused struct cmdq_item *item, __unused void *data)
 {
-	FILE		*f;
-	u_int		 n, found;
-	char		*buf, *copy, *line, *cause1, *msg;
-	size_t		 len, oldlen;
-	struct cmd_list	*cmdlist;
+	if (!cfg_finished)
+		return (CMD_RETURN_WAIT);
+	return (CMD_RETURN_NORMAL);
+}
 
-	log_debug("loading %s", path);
-	if ((f = fopen(path, "rb")) == NULL) {
-		xasprintf(cause, "%s: %s", path, strerror(errno));
-		return (-1);
-	}
+static enum cmd_retval
+cfg_done(__unused struct cmdq_item *item, __unused void *data)
+{
+	if (cfg_finished)
+		return (CMD_RETURN_NORMAL);
+	cfg_finished = 1;
 
-	n = found = 0;
-	line = NULL;
-	while ((buf = fgetln(f, &len))) {
-		/* Trim \n. */
-		if (buf[len - 1] == '\n')
-			len--;
-		log_debug("%s: %.*s", path, (int)len, buf);
+	cfg_show_causes(NULL);
 
-		/* Current line is the continuation of the previous one. */
-		if (line != NULL) {
-			oldlen = strlen(line);
-			line = xrealloc(line, 1, oldlen + len + 1);
-		} else {
-			oldlen = 0;
-			line = xmalloc(len + 1);
-		}
+	if (cfg_item != NULL)
+		cmdq_continue(cfg_item);
 
-		/* Append current line to the previous. */
-		memcpy(line + oldlen, buf, len);
-		line[oldlen + len] = '\0';
-		n++;
+	status_prompt_load_history();
 
-		/* Continuation: get next line? */
-		len = strlen(line);
-		if (len > 0 && line[len - 1] == '\\') {
-			line[len - 1] = '\0';
-
-			/* Ignore escaped backslash at EOL. */
-			if (len > 1 && line[len - 2] != '\\')
-				continue;
-		}
-		copy = line;
-		line = NULL;
-
-		/* Skip empty lines. */
-		buf = copy;
-		while (isspace((u_char)*buf))
-			buf++;
-		if (*buf == '\0') {
-			free(copy);
-			continue;
-		}
-
-		/* Parse and run the command. */
-		if (cmd_string_parse(buf, &cmdlist, path, n, &cause1) != 0) {
-			free(copy);
-			if (cause1 == NULL)
-				continue;
-			xasprintf(&msg, "%s:%u: %s", path, n, cause1);
-			ARRAY_ADD(&cfg_causes, msg);
-			free(cause1);
-			continue;
-		}
-		free(copy);
-
-		if (cmdlist == NULL)
-			continue;
-		cmdq_append(cmdq, cmdlist);
-		cmd_list_free(cmdlist);
-		found++;
-	}
-	if (line != NULL)
-		free(line);
-	fclose(f);
-
-	return (found);
+	return (CMD_RETURN_NORMAL);
 }
 
 void
-cfg_default_done(unused struct cmd_q *cmdq)
+start_cfg(void)
 {
-	if (--cfg_references != 0)
-		return;
-	cfg_finished = 1;
+	struct client	 *c;
+	u_int		  i;
+	int		  flags = 0;
 
-	if (!RB_EMPTY(&sessions))
-		cfg_show_causes(RB_MIN(sessions, &sessions));
-
-	cmdq_free(cfg_cmd_q);
-	cfg_cmd_q = NULL;
-
-	if (cfg_client != NULL) {
-		/*
-		 * The client command queue starts with client_exit set to 1 so
-		 * only continue if not empty (that is, we have been delayed
-		 * during configuration parsing for long enough that the
-		 * MSG_COMMAND has arrived), else the client will exit before
-		 * the MSG_COMMAND which might tell it not to.
-		 */
-		if (!TAILQ_EMPTY(&cfg_client->cmdq->queue))
-			cmdq_continue(cfg_client->cmdq);
-		cfg_client->references--;
-		cfg_client = NULL;
+	/*
+	 * Configuration files are loaded without a client, so commands are run
+	 * in the global queue with item->client NULL.
+	 *
+	 * However, we must block the initial client (but just the initial
+	 * client) so that its command runs after the configuration is loaded.
+	 * Because start_cfg() is called so early, we can be sure the client's
+	 * command queue is currently empty and our callback will be at the
+	 * front - we need to get in before MSG_COMMAND.
+	 */
+	cfg_client = c = TAILQ_FIRST(&clients);
+	if (c != NULL) {
+		cfg_item = cmdq_get_callback(cfg_client_done, NULL);
+		cmdq_append(c, cfg_item);
 	}
+
+	if (cfg_quiet)
+		flags = CMD_PARSE_QUIET;
+	for (i = 0; i < cfg_nfiles; i++)
+		load_cfg(cfg_files[i], c, NULL, NULL, flags, NULL);
+
+	cmdq_append(NULL, cmdq_get_callback(cfg_done, NULL));
+}
+
+int
+load_cfg(const char *path, struct client *c, struct cmdq_item *item,
+    struct cmd_find_state *current, int flags, struct cmdq_item **new_item)
+{
+	FILE			*f;
+	struct cmd_parse_input	 pi;
+	struct cmd_parse_result	*pr;
+	struct cmdq_item	*new_item0;
+	struct cmdq_state	*state;
+
+	if (new_item != NULL)
+		*new_item = NULL;
+
+	log_debug("loading %s", path);
+	if ((f = fopen(path, "rb")) == NULL) {
+		if (errno == ENOENT && (flags & CMD_PARSE_QUIET))
+			return (0);
+		cfg_add_cause("%s: %s", path, strerror(errno));
+		return (-1);
+	}
+
+	memset(&pi, 0, sizeof pi);
+	pi.flags = flags;
+	pi.file = path;
+	pi.line = 1;
+	pi.item = item;
+	pi.c = c;
+
+	pr = cmd_parse_from_file(f, &pi);
+	fclose(f);
+	if (pr->status == CMD_PARSE_ERROR) {
+		cfg_add_cause("%s", pr->error);
+		free(pr->error);
+		return (-1);
+	}
+	if (flags & CMD_PARSE_PARSEONLY) {
+		cmd_list_free(pr->cmdlist);
+		return (0);
+	}
+
+	if (item != NULL)
+		state = cmdq_copy_state(cmdq_get_state(item), current);
+	else
+		state = cmdq_new_state(NULL, NULL, 0);
+	cmdq_add_format(state, "current_file", "%s", pi.file);
+
+	new_item0 = cmdq_get_command(pr->cmdlist, state);
+	if (item != NULL)
+		new_item0 = cmdq_insert_after(item, new_item0);
+	else
+		new_item0 = cmdq_append(NULL, new_item0);
+	cmd_list_free(pr->cmdlist);
+	cmdq_free_state(state);
+
+	if (new_item != NULL)
+		*new_item = new_item0;
+	return (0);
+}
+
+int
+load_cfg_from_buffer(const void *buf, size_t len, const char *path,
+    struct client *c, struct cmdq_item *item, struct cmd_find_state *current,
+    int flags, struct cmdq_item **new_item)
+{
+	struct cmd_parse_input	 pi;
+	struct cmd_parse_result	*pr;
+	struct cmdq_item	*new_item0;
+	struct cmdq_state	*state;
+
+	if (new_item != NULL)
+		*new_item = NULL;
+
+	log_debug("loading %s", path);
+
+	memset(&pi, 0, sizeof pi);
+	pi.flags = flags;
+	pi.file = path;
+	pi.line = 1;
+	pi.item = item;
+	pi.c = c;
+
+	pr = cmd_parse_from_buffer(buf, len, &pi);
+	if (pr->status == CMD_PARSE_ERROR) {
+		cfg_add_cause("%s", pr->error);
+		free(pr->error);
+		return (-1);
+	}
+	if (flags & CMD_PARSE_PARSEONLY) {
+		cmd_list_free(pr->cmdlist);
+		return (0);
+	}
+
+	if (item != NULL)
+		state = cmdq_copy_state(cmdq_get_state(item), current);
+	else
+		state = cmdq_new_state(NULL, NULL, 0);
+	cmdq_add_format(state, "current_file", "%s", pi.file);
+
+	new_item0 = cmdq_get_command(pr->cmdlist, state);
+	if (item != NULL)
+		new_item0 = cmdq_insert_after(item, new_item0);
+	else
+		new_item0 = cmdq_append(NULL, new_item0);
+	cmd_list_free(pr->cmdlist);
+	cmdq_free_state(state);
+
+	if (new_item != NULL)
+		*new_item = new_item0;
+	return (0);
+}
+
+void
+cfg_add_cause(const char *fmt, ...)
+{
+	va_list	 ap;
+	char	*msg;
+
+	va_start(ap, fmt);
+	xvasprintf(&msg, fmt, ap);
+	va_end(ap);
+
+	cfg_ncauses++;
+	cfg_causes = xreallocarray(cfg_causes, cfg_ncauses, sizeof *cfg_causes);
+	cfg_causes[cfg_ncauses - 1] = msg;
+}
+
+void
+cfg_print_causes(struct cmdq_item *item)
+{
+	struct client	*c = cmdq_get_client(item);
+	u_int		 i;
+
+	for (i = 0; i < cfg_ncauses; i++) {
+		if (c != NULL && (c->flags & CLIENT_CONTROL))
+			control_write(c, "%%config-error %s", cfg_causes[i]);
+		else
+			cmdq_print(item, "%s", cfg_causes[i]);
+		free(cfg_causes[i]);
+	}
+
+	free(cfg_causes);
+	cfg_causes = NULL;
+	cfg_ncauses = 0;
 }
 
 void
 cfg_show_causes(struct session *s)
 {
-	struct window_pane	*wp;
-	char			*cause;
-	u_int			 i;
+	struct client			*c = TAILQ_FIRST(&clients);
+	struct window_pane		*wp;
+	struct window_mode_entry	*wme;
+	u_int				 i;
 
-	if (s == NULL || ARRAY_EMPTY(&cfg_causes))
+	if (cfg_ncauses == 0)
+		return;
+
+	if (c != NULL && (c->flags & CLIENT_CONTROL)) {
+		for (i = 0; i < cfg_ncauses; i++) {
+			control_write(c, "%%config-error %s", cfg_causes[i]);
+			free(cfg_causes[i]);
+		}
+		goto out;
+	}
+
+	if (s == NULL) {
+		if (c != NULL && c->session != NULL)
+			s = c->session;
+		else
+			s = RB_MIN(sessions, &sessions);
+	}
+	if (s == NULL || s->attached == 0) /* wait for an attached session */
 		return;
 	wp = s->curw->window->active;
 
-	window_pane_set_mode(wp, &window_copy_mode);
-	window_copy_init_for_output(wp);
-	for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
-		cause = ARRAY_ITEM(&cfg_causes, i);
-		window_copy_add(wp, "%s", cause);
-		free(cause);
+	wme = TAILQ_FIRST(&wp->modes);
+	if (wme == NULL || wme->mode != &window_view_mode)
+		window_pane_set_mode(wp, NULL, &window_view_mode, NULL, NULL);
+	for (i = 0; i < cfg_ncauses; i++) {
+		window_copy_add(wp, 0, "%s", cfg_causes[i]);
+		free(cfg_causes[i]);
 	}
-	ARRAY_FREE(&cfg_causes);
+
+out:
+	free(cfg_causes);
+	cfg_causes = NULL;
+	cfg_ncauses = 0;
 }

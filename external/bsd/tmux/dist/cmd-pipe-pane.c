@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,6 +21,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -31,31 +33,45 @@
  * Open pipe to redirect pane output. If already open, close first.
  */
 
-enum cmd_retval	 cmd_pipe_pane_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_pipe_pane_exec(struct cmd *, struct cmdq_item *);
 
-void	cmd_pipe_pane_error_callback(struct bufferevent *, short, void *);
+static void cmd_pipe_pane_read_callback(struct bufferevent *, void *);
+static void cmd_pipe_pane_write_callback(struct bufferevent *, void *);
+static void cmd_pipe_pane_error_callback(struct bufferevent *, short, void *);
 
 const struct cmd_entry cmd_pipe_pane_entry = {
-	"pipe-pane", "pipep",
-	"ot:", 0, 1,
-	"[-o] " CMD_TARGET_PANE_USAGE " [command]",
-	0,
-	NULL,
-	cmd_pipe_pane_exec
+	.name = "pipe-pane",
+	.alias = "pipep",
+
+	.args = { "IOot:", 0, 1, NULL },
+	.usage = "[-IOo] " CMD_TARGET_PANE_USAGE " [shell-command]",
+
+	.target = { 't', CMD_FIND_PANE, 0 },
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_pipe_pane_exec
 };
 
-enum cmd_retval
-cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_pipe_pane_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	struct client		*c;
-	struct window_pane	*wp;
-	char			*command;
-	int			 old_fd, pipe_fd[2], null_fd;
+	struct args			*args = cmd_get_args(self);
+	struct cmd_find_state		*target = cmdq_get_target(item);
+	struct client			*tc = cmdq_get_target_client(item);
+	struct window_pane		*wp = target->wp;
+	struct session			*s = target->s;
+	struct winlink			*wl = target->wl;
+	struct window_pane_offset	*wpo = &wp->pipe_offset;
+	char				*cmd;
+	int				 old_fd, pipe_fd[2], null_fd, in, out;
+	struct format_tree		*ft;
+	sigset_t			 set, oldset;
 
-	if (cmd_find_pane(cmdq, args_get(args, 't'), NULL, &wp) == NULL)
+	/* Do nothing if pane is dead. */
+	if (window_pane_exited(wp)) {
+		cmdq_error(item, "target pane has exited");
 		return (CMD_RETURN_ERROR);
-	c = cmd_find_client(cmdq, NULL, 1);
+	}
 
 	/* Destroy the old pipe. */
 	old_fd = wp->pipe_fd;
@@ -63,10 +79,15 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 		bufferevent_free(wp->pipe_event);
 		close(wp->pipe_fd);
 		wp->pipe_fd = -1;
+
+		if (window_pane_destroy_ready(wp)) {
+			server_destroy_pane(wp, 1);
+			return (CMD_RETURN_NORMAL);
+		}
 	}
 
 	/* If no pipe command, that is enough. */
-	if (args->argc == 0 || *args->argv[0] == '\0')
+	if (args_count(args) == 0 || *args_string(args, 0) == '\0')
 		return (CMD_RETURN_NORMAL);
 
 	/*
@@ -75,67 +96,135 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 	 *
 	 *	bind ^p pipep -o 'cat >>~/output'
 	 */
-	if (args_has(self->args, 'o') && old_fd != -1)
+	if (args_has(args, 'o') && old_fd != -1)
 		return (CMD_RETURN_NORMAL);
+
+	/* What do we want to do? Neither -I or -O is -O. */
+	if (args_has(args, 'I')) {
+		in = 1;
+		out = args_has(args, 'O');
+	} else {
+		in = 0;
+		out = 1;
+	}
 
 	/* Open the new pipe. */
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pipe_fd) != 0) {
-		cmdq_error(cmdq, "socketpair error: %s", strerror(errno));
+		cmdq_error(item, "socketpair error: %s", strerror(errno));
 		return (CMD_RETURN_ERROR);
 	}
 
+	/* Expand the command. */
+	ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
+	format_defaults(ft, tc, s, wl, wp);
+	cmd = format_expand_time(ft, args_string(args, 0));
+	format_free(ft);
+
 	/* Fork the child. */
+	sigfillset(&set);
+	sigprocmask(SIG_BLOCK, &set, &oldset);
 	switch (fork()) {
 	case -1:
-		cmdq_error(cmdq, "fork error: %s", strerror(errno));
+		sigprocmask(SIG_SETMASK, &oldset, NULL);
+		cmdq_error(item, "fork error: %s", strerror(errno));
+
+		free(cmd);
 		return (CMD_RETURN_ERROR);
 	case 0:
 		/* Child process. */
+		proc_clear_signals(server_proc, 1);
+		sigprocmask(SIG_SETMASK, &oldset, NULL);
 		close(pipe_fd[0]);
-		clear_signals(1);
 
-		if (dup2(pipe_fd[1], STDIN_FILENO) == -1)
-			_exit(1);
-		if (pipe_fd[1] != STDIN_FILENO)
-			close(pipe_fd[1]);
-
-		null_fd = open(_PATH_DEVNULL, O_WRONLY, 0);
-		if (dup2(null_fd, STDOUT_FILENO) == -1)
-			_exit(1);
+		null_fd = open(_PATH_DEVNULL, O_WRONLY);
+		if (out) {
+			if (dup2(pipe_fd[1], STDIN_FILENO) == -1)
+				_exit(1);
+		} else {
+			if (dup2(null_fd, STDIN_FILENO) == -1)
+				_exit(1);
+		}
+		if (in) {
+			if (dup2(pipe_fd[1], STDOUT_FILENO) == -1)
+				_exit(1);
+			if (pipe_fd[1] != STDOUT_FILENO)
+				close(pipe_fd[1]);
+		} else {
+			if (dup2(null_fd, STDOUT_FILENO) == -1)
+				_exit(1);
+		}
 		if (dup2(null_fd, STDERR_FILENO) == -1)
 			_exit(1);
-		if (null_fd != STDOUT_FILENO && null_fd != STDERR_FILENO)
-			close(null_fd);
-
 		closefrom(STDERR_FILENO + 1);
 
-		command = status_replace(
-		    c, NULL, NULL, NULL, args->argv[0], time(NULL), 0);
-		execl(_PATH_BSHELL, "sh", "-c", command, (char *) NULL);
+		execl(_PATH_BSHELL, "sh", "-c", cmd, (char *) NULL);
 		_exit(1);
 	default:
 		/* Parent process. */
+		sigprocmask(SIG_SETMASK, &oldset, NULL);
 		close(pipe_fd[1]);
 
 		wp->pipe_fd = pipe_fd[0];
-		wp->pipe_off = EVBUFFER_LENGTH(wp->event->input);
-
-		wp->pipe_event = bufferevent_new(wp->pipe_fd,
-		    NULL, NULL, cmd_pipe_pane_error_callback, wp);
-		bufferevent_enable(wp->pipe_event, EV_WRITE);
+		memcpy(wpo, &wp->offset, sizeof *wpo);
 
 		setblocking(wp->pipe_fd, 0);
+		wp->pipe_event = bufferevent_new(wp->pipe_fd,
+		    cmd_pipe_pane_read_callback,
+		    cmd_pipe_pane_write_callback,
+		    cmd_pipe_pane_error_callback,
+		    wp);
+		if (wp->pipe_event == NULL)
+			fatalx("out of memory");
+		if (out)
+			bufferevent_enable(wp->pipe_event, EV_WRITE);
+		if (in)
+			bufferevent_enable(wp->pipe_event, EV_READ);
+
+		free(cmd);
 		return (CMD_RETURN_NORMAL);
 	}
 }
 
-void
-cmd_pipe_pane_error_callback(
-    unused struct bufferevent *bufev, unused short what, void *data)
+static void
+cmd_pipe_pane_read_callback(__unused struct bufferevent *bufev, void *data)
 {
 	struct window_pane	*wp = data;
+	struct evbuffer		*evb = wp->pipe_event->input;
+	size_t			 available;
+
+	available = EVBUFFER_LENGTH(evb);
+	log_debug("%%%u pipe read %zu", wp->id, available);
+
+	bufferevent_write(wp->event, EVBUFFER_DATA(evb), available);
+	evbuffer_drain(evb, available);
+
+	if (window_pane_destroy_ready(wp))
+		server_destroy_pane(wp, 1);
+}
+
+static void
+cmd_pipe_pane_write_callback(__unused struct bufferevent *bufev, void *data)
+{
+	struct window_pane	*wp = data;
+
+	log_debug("%%%u pipe empty", wp->id);
+
+	if (window_pane_destroy_ready(wp))
+		server_destroy_pane(wp, 1);
+}
+
+static void
+cmd_pipe_pane_error_callback(__unused struct bufferevent *bufev,
+    __unused short what, void *data)
+{
+	struct window_pane	*wp = data;
+
+	log_debug("%%%u pipe error", wp->id);
 
 	bufferevent_free(wp->pipe_event);
 	close(wp->pipe_fd);
 	wp->pipe_fd = -1;
+
+	if (window_pane_destroy_ready(wp))
+		server_destroy_pane(wp, 1);
 }

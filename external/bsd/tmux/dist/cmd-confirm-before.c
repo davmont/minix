@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -16,6 +16,8 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,117 +28,136 @@
  * Asks for confirmation before executing a command.
  */
 
-void		 cmd_confirm_before_key_binding(struct cmd *, int);
-enum cmd_retval	 cmd_confirm_before_exec(struct cmd *, struct cmd_q *);
+static enum args_parse_type	cmd_confirm_before_args_parse(struct args *,
+				    u_int, char **);
+static enum cmd_retval		cmd_confirm_before_exec(struct cmd *,
+				    struct cmdq_item *);
 
-int		 cmd_confirm_before_callback(void *, const char *);
-void		 cmd_confirm_before_free(void *);
+static int	cmd_confirm_before_callback(struct client *, void *,
+		    const char *, int);
+static void	cmd_confirm_before_free(void *);
 
 const struct cmd_entry cmd_confirm_before_entry = {
-	"confirm-before", "confirm",
-	"p:t:", 1, 1,
-	"[-p prompt] " CMD_TARGET_CLIENT_USAGE " command",
-	0,
-	cmd_confirm_before_key_binding,
-	cmd_confirm_before_exec
+	.name = "confirm-before",
+	.alias = "confirm",
+
+	.args = { "bc:p:t:y", 1, 1, cmd_confirm_before_args_parse },
+	.usage = "[-by] [-c confirm-key] [-p prompt] " CMD_TARGET_CLIENT_USAGE
+		 " command",
+
+	.flags = CMD_CLIENT_TFLAG,
+	.exec = cmd_confirm_before_exec
 };
 
 struct cmd_confirm_before_data {
-	char		*cmd;
-	struct client	*client;
+	struct cmdq_item	*item;
+	struct cmd_list		*cmdlist;
+	u_char			 confirm_key;
+	int			 default_yes;
 };
 
-void
-cmd_confirm_before_key_binding(struct cmd *self, int key)
+static enum args_parse_type
+cmd_confirm_before_args_parse(__unused struct args *args, __unused u_int idx,
+    __unused char **cause)
 {
-	switch (key) {
-	case '&':
-		self->args = args_create(1, "kill-window");
-		args_set(self->args, 'p', "kill-window #W? (y/n)");
-		break;
-	case 'x':
-		self->args = args_create(1, "kill-pane");
-		args_set(self->args, 'p', "kill-pane #P? (y/n)");
-		break;
-	default:
-		self->args = args_create(0);
-		break;
-	}
+	return (ARGS_PARSE_COMMANDS_OR_STRING);
 }
 
-enum cmd_retval
-cmd_confirm_before_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_confirm_before_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args			*args = self->args;
+	struct args			*args = cmd_get_args(self);
 	struct cmd_confirm_before_data	*cdata;
-	struct client			*c;
-	char				*cmd, *copy, *new_prompt, *ptr;
-	const char			*prompt;
+	struct client			*tc = cmdq_get_target_client(item);
+	struct cmd_find_state		*target = cmdq_get_target(item);
+	char				*new_prompt;
+	const char			*confirm_key, *prompt, *cmd;
+	int				 wait = !args_has(args, 'b');
 
-	if ((c = cmd_find_client(cmdq, args_get(args, 't'), 0)) == NULL)
+	cdata = xcalloc(1, sizeof *cdata);
+	cdata->cmdlist = args_make_commands_now(self, item, 0, 1);
+	if (cdata->cmdlist == NULL) {
+		free(cdata);
 		return (CMD_RETURN_ERROR);
+	}
+
+	if (wait)
+		cdata->item = item;
+
+	cdata->default_yes = args_has(args, 'y');
+	if ((confirm_key = args_get(args, 'c')) != NULL) {
+		if (confirm_key[1] == '\0' &&
+		    confirm_key[0] > 31 &&
+		    confirm_key[0] < 127)
+			cdata->confirm_key = confirm_key[0];
+		else {
+			cmdq_error(item, "invalid confirm key");
+			free(cdata);
+			return (CMD_RETURN_ERROR);
+		}
+	}
+	else
+		cdata->confirm_key = 'y';
 
 	if ((prompt = args_get(args, 'p')) != NULL)
 		xasprintf(&new_prompt, "%s ", prompt);
 	else {
-		ptr = copy = xstrdup(args->argv[0]);
-		cmd = strsep(&ptr, " \t");
-		xasprintf(&new_prompt, "Confirm '%s'? (y/n) ", cmd);
-		free(copy);
+		cmd = cmd_get_entry(cmd_list_first(cdata->cmdlist))->name;
+		xasprintf(&new_prompt, "Confirm '%s'? (%c/n) ", cmd,
+		    cdata->confirm_key);
 	}
 
-	cdata = xmalloc(sizeof *cdata);
-	cdata->cmd = xstrdup(args->argv[0]);
-
-	cdata->client = c;
-	cdata->client->references++;
-
-	status_prompt_set(c, new_prompt, NULL,
+	status_prompt_set(tc, target, new_prompt, NULL,
 	    cmd_confirm_before_callback, cmd_confirm_before_free, cdata,
-	    PROMPT_SINGLE);
-
+	    PROMPT_SINGLE, PROMPT_TYPE_COMMAND);
 	free(new_prompt);
-	return (CMD_RETURN_NORMAL);
+
+	if (!wait)
+		return (CMD_RETURN_NORMAL);
+	return (CMD_RETURN_WAIT);
 }
 
-int
-cmd_confirm_before_callback(void *data, const char *s)
+static int
+cmd_confirm_before_callback(struct client *c, void *data, const char *s,
+    __unused int done)
 {
 	struct cmd_confirm_before_data	*cdata = data;
-	struct client			*c = cdata->client;
-	struct cmd_list			*cmdlist;
-	char				*cause;
+	struct cmdq_item		*item = cdata->item, *new_item;
+	int				 retcode = 1;
 
 	if (c->flags & CLIENT_DEAD)
-		return (0);
+		goto out;
 
-	if (s == NULL || *s == '\0')
-		return (0);
-	if (tolower((u_char) s[0]) != 'y' || s[1] != '\0')
-		return (0);
+	if (s == NULL)
+		goto out;
+	if (s[0] != cdata->confirm_key && (s[0] != '\r' || !cdata->default_yes))
+		goto out;
+	retcode = 0;
 
-	if (cmd_string_parse(cdata->cmd, &cmdlist, NULL, 0, &cause) != 0) {
-		if (cause != NULL) {
-			cmdq_error(c->cmdq, "%s", cause);
-			free(cause);
-		}
-		return (0);
+	if (item == NULL) {
+		new_item = cmdq_get_command(cdata->cmdlist, NULL);
+		cmdq_append(c, new_item);
+	} else {
+		new_item = cmdq_get_command(cdata->cmdlist,
+		    cmdq_get_state(item));
+		cmdq_insert_after(item, new_item);
 	}
 
-	cmdq_run(c->cmdq, cmdlist);
-	cmd_list_free(cmdlist);
-
+out:
+	if (item != NULL) {
+		if (cmdq_get_client(item) != NULL &&
+		    cmdq_get_client(item)->session == NULL)
+			cmdq_get_client(item)->retval = retcode;
+		cmdq_continue(item);
+	}
 	return (0);
 }
 
-void
+static void
 cmd_confirm_before_free(void *data)
 {
 	struct cmd_confirm_before_data	*cdata = data;
-	struct client			*c = cdata->client;
 
-	c->references--;
-
-	free(cdata->cmd);
+	cmd_list_free(cdata->cmdlist);
 	free(cdata);
 }

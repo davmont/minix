@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,47 +26,42 @@
  * Kill pane.
  */
 
-enum cmd_retval	 cmd_kill_pane_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_kill_pane_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_kill_pane_entry = {
-	"kill-pane", "killp",
-	"at:", 0, 0,
-	"[-a] " CMD_TARGET_PANE_USAGE,
-	0,
-	NULL,
-	cmd_kill_pane_exec
+	.name = "kill-pane",
+	.alias = "killp",
+
+	.args = { "at:", 0, 0, NULL },
+	.usage = "[-a] " CMD_TARGET_PANE_USAGE,
+
+	.target = { 't', CMD_FIND_PANE, 0 },
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_kill_pane_exec
 };
 
-enum cmd_retval
-cmd_kill_pane_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_kill_pane_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	struct winlink		*wl;
-	struct window_pane	*loopwp, *tmpwp, *wp;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct winlink		*wl = target->wl;
+	struct window_pane	*loopwp, *tmpwp, *wp = target->wp;
 
-	if ((wl = cmd_find_pane(cmdq, args_get(args, 't'), NULL, &wp)) == NULL)
-		return (CMD_RETURN_ERROR);
-	server_unzoom_window(wl->window);
-
-	if (window_count_panes(wl->window) == 1) {
-		/* Only one pane, kill the window. */
-		server_kill_window(wl->window);
-		recalculate_sizes();
-		return (CMD_RETURN_NORMAL);
-	}
-
-	if (args_has(self->args, 'a')) {
+	if (args_has(args, 'a')) {
+		server_unzoom_window(wl->window);
 		TAILQ_FOREACH_SAFE(loopwp, &wl->window->panes, entry, tmpwp) {
 			if (loopwp == wp)
 				continue;
+			server_client_remove_pane(loopwp);
 			layout_close_pane(loopwp);
 			window_remove_pane(wl->window, loopwp);
 		}
-	} else {
-		layout_close_pane(wp);
-		window_remove_pane(wl->window, wp);
+		server_redraw_window(wl->window);
+		return (CMD_RETURN_NORMAL);
 	}
-	server_redraw_window(wl->window);
 
+	server_kill_pane(wp);
 	return (CMD_RETURN_NORMAL);
 }

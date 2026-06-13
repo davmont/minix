@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,114 +27,117 @@
  * Switch client to a different session.
  */
 
-void		 cmd_switch_client_key_binding(struct cmd *, int);
-enum cmd_retval	 cmd_switch_client_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_switch_client_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_switch_client_entry = {
-	"switch-client", "switchc",
-	"lc:npt:r", 0, 0,
-	"[-lnpr] [-c target-client] [-t target-session]",
-	CMD_READONLY,
-	cmd_switch_client_key_binding,
-	cmd_switch_client_exec
+	.name = "switch-client",
+	.alias = "switchc",
+
+	.args = { "lc:EFnpt:rT:Z", 0, 0, NULL },
+	.usage = "[-ElnprZ] [-c target-client] [-t target-session] "
+		 "[-T key-table]",
+
+	/* -t is special */
+
+	.flags = CMD_READONLY|CMD_CLIENT_CFLAG,
+	.exec = cmd_switch_client_exec
 };
 
-void
-cmd_switch_client_key_binding(struct cmd *self, int key)
+static enum cmd_retval
+cmd_switch_client_exec(struct cmd *self, struct cmdq_item *item)
 {
-	self->args = args_create(0);
-	switch (key) {
-	case '(':
-		args_set(self->args, 'p', NULL);
-		break;
-	case ')':
-		args_set(self->args, 'n', NULL);
-		break;
-	case 'L':
-		args_set(self->args, 'l', NULL);
-		break;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*current = cmdq_get_current(item);
+	struct cmd_find_state	 target;
+	const char		*tflag = args_get(args, 't');
+	enum cmd_find_type	 type;
+	int			 flags;
+	struct client		*tc = cmdq_get_target_client(item);
+	struct session		*s;
+	struct winlink		*wl;
+	struct window		*w;
+	struct window_pane	*wp;
+	const char		*tablename;
+	struct key_table	*table;
+
+	if (tflag != NULL &&
+	    (tflag[strcspn(tflag, ":.%")] != '\0' || strcmp(tflag, "=") == 0)) {
+		type = CMD_FIND_PANE;
+		flags = 0;
+	} else {
+		type = CMD_FIND_SESSION;
+		flags = CMD_FIND_PREFER_UNATTACHED;
 	}
-}
-
-enum cmd_retval
-cmd_switch_client_exec(struct cmd *self, struct cmd_q *cmdq)
-{
-	struct args		*args = self->args;
-	struct client		*c;
-	struct session		*s = NULL;
-	struct winlink		*wl = NULL;
-	struct window 		*w = NULL;
-	struct window_pane	*wp = NULL;
-	const char		*tflag;
-
-	if ((c = cmd_find_client(cmdq, args_get(args, 'c'), 0)) == NULL)
+	if (cmd_find_target(&target, item, tflag, type, flags) != 0)
 		return (CMD_RETURN_ERROR);
+	s = target.s;
+	wl = target.wl;
+	wp = target.wp;
 
 	if (args_has(args, 'r')) {
-		if (c->flags & CLIENT_READONLY) {
-			c->flags &= ~CLIENT_READONLY;
-			cmdq_info(cmdq, "made client writable");
-		} else {
-			c->flags |= CLIENT_READONLY;
-			cmdq_info(cmdq, "made client read-only");
-		}
+		if (tc->flags & CLIENT_READONLY)
+			tc->flags &= ~(CLIENT_READONLY|CLIENT_IGNORESIZE);
+		else
+			tc->flags |= (CLIENT_READONLY|CLIENT_IGNORESIZE);
 	}
 
-	tflag = args_get(args, 't');
+	tablename = args_get(args, 'T');
+	if (tablename != NULL) {
+		table = key_bindings_get_table(tablename, 0);
+		if (table == NULL) {
+			cmdq_error(item, "table %s doesn't exist", tablename);
+			return (CMD_RETURN_ERROR);
+		}
+		table->references++;
+		key_bindings_unref_table(tc->keytable);
+		tc->keytable = table;
+		return (CMD_RETURN_NORMAL);
+	}
+
 	if (args_has(args, 'n')) {
-		if ((s = session_next_session(c->session)) == NULL) {
-			cmdq_error(cmdq, "can't find next session");
+		if ((s = session_next_session(tc->session)) == NULL) {
+			cmdq_error(item, "can't find next session");
 			return (CMD_RETURN_ERROR);
 		}
 	} else if (args_has(args, 'p')) {
-		if ((s = session_previous_session(c->session)) == NULL) {
-			cmdq_error(cmdq, "can't find previous session");
+		if ((s = session_previous_session(tc->session)) == NULL) {
+			cmdq_error(item, "can't find previous session");
 			return (CMD_RETURN_ERROR);
 		}
 	} else if (args_has(args, 'l')) {
-		if (c->last_session != NULL && session_alive(c->last_session))
-			s = c->last_session;
+		if (tc->last_session != NULL && session_alive(tc->last_session))
+			s = tc->last_session;
+		else
+			s = NULL;
 		if (s == NULL) {
-			cmdq_error(cmdq, "can't find last session");
+			cmdq_error(item, "can't find last session");
 			return (CMD_RETURN_ERROR);
 		}
 	} else {
-		if (tflag == NULL) {
-			if ((s = cmd_find_session(cmdq, tflag, 1)) == NULL)
-				return (CMD_RETURN_ERROR);
-		} else if (tflag[strcspn(tflag, ":.")] != '\0') {
-			if ((wl = cmd_find_pane(cmdq, tflag, &s, &wp)) == NULL)
-				return (CMD_RETURN_ERROR);
-		} else {
-			if ((s = cmd_find_session(cmdq, tflag, 1)) == NULL)
-				return (CMD_RETURN_ERROR);
-			w = cmd_lookup_windowid(tflag);
-			if (w == NULL &&
-			    (wp = cmd_lookup_paneid(tflag)) != NULL)
-				w = wp->window;
-			if (w != NULL)
-				wl = winlink_find_by_window(&s->windows, w);
-		}
-
-		if (cmdq->client == NULL)
+		if (cmdq_get_client(item) == NULL)
 			return (CMD_RETURN_NORMAL);
-
+		if (wl != NULL && wp != NULL && wp != wl->window->active) {
+			w = wl->window;
+			if (window_push_zoom(w, 0, args_has(args, 'Z')))
+				server_redraw_window(w);
+			window_redraw_active_switch(w, wp);
+			window_set_active_pane(w, wp, 1);
+			if (window_pop_zoom(w))
+				server_redraw_window(w);
+		}
 		if (wl != NULL) {
-			if (wp != NULL)
-				window_set_active_pane(wp->window, wp);
 			session_set_current(s, wl);
+			cmd_find_from_session(current, s, 0);
 		}
 	}
 
-	if (c->session != NULL)
-		c->last_session = c->session;
-	c->session = s;
-	session_update_activity(s);
+	if (!args_has(args, 'E'))
+		environ_update(s->options, tc->environ, s->environ);
 
-	recalculate_sizes();
-	server_check_unattached();
-	server_redraw_client(c);
-	s->curw->flags &= ~WINLINK_ALERTFLAGS;
+	server_client_set_session(tc, s);
+	if (~cmdq_get_flags(item) & CMDQ_STATE_REPEAT)
+		server_client_set_key_table(tc, NULL);
 
 	return (CMD_RETURN_NORMAL);
 }

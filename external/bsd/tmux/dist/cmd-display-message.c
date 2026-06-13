@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -27,83 +27,133 @@
  * Displays a message in the status line.
  */
 
-enum cmd_retval	 cmd_display_message_exec(struct cmd *, struct cmd_q *);
+#define DISPLAY_MESSAGE_TEMPLATE			\
+	"[#{session_name}] #{window_index}:"		\
+	"#{window_name}, current pane #{pane_index} "	\
+	"- (%H:%M %d-%b-%y)"
+
+static enum cmd_retval	cmd_display_message_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_display_message_entry = {
-	"display-message", "display",
-	"c:pt:F:", 0, 1,
-	"[-p] [-c target-client] [-F format] " CMD_TARGET_PANE_USAGE
-	" [message]",
-	0,
-	NULL,
-	cmd_display_message_exec
+	.name = "display-message",
+	.alias = "display",
+
+	.args = { "aCc:d:lINpt:F:v", 0, 1, NULL },
+	.usage = "[-aCIlNpv] [-c target-client] [-d delay] [-F format] "
+		 CMD_TARGET_PANE_USAGE " [message]",
+
+	.target = { 't', CMD_FIND_PANE, CMD_FIND_CANFAIL },
+
+	.flags = CMD_AFTERHOOK|CMD_CLIENT_CFLAG|CMD_CLIENT_CANFAIL,
+	.exec = cmd_display_message_exec
 };
 
-enum cmd_retval
-cmd_display_message_exec(struct cmd *self, struct cmd_q *cmdq)
+static void
+cmd_display_message_each(const char *key, const char *value, void *arg)
 {
-	struct args		*args = self->args;
-	struct client		*c;
-	struct session		*s;
-	struct winlink		*wl;
-	struct window_pane	*wp;
-	const char		*template;
-	char			*msg;
-	struct format_tree	*ft;
-	char			 out[BUFSIZ];
-	time_t			 t;
-	size_t			 len;
+	struct cmdq_item	*item = arg;
 
-	if (args_has(args, 't')) {
-		wl = cmd_find_pane(cmdq, args_get(args, 't'), &s, &wp);
-		if (wl == NULL)
+	cmdq_print(item, "%s=%s", key, value);
+}
+
+static enum cmd_retval
+cmd_display_message_exec(struct cmd *self, struct cmdq_item *item)
+{
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct client		*tc = cmdq_get_target_client(item), *c;
+	struct session		*s = target->s;
+	struct winlink		*wl = target->wl;
+	struct window_pane	*wp = target->wp;
+	const char		*template;
+	char			*msg, *cause;
+	int			 delay = -1, flags, Nflag = args_has(args, 'N');
+	int			 Cflag = args_has(args, 'C');
+	struct format_tree	*ft;
+	u_int			 count = args_count(args);
+	struct evbuffer		*evb;
+
+	if (args_has(args, 'I')) {
+		if (wp == NULL)
+			return (CMD_RETURN_NORMAL);
+		switch (window_pane_start_input(wp, item, &cause)) {
+		case -1:
+			cmdq_error(item, "%s", cause);
+			free(cause);
 			return (CMD_RETURN_ERROR);
-	} else {
-		wl = cmd_find_pane(cmdq, NULL, &s, &wp);
-		if (wl == NULL)
-			return (CMD_RETURN_ERROR);
+		case 1:
+			return (CMD_RETURN_NORMAL);
+		case 0:
+			return (CMD_RETURN_WAIT);
+		}
 	}
 
-	if (args_has(args, 'F') && args->argc != 0) {
-		cmdq_error(cmdq, "only one of -F or argument must be given");
+	if (args_has(args, 'F') && count != 0) {
+		cmdq_error(item, "only one of -F or argument must be given");
 		return (CMD_RETURN_ERROR);
 	}
 
-	if (args_has(args, 'c')) {
-		c = cmd_find_client(cmdq, args_get(args, 'c'), 0);
-		if (c == NULL)
-			return (CMD_RETURN_ERROR);
-	} else {
-		c = cmd_current_client(cmdq);
-		if (c == NULL && !args_has(self->args, 'p')) {
-			cmdq_error(cmdq, "no client available");
+	if (args_has(args, 'd')) {
+		delay = args_strtonum(args, 'd', 0, UINT_MAX, &cause);
+		if (cause != NULL) {
+			cmdq_error(item, "delay %s", cause);
+			free(cause);
 			return (CMD_RETURN_ERROR);
 		}
 	}
 
-	template = args_get(args, 'F');
-	if (args->argc != 0)
-		template = args->argv[0];
+	if (count != 0)
+		template = args_string(args, 0);
+	else
+		template = args_get(args, 'F');
 	if (template == NULL)
 		template = DISPLAY_MESSAGE_TEMPLATE;
 
-	ft = format_create();
-	if (c != NULL)
-		format_client(ft, c);
-	format_session(ft, s);
-	format_winlink(ft, s, wl);
-	format_window_pane(ft, wp);
-
-	t = time(NULL);
-	len = strftime(out, sizeof out, template, localtime(&t));
-	out[len] = '\0';
-
-	msg = format_expand(ft, out);
-	if (args_has(self->args, 'p'))
-		cmdq_print(cmdq, "%s", msg);
+	/*
+	 * -c is intended to be the client where the message should be
+	 * displayed if -p is not given. But it makes sense to use it for the
+	 * formats too, assuming it matches the session. If it doesn't, use the
+	 * best client for the session.
+	 */
+	if (tc != NULL && tc->session == s)
+		c = tc;
+	else if (s != NULL)
+		c = cmd_find_best_client(s);
 	else
-		status_message_set(c, "%s", msg);
+		c = NULL;
+	if (args_has(args, 'v'))
+		flags = FORMAT_VERBOSE;
+	else
+		flags = 0;
+	ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, flags);
+	format_defaults(ft, c, s, wl, wp);
+
+	if (args_has(args, 'a')) {
+		format_each(ft, cmd_display_message_each, item);
+		return (CMD_RETURN_NORMAL);
+	}
+
+	if (args_has(args, 'l'))
+		msg = xstrdup(template);
+	else
+		msg = format_expand_time(ft, template);
+
+	if (cmdq_get_client(item) == NULL)
+		cmdq_error(item, "%s", msg);
+	else if (args_has(args, 'p'))
+		cmdq_print(item, "%s", msg);
+	else if (tc != NULL && (tc->flags & CLIENT_CONTROL)) {
+		evb = evbuffer_new();
+		if (evb == NULL)
+			fatalx("out of memory");
+		evbuffer_add_printf(evb, "%%message %s", msg);
+		server_client_print(tc, 0, evb);
+		evbuffer_free(evb);
+	} else if (tc != NULL)
+		status_message_set(tc, delay, 0, Nflag, Cflag, "%s", msg);
 	free(msg);
+
 	format_free(ft);
 
 	return (CMD_RETURN_NORMAL);

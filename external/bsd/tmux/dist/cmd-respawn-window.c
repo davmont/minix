@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,7 @@
 #include <sys/types.h>
 
 #include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
 
 #include "tmux.h"
 
@@ -27,74 +27,69 @@
  * Respawn a window (restart the command). Kill existing if -k given.
  */
 
-enum cmd_retval	 cmd_respawn_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_respawn_window_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_respawn_window_entry = {
-	"respawn-window", "respawnw",
-	"kt:", 0, 1,
-	"[-k] " CMD_TARGET_WINDOW_USAGE " [command]",
-	0,
-	NULL,
-	cmd_respawn_window_exec
+	.name = "respawn-window",
+	.alias = "respawnw",
+
+	.args = { "c:e:kt:", 0, -1, NULL },
+	.usage = "[-k] [-c start-directory] [-e environment] "
+		 CMD_TARGET_WINDOW_USAGE " [shell-command [argument ...]]",
+
+	.target = { 't', CMD_FIND_WINDOW, 0 },
+
+	.flags = 0,
+	.exec = cmd_respawn_window_exec
 };
 
-enum cmd_retval
-cmd_respawn_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_respawn_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	struct winlink		*wl;
-	struct window		*w;
-	struct window_pane	*wp;
-	struct session		*s;
-	struct environ		 env;
-	const char		*cmd;
-	char		 	*cause;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct spawn_context	 sc = { 0 };
+	struct client		*tc = cmdq_get_target_client(item);
+	struct session		*s = target->s;
+	struct winlink		*wl = target->wl;
+	char			*cause = NULL;
+	struct args_value	*av;
 
-	if ((wl = cmd_find_window(cmdq, args_get(args, 't'), &s)) == NULL)
-		return (CMD_RETURN_ERROR);
-	w = wl->window;
+	sc.item = item;
+	sc.s = s;
+	sc.wl = wl;
+	sc.tc = tc;
 
-	if (!args_has(self->args, 'k')) {
-		TAILQ_FOREACH(wp, &w->panes, entry) {
-			if (wp->fd == -1)
-				continue;
-			cmdq_error(cmdq,
-			    "window still active: %s:%d", s->name, wl->idx);
-			return (CMD_RETURN_ERROR);
-		}
+	args_to_vector(args, &sc.argc, &sc.argv);
+	sc.environ = environ_create();
+
+	av = args_first_value(args, 'e');
+	while (av != NULL) {
+		environ_put(sc.environ, av->string, 0);
+		av = args_next_value(av);
 	}
 
-	environ_init(&env);
-	environ_copy(&global_environ, &env);
-	environ_copy(&s->environ, &env);
-	server_fill_environ(s, &env);
+	sc.idx = -1;
+	sc.cwd = args_get(args, 'c');
 
-	wp = TAILQ_FIRST(&w->panes);
-	TAILQ_REMOVE(&w->panes, wp, entry);
-	layout_free(w);
-	window_destroy_panes(w);
-	TAILQ_INSERT_HEAD(&w->panes, wp, entry);
-	window_pane_resize(wp, w->sx, w->sy);
-	if (args->argc != 0)
-		cmd = args->argv[0];
-	else
-		cmd = NULL;
-	if (window_pane_spawn(wp, cmd, NULL, -1, &env, s->tio, &cause) != 0) {
-		cmdq_error(cmdq, "respawn window failed: %s", cause);
+	sc.flags = SPAWN_RESPAWN;
+	if (args_has(args, 'k'))
+		sc.flags |= SPAWN_KILL;
+
+	if (spawn_window(&sc, &cause) == NULL) {
+		cmdq_error(item, "respawn window failed: %s", cause);
 		free(cause);
-		environ_free(&env);
-		server_destroy_pane(wp);
+		if (sc.argv != NULL)
+			cmd_free_argv(sc.argc, sc.argv);
+		environ_free(sc.environ);
 		return (CMD_RETURN_ERROR);
 	}
-	layout_init(w, wp);
-	window_pane_reset_mode(wp);
-	screen_reinit(&wp->base);
-	input_init(wp);
-	window_set_active_pane(w, wp);
 
-	recalculate_sizes();
-	server_redraw_window(w);
+	server_redraw_window(wl->window);
 
-	environ_free(&env);
+	if (sc.argv != NULL)
+		cmd_free_argv(sc.argc, sc.argv);
+	environ_free(sc.environ);
 	return (CMD_RETURN_NORMAL);
 }

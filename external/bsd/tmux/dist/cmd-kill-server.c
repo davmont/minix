@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,30 +27,34 @@
  * Kill the server and do nothing else.
  */
 
-enum cmd_retval	 cmd_kill_server_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_kill_server_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_kill_server_entry = {
-	"kill-server", NULL,
-	"", 0, 0,
-	"",
-	0,
-	NULL,
-	cmd_kill_server_exec
+	.name = "kill-server",
+	.alias = NULL,
+
+	.args = { "", 0, 0, NULL },
+	.usage = "",
+
+	.flags = 0,
+	.exec = cmd_kill_server_exec
 };
 
 const struct cmd_entry cmd_start_server_entry = {
-	"start-server", "start",
-	"", 0, 0,
-	"",
-	CMD_STARTSERVER,
-	NULL,
-	cmd_kill_server_exec
+	.name = "start-server",
+	.alias = "start",
+
+	.args = { "", 0, 0, NULL },
+	.usage = "",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_kill_server_exec
 };
 
-enum cmd_retval
-cmd_kill_server_exec(struct cmd *self, unused struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_kill_server_exec(struct cmd *self, __unused struct cmdq_item *item)
 {
-	if (self->entry == &cmd_kill_server_entry)
+	if (cmd_get_entry(self) == &cmd_kill_server_entry)
 		kill(getpid(), SIGTERM);
 
 	return (CMD_RETURN_NORMAL);
