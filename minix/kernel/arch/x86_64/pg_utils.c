@@ -246,11 +246,16 @@ int pg_mapkernel(void)
 
     /*
      * Return a freepde_start value for the VM server's single PD (which covers
-     * 0–1 GB).  PD[0..255] are reserved for user-space mappings (0–512 MB) and
-     * PD[256..511] are available for kernel-device and pagedir mappings.
+     * 0–1 GB).  PD[0..447] are user-space mappings (0–896 MB) and PD[448..511]
+     * (896 MB–1 GB) are reserved for VM's kernel-device and pagedir mappings.
+     * On x86-64 the kernel itself lives at PML4[511] (high canonical), not in
+     * this low PD, so the reserve only has to hold a handful of device PDEs and
+     * the MAX_PAGEDIR_PDES page-directory mappings -- 64 PDEs is generous.  The
+     * larger user range lets big binaries (e.g. clang, ~156 MB text) fit below
+     * the stack.  Keep USR_DATATOP/USR_STACKTOP (kernel/const.h) in sync.
      */
     (void)pml4_idx(kern_vir_start); /* suppress unused-variable warning */
-    return 256;
+    return 448;
 }
 
 /* =========================================================================

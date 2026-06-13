@@ -71,7 +71,14 @@
  * apply this strict separation only if magic instrumentation is used.
  * Otherwise, do not place such limitations on processes.
  */
-#ifdef _MINIX_MAGIC
+/*
+ * On amd64 we also use the strict-separation layout so the mmap region sits
+ * BELOW the (now high) stack instead of running up to VM_DATATOP and over it.
+ * With the stack at USR_STACKTOP (864 MB) and the mmap region in
+ * [VM_MMAPTOP/2, VM_STACKTOP-stack], a large executable's text+heap (low),
+ * its libraries (mmap region), and its stack (top) all stay disjoint.
+ */
+#if defined(_MINIX_MAGIC) || defined(__x86_64__)
 #define VM_MMAPTOP	(VM_STACKTOP-DEFAULT_STACK_LIMIT)
 #define VM_MMAPBASE	(VM_MMAPTOP/2)
 #else
