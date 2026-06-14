@@ -24,6 +24,7 @@
 #include <minix/fsdriver.h>
 #include <minix/libminixfs.h>
 #include <minix/bdev.h>
+#include <minix/vm.h>		/* vm_set_cacheblock, for fs_peek */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -35,6 +36,7 @@
 #include <sys/syslimits.h>
 #include <sys/types.h>
 #include <sys/dirent.h>
+#include <sys/mman.h>		/* mmap, for fs_peek */
 
 #include <assert.h>
 

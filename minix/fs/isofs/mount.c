@@ -28,14 +28,12 @@ int fs_mount(dev_t dev, unsigned int __unused flags,
 	root_node->fn_dev = NO_DEV;
 
 	/*
-	 * Deliberately NOT RES_HASPEEK.  RES_HASPEEK would let VFS use this fs
-	 * for file mmap() and demand-paged exec(), but isofs cannot serve those
-	 * correctly: its block peek is plain lmfs_bio (raw device blocks), with
-	 * no file-offset -> CD-extent translation (cf. read_extent_block() in
-	 * fs_read()).  Demand-paging would therefore fetch the wrong device
-	 * blocks and the faulted-in pages would be garbage, crashing every
-	 * binary exec'd from an isofs root.  Supporting mmap here needs a real
-	 * extent-translating bpeek first.
+	 * RES_HASPEEK (file mmap() and demand-paged exec() from an isofs root)
+	 * is advertised automatically by libfsdriver because we provide both
+	 * fdr_peek and fdr_bpeek.  fs_peek() (read.c) does the file-offset ->
+	 * CD-extent translation and assembles full pages, so it works correctly
+	 * despite ISO 9660's sub-page (2048-byte) block size; fdr_bpeek serves
+	 * the rare block-special device peek.
 	 */
 	*res_flags = RES_NOFLAGS;
 

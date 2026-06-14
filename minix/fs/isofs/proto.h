@@ -42,6 +42,8 @@ int fs_lookup(ino_t ino_nr, char *name, struct fsdriver_node *node,
 /* read.c */
 ssize_t fs_read(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t pos, int call);
+ssize_t fs_peek(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
+	off_t pos, int call);
 ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t *pos);
 
