@@ -1,4 +1,4 @@
-/*	$NetBSD: vis.h,v 1.23 2015/05/23 11:48:31 christos Exp $	*/
+/*	$NetBSD: vis.h,v 1.26 2022/05/20 21:31:24 andvar Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -40,7 +40,7 @@
  * to select alternate encoding format
  */
 #define	VIS_OCTAL	0x0001	/* use octal \ddd format */
-#define	VIS_CSTYLE	0x0002	/* use \[nrft0..] where appropiate */
+#define	VIS_CSTYLE	0x0002	/* use \[nrft0..] where appropriate */
 
 /*
  * to alter set of characters encoded (default is to encode all
@@ -51,6 +51,7 @@
 #define	VIS_NL		0x0010	/* also encode newline */
 #define	VIS_WHITE	(VIS_SP | VIS_TAB | VIS_NL)
 #define	VIS_SAFE	0x0020	/* only encode "unsafe" characters */
+#define	VIS_DQ		0x8000	/* also encode double quotes */
 
 /*
  * other
@@ -91,6 +92,7 @@ char	*svis(char *, int, int, int, const char *);
 char	*snvis(char *, size_t, int, int, int, const char *);
 
 int	strvis(char *, const char *, int);
+int	stravis(char **, const char *, int);
 int	strnvis(char *, size_t, const char *, int);
 
 int	strsvis(char *, const char *, int, const char *);

@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.15 2015/01/29 03:26:27 christos Exp $
+# $NetBSD: Makefile,v 1.28.2.3 2026/03/06 07:00:15 martin Exp $
 
 .include <bsd.own.mk>
 
@@ -12,143 +12,155 @@ MAN=		tmux.1
 
 WARNS?=	4
 
-SRCS=		arguments.c
-SRCS+=		attributes.c
-SRCS+=		cfg.c
-SRCS+=		client.c
-SRCS+=		clock.c
-SRCS+=		cmd-attach-session.c
-SRCS+=		cmd-bind-key.c
-SRCS+=		cmd-break-pane.c
-SRCS+=		cmd-capture-pane.c
-SRCS+=		cmd-choose-buffer.c
-SRCS+=		cmd-choose-client.c
-SRCS+=		cmd-choose-list.c
-SRCS+=		cmd-choose-tree.c
-SRCS+=		cmd-clear-history.c
-SRCS+=		cmd-clock-mode.c
-SRCS+=		cmd-command-prompt.c
-SRCS+=		cmd-confirm-before.c
-SRCS+=		cmd-copy-mode.c
-SRCS+=		cmd-delete-buffer.c
-SRCS+=		cmd-detach-client.c
-SRCS+=		cmd-display-message.c
-SRCS+=		cmd-display-panes.c
-SRCS+=		cmd-find-window.c
-SRCS+=		cmd-has-session.c
-SRCS+=		cmd-if-shell.c
-SRCS+=		cmd-join-pane.c
-SRCS+=		cmd-kill-pane.c
-SRCS+=		cmd-kill-server.c
-SRCS+=		cmd-kill-session.c
-SRCS+=		cmd-kill-window.c
-SRCS+=		cmd-link-window.c
-SRCS+=		cmd-list-buffers.c
-SRCS+=		cmd-list-clients.c
-SRCS+=		cmd-list-commands.c
-SRCS+=		cmd-list-keys.c
-SRCS+=		cmd-list-panes.c
-SRCS+=		cmd-list-sessions.c
-SRCS+=		cmd-list-windows.c
-SRCS+=		cmd-list.c
-SRCS+=		cmd-load-buffer.c
-SRCS+=		cmd-lock-server.c
-SRCS+=		cmd-move-window.c
-SRCS+=		cmd-new-session.c
-SRCS+=		cmd-new-window.c
-SRCS+=		cmd-paste-buffer.c
-SRCS+=		cmd-pipe-pane.c
-SRCS+=		cmd-queue.c
-SRCS+=		cmd-refresh-client.c
-SRCS+=		cmd-rename-session.c
-SRCS+=		cmd-rename-window.c
-SRCS+=		cmd-resize-pane.c
-SRCS+=		cmd-respawn-pane.c
-SRCS+=		cmd-respawn-window.c
-SRCS+=		cmd-rotate-window.c
-SRCS+=		cmd-run-shell.c
-SRCS+=		cmd-save-buffer.c
-SRCS+=		cmd-select-layout.c
-SRCS+=		cmd-select-pane.c
-SRCS+=		cmd-select-window.c
-SRCS+=		cmd-send-keys.c
-SRCS+=		cmd-set-buffer.c
-SRCS+=		cmd-set-environment.c
-SRCS+=		cmd-set-option.c
-SRCS+=		cmd-show-environment.c
-SRCS+=		cmd-show-messages.c
-SRCS+=		cmd-show-options.c
-SRCS+=		cmd-source-file.c
-SRCS+=		cmd-split-window.c
-SRCS+=		cmd-string.c
-SRCS+=		cmd-suspend-client.c
-SRCS+=		cmd-swap-pane.c
-SRCS+=		cmd-swap-window.c
-SRCS+=		cmd-switch-client.c
-SRCS+=		cmd-unbind-key.c
-SRCS+=		cmd-unlink-window.c
-SRCS+=		cmd-wait-for.c
-SRCS+=		cmd.c
-SRCS+=		colour.c
-SRCS+=		control-notify.c
-SRCS+=		control.c
-SRCS+=		environ.c
-SRCS+=		format.c
-SRCS+=		grid-cell.c
-SRCS+=		grid-view.c
-SRCS+=		grid.c
-SRCS+=		input-keys.c
-SRCS+=		input.c
-SRCS+=		job.c
-SRCS+=		key-bindings.c
-SRCS+=		key-string.c
-SRCS+=		layout-custom.c
-SRCS+=		layout-set.c
-SRCS+=		layout.c
-SRCS+=		log.c
-SRCS+=		mode-key.c
-SRCS+=		names.c
-SRCS+=		notify.c
-SRCS+=		options.c
-SRCS+=		options-table.c
-SRCS+=		osdep-netbsd.c
-SRCS+=		paste.c
-SRCS+=		resize.c
-SRCS+=		screen-redraw.c
-SRCS+=		screen-write.c
-SRCS+=		screen.c
-SRCS+=		server-client.c
-SRCS+=		server-fn.c
-SRCS+=		server-window.c
-SRCS+=		server.c
-SRCS+=		session.c
-SRCS+=		signal.c
-SRCS+=		status.c
-SRCS+=		style.c
-SRCS+=		tmux.c
-SRCS+=		tty-acs.c
-SRCS+=		tty-keys.c
-SRCS+=		tty-term.c
-SRCS+=		tty.c
-SRCS+=		utf8.c
-SRCS+=		window-choose.c
-SRCS+=		window-clock.c
-SRCS+=		window-copy.c
-SRCS+=		window.c
-SRCS+=		xmalloc.c
-SRCS+=		xterm-keys.c
-SRCS+=		utmp.c
+SRCS+= \
+alerts.c \
+arguments.c \
+attributes.c \
+cfg.c \
+client.c \
+cmd-attach-session.c \
+cmd-bind-key.c \
+cmd-break-pane.c \
+cmd-capture-pane.c \
+cmd-choose-tree.c \
+cmd-command-prompt.c \
+cmd-confirm-before.c \
+cmd-copy-mode.c \
+cmd-detach-client.c \
+cmd-display-menu.c \
+cmd-display-message.c \
+cmd-display-panes.c \
+cmd-find-window.c \
+cmd-find.c \
+cmd-if-shell.c \
+cmd-join-pane.c \
+cmd-kill-pane.c \
+cmd-kill-server.c \
+cmd-kill-session.c \
+cmd-kill-window.c \
+cmd-list-buffers.c \
+cmd-list-clients.c \
+cmd-list-keys.c \
+cmd-list-panes.c \
+cmd-list-sessions.c \
+cmd-list-windows.c \
+cmd-load-buffer.c \
+cmd-lock-server.c \
+cmd-move-window.c \
+cmd-new-session.c \
+cmd-new-window.c \
+cmd-parse.y \
+cmd-paste-buffer.c \
+cmd-pipe-pane.c \
+cmd-queue.c \
+cmd-refresh-client.c \
+cmd-rename-session.c \
+cmd-rename-window.c \
+cmd-resize-pane.c \
+cmd-resize-window.c \
+cmd-respawn-pane.c \
+cmd-respawn-window.c \
+cmd-rotate-window.c \
+cmd-run-shell.c \
+cmd-save-buffer.c \
+cmd-select-layout.c \
+cmd-select-pane.c \
+cmd-select-window.c \
+cmd-send-keys.c \
+cmd-server-access.c \
+cmd-set-buffer.c \
+cmd-set-environment.c \
+cmd-set-option.c \
+cmd-show-environment.c \
+cmd-show-messages.c \
+cmd-show-options.c \
+cmd-show-prompt-history.c \
+cmd-source-file.c \
+cmd-split-window.c \
+cmd-swap-pane.c \
+cmd-swap-window.c \
+cmd-switch-client.c \
+cmd-unbind-key.c \
+cmd-wait-for.c \
+cmd.c \
+colour.c \
+control-notify.c \
+control.c \
+environ.c \
+file.c \
+format-draw.c \
+format.c \
+grid-reader.c \
+grid-view.c \
+grid.c \
+hyperlinks.c \
+image.c \
+image-sixel.c \
+input-keys.c \
+input.c \
+job.c \
+key-bindings.c \
+key-string.c \
+layout-custom.c \
+layout-set.c \
+layout.c \
+log.c \
+menu.c \
+mode-tree.c \
+names.c \
+notify.c \
+options-table.c \
+options.c \
+osdep-netbsd.c \
+paste.c \
+popup.c \
+proc.c \
+regsub.c \
+resize.c \
+screen-redraw.c \
+screen-write.c \
+screen.c \
+server-acl.c \
+server-client.c \
+server-fn.c \
+server.c \
+session.c \
+spawn.c \
+status.c \
+style.c \
+tmux.c \
+tty-acs.c \
+tty-features.c \
+tty-keys.c \
+tty-term.c \
+tty.c \
+utf8.c \
+utf8-combined.c \
+window-buffer.c \
+window-client.c \
+window-clock.c \
+window-copy.c \
+window-customize.c \
+window-tree.c \
+window.c \
+xmalloc.c
+
+SRCS+=	utempter.c
+CPPFLAGS+=-DSUPPORT_UTMP -DSUPPORT_UTMPX
 
 # Files in compat/
-#SRCS+=		forkpty-hpux.c
 SRCS+=		imsg-buffer.c
 SRCS+=		imsg.c
+SRCS+=		fdforkpty.c
+SRCS+=		freezero.c
+SRCS+=		explicit_bzero.c
+SRCS+=		htonll.c
+SRCS+=		ntohll.c
+SRCS+=		recallocarray.c
+SRCS+=		getdtablecount.c
 #SRCS+=		strtonum.c
 #SRCS+=		unvis.c
 #SRCS+=		vis.c
-.if defined(__MINIX)
-SRCS+=		openat.c
-.endif # defined(__MINIX)
 
 CPPFLAGS+=	-I${SRCDIR} -I${.CURDIR}
 
@@ -157,75 +169,121 @@ CPPFLAGS+=	-I${SRCDIR} -I${.CURDIR}
 # Would be nicer to stick this in a config.h file, but the upstream code
 # does not use one at this moment.
 
-CPPFLAGS+=	-DHAVE_STRTONUM=1 -D_OPENBSD_SOURCE
-CPPFLAGS+=	-DHAVE_ASPRINTF=1
-CPPFLAGS+=	-DHAVE_B64_NTOP=1
-CPPFLAGS+=	-DHAVE_BITSTRING_H=1
-CPPFLAGS+=	-DHAVE_BSD_TYPES=1
-CPPFLAGS+=	-DHAVE_BZERO=1
-CPPFLAGS+=	-DHAVE_CFMAKERAW=1
-CPPFLAGS+=	-DHAVE_CLOSEFROM=1
-CPPFLAGS+=	-DHAVE_CURSES_H=1
-CPPFLAGS+=	-DHAVE_DAEMON=1
-CPPFLAGS+=	-DHAVE_DECL_OPTARG=1
-CPPFLAGS+=	-DHAVE_DECL_OPTIND=1
-CPPFLAGS+=	-DHAVE_DECL_OPTRESET=1
-CPPFLAGS+=	-DHAVE_DIRENT_H=1
-CPPFLAGS+=	-DHAVE_DIRFD=1
-CPPFLAGS+=	-DHAVE_FCNTL_CLOSEM=1
-CPPFLAGS+=	-DHAVE_FCNTL_H=1
-CPPFLAGS+=	-DHAVE_FGETLN=1
-CPPFLAGS+=	-DHAVE_FORKPTY=1
-CPPFLAGS+=	-DHAVE_GETOPT=1
-CPPFLAGS+=	-DHAVE_INTTYPES_H=1
-CPPFLAGS+=	-DHAVE_LIBRT=1
-CPPFLAGS+=	-DHAVE_MEMORY_H=1
-.if !defined(__MINIX)
-CPPFLAGS+=	-DHAVE_OPENAT=1
-.endif # !defined(__MINIX)
-CPPFLAGS+=	-DHAVE_PATHS_H=1
-CPPFLAGS+=	-DHAVE_PROC_PID=1
-CPPFLAGS+=	-DHAVE_QUEUE_H=1
-CPPFLAGS+=	-DHAVE_SETENV=1
-CPPFLAGS+=	-DHAVE_SETPROCTITLE=1
-CPPFLAGS+=	-DHAVE_STDINT_H=1
-CPPFLAGS+=	-DHAVE_STDLIB_H=1
-CPPFLAGS+=	-DHAVE_STRCASESTR=1
-CPPFLAGS+=	-DHAVE_STRINGS_H=1
-CPPFLAGS+=	-DHAVE_STRING_H=1
-CPPFLAGS+=	-DHAVE_STRLCAT=1
-CPPFLAGS+=	-DHAVE_STRLCPY=1
-CPPFLAGS+=	-DHAVE_STRSEP=1
-CPPFLAGS+=	-DHAVE_SYSCONF=1
-CPPFLAGS+=	-DHAVE_SYS_DIR_H=1
-CPPFLAGS+=	-DHAVE_SYS_STAT_H=1
-CPPFLAGS+=	-DHAVE_SYS_TREE_H=1
-CPPFLAGS+=	-DHAVE_SYS_TYPES_H=1
-CPPFLAGS+=	-DHAVE_TREE_H=1
-CPPFLAGS+=	-DHAVE_TERM_H=1
-CPPFLAGS+=	-DHAVE_UNISTD_H=1
-CPPFLAGS+=	-DHAVE_UTIL_H=1
-CPPFLAGS+=	-DHAVE_VIS=1
-CPPFLAGS+=	-DHAVE___PROGNAME=1
-CPPFLAGS+=	-DPACKAGE=\"tmux\"
-CPPFLAGS+=	-DPACKAGE_BUGREPORT=\"\"
-CPPFLAGS+=	-DPACKAGE_NAME=\"tmux\"
-CPPFLAGS+=	-DPACKAGE_STRING=\"tmux\ 1.9a\"
-CPPFLAGS+=	-DPACKAGE_TARNAME=\"tmux\"
-CPPFLAGS+=	-DPACKAGE_URL=\"\"
-CPPFLAGS+=	-DPACKAGE_VERSION=\"1.9a\"
-CPPFLAGS+=	-DSTDC_HEADERS=1
-CPPFLAGS+=	-DSUPPORT_UTMP
-CPPFLAGS+=	-DSUPPORT_UTMPX
-CPPFLAGS+=	-DTMUX_CONF="\"/etc/tmux.conf\""
-CPPFLAGS+=	-DVERSION=\"1.9a\"
+# ENABLE_SIXEL, HAVE_REALLOCARRAY, HAVE_TREE_H, HAVE_UTEMPTER, HAVE_VIS added manually
+#
+# HAVE_BSD_GETOPT:
+# Use the NetBSD libc getopt functions instead of the compat functions
+# provided by tmux (done using a local patch).
+#
+# HAVE_VIS:
+# tmux assumes the OpenBSD variant of strnvis which has arguments
+# swapped compared to FreeBSD & NetBSD, see
+# https://github.com/tmux/tmux/pull/4015
+# We have a local patch that adapts the call to the NetBSD version,
+# so we don't need to use the compat code provided by tmux.
+CPPFLAGS+=	\
+-DENABLE_SIXEL=1 \
+-DHAVE_ASPRINTF=1 \
+-DHAVE_B64_NTOP=1 \
+-DHAVE_BITSTRING_H=1 \
+-DHAVE_BSD_GETOPT=1 \
+-DHAVE_CFMAKERAW=1 \
+-DHAVE_CLOCK_GETTIME=1 \
+-DHAVE_CLOSEFROM=1 \
+-DHAVE_CURSES_H=1 \
+-DHAVE_DAEMON=1 \
+-DHAVE_DIRENT_H=1 \
+-DHAVE_EVENT2_EVENT_H=1 \
+-DHAVE_FCNTL_CLOSEM=1 \
+-DHAVE_FCNTL_H=1 \
+-DHAVE_FGETLN=1 \
+-DHAVE_FLOCK=1 \
+-DHAVE_FORKPTY=1 \
+-DHAVE_GETDTABLESIZE=1 \
+-DHAVE_GETLINE=1 \
+-DHAVE_GETPEEREID=1 \
+-DHAVE_GETPROGNAME=1 \
+-DHAVE_INTTYPES_H=1 \
+-DHAVE_LIBM=1 \
+-DHAVE_MEMMEM=1 \
+-DHAVE_MEMORY_H=1 \
+-DHAVE_PATHS_H=1 \
+-DHAVE_PROC_PID=1 \
+-DHAVE_QUEUE_H=1 \
+-DHAVE_REALLOCARRAY=1 \
+-DHAVE_SETENV=1 \
+-DHAVE_SETPROCTITLE=1 \
+-DHAVE_STDINT_H=1 \
+-DHAVE_STDLIB_H=1 \
+-DHAVE_STRCASESTR=1 \
+-DHAVE_STRINGS_H=1 \
+-DHAVE_STRING_H=1 \
+-DHAVE_STRLCAT=1 \
+-DHAVE_STRLCPY=1 \
+-DHAVE_STRNDUP=1 \
+-DHAVE_STRSEP=1 \
+-DHAVE_STRTONUM=1 \
+-DHAVE_SYSCONF=1 \
+-DHAVE_SYS_DIR_H=1 \
+-DHAVE_SYS_SIGNAME=1 \
+-DHAVE_SYS_STAT_H=1 \
+-DHAVE_SYS_TREE_H=1 \
+-DHAVE_SYS_TYPES_H=1 \
+-DHAVE_TIPARM=1 \
+-DHAVE_TREE_H=1 \
+-DHAVE_UNISTD_H=1 \
+-DHAVE_UTEMPTER=1 \
+-DHAVE_UTIL_H=1 \
+-DHAVE_VIS=1 \
+-DHAVE___PROGNAME=1 \
+-DPACKAGE=\"tmux\" \
+-DPACKAGE_BUGREPORT=\"\" \
+-DPACKAGE_NAME=\"tmux\" \
+-DPACKAGE_STRING=\"tmux\ 3.6a\" \
+-DPACKAGE_TARNAME=\"tmux\" \
+-DPACKAGE_URL=\"\" \
+-DPACKAGE_VERSION=\"3.6a\" \
+-DSTDC_HEADERS=1 \
+-DTMUX_CONF='"/etc/tmux.conf:~/.tmux.conf:$XDG_CONFIG_HOME/tmux/tmux.conf:~/.config/tmux/tmux.conf"' \
+-DTMUX_LOCK_CMD='"lock -np"' \
+-DTMUX_TERM='"tmux-256color"' \
+-DTMUX_VERSION='"3.6a"' \
+-DVERSION=\"3.6a\" \
+-D_ALL_SOURCE=1 \
+-D_GNU_SOURCE=1 \
+-D_NETBSD_SOURCE \
+-D_OPENBSD_SOURCE \
+-D_POSIX_PTHREAD_SEMANTICS=1 \
+-D_TANDEM_SOURCE=1 \
+-D__EXTENSIONS__=1
 
 LDADD+=		-levent -lterminfo -lutil -lm
 DPADD+=		${LIBEVENT} ${LIBTERMINFO} ${LIBUTIL}
 
-COPTS.cmd-display-message.c += -Wno-format-nonliteral
-COPTS.cmd-pipe-pane.c += -Wno-format-nonliteral
-COPTS.server-client.c += -Wno-format-nonliteral
-COPTS.status.c += -Wno-format-nonliteral
+COPTS.format.c+=	-Wno-format-nonliteral
+COPTS.grid.c+=		${GCC_NO_MAYBE_UNINITIALIZED}
+COPTS.input.c+=		-Wno-sign-compare -Wno-pointer-sign
+COPTS.mode-tree.c+=	-Wno-error=stack-protector
+COPTS.tty.c+=		-Wno-pointer-sign
+COPTS.utempter.c+=	${GCC_NO_STRINGOP_TRUNCATION}
+COPTS.window-copy.c+=	${GCC_NO_MAYBE_UNINITIALIZED} -Wno-pointer-sign
+COPTS.cmd-run-shell.c += ${GCC_NO_MAYBE_UNINITIALIZED}
+
+# The man page needs substitutions, but the dist file usurps the
+# output file suffix.
+.NOPATH: tmux.1
+tmux.1: $(SRCDIR)/tmux.1
+	sed -e 's|@SYSCONFDIR@|/etc|g' $> > $@
+
+CLEANDIRFILES+=	tmux.1
+
+# MINIX: build dynamically.  tmux 3.6a hard-requires a UTF-8 LC_CTYPE locale,
+# and citrus loads the UTF-8 ctype module with dlopen(3) -- which only works in
+# a dynamically linked program (libc.so defines _I18N_DYNAMIC; the static libc
+# stub returns EINVAL).  MINIX links statically by default, which left tmux
+# unable to find a UTF-8 locale ("need UTF-8 locale (LC_CTYPE) but have 646").
+.if defined(__MINIX)
+LDSTATIC=
+.endif
 
 .include <bsd.prog.mk>

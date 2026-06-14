@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,6 @@
 #include <sys/types.h>
 
 #include <stdlib.h>
-#include <unistd.h>
 
 #include "tmux.h"
 
@@ -27,76 +26,75 @@
  * List panes on given window.
  */
 
-enum cmd_retval	 cmd_list_panes_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_list_panes_exec(struct cmd *, struct cmdq_item *);
 
-void	cmd_list_panes_server(struct cmd *, struct cmd_q *);
-void	cmd_list_panes_session(
-	    struct cmd *, struct session *, struct cmd_q *, int);
-void	cmd_list_panes_window(struct cmd *,
-	    struct session *, struct winlink *, struct cmd_q *, int);
+static void	cmd_list_panes_server(struct cmd *, struct cmdq_item *);
+static void	cmd_list_panes_session(struct cmd *, struct session *,
+		    struct cmdq_item *, int);
+static void	cmd_list_panes_window(struct cmd *, struct session *,
+		    struct winlink *, struct cmdq_item *, int);
 
 const struct cmd_entry cmd_list_panes_entry = {
-	"list-panes", "lsp",
-	"asF:t:", 0, 0,
-	"[-as] [-F format] " CMD_TARGET_WINDOW_USAGE,
-	0,
-	NULL,
-	cmd_list_panes_exec
+	.name = "list-panes",
+	.alias = "lsp",
+
+	.args = { "asF:f:t:", 0, 0, NULL },
+	.usage = "[-as] [-F format] [-f filter] " CMD_TARGET_WINDOW_USAGE,
+
+	.target = { 't', CMD_FIND_WINDOW, 0 },
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_list_panes_exec
 };
 
-enum cmd_retval
-cmd_list_panes_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_list_panes_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args	*args = self->args;
-	struct session	*s;
-	struct winlink	*wl;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct session		*s = target->s;
+	struct winlink		*wl = target->wl;
 
 	if (args_has(args, 'a'))
-		cmd_list_panes_server(self, cmdq);
-	else if (args_has(args, 's')) {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-		cmd_list_panes_session(self, s, cmdq, 1);
-	} else {
-		wl = cmd_find_window(cmdq, args_get(args, 't'), &s);
-		if (wl == NULL)
-			return (CMD_RETURN_ERROR);
-		cmd_list_panes_window(self, s, wl, cmdq, 0);
-	}
+		cmd_list_panes_server(self, item);
+	else if (args_has(args, 's'))
+		cmd_list_panes_session(self, s, item, 1);
+	else
+		cmd_list_panes_window(self, s, wl, item, 0);
 
 	return (CMD_RETURN_NORMAL);
 }
 
-void
-cmd_list_panes_server(struct cmd *self, struct cmd_q *cmdq)
+static void
+cmd_list_panes_server(struct cmd *self, struct cmdq_item *item)
 {
 	struct session	*s;
 
 	RB_FOREACH(s, sessions, &sessions)
-		cmd_list_panes_session(self, s, cmdq, 2);
+		cmd_list_panes_session(self, s, item, 2);
 }
 
-void
-cmd_list_panes_session(
-    struct cmd *self, struct session *s, struct cmd_q *cmdq, int type)
+static void
+cmd_list_panes_session(struct cmd *self, struct session *s,
+    struct cmdq_item *item, int type)
 {
 	struct winlink	*wl;
 
 	RB_FOREACH(wl, winlinks, &s->windows)
-		cmd_list_panes_window(self, s, wl, cmdq, type);
+		cmd_list_panes_window(self, s, wl, item, type);
 }
 
-void
-cmd_list_panes_window(struct cmd *self,
-    struct session *s, struct winlink *wl, struct cmd_q *cmdq, int type)
+static void
+cmd_list_panes_window(struct cmd *self, struct session *s, struct winlink *wl,
+    struct cmdq_item *item, int type)
 {
-	struct args		*args = self->args;
+	struct args		*args = cmd_get_args(self);
 	struct window_pane	*wp;
 	u_int			 n;
 	struct format_tree	*ft;
-	const char		*template;
-	char			*line;
+	const char		*template, *filter;
+	char			*line, *expanded;
+	int			 flag;
 
 	template = args_get(args, 'F');
 	if (template == NULL) {
@@ -116,26 +114,33 @@ cmd_list_panes_window(struct cmd *self,
 			    "#{?pane_active, (active),}#{?pane_dead, (dead),}";
 			break;
 		case 2:
-			template = "#{session_name}:#{window_index}.#{pane_index}: "
-			    "[#{pane_width}x#{pane_height}] [history "
-			    "#{history_size}/#{history_limit}, "
+			template = "#{session_name}:#{window_index}."
+			    "#{pane_index}: [#{pane_width}x#{pane_height}] "
+			    "[history #{history_size}/#{history_limit}, "
 			    "#{history_bytes} bytes] #{pane_id}"
 			    "#{?pane_active, (active),}#{?pane_dead, (dead),}";
 			break;
 		}
 	}
+	filter = args_get(args, 'f');
 
 	n = 0;
 	TAILQ_FOREACH(wp, &wl->window->panes, entry) {
-		ft = format_create();
+		ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
 		format_add(ft, "line", "%u", n);
-		format_session(ft, s);
-		format_winlink(ft, s, wl);
-		format_window_pane(ft, wp);
+		format_defaults(ft, NULL, s, wl, wp);
 
-		line = format_expand(ft, template);
-		cmdq_print(cmdq, "%s", line);
-		free(line);
+		if (filter != NULL) {
+			expanded = format_expand(ft, filter);
+			flag = format_true(expanded);
+			free(expanded);
+		} else
+			flag = 1;
+		if (flag) {
+			line = format_expand(ft, template);
+			cmdq_print(item, "%s", line);
+			free(line);
+		}
 
 		format_free(ft);
 		n++;

@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,12 +24,13 @@
 
 #include <err.h>
 #include <errno.h>
-#include <event.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <libutil.h>
+
+#include "compat.h"
 
 struct kinfo_proc	*cmp_procs(struct kinfo_proc *, struct kinfo_proc *);
 char			*osdep_get_name(int, char *);
@@ -132,8 +133,8 @@ error:
 	return (NULL);
 }
 
-char *
-osdep_get_cwd(int fd)
+static char *
+osdep_get_cwd_fallback(int fd)
 {
 	static char		 wd[PATH_MAX];
 	struct kinfo_file	*info = NULL;
@@ -158,13 +159,50 @@ osdep_get_cwd(int fd)
 	return (NULL);
 }
 
+#ifdef KERN_PROC_CWD
+char *
+osdep_get_cwd(int fd)
+{
+	static struct kinfo_file	info;
+	static int			fallback;
+	int	name[] = { CTL_KERN, KERN_PROC, KERN_PROC_CWD, 0 };
+	size_t	len = sizeof info;
+
+	if (fallback)
+		return (osdep_get_cwd_fallback(fd));
+
+	if ((name[3] = tcgetpgrp(fd)) == -1)
+		return (NULL);
+
+	if (sysctl(name, 4, &info, &len, NULL, 0) == -1) {
+		if (errno == ENOENT) {
+			fallback = 1;
+			return (osdep_get_cwd_fallback(fd));
+		}
+		return (NULL);
+	}
+	return (info.kf_path);
+}
+#else /* !KERN_PROC_CWD */
+char *
+osdep_get_cwd(int fd)
+{
+	return (osdep_get_cwd_fallback(fd));
+}
+#endif /* KERN_PROC_CWD */
+
 struct event_base *
 osdep_event_init(void)
 {
+	struct event_base	*base;
+
 	/*
 	 * On some versions of FreeBSD, kqueue doesn't work properly on tty
 	 * file descriptors. This is fixed in recent FreeBSD versions.
 	 */
 	setenv("EVENT_NOKQUEUE", "1", 1);
-	return (event_init());
+
+	base = event_init();
+	unsetenv("EVENT_NOKQUEUE");
+	return (base);
 }

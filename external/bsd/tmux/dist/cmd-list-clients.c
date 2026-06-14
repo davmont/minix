@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,56 +28,74 @@
  * List all clients.
  */
 
-enum cmd_retval	cmd_list_clients_exec(struct cmd *, struct cmd_q *);
+#define LIST_CLIENTS_TEMPLATE						\
+	"#{client_name}: #{session_name} "				\
+	"[#{client_width}x#{client_height} #{client_termname}] "	\
+	"#{?#{!=:#{client_uid},#{uid}},"				\
+	"[user #{?client_user,#{client_user},#{client_uid},}] ,}"	\
+	"#{?client_flags,(,}#{client_flags}#{?client_flags,),}"
+
+static enum cmd_retval	cmd_list_clients_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_list_clients_entry = {
-	"list-clients", "lsc",
-	"F:t:", 0, 0,
-	"[-F format] " CMD_TARGET_SESSION_USAGE,
-	CMD_READONLY,
-	NULL,
-	cmd_list_clients_exec
+	.name = "list-clients",
+	.alias = "lsc",
+
+	.args = { "F:f:t:", 0, 0, NULL },
+	.usage = "[-F format] [-f filter] " CMD_TARGET_SESSION_USAGE,
+
+	.target = { 't', CMD_FIND_SESSION, 0 },
+
+	.flags = CMD_READONLY|CMD_AFTERHOOK,
+	.exec = cmd_list_clients_exec
 };
 
-enum cmd_retval
-cmd_list_clients_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_list_clients_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args 		*args = self->args;
+	struct args 		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
 	struct client		*c;
 	struct session		*s;
 	struct format_tree	*ft;
-	const char		*template;
-	u_int			 i;
-	char			*line;
+	const char		*template, *filter;
+	u_int			 idx;
+	char			*line, *expanded;
+	int			 flag;
 
-	if (args_has(args, 't')) {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-	} else
+	if (args_has(args, 't'))
+		s = target->s;
+	else
 		s = NULL;
 
 	if ((template = args_get(args, 'F')) == NULL)
 		template = LIST_CLIENTS_TEMPLATE;
+	filter = args_get(args, 'f');
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL || c->session == NULL)
+	idx = 0;
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (c->session == NULL || (s != NULL && s != c->session))
 			continue;
 
-		if (s != NULL && s != c->session)
-			continue;
+		ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
+		format_add(ft, "line", "%u", idx);
+		format_defaults(ft, c, NULL, NULL, NULL);
 
-		ft = format_create();
-		format_add(ft, "line", "%u", i);
-		format_session(ft, c->session);
-		format_client(ft, c);
-
-		line = format_expand(ft, template);
-		cmdq_print(cmdq, "%s", line);
-		free(line);
+		if (filter != NULL) {
+			expanded = format_expand(ft, filter);
+			flag = format_true(expanded);
+			free(expanded);
+		} else
+			flag = 1;
+		if (flag) {
+			line = format_expand(ft, template);
+			cmdq_print(item, "%s", line);
+			free(line);
+		}
 
 		format_free(ft);
+
+		idx++;
 	}
 
 	return (CMD_RETURN_NORMAL);

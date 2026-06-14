@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Todd Carson <toc@daybefore.net>
@@ -16,10 +16,9 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 
-#include <event.h>
 #include <fcntl.h>
 #include <procfs.h>
 #include <stdio.h>
@@ -29,7 +28,7 @@
 #include "tmux.h"
 
 char *
-osdep_get_name(int fd, char *tty)
+osdep_get_name(__unused int fd, char *tty)
 {
 	struct psinfo	 p;
 	struct stat	 st;
@@ -69,10 +68,19 @@ osdep_get_cwd(int fd)
 {
 	static char	 target[MAXPATHLEN + 1];
 	char		*path;
+	const char	*ttypath;
 	ssize_t		 n;
 	pid_t		 pgrp;
+	int		 retval, ttyfd;
 
-	if ((pgrp = tcgetpgrp(fd)) == -1)
+	if ((ttypath = ptsname(fd)) == NULL)
+		return (NULL);
+	if ((ttyfd = open(ttypath, O_RDONLY|O_NOCTTY)) == -1)
+		return (NULL);
+
+	retval = ioctl(ttyfd, TIOCGPGRP, &pgrp);
+	close(ttyfd);
+	if (retval == -1)
 		return (NULL);
 
 	xasprintf(&path, "/proc/%u/path/cwd", (u_int) pgrp);
@@ -88,5 +96,17 @@ osdep_get_cwd(int fd)
 struct event_base *
 osdep_event_init(void)
 {
-	return (event_init());
+	struct event_base	*base;
+
+	/*
+	 * On Illumos, evports don't seem to work properly. It is not clear if
+	 * this a problem in libevent, with the way tmux uses file descriptors,
+	 * or with some types of file descriptor. But using poll instead is
+	 * fine.
+	 */
+	setenv("EVENT_NOEVPORT", "1", 1);
+
+	base = event_init();
+	unsetenv("EVENT_NOEVPORT");
+	return (base);
 }

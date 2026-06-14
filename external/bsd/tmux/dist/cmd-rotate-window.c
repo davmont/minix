@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,41 +24,37 @@
  * Rotate the panes in a window.
  */
 
-void		 cmd_rotate_window_key_binding(struct cmd *, int);
-enum cmd_retval	 cmd_rotate_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_rotate_window_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_rotate_window_entry = {
-	"rotate-window", "rotatew",
-	"Dt:U", 0, 0,
-	"[-DU] " CMD_TARGET_WINDOW_USAGE,
-	0,
-	cmd_rotate_window_key_binding,
-	cmd_rotate_window_exec
+	.name = "rotate-window",
+	.alias = "rotatew",
+
+	.args = { "Dt:UZ", 0, 0, NULL },
+	.usage = "[-DUZ] " CMD_TARGET_WINDOW_USAGE,
+
+	.target = { 't', CMD_FIND_WINDOW, 0 },
+
+	.flags = 0,
+	.exec = cmd_rotate_window_exec
 };
 
-void
-cmd_rotate_window_key_binding(struct cmd *self, int key)
+static enum cmd_retval
+cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	self->args = args_create(0);
-	if (key == ('o' | KEYC_ESCAPE))
-		args_set(self->args, 'D', NULL);
-}
-
-enum cmd_retval
-cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
-{
-	struct args		*args = self->args;
-	struct winlink		*wl;
-	struct window		*w;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*current = cmdq_get_current(item);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct winlink		*wl = target->wl;
+	struct window		*w = wl->window;
 	struct window_pane	*wp, *wp2;
 	struct layout_cell	*lc;
 	u_int			 sx, sy, xoff, yoff;
 
-	if ((wl = cmd_find_window(cmdq, args_get(args, 't'), NULL)) == NULL)
-		return (CMD_RETURN_ERROR);
-	w = wl->window;
+	window_push_zoom(w, 0, args_has(args, 'Z'));
 
-	if (args_has(self->args, 'D')) {
+	if (args_has(args, 'D')) {
 		wp = TAILQ_LAST(&w->panes, window_panes);
 		TAILQ_REMOVE(&w->panes, wp, entry);
 		TAILQ_INSERT_HEAD(&w->panes, wp, entry);
@@ -83,8 +79,6 @@ cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
 
 		if ((wp = TAILQ_PREV(w->active, window_panes, entry)) == NULL)
 			wp = TAILQ_LAST(&w->panes, window_panes);
-		window_set_active_pane(w, wp);
-		server_redraw_window(w);
 	} else {
 		wp = TAILQ_FIRST(&w->panes);
 		TAILQ_REMOVE(&w->panes, wp, entry);
@@ -110,9 +104,12 @@ cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
 
 		if ((wp = TAILQ_NEXT(w->active, entry)) == NULL)
 			wp = TAILQ_FIRST(&w->panes);
-		window_set_active_pane(w, wp);
-		server_redraw_window(w);
 	}
+
+	window_set_active_pane(w, wp, 1);
+	cmd_find_from_winlink_pane(current, wl, wp, 0);
+	window_pop_zoom(w);
+	server_redraw_window(w);
 
 	return (CMD_RETURN_NORMAL);
 }

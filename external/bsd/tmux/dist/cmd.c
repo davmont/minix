@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,6 +27,97 @@
 
 #include "tmux.h"
 
+extern const struct cmd_entry cmd_attach_session_entry;
+extern const struct cmd_entry cmd_bind_key_entry;
+extern const struct cmd_entry cmd_break_pane_entry;
+extern const struct cmd_entry cmd_capture_pane_entry;
+extern const struct cmd_entry cmd_choose_buffer_entry;
+extern const struct cmd_entry cmd_choose_client_entry;
+extern const struct cmd_entry cmd_choose_tree_entry;
+extern const struct cmd_entry cmd_clear_history_entry;
+extern const struct cmd_entry cmd_clear_prompt_history_entry;
+extern const struct cmd_entry cmd_clock_mode_entry;
+extern const struct cmd_entry cmd_command_prompt_entry;
+extern const struct cmd_entry cmd_confirm_before_entry;
+extern const struct cmd_entry cmd_copy_mode_entry;
+extern const struct cmd_entry cmd_customize_mode_entry;
+extern const struct cmd_entry cmd_delete_buffer_entry;
+extern const struct cmd_entry cmd_detach_client_entry;
+extern const struct cmd_entry cmd_display_menu_entry;
+extern const struct cmd_entry cmd_display_message_entry;
+extern const struct cmd_entry cmd_display_popup_entry;
+extern const struct cmd_entry cmd_display_panes_entry;
+extern const struct cmd_entry cmd_find_window_entry;
+extern const struct cmd_entry cmd_has_session_entry;
+extern const struct cmd_entry cmd_if_shell_entry;
+extern const struct cmd_entry cmd_join_pane_entry;
+extern const struct cmd_entry cmd_kill_pane_entry;
+extern const struct cmd_entry cmd_kill_server_entry;
+extern const struct cmd_entry cmd_kill_session_entry;
+extern const struct cmd_entry cmd_kill_window_entry;
+extern const struct cmd_entry cmd_last_pane_entry;
+extern const struct cmd_entry cmd_last_window_entry;
+extern const struct cmd_entry cmd_link_window_entry;
+extern const struct cmd_entry cmd_list_buffers_entry;
+extern const struct cmd_entry cmd_list_clients_entry;
+extern const struct cmd_entry cmd_list_commands_entry;
+extern const struct cmd_entry cmd_list_keys_entry;
+extern const struct cmd_entry cmd_list_panes_entry;
+extern const struct cmd_entry cmd_list_sessions_entry;
+extern const struct cmd_entry cmd_list_windows_entry;
+extern const struct cmd_entry cmd_load_buffer_entry;
+extern const struct cmd_entry cmd_lock_client_entry;
+extern const struct cmd_entry cmd_lock_server_entry;
+extern const struct cmd_entry cmd_lock_session_entry;
+extern const struct cmd_entry cmd_move_pane_entry;
+extern const struct cmd_entry cmd_move_window_entry;
+extern const struct cmd_entry cmd_new_session_entry;
+extern const struct cmd_entry cmd_new_window_entry;
+extern const struct cmd_entry cmd_next_layout_entry;
+extern const struct cmd_entry cmd_next_window_entry;
+extern const struct cmd_entry cmd_paste_buffer_entry;
+extern const struct cmd_entry cmd_pipe_pane_entry;
+extern const struct cmd_entry cmd_previous_layout_entry;
+extern const struct cmd_entry cmd_previous_window_entry;
+extern const struct cmd_entry cmd_refresh_client_entry;
+extern const struct cmd_entry cmd_rename_session_entry;
+extern const struct cmd_entry cmd_rename_window_entry;
+extern const struct cmd_entry cmd_resize_pane_entry;
+extern const struct cmd_entry cmd_resize_window_entry;
+extern const struct cmd_entry cmd_respawn_pane_entry;
+extern const struct cmd_entry cmd_respawn_window_entry;
+extern const struct cmd_entry cmd_rotate_window_entry;
+extern const struct cmd_entry cmd_run_shell_entry;
+extern const struct cmd_entry cmd_save_buffer_entry;
+extern const struct cmd_entry cmd_select_layout_entry;
+extern const struct cmd_entry cmd_select_pane_entry;
+extern const struct cmd_entry cmd_select_window_entry;
+extern const struct cmd_entry cmd_send_keys_entry;
+extern const struct cmd_entry cmd_send_prefix_entry;
+extern const struct cmd_entry cmd_server_access_entry;
+extern const struct cmd_entry cmd_set_buffer_entry;
+extern const struct cmd_entry cmd_set_environment_entry;
+extern const struct cmd_entry cmd_set_hook_entry;
+extern const struct cmd_entry cmd_set_option_entry;
+extern const struct cmd_entry cmd_set_window_option_entry;
+extern const struct cmd_entry cmd_show_buffer_entry;
+extern const struct cmd_entry cmd_show_environment_entry;
+extern const struct cmd_entry cmd_show_hooks_entry;
+extern const struct cmd_entry cmd_show_messages_entry;
+extern const struct cmd_entry cmd_show_options_entry;
+extern const struct cmd_entry cmd_show_prompt_history_entry;
+extern const struct cmd_entry cmd_show_window_options_entry;
+extern const struct cmd_entry cmd_source_file_entry;
+extern const struct cmd_entry cmd_split_window_entry;
+extern const struct cmd_entry cmd_start_server_entry;
+extern const struct cmd_entry cmd_suspend_client_entry;
+extern const struct cmd_entry cmd_swap_pane_entry;
+extern const struct cmd_entry cmd_swap_window_entry;
+extern const struct cmd_entry cmd_switch_client_entry;
+extern const struct cmd_entry cmd_unbind_key_entry;
+extern const struct cmd_entry cmd_unlink_window_entry;
+extern const struct cmd_entry cmd_wait_for_entry;
+
 const struct cmd_entry *cmd_table[] = {
 	&cmd_attach_session_entry,
 	&cmd_bind_key_entry,
@@ -34,18 +125,19 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_capture_pane_entry,
 	&cmd_choose_buffer_entry,
 	&cmd_choose_client_entry,
-	&cmd_choose_list_entry,
-	&cmd_choose_session_entry,
 	&cmd_choose_tree_entry,
-	&cmd_choose_window_entry,
 	&cmd_clear_history_entry,
+	&cmd_clear_prompt_history_entry,
 	&cmd_clock_mode_entry,
 	&cmd_command_prompt_entry,
 	&cmd_confirm_before_entry,
 	&cmd_copy_mode_entry,
+	&cmd_customize_mode_entry,
 	&cmd_delete_buffer_entry,
 	&cmd_detach_client_entry,
+	&cmd_display_menu_entry,
 	&cmd_display_message_entry,
+	&cmd_display_popup_entry,
 	&cmd_display_panes_entry,
 	&cmd_find_window_entry,
 	&cmd_has_session_entry,
@@ -83,6 +175,7 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_rename_session_entry,
 	&cmd_rename_window_entry,
 	&cmd_resize_pane_entry,
+	&cmd_resize_window_entry,
 	&cmd_respawn_pane_entry,
 	&cmd_respawn_window_entry,
 	&cmd_rotate_window_entry,
@@ -93,15 +186,18 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_select_window_entry,
 	&cmd_send_keys_entry,
 	&cmd_send_prefix_entry,
-	&cmd_server_info_entry,
+	&cmd_server_access_entry,
 	&cmd_set_buffer_entry,
 	&cmd_set_environment_entry,
+	&cmd_set_hook_entry,
 	&cmd_set_option_entry,
 	&cmd_set_window_option_entry,
 	&cmd_show_buffer_entry,
 	&cmd_show_environment_entry,
+	&cmd_show_hooks_entry,
 	&cmd_show_messages_entry,
 	&cmd_show_options_entry,
+	&cmd_show_prompt_history_entry,
 	&cmd_show_window_options_entry,
 	&cmd_source_file_entry,
 	&cmd_split_window_entry,
@@ -116,27 +212,75 @@ const struct cmd_entry *cmd_table[] = {
 	NULL
 };
 
-int		 cmd_session_better(struct session *, struct session *, int);
-struct session	*cmd_choose_session_list(struct sessionslist *);
-struct session	*cmd_choose_session(int);
-struct client	*cmd_choose_client(struct clients *);
-struct client	*cmd_lookup_client(const char *);
-struct session	*cmd_lookup_session(const char *, int *);
-struct session	*cmd_lookup_session_id(const char *);
-struct winlink	*cmd_lookup_window(struct session *, const char *, int *);
-int		 cmd_lookup_index(struct session *, const char *, int *);
-struct winlink	*cmd_lookup_winlink_windowid(struct session *, const char *);
-struct session	*cmd_window_session(struct cmd_q *, struct window *,
-		    struct winlink **);
-struct winlink	*cmd_find_window_offset(const char *, struct session *, int *);
-int		 cmd_find_index_offset(const char *, struct session *, int *);
-struct window_pane *cmd_find_pane_offset(const char *, struct winlink *);
+/* Instance of a command. */
+struct cmd {
+	const struct cmd_entry	 *entry;
+	struct args		 *args;
+	u_int			  group;
 
+	char			 *file;
+	u_int			  line;
+	int			  parse_flags;
+
+	TAILQ_ENTRY(cmd)	  qentry;
+};
+TAILQ_HEAD(cmds, cmd);
+
+/* Next group number for new command list. */
+static u_int cmd_list_next_group = 1;
+
+/* Log an argument vector. */
+void printflike(3, 4)
+cmd_log_argv(int argc, char **argv, const char *fmt, ...)
+{
+	char	*prefix;
+	va_list	 ap;
+	int	 i;
+
+	va_start(ap, fmt);
+	xvasprintf(&prefix, fmt, ap);
+	va_end(ap);
+
+	for (i = 0; i < argc; i++)
+		log_debug("%s: argv[%d]=%s", prefix, i, argv[i]);
+	free(prefix);
+}
+
+/* Prepend to an argument vector. */
+void
+cmd_prepend_argv(int *argc, char ***argv, const char *arg)
+{
+	char	**new_argv;
+	int	  i;
+
+	new_argv = xreallocarray(NULL, (*argc) + 1, sizeof *new_argv);
+	new_argv[0] = xstrdup(arg);
+	for (i = 0; i < *argc; i++)
+		new_argv[1 + i] = (*argv)[i];
+
+	free(*argv);
+	*argv = new_argv;
+	(*argc)++;
+}
+
+/* Append to an argument vector. */
+void
+cmd_append_argv(int *argc, char ***argv, const char *arg)
+{
+	*argv = xreallocarray(*argv, (*argc) + 1, sizeof **argv);
+	(*argv)[(*argc)++] = xstrdup(arg);
+}
+
+/* Pack an argument vector up into a buffer. */
 int
 cmd_pack_argv(int argc, char **argv, char *buf, size_t len)
 {
 	size_t	arglen;
 	int	i;
+
+	if (argc == 0)
+		return (0);
+	cmd_log_argv(argc, argv, "%s", __func__);
 
 	*buf = '\0';
 	for (i = 0; i < argc; i++) {
@@ -150,6 +294,7 @@ cmd_pack_argv(int argc, char **argv, char *buf, size_t len)
 	return (0);
 }
 
+/* Unpack an argument vector from a packed buffer. */
 int
 cmd_unpack_argv(char *buf, size_t len, int argc, char ***argv)
 {
@@ -169,22 +314,25 @@ cmd_unpack_argv(char *buf, size_t len, int argc, char ***argv)
 
 		arglen = strlen(buf) + 1;
 		(*argv)[i] = xstrdup(buf);
+
 		buf += arglen;
 		len -= arglen;
 	}
+	cmd_log_argv(argc, *argv, "%s", __func__);
 
 	return (0);
 }
 
+/* Copy an argument vector, ensuring it is terminated by NULL. */
 char **
-cmd_copy_argv(int argc, char *const *argv)
+cmd_copy_argv(int argc, char **argv)
 {
 	char	**new_argv;
 	int	  i;
 
 	if (argc == 0)
 		return (NULL);
-	new_argv = xcalloc(argc, sizeof *new_argv);
+	new_argv = xcalloc(argc + 1, sizeof *new_argv);
 	for (i = 0; i < argc; i++) {
 		if (argv[i] != NULL)
 			new_argv[i] = xstrdup(argv[i]);
@@ -192,6 +340,7 @@ cmd_copy_argv(int argc, char *const *argv)
 	return (new_argv);
 }
 
+/* Free an argument vector. */
 void
 cmd_free_argv(int argc, char **argv)
 {
@@ -204,1025 +353,483 @@ cmd_free_argv(int argc, char **argv)
 	free(argv);
 }
 
-struct cmd *
-cmd_parse(int argc, char **argv, const char *file, u_int line, char **cause)
+/* Convert argument vector to a string. */
+char *
+cmd_stringify_argv(int argc, char **argv)
 {
-	const struct cmd_entry **entryp, *entry;
-	struct cmd		*cmd;
-	struct args		*args;
-	char			 s[BUFSIZ];
-	int			 ambiguous = 0;
+	char	*buf = NULL, *s;
+	size_t	 len = 0;
+	int	 i;
 
-	*cause = NULL;
-	if (argc == 0) {
-		xasprintf(cause, "no command");
-		return (NULL);
+	if (argc == 0)
+		return (xstrdup(""));
+
+	for (i = 0; i < argc; i++) {
+		s = args_escape(argv[i]);
+		log_debug("%s: %u %s = %s", __func__, i, argv[i], s);
+
+		len += strlen(s) + 1;
+		buf = xrealloc(buf, len);
+
+		if (i == 0)
+			*buf = '\0';
+		else
+			strlcat(buf, " ", len);
+		strlcat(buf, s, len);
+
+		free(s);
 	}
+	return (buf);
+}
 
-	entry = NULL;
-	for (entryp = cmd_table; *entryp != NULL; entryp++) {
-		if ((*entryp)->alias != NULL &&
-		    strcmp((*entryp)->alias, argv[0]) == 0) {
+/* Get entry for command. */
+const struct cmd_entry *
+cmd_get_entry(struct cmd *cmd)
+{
+	return (cmd->entry);
+}
+
+/* Get arguments for command. */
+struct args *
+cmd_get_args(struct cmd *cmd)
+{
+	return (cmd->args);
+}
+
+/* Get group for command. */
+u_int
+cmd_get_group(struct cmd *cmd)
+{
+	return (cmd->group);
+}
+
+/* Get file and line for command. */
+void
+cmd_get_source(struct cmd *cmd, const char **file, u_int *line)
+{
+	if (file != NULL)
+		*file = cmd->file;
+	if (line != NULL)
+		*line = cmd->line;
+}
+
+/* Get parse flags for command. */
+int
+cmd_get_parse_flags(struct cmd *cmd)
+{
+	return (cmd->parse_flags);
+}
+
+/* Look for an alias for a command. */
+char *
+cmd_get_alias(const char *name)
+{
+	struct options_entry		*o;
+	struct options_array_item	*a;
+	union options_value		*ov;
+	size_t				 wanted, n;
+	const char			*equals;
+
+	o = options_get_only(global_options, "command-alias");
+	if (o == NULL)
+		return (NULL);
+	wanted = strlen(name);
+
+	a = options_array_first(o);
+	while (a != NULL) {
+		ov = options_array_item_value(a);
+
+		equals = strchr(ov->string, '=');
+		if (equals != NULL) {
+			n = equals - ov->string;
+			if (n == wanted && strncmp(name, ov->string, n) == 0)
+				return (xstrdup(equals + 1));
+		}
+
+		a = options_array_next(a);
+	}
+	return (NULL);
+}
+
+/* Look up a command entry by name. */
+const struct cmd_entry *
+cmd_find(const char *name, char **cause)
+{
+	const struct cmd_entry	**loop, *entry, *found = NULL;
+	int			  ambiguous;
+	char			  s[8192];
+
+	ambiguous = 0;
+	for (loop = cmd_table; *loop != NULL; loop++) {
+		entry = *loop;
+		if (entry->alias != NULL && strcmp(entry->alias, name) == 0) {
 			ambiguous = 0;
-			entry = *entryp;
+			found = entry;
 			break;
 		}
 
-		if (strncmp((*entryp)->name, argv[0], strlen(argv[0])) != 0)
+		if (strncmp(entry->name, name, strlen(name)) != 0)
 			continue;
-		if (entry != NULL)
+		if (found != NULL)
 			ambiguous = 1;
-		entry = *entryp;
+		found = entry;
 
-		/* Bail now if an exact match. */
-		if (strcmp(entry->name, argv[0]) == 0)
+		if (strcmp(entry->name, name) == 0)
 			break;
 	}
 	if (ambiguous)
 		goto ambiguous;
-	if (entry == NULL) {
-		xasprintf(cause, "unknown command: %s", argv[0]);
+	if (found == NULL) {
+		xasprintf(cause, "unknown command: %s", name);
 		return (NULL);
 	}
+	return (found);
 
-	args = args_parse(entry->args_template, argc, argv);
-	if (args == NULL)
-		goto usage;
-	if (entry->args_lower != -1 && args->argc < entry->args_lower)
-		goto usage;
-	if (entry->args_upper != -1 && args->argc > entry->args_upper)
-		goto usage;
+ambiguous:
+	*s = '\0';
+	for (loop = cmd_table; *loop != NULL; loop++) {
+		entry = *loop;
+		if (strncmp(entry->name, name, strlen(name)) != 0)
+			continue;
+		if (strlcat(s, entry->name, sizeof s) >= sizeof s)
+			break;
+		if (strlcat(s, ", ", sizeof s) >= sizeof s)
+			break;
+	}
+	s[strlen(s) - 2] = '\0';
+	xasprintf(cause, "ambiguous command: %s, could be: %s", name, s);
+	return (NULL);
+}
+
+/* Parse a single command from an argument vector. */
+struct cmd *
+cmd_parse(struct args_value *values, u_int count, const char *file, u_int line,
+    int parse_flags, char **cause)
+{
+	const struct cmd_entry	*entry;
+	struct cmd		*cmd;
+	struct args		*args;
+	char			*error = NULL;
+
+	if (count == 0 || values[0].type != ARGS_STRING) {
+		xasprintf(cause, "no command");
+		return (NULL);
+	}
+	entry = cmd_find(values[0].string, cause);
+	if (entry == NULL)
+		return (NULL);
+
+	args = args_parse(&entry->args, values, count, &error);
+	if (args == NULL && error == NULL) {
+		xasprintf(cause, "usage: %s %s", entry->name, entry->usage);
+		return (NULL);
+	}
+	if (args == NULL) {
+		xasprintf(cause, "command %s: %s", entry->name, error);
+		free(error);
+		return (NULL);
+	}
 
 	cmd = xcalloc(1, sizeof *cmd);
 	cmd->entry = entry;
 	cmd->args = args;
+	cmd->parse_flags = parse_flags;
 
 	if (file != NULL)
 		cmd->file = xstrdup(file);
 	cmd->line = line;
 
 	return (cmd);
-
-ambiguous:
-	*s = '\0';
-	for (entryp = cmd_table; *entryp != NULL; entryp++) {
-		if (strncmp((*entryp)->name, argv[0], strlen(argv[0])) != 0)
-			continue;
-		if (strlcat(s, (*entryp)->name, sizeof s) >= sizeof s)
-			break;
-		if (strlcat(s, ", ", sizeof s) >= sizeof s)
-			break;
-	}
-	s[strlen(s) - 2] = '\0';
-	xasprintf(cause, "ambiguous command: %s, could be: %s", argv[0], s);
-	return (NULL);
-
-usage:
-	if (args != NULL)
-		args_free(args);
-	xasprintf(cause, "usage: %s %s", entry->name, entry->usage);
-	return (NULL);
 }
 
-size_t
-cmd_print(struct cmd *cmd, char *buf, size_t len)
+/* Free a command. */
+void
+cmd_free(struct cmd *cmd)
 {
-	size_t	off, used;
+	free(cmd->file);
 
-	off = xsnprintf(buf, len, "%s ", cmd->entry->name);
-	if (off + 1 < len) {
-		used = args_print(cmd->args, buf + off, len - off - 1);
-		if (used == 0)
-			off--;
-		else
-			off += used;
-		buf[off] = '\0';
-	}
-	return (off);
+	args_free(cmd->args);
+	free(cmd);
 }
 
-/*
- * Figure out the current session. Use: 1) the current session, if the command
- * context has one; 2) the most recently used session containing the pty of the
- * calling client, if any; 3) the session specified in the TMUX variable from
- * the environment (as passed from the client); 4) the most recently used
- * session from all sessions.
- */
-struct session *
-cmd_current_session(struct cmd_q *cmdq, int prefer_unattached)
+/* Copy a command. */
+struct cmd *
+cmd_copy(struct cmd *cmd, int argc, char **argv)
 {
-	struct client		*c = cmdq->client;
-	struct session		*s;
-	struct sessionslist	 ss;
-	struct winlink		*wl;
-	struct window_pane	*wp;
-	const char		*path;
-	int			 found;
+	struct cmd	*new_cmd;
 
-	if (c != NULL && c->session != NULL)
-		return (c->session);
+	new_cmd = xcalloc(1, sizeof *new_cmd);
+	new_cmd->entry = cmd->entry;
+	new_cmd->args = args_copy(cmd->args, argc, argv);
 
-	/*
-	 * If the name of the calling client's pty is known, build a list of
-	 * the sessions that contain it and if any choose either the first or
-	 * the newest.
-	 */
-	path = c == NULL ? NULL : c->tty.path;
-	if (path != NULL) {
-		ARRAY_INIT(&ss);
-		RB_FOREACH(s, sessions, &sessions) {
-			found = 0;
-			RB_FOREACH(wl, winlinks, &s->windows) {
-				TAILQ_FOREACH(wp, &wl->window->panes, entry) {
-					if (strcmp(wp->tty, path) == 0) {
-						found = 1;
-						break;
-					}
-				}
-				if (found)
-					break;
+	if (cmd->file != NULL)
+		new_cmd->file = xstrdup(cmd->file);
+	new_cmd->line = cmd->line;
+
+	return (new_cmd);
+}
+
+/* Get a command as a string. */
+char *
+cmd_print(struct cmd *cmd)
+{
+	char	*out, *s;
+
+	s = args_print(cmd->args);
+	if (*s != '\0')
+		xasprintf(&out, "%s %s", cmd->entry->name, s);
+	else
+		out = xstrdup(cmd->entry->name);
+	free(s);
+
+	return (out);
+}
+
+/* Create a new command list. */
+struct cmd_list *
+cmd_list_new(void)
+{
+	struct cmd_list	*cmdlist;
+
+	cmdlist = xcalloc(1, sizeof *cmdlist);
+	cmdlist->references = 1;
+	cmdlist->group = cmd_list_next_group++;
+	cmdlist->list = xcalloc(1, sizeof *cmdlist->list);
+	TAILQ_INIT(cmdlist->list);
+	return (cmdlist);
+}
+
+/* Append a command to a command list. */
+void
+cmd_list_append(struct cmd_list *cmdlist, struct cmd *cmd)
+{
+	cmd->group = cmdlist->group;
+	TAILQ_INSERT_TAIL(cmdlist->list, cmd, qentry);
+}
+
+/* Append all commands from one list to another.  */
+void
+cmd_list_append_all(struct cmd_list *cmdlist, struct cmd_list *from)
+{
+	struct cmd	*cmd;
+
+	TAILQ_FOREACH(cmd, from->list, qentry)
+		cmd->group = cmdlist->group;
+	TAILQ_CONCAT(cmdlist->list, from->list, qentry);
+}
+
+/* Move all commands from one command list to another. */
+void
+cmd_list_move(struct cmd_list *cmdlist, struct cmd_list *from)
+{
+	TAILQ_CONCAT(cmdlist->list, from->list, qentry);
+	cmdlist->group = cmd_list_next_group++;
+}
+
+/* Free a command list. */
+void
+cmd_list_free(struct cmd_list *cmdlist)
+{
+	struct cmd	*cmd, *cmd1;
+
+	if (--cmdlist->references != 0)
+		return;
+
+	TAILQ_FOREACH_SAFE(cmd, cmdlist->list, qentry, cmd1) {
+		TAILQ_REMOVE(cmdlist->list, cmd, qentry);
+		cmd_free(cmd);
+	}
+	free(cmdlist->list);
+	free(cmdlist);
+}
+
+/* Copy a command list, expanding %s in arguments. */
+struct cmd_list *
+cmd_list_copy(const struct cmd_list *cmdlist, int argc, char **argv)
+{
+	struct cmd	*cmd;
+	struct cmd_list	*new_cmdlist;
+	struct cmd	*new_cmd;
+	u_int		 group = cmdlist->group;
+	char		*s;
+
+	s = cmd_list_print(cmdlist, 0);
+	log_debug("%s: %s", __func__, s);
+	free(s);
+
+	new_cmdlist = cmd_list_new();
+	TAILQ_FOREACH(cmd, cmdlist->list, qentry) {
+		if (cmd->group != group) {
+			new_cmdlist->group = cmd_list_next_group++;
+			group = cmd->group;
+		}
+		new_cmd = cmd_copy(cmd, argc, argv);
+		cmd_list_append(new_cmdlist, new_cmd);
+	}
+
+	s = cmd_list_print(new_cmdlist, 0);
+	log_debug("%s: %s", __func__, s);
+	free(s);
+
+	return (new_cmdlist);
+}
+
+/* Get a command list as a string. */
+char *
+cmd_list_print(const struct cmd_list *cmdlist, int escaped)
+{
+	struct cmd	*cmd, *next;
+	char		*buf, *this;
+	size_t		 len;
+
+	len = 1;
+	buf = xcalloc(1, len);
+
+	TAILQ_FOREACH(cmd, cmdlist->list, qentry) {
+		this = cmd_print(cmd);
+
+		len += strlen(this) + 6;
+		buf = xrealloc(buf, len);
+
+		strlcat(buf, this, len);
+
+		next = TAILQ_NEXT(cmd, qentry);
+		if (next != NULL) {
+			if (cmd->group != next->group) {
+				if (escaped)
+					strlcat(buf, " \\;\\; ", len);
+				else
+					strlcat(buf, " ;; ", len);
+			} else {
+				if (escaped)
+					strlcat(buf, " \\; ", len);
+				else
+					strlcat(buf, " ; ", len);
 			}
-			if (found)
-				ARRAY_ADD(&ss, s);
 		}
 
-		s = cmd_choose_session_list(&ss);
-		ARRAY_FREE(&ss);
-		if (s != NULL)
-			return (s);
+		free(this);
 	}
 
-	return (cmd_choose_session(prefer_unattached));
+	return (buf);
 }
 
-/* Is this session better? */
-int
-cmd_session_better(struct session *s, struct session *best,
-    int prefer_unattached)
+/* Get first command in list. */
+struct cmd *
+cmd_list_first(struct cmd_list *cmdlist)
 {
-	if (best == NULL)
-		return (1);
-	if (prefer_unattached) {
-		if (!(best->flags & SESSION_UNATTACHED) &&
-		    (s->flags & SESSION_UNATTACHED))
-			return (1);
-		else if ((best->flags & SESSION_UNATTACHED) &&
-		    !(s->flags & SESSION_UNATTACHED))
+	return (TAILQ_FIRST(cmdlist->list));
+}
+
+/* Get next command in list. */
+struct cmd *
+cmd_list_next(struct cmd *cmd)
+{
+	return (TAILQ_NEXT(cmd, qentry));
+}
+
+/* Do all of the commands in this command list have this flag? */
+int
+cmd_list_all_have(struct cmd_list *cmdlist, int flag)
+{
+	struct cmd	*cmd;
+
+	TAILQ_FOREACH(cmd, cmdlist->list, qentry) {
+		if (~cmd->entry->flags & flag)
 			return (0);
 	}
-	return (timercmp(&s->activity_time, &best->activity_time, >));
+	return (1);
 }
 
-/*
- * Find the most recently used session, preferring unattached if the flag is
- * set.
- */
-struct session *
-cmd_choose_session(int prefer_unattached)
-{
-	struct session	*s, *best;
-
-	best = NULL;
-	RB_FOREACH(s, sessions, &sessions) {
-		if (cmd_session_better(s, best, prefer_unattached))
-			best = s;
-	}
-	return (best);
-}
-
-/* Find the most recently used session from a list. */
-struct session *
-cmd_choose_session_list(struct sessionslist *ss)
-{
-	struct session	*s, *sbest;
-	struct timeval	*tv = NULL;
-	u_int		 i;
-
-	sbest = NULL;
-	for (i = 0; i < ARRAY_LENGTH(ss); i++) {
-		if ((s = ARRAY_ITEM(ss, i)) == NULL)
-			continue;
-
-		if (tv == NULL || timercmp(&s->activity_time, tv, >)) {
-			sbest = s;
-			tv = &s->activity_time;
-		}
-	}
-
-	return (sbest);
-}
-
-/*
- * Find the current client. First try the current client if set, then pick the
- * most recently used of the clients attached to the current session if any,
- * then of all clients.
- */
-struct client *
-cmd_current_client(struct cmd_q *cmdq)
-{
-	struct session		*s;
-	struct client		*c;
-	struct clients		 cc;
-	u_int			 i;
-
-	if (cmdq->client != NULL && cmdq->client->session != NULL)
-		return (cmdq->client);
-
-	/*
-	 * No current client set. Find the current session and return the
-	 * newest of its clients.
-	 */
-	s = cmd_current_session(cmdq, 0);
-	if (s != NULL && !(s->flags & SESSION_UNATTACHED)) {
-		ARRAY_INIT(&cc);
-		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-			if ((c = ARRAY_ITEM(&clients, i)) == NULL)
-				continue;
-			if (s == c->session)
-				ARRAY_ADD(&cc, c);
-		}
-
-		c = cmd_choose_client(&cc);
-		ARRAY_FREE(&cc);
-		if (c != NULL)
-			return (c);
-	}
-
-	return (cmd_choose_client(&clients));
-}
-
-/* Choose the most recently used client from a list. */
-struct client *
-cmd_choose_client(struct clients *cc)
-{
-	struct client	*c, *cbest;
-	struct timeval	*tv = NULL;
-	u_int		 i;
-
-	cbest = NULL;
-	for (i = 0; i < ARRAY_LENGTH(cc); i++) {
-		if ((c = ARRAY_ITEM(cc, i)) == NULL)
-			continue;
-		if (c->session == NULL)
-			continue;
-
-		if (tv == NULL || timercmp(&c->activity_time, tv, >)) {
-			cbest = c;
-			tv = &c->activity_time;
-		}
-	}
-
-	return (cbest);
-}
-
-/* Find the target client or report an error and return NULL. */
-struct client *
-cmd_find_client(struct cmd_q *cmdq, const char *arg, int quiet)
-{
-	struct client	*c;
-	char		*tmparg;
-	size_t		 arglen;
-
-	/* A NULL argument means the current client. */
-	if (arg == NULL) {
-		c = cmd_current_client(cmdq);
-		if (c == NULL && !quiet)
-			cmdq_error(cmdq, "no clients");
-		return (c);
-	}
-	tmparg = xstrdup(arg);
-
-	/* Trim a single trailing colon if any. */
-	arglen = strlen(tmparg);
-	if (arglen != 0 && tmparg[arglen - 1] == ':')
-		tmparg[arglen - 1] = '\0';
-
-	/* Find the client, if any. */
-	c = cmd_lookup_client(tmparg);
-
-	/* If no client found, report an error. */
-	if (c == NULL && !quiet)
-		cmdq_error(cmdq, "client not found: %s", tmparg);
-
-	free(tmparg);
-	return (c);
-}
-
-/*
- * Lookup a client by device path. Either of a full match and a match without a
- * leading _PATH_DEV ("/dev/") is accepted.
- */
-struct client *
-cmd_lookup_client(const char *name)
-{
-	struct client	*c;
-	const char	*path;
-	u_int		 i;
-
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL || c->session == NULL || c->tty.path == NULL)
-			continue;
-		path = c->tty.path;
-
-		/* Check for exact matches. */
-		if (strcmp(name, path) == 0)
-			return (c);
-
-		/* Check without leading /dev if present. */
-		if (strncmp(path, _PATH_DEV, (sizeof _PATH_DEV) - 1) != 0)
-			continue;
-		if (strcmp(name, path + (sizeof _PATH_DEV) - 1) == 0)
-			return (c);
-	}
-
-	return (NULL);
-}
-
-/* Find the target session or report an error and return NULL. */
-struct session *
-cmd_lookup_session_id(const char *arg)
-{
-	char	*endptr;
-	long	 id;
-
-	if (arg[0] != '$')
-		return (NULL);
-	id = strtol(arg + 1, &endptr, 10);
-	if (arg[1] != '\0' && *endptr == '\0')
-		return (session_find_by_id(id));
-	return (NULL);
-}
-
-/* Lookup a session by name. If no session is found, NULL is returned. */
-struct session *
-cmd_lookup_session(const char *name, int *ambiguous)
-{
-	struct session	*s, *sfound;
-
-	*ambiguous = 0;
-
-	/* Look for $id first. */
-	if ((s = cmd_lookup_session_id(name)) != NULL)
-		return (s);
-
-	/*
-	 * Look for matches. First look for exact matches - session names must
-	 * be unique so an exact match can't be ambigious and can just be
-	 * returned.
-	 */
-	if ((s = session_find(name)) != NULL)
-		return (s);
-
-	/*
-	 * Otherwise look for partial matches, returning early if it is found to
-	 * be ambiguous.
-	 */
-	sfound = NULL;
-	RB_FOREACH(s, sessions, &sessions) {
-		if (strncmp(name, s->name, strlen(name)) == 0 ||
-		    fnmatch(name, s->name, 0) == 0) {
-			if (sfound != NULL) {
-				*ambiguous = 1;
-				return (NULL);
-			}
-			sfound = s;
-		}
-	}
-	return (sfound);
-}
-
-/*
- * Lookup a window or return -1 if not found or ambigious. First try as an
- * index and if invalid, use fnmatch or leading prefix. Return NULL but fill in
- * idx if the window index is a valid number but there is no window with that
- * index.
- */
-struct winlink *
-cmd_lookup_window(struct session *s, const char *name, int *ambiguous)
-{
-	struct winlink	*wl, *wlfound;
-	const char	*errstr;
-	u_int		 idx;
-
-	*ambiguous = 0;
-
-	/* Try as a window id. */
-	if ((wl = cmd_lookup_winlink_windowid(s, name)) != NULL)
-	    return (wl);
-
-	/* First see if this is a valid window index in this session. */
-	idx = strtonum(name, 0, INT_MAX, &errstr);
-	if (errstr == NULL) {
-		if ((wl = winlink_find_by_index(&s->windows, idx)) != NULL)
-			return (wl);
-	}
-
-	/* Look for exact matches, error if more than one. */
-	wlfound = NULL;
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		if (strcmp(name, wl->window->name) == 0) {
-			if (wlfound != NULL) {
-				*ambiguous = 1;
-				return (NULL);
-			}
-			wlfound = wl;
-		}
-	}
-	if (wlfound != NULL)
-		return (wlfound);
-
-	/* Now look for pattern matches, again error if multiple. */
-	wlfound = NULL;
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		if (strncmp(name, wl->window->name, strlen(name)) == 0 ||
-		    fnmatch(name, wl->window->name, 0) == 0) {
-			if (wlfound != NULL) {
-				*ambiguous = 1;
-				return (NULL);
-			}
-			wlfound = wl;
-		}
-	}
-	if (wlfound != NULL)
-		return (wlfound);
-
-	return (NULL);
-}
-
-/*
- * Find a window index - if the window doesn't exist, check if it is a
- * potential index and return it anyway.
- */
+/* Do any of the commands in this command list have this flag? */
 int
-cmd_lookup_index(struct session *s, const char *name, int *ambiguous)
+cmd_list_any_have(struct cmd_list *cmdlist, int flag)
 {
-	struct winlink	*wl;
-	const char	*errstr;
-	u_int		 idx;
+	struct cmd	*cmd;
 
-	if ((wl = cmd_lookup_window(s, name, ambiguous)) != NULL)
-		return (wl->idx);
-	if (*ambiguous)
+	TAILQ_FOREACH(cmd, cmdlist->list, qentry) {
+		if (cmd->entry->flags & flag)
+			return (1);
+	}
+	return (0);
+}
+
+/* Adjust current mouse position for a pane. */
+int
+cmd_mouse_at(struct window_pane *wp, struct mouse_event *m, u_int *xp,
+    u_int *yp, int last)
+{
+	u_int	x, y;
+
+	if (last) {
+		x = m->lx + m->ox;
+		y = m->ly + m->oy;
+	} else {
+		x = m->x + m->ox;
+		y = m->y + m->oy;
+	}
+	log_debug("%s: x=%u, y=%u%s", __func__, x, y, last ? " (last)" : "");
+
+	if (m->statusat == 0 && y >= m->statuslines)
+		y -= m->statuslines;
+
+	if (x < wp->xoff || x >= wp->xoff + wp->sx)
+		return (-1);
+	if (y < wp->yoff || y >= wp->yoff + wp->sy)
 		return (-1);
 
-	idx = strtonum(name, 0, INT_MAX, &errstr);
-	if (errstr == NULL)
-		return (idx);
-
-	return (-1);
+	if (xp != NULL)
+		*xp = x - wp->xoff;
+	if (yp != NULL)
+		*yp = y - wp->yoff;
+	return (0);
 }
 
-/* Lookup pane id. An initial % means a pane id. */
-struct window_pane *
-cmd_lookup_paneid(const char *arg)
-{
-	const char	*errstr;
-	u_int		 paneid;
-
-	if (*arg != '%')
-		return (NULL);
-
-	paneid = strtonum(arg + 1, 0, UINT_MAX, &errstr);
-	if (errstr != NULL)
-		return (NULL);
-	return (window_pane_find_by_id(paneid));
-}
-
-/* Lookup window id in a session. An initial @ means a window id. */
+/* Get current mouse window if any. */
 struct winlink *
-cmd_lookup_winlink_windowid(struct session *s, const char *arg)
+cmd_mouse_window(struct mouse_event *m, struct session **sp)
 {
-	const char	*errstr;
-	u_int		 windowid;
+	struct session	*s;
+	struct window	*w;
+	struct winlink	*wl;
 
-	if (*arg != '@')
+	if (!m->valid)
 		return (NULL);
-
-	windowid = strtonum(arg + 1, 0, UINT_MAX, &errstr);
-	if (errstr != NULL)
+	if (m->s == -1 || (s = session_find_by_id(m->s)) == NULL)
 		return (NULL);
-	return (winlink_find_by_window_id(&s->windows, windowid));
-}
-
-/* Lookup window id. An initial @ means a window id. */
-struct window *
-cmd_lookup_windowid(const char *arg)
-{
-	const char	*errstr;
-	u_int		 windowid;
-
-	if (*arg != '@')
-		return (NULL);
-
-	windowid = strtonum(arg + 1, 0, UINT_MAX, &errstr);
-	if (errstr != NULL)
-		return (NULL);
-	return (window_find_by_id(windowid));
-}
-
-/* Find session and winlink for window. */
-struct session *
-cmd_window_session(struct cmd_q *cmdq, struct window *w, struct winlink **wlp)
-{
-	struct session		*s;
-	struct sessionslist	 ss;
-	struct winlink		*wl;
-
-	/* If this window is in the current session, return that winlink. */
-	s = cmd_current_session(cmdq, 0);
-	if (s != NULL) {
+	if (m->w == -1)
+		wl = s->curw;
+	else {
+		if ((w = window_find_by_id(m->w)) == NULL)
+			return (NULL);
 		wl = winlink_find_by_window(&s->windows, w);
-		if (wl != NULL) {
-			if (wlp != NULL)
-				*wlp = wl;
-			return (s);
-		}
-	}
-
-	/* Otherwise choose from all sessions with this window. */
-	ARRAY_INIT(&ss);
-	RB_FOREACH(s, sessions, &sessions) {
-		if (winlink_find_by_window(&s->windows, w) != NULL)
-			ARRAY_ADD(&ss, s);
-	}
-	s = cmd_choose_session_list(&ss);
-	ARRAY_FREE(&ss);
-	if (wlp != NULL)
-		*wlp = winlink_find_by_window(&s->windows, w);
-	return (s);
-}
-
-/* Find the target session or report an error and return NULL. */
-struct session *
-cmd_find_session(struct cmd_q *cmdq, const char *arg, int prefer_unattached)
-{
-	struct session		*s;
-	struct window_pane	*wp;
-	struct window		*w;
-	struct client		*c;
-	char			*tmparg;
-	size_t			 arglen;
-	int			 ambiguous;
-
-	/* A NULL argument means the current session. */
-	if (arg == NULL)
-		return (cmd_current_session(cmdq, prefer_unattached));
-
-	/* Lookup as pane id or window id. */
-	if ((wp = cmd_lookup_paneid(arg)) != NULL)
-		return (cmd_window_session(cmdq, wp->window, NULL));
-	if ((w = cmd_lookup_windowid(arg)) != NULL)
-		return (cmd_window_session(cmdq, w, NULL));
-
-	/* Trim a single trailing colon if any. */
-	tmparg = xstrdup(arg);
-	arglen = strlen(tmparg);
-	if (arglen != 0 && tmparg[arglen - 1] == ':')
-		tmparg[arglen - 1] = '\0';
-
-	/* An empty session name is the current session. */
-	if (*tmparg == '\0') {
-		free(tmparg);
-		return (cmd_current_session(cmdq, prefer_unattached));
-	}
-
-	/* Find the session, if any. */
-	s = cmd_lookup_session(tmparg, &ambiguous);
-
-	/* If it doesn't, try to match it as a client. */
-	if (s == NULL && (c = cmd_lookup_client(tmparg)) != NULL)
-		s = c->session;
-
-	/* If no session found, report an error. */
-	if (s == NULL) {
-		if (ambiguous)
-			cmdq_error(cmdq, "more than one session: %s", tmparg);
-		else
-			cmdq_error(cmdq, "session not found: %s", tmparg);
-	}
-
-	free(tmparg);
-	return (s);
-}
-
-/* Find the target session and window or report an error and return NULL. */
-struct winlink *
-cmd_find_window(struct cmd_q *cmdq, const char *arg, struct session **sp)
-{
-	struct session		*s;
-	struct winlink		*wl;
-	struct window_pane	*wp;
-	const char		*winptr;
-	char			*sessptr = NULL;
-	int			 ambiguous = 0;
-
-	/*
-	 * Find the current session. There must always be a current session, if
-	 * it can't be found, report an error.
-	 */
-	if ((s = cmd_current_session(cmdq, 0)) == NULL) {
-		cmdq_error(cmdq, "can't establish current session");
-		return (NULL);
-	}
-
-	/* A NULL argument means the current session and window. */
-	if (arg == NULL) {
-		if (sp != NULL)
-			*sp = s;
-		return (s->curw);
-	}
-
-	/* Lookup as pane id. */
-	if ((wp = cmd_lookup_paneid(arg)) != NULL) {
-		s = cmd_window_session(cmdq, wp->window, &wl);
-		if (sp != NULL)
-			*sp = s;
-		return (wl);
-	}
-
-	/* Time to look at the argument. If it is empty, that is an error. */
-	if (*arg == '\0')
-		goto not_found;
-
-	/* Find the separating colon and split into window and session. */
-	winptr = strchr(arg, ':');
-	if (winptr == NULL)
-		goto no_colon;
-	winptr++;	/* skip : */
-	sessptr = xstrdup(arg);
-	*strchr(sessptr, ':') = '\0';
-
-	/* Try to lookup the session if present. */
-	if (*sessptr != '\0') {
-		if ((s = cmd_lookup_session(sessptr, &ambiguous)) == NULL)
-			goto no_session;
 	}
 	if (sp != NULL)
 		*sp = s;
-
-	/*
-	 * Then work out the window. An empty string is the current window,
-	 * otherwise try special cases then to look it up in the session.
-	 */
-	if (*winptr == '\0')
-		wl = s->curw;
-	else if (winptr[0] == '!' && winptr[1] == '\0')
-		wl = TAILQ_FIRST(&s->lastw);
-	else if (winptr[0] == '^' && winptr[1] == '\0')
-		wl = RB_MIN(winlinks, &s->windows);
-	else if (winptr[0] == '$' && winptr[1] == '\0')
-		wl = RB_MAX(winlinks, &s->windows);
-	else if (winptr[0] == '+' || winptr[0] == '-')
-		wl = cmd_find_window_offset(winptr, s, &ambiguous);
-	else
-		wl = cmd_lookup_window(s, winptr, &ambiguous);
-	if (wl == NULL)
-		goto not_found;
-
-	if (sessptr != NULL)
-		free(sessptr);
-	return (wl);
-
-no_colon:
-	/*
-	 * No colon in the string, first try special cases, then as a window
-	 * and lastly as a session.
-	 */
-	if (arg[0] == '!' && arg[1] == '\0') {
-		if ((wl = TAILQ_FIRST(&s->lastw)) == NULL)
-			goto not_found;
-	} else if (arg[0] == '+' || arg[0] == '-') {
-		if ((wl = cmd_find_window_offset(arg, s, &ambiguous)) == NULL)
-			goto lookup_session;
-	} else if ((wl = cmd_lookup_window(s, arg, &ambiguous)) == NULL)
-		goto lookup_session;
-
-	if (sp != NULL)
-		*sp = s;
-
-	return (wl);
-
-lookup_session:
-	if (ambiguous)
-		goto not_found;
-	if (*arg != '\0' && (s = cmd_lookup_session(arg, &ambiguous)) == NULL)
-		goto no_session;
-
-	if (sp != NULL)
-		*sp = s;
-
-	return (s->curw);
-
-no_session:
-	if (ambiguous)
-		cmdq_error(cmdq, "multiple sessions: %s", arg);
-	else
-		cmdq_error(cmdq, "session not found: %s", arg);
-	free(sessptr);
-	return (NULL);
-
-not_found:
-	if (ambiguous)
-		cmdq_error(cmdq, "multiple windows: %s", arg);
-	else
-		cmdq_error(cmdq, "window not found: %s", arg);
-	free(sessptr);
-	return (NULL);
-}
-
-struct winlink *
-cmd_find_window_offset(const char *winptr, struct session *s, int *ambiguous)
-{
-	struct winlink	*wl;
-	int		 offset = 1;
-
-	if (winptr[1] != '\0')
-		offset = strtonum(winptr + 1, 1, INT_MAX, NULL);
-	if (offset == 0)
-		wl = cmd_lookup_window(s, winptr, ambiguous);
-	else {
-		if (winptr[0] == '+')
-			wl = winlink_next_by_number(s->curw, s, offset);
-		else
-			wl = winlink_previous_by_number(s->curw, s, offset);
-	}
-
 	return (wl);
 }
 
-/*
- * Find the target session and window index, whether or not it exists in the
- * session. Return -2 on error or -1 if no window index is specified. This is
- * used when parsing an argument for a window target that may not exist (for
- * example if it is going to be created).
- */
-int
-cmd_find_index(struct cmd_q *cmdq, const char *arg, struct session **sp)
-{
-	struct session	*s;
-	struct winlink	*wl;
-	const char	*winptr;
-	char		*sessptr = NULL;
-	int		 idx, ambiguous = 0;
-
-	/*
-	 * Find the current session. There must always be a current session, if
-	 * it can't be found, report an error.
-	 */
-	if ((s = cmd_current_session(cmdq, 0)) == NULL) {
-		cmdq_error(cmdq, "can't establish current session");
-		return (-2);
-	}
-
-	/* A NULL argument means the current session and "no window" (-1). */
-	if (arg == NULL) {
-		if (sp != NULL)
-			*sp = s;
-		return (-1);
-	}
-
-	/* Time to look at the argument. If it is empty, that is an error. */
-	if (*arg == '\0')
-		goto not_found;
-
-	/* Find the separating colon. If none, assume the current session. */
-	winptr = strchr(arg, ':');
-	if (winptr == NULL)
-		goto no_colon;
-	winptr++;	/* skip : */
-	sessptr = xstrdup(arg);
-	*strchr(sessptr, ':') = '\0';
-
-	/* Try to lookup the session if present. */
-	if (sessptr != NULL && *sessptr != '\0') {
-		if ((s = cmd_lookup_session(sessptr, &ambiguous)) == NULL)
-			goto no_session;
-	}
-	if (sp != NULL)
-		*sp = s;
-
-	/*
-	 * Then work out the window. An empty string is a new window otherwise
-	 * try to look it up in the session.
-	 */
-	if (*winptr == '\0')
-		idx = -1;
-	else if (winptr[0] == '!' && winptr[1] == '\0') {
-		if ((wl = TAILQ_FIRST(&s->lastw)) == NULL)
-			goto not_found;
-		idx = wl->idx;
-	} else if (winptr[0] == '+' || winptr[0] == '-') {
-		if ((idx = cmd_find_index_offset(winptr, s, &ambiguous)) < 0)
-			goto invalid_index;
-	} else if ((idx = cmd_lookup_index(s, winptr, &ambiguous)) == -1)
-		goto invalid_index;
-
-	free(sessptr);
-	return (idx);
-
-no_colon:
-	/*
-	 * No colon in the string, first try special cases, then as a window
-	 * and lastly as a session.
-	 */
-	if (arg[0] == '!' && arg[1] == '\0') {
-		if ((wl = TAILQ_FIRST(&s->lastw)) == NULL)
-			goto not_found;
-		idx = wl->idx;
-	} else if (arg[0] == '+' || arg[0] == '-') {
-		if ((idx = cmd_find_index_offset(arg, s, &ambiguous)) < 0)
-			goto lookup_session;
-	} else if ((idx = cmd_lookup_index(s, arg, &ambiguous)) == -1)
-		goto lookup_session;
-
-	if (sp != NULL)
-		*sp = s;
-
-	return (idx);
-
-lookup_session:
-	if (ambiguous)
-		goto not_found;
-	if (*arg != '\0' && (s = cmd_lookup_session(arg, &ambiguous)) == NULL)
-		goto no_session;
-
-	if (sp != NULL)
-		*sp = s;
-
-	return (-1);
-
-no_session:
-	if (ambiguous)
-		cmdq_error(cmdq, "multiple sessions: %s", arg);
-	else
-		cmdq_error(cmdq, "session not found: %s", arg);
-	free(sessptr);
-	return (-2);
-
-invalid_index:
-	if (ambiguous)
-		goto not_found;
-	cmdq_error(cmdq, "invalid index: %s", arg);
-
-	free(sessptr);
-	return (-2);
-
-not_found:
-	if (ambiguous)
-		cmdq_error(cmdq, "multiple windows: %s", arg);
-	else
-		cmdq_error(cmdq, "window not found: %s", arg);
-	free(sessptr);
-	return (-2);
-}
-
-int
-cmd_find_index_offset(const char *winptr, struct session *s, int *ambiguous)
-{
-	int	idx, offset = 1;
-
-	if (winptr[1] != '\0')
-		offset = strtonum(winptr + 1, 1, INT_MAX, NULL);
-	if (offset == 0)
-		idx = cmd_lookup_index(s, winptr, ambiguous);
-	else {
-		if (winptr[0] == '+') {
-			if (s->curw->idx == INT_MAX)
-				idx = cmd_lookup_index(s, winptr, ambiguous);
-			else
-				idx = s->curw->idx + offset;
-		} else {
-			if (s->curw->idx == 0)
-				idx = cmd_lookup_index(s, winptr, ambiguous);
-			else
-				idx = s->curw->idx - offset;
-		}
-	}
-
-	return (idx);
-}
-
-/*
- * Find the target session, window and pane number or report an error and
- * return NULL. The pane number is separated from the session:window by a .,
- * such as mysession:mywindow.0.
- */
-struct winlink *
-cmd_find_pane(struct cmd_q *cmdq,
-    const char *arg, struct session **sp, struct window_pane **wpp)
-{
-	struct session	*s;
-	struct winlink	*wl;
-	const char	*period, *errstr;
-	char		*winptr, *paneptr;
-	u_int		 idx;
-
-	/* Get the current session. */
-	if ((s = cmd_current_session(cmdq, 0)) == NULL) {
-		cmdq_error(cmdq, "can't establish current session");
-		return (NULL);
-	}
-	if (sp != NULL)
-		*sp = s;
-
-	/* A NULL argument means the current session, window and pane. */
-	if (arg == NULL) {
-		*wpp = s->curw->window->active;
-		return (s->curw);
-	}
-
-	/* Lookup as pane id. */
-	if ((*wpp = cmd_lookup_paneid(arg)) != NULL) {
-		s = cmd_window_session(cmdq, (*wpp)->window, &wl);
-		if (sp != NULL)
-			*sp = s;
-		return (wl);
-	}
-
-	/* Look for a separating period. */
-	if ((period = strrchr(arg, '.')) == NULL)
-		goto no_period;
-
-	/* Pull out the window part and parse it. */
-	winptr = xstrdup(arg);
-	winptr[period - arg] = '\0';
-	if (*winptr == '\0')
-		wl = s->curw;
-	else if ((wl = cmd_find_window(cmdq, winptr, sp)) == NULL)
-		goto error;
-
-	/* Find the pane section and look it up. */
-	paneptr = winptr + (period - arg) + 1;
-	if (*paneptr == '\0')
-		*wpp = wl->window->active;
-	else if (paneptr[0] == '+' || paneptr[0] == '-')
-		*wpp = cmd_find_pane_offset(paneptr, wl);
-	else {
-		idx = strtonum(paneptr, 0, INT_MAX, &errstr);
-		if (errstr != NULL)
-			goto lookup_string;
-		*wpp = window_pane_at_index(wl->window, idx);
-		if (*wpp == NULL)
-			goto lookup_string;
-	}
-
-	free(winptr);
-	return (wl);
-
-lookup_string:
-	/* Try pane string description. */
-	if ((*wpp = window_find_string(wl->window, paneptr)) == NULL) {
-		cmdq_error(cmdq, "can't find pane: %s", paneptr);
-		goto error;
-	}
-
-	free(winptr);
-	return (wl);
-
-no_period:
-	/* Try as a pane number alone. */
-	idx = strtonum(arg, 0, INT_MAX, &errstr);
-	if (errstr != NULL)
-		goto lookup_window;
-
-	/* Try index in the current session and window. */
-	if ((*wpp = window_pane_at_index(s->curw->window, idx)) == NULL)
-		goto lookup_window;
-
-	return (s->curw);
-
-lookup_window:
-	/* Try pane string description. */
-	if ((*wpp = window_find_string(s->curw->window, arg)) != NULL)
-		return (s->curw);
-
-	/* Try as a window and use the active pane. */
-	if ((wl = cmd_find_window(cmdq, arg, sp)) != NULL)
-		*wpp = wl->window->active;
-	return (wl);
-
-error:
-	free(winptr);
-	return (NULL);
-}
-
+/* Get current mouse pane if any. */
 struct window_pane *
-cmd_find_pane_offset(const char *paneptr, struct winlink *wl)
+cmd_mouse_pane(struct mouse_event *m, struct session **sp,
+    struct winlink **wlp)
 {
-	struct window		*w = wl->window;
-	struct window_pane	*wp = w->active;
-	u_int			 offset = 1;
+	struct winlink		*wl;
+	struct window_pane     	*wp;
 
-	if (paneptr[1] != '\0')
-		offset = strtonum(paneptr + 1, 1, INT_MAX, NULL);
-	if (offset > 0) {
-		if (paneptr[0] == '+')
-			wp = window_pane_next_by_number(w, wp, offset);
-		else
-			wp = window_pane_previous_by_number(w, wp, offset);
+	if ((wl = cmd_mouse_window(m, sp)) == NULL)
+		return (NULL);
+	if (m->wp == -1)
+		wp = wl->window->active;
+	else {
+		if ((wp = window_pane_find_by_id(m->wp)) == NULL)
+			return (NULL);
+		if (!window_has_pane(wl->window, wp))
+			return (NULL);
 	}
 
+	if (wlp != NULL)
+		*wlp = wl;
 	return (wp);
 }
 
@@ -1231,8 +838,8 @@ char *
 cmd_template_replace(const char *template, const char *s, int idx)
 {
 	char		 ch, *buf;
-	const char	*ptr;
-	int		 replaced;
+	const char	*ptr, *cp, quote[] = "\"\\$;~";
+	int		 replaced, quoted;
 	size_t		 len;
 
 	if (strchr(template, '%') == NULL)
@@ -1254,12 +861,20 @@ cmd_template_replace(const char *template, const char *s, int idx)
 			}
 			ptr++;
 
-			len += strlen(s);
-			buf = xrealloc(buf, 1, len + 1);
-			strlcat(buf, s, len + 1);
+			quoted = (*ptr == '%');
+			if (quoted)
+				ptr++;
+
+			buf = xrealloc(buf, len + (strlen(s) * 3) + 1);
+			for (cp = s; *cp != '\0'; cp++) {
+				if (quoted && strchr(quote, *cp) != NULL)
+					buf[len++] = '\\';
+				buf[len++] = *cp;
+			}
+			buf[len] = '\0';
 			continue;
 		}
-		buf = xrealloc(buf, 1, len + 2);
+		buf = xrealloc(buf, len + 2);
 		buf[len++] = ch;
 		buf[len] = '\0';
 	}

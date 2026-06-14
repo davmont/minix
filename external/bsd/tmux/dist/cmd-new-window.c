@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,119 +30,113 @@
  * Create a new window.
  */
 
-enum cmd_retval	cmd_new_window_exec(struct cmd *, struct cmd_q *);
+#define NEW_WINDOW_TEMPLATE "#{session_name}:#{window_index}.#{pane_index}"
+
+static enum cmd_retval	cmd_new_window_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_new_window_entry = {
-	"new-window", "neww",
-	"ac:dF:kn:Pt:", 0, 1,
-	"[-adkP] [-c start-directory] [-F format] [-n window-name] "
-	CMD_TARGET_WINDOW_USAGE " [command]",
-	0,
-	NULL,
-	cmd_new_window_exec
+	.name = "new-window",
+	.alias = "neww",
+
+	.args = { "abc:de:F:kn:PSt:", 0, -1, NULL },
+	.usage = "[-abdkPS] [-c start-directory] [-e environment] [-F format] "
+		 "[-n window-name] " CMD_TARGET_WINDOW_USAGE
+		 " [shell-command [argument ...]]",
+
+	.target = { 't', CMD_FIND_WINDOW, CMD_FIND_WINDOW_INDEX },
+
+	.flags = 0,
+	.exec = cmd_new_window_exec
 };
 
-enum cmd_retval
-cmd_new_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_new_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	struct session		*s;
-	struct winlink		*wl;
-	struct client		*c;
-	const char		*cmd, *template;
-	char			*cause, *cp;
-	int			 idx, last, detached, cwd, fd = -1;
-	struct format_tree	*ft;
+	struct args		*args = cmd_get_args(self);
+	struct client		*c = cmdq_get_client(item);
+	struct cmd_find_state	*current = cmdq_get_current(item);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct spawn_context	 sc = { 0 };
+	struct client		*tc = cmdq_get_target_client(item);
+	struct session		*s = target->s;
+	struct winlink		*wl = target->wl, *new_wl = NULL;
+	int			 idx = target->idx, before;
+	char			*cause = NULL, *cp, *expanded;
+	const char		*template, *name;
+	struct cmd_find_state	 fs;
+	struct args_value	*av;
 
-	if (args_has(args, 'a')) {
-		wl = cmd_find_window(cmdq, args_get(args, 't'), &s);
-		if (wl == NULL)
-			return (CMD_RETURN_ERROR);
-		idx = wl->idx + 1;
-
-		/* Find the next free index. */
-		for (last = idx; last < INT_MAX; last++) {
-			if (winlink_find_by_index(&s->windows, last) == NULL)
-				break;
-		}
-		if (last == INT_MAX) {
-			cmdq_error(cmdq, "no free window indexes");
-			return (CMD_RETURN_ERROR);
-		}
-
-		/* Move everything from last - 1 to idx up a bit. */
-		for (; last > idx; last--) {
-			wl = winlink_find_by_index(&s->windows, last - 1);
-			server_link_window(s, wl, s, last, 0, 0, NULL);
-			server_unlink_window(s, wl);
-		}
-	} else {
-		if ((idx = cmd_find_index(cmdq, args_get(args, 't'), &s)) == -2)
-			return (CMD_RETURN_ERROR);
-	}
-	detached = args_has(args, 'd');
-
-	if (args->argc == 0)
-		cmd = options_get_string(&s->options, "default-command");
-	else
-		cmd = args->argv[0];
-
-	if (args_has(args, 'c')) {
-		ft = format_create();
-		if ((c = cmd_find_client(cmdq, NULL, 1)) != NULL)
-			format_client(ft, c);
-		format_session(ft, s);
-		format_winlink(ft, s, s->curw);
-		format_window_pane(ft, s->curw->window->active);
-		cp = format_expand(ft, args_get(args, 'c'));
-		format_free(ft);
-
-		if (cp != NULL && *cp != '\0') {
-			fd = open(cp, O_RDONLY|O_DIRECTORY);
-			free(cp);
-			if (fd == -1) {
-				cmdq_error(cmdq, "bad working directory: %s",
-				    strerror(errno));
-				return (CMD_RETURN_ERROR);
+	/*
+	 * If -S and -n are given and -t is not and a single window with this
+	 * name already exists, select it.
+	 */
+	name = args_get(args, 'n');
+	if (args_has(args, 'S') && name != NULL && target->idx == -1) {
+		expanded = format_single(item, name, c, s, NULL, NULL);
+		RB_FOREACH(wl, winlinks, &s->windows) {
+			if (strcmp(wl->window->name, expanded) != 0)
+				continue;
+			if (new_wl == NULL) {
+				new_wl = wl;
+				continue;
 			}
-		} else if (cp != NULL)
-			free(cp);
-		cwd = fd;
-	} else if (cmdq->client != NULL && cmdq->client->session == NULL)
-		cwd = cmdq->client->cwd;
-	else
-		cwd = s->cwd;
-
-	wl = NULL;
-	if (idx != -1)
-		wl = winlink_find_by_index(&s->windows, idx);
-	if (wl != NULL && args_has(args, 'k')) {
-		/*
-		 * Can't use session_detach as it will destroy session if this
-		 * makes it empty.
-		 */
-		notify_window_unlinked(s, wl->window);
-		wl->flags &= ~WINLINK_ALERTFLAGS;
-		winlink_stack_remove(&s->lastw, wl);
-		winlink_remove(&s->windows, wl);
-
-		/* Force select/redraw if current. */
-		if (wl == s->curw) {
-			detached = 0;
-			s->curw = NULL;
+			cmdq_error(item, "multiple windows named %s", name);
+			free(expanded);
+			return (CMD_RETURN_ERROR);
+		}
+		free(expanded);
+		if (new_wl != NULL) {
+			if (args_has(args, 'd'))
+				return (CMD_RETURN_NORMAL);
+			if (session_set_current(s, new_wl) == 0)
+				server_redraw_session(s);
+			if (c != NULL && c->session != NULL)
+				s->curw->window->latest = c;
+			recalculate_sizes();
+			return (CMD_RETURN_NORMAL);
 		}
 	}
 
-	if (idx == -1)
-		idx = -1 - options_get_number(&s->options, "base-index");
-	wl = session_new(s, args_get(args, 'n'), cmd, cwd, idx, &cause);
-	if (wl == NULL) {
-		cmdq_error(cmdq, "create window failed: %s", cause);
-		free(cause);
-		goto error;
+	before = args_has(args, 'b');
+	if (args_has(args, 'a') || before) {
+		idx = winlink_shuffle_up(s, wl, before);
+		if (idx == -1)
+			idx = target->idx;
 	}
-	if (!detached) {
-		session_select(s, wl->idx);
+
+	sc.item = item;
+	sc.s = s;
+	sc.tc = tc;
+
+	sc.name = args_get(args, 'n');
+	args_to_vector(args, &sc.argc, &sc.argv);
+	sc.environ = environ_create();
+
+	av = args_first_value(args, 'e');
+	while (av != NULL) {
+		environ_put(sc.environ, av->string, 0);
+		av = args_next_value(av);
+	}
+
+	sc.idx = idx;
+	sc.cwd = args_get(args, 'c');
+
+	sc.flags = 0;
+	if (args_has(args, 'd'))
+		sc.flags |= SPAWN_DETACHED;
+	if (args_has(args, 'k'))
+		sc.flags |= SPAWN_KILL;
+
+	if ((new_wl = spawn_window(&sc, &cause)) == NULL) {
+		cmdq_error(item, "create window failed: %s", cause);
+		free(cause);
+		if (sc.argv != NULL)
+			cmd_free_argv(sc.argc, sc.argv);
+		environ_free(sc.environ);
+		return (CMD_RETURN_ERROR);
+	}
+	if (!args_has(args, 'd') || new_wl == s->curw) {
+		cmd_find_from_winlink(current, new_wl, 0);
 		server_redraw_session_group(s);
 	} else
 		server_status_session_group(s);
@@ -150,27 +144,17 @@ cmd_new_window_exec(struct cmd *self, struct cmd_q *cmdq)
 	if (args_has(args, 'P')) {
 		if ((template = args_get(args, 'F')) == NULL)
 			template = NEW_WINDOW_TEMPLATE;
-
-		ft = format_create();
-		if ((c = cmd_find_client(cmdq, NULL, 1)) != NULL)
-			format_client(ft, c);
-		format_session(ft, s);
-		format_winlink(ft, s, wl);
-		format_window_pane(ft, wl->window->active);
-
-		cp = format_expand(ft, template);
-		cmdq_print(cmdq, "%s", cp);
+		cp = format_single(item, template, tc, s, new_wl,
+			new_wl->window->active);
+		cmdq_print(item, "%s", cp);
 		free(cp);
-
-		format_free(ft);
 	}
 
-	if (fd != -1)
-		close(fd);
-	return (CMD_RETURN_NORMAL);
+	cmd_find_from_winlink(&fs, new_wl, 0);
+	cmdq_insert_hook(s, item, &fs, "after-new-window");
 
-error:
-	if (fd != -1)
-		close(fd);
-	return (CMD_RETURN_ERROR);
+	if (sc.argv != NULL)
+		cmd_free_argv(sc.argc, sc.argv);
+	environ_free(sc.environ);
+	return (CMD_RETURN_NORMAL);
 }

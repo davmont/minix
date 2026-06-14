@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,41 +22,67 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
-#include <time.h>
+#include <unistd.h>
 
 #include "tmux.h"
 
-/* Log file, if needed. */
-FILE		*log_file;
-
-/* Debug level. */
-int		 log_level = 0;
-
-void		 log_event_cb(int, const char *);
-void		 log_vwrite(const char *, va_list) __printflike(1, 0);
-__dead void	 log_vfatal(const char *, va_list);
+static FILE	*log_file;
+static int	 log_level;
 
 /* Log callback for libevent. */
-void
-log_event_cb(unused int severity, const char *msg)
+static void
+log_event_cb(__unused int severity, const char *msg)
 {
-	log_warnx("%s", msg);
+	log_debug("%s", msg);
+}
+
+/* Increment log level. */
+void
+log_add_level(void)
+{
+	log_level++;
+}
+
+/* Get log level. */
+int
+log_get_level(void)
+{
+	return (log_level);
 }
 
 /* Open logging to file. */
 void
-log_open(int level, const char *path)
+log_open(const char *name)
 {
-	log_file = fopen(path, "w");
+	char	*path;
+
+	if (log_level == 0)
+		return;
+	log_close();
+
+	xasprintf(&path, "tmux-%s-%ld.log", name, (long)getpid());
+	log_file = fopen(path, "a");
+	free(path);
 	if (log_file == NULL)
 		return;
-	log_level = level;
 
-	setlinebuf(log_file);
+	setvbuf(log_file, NULL, _IOLBF, 0);
 	event_set_log_callback(log_event_cb);
+}
 
-	tzset();
+/* Toggle logging. */
+void
+log_toggle(const char *name)
+{
+	if (log_level == 0) {
+		log_level = 1;
+		log_open(name);
+		log_debug("log opened");
+	} else {
+		log_debug("log closed");
+		log_level = 0;
+		log_close();
+	}
 }
 
 /* Close logging. */
@@ -65,135 +91,85 @@ log_close(void)
 {
 	if (log_file != NULL)
 		fclose(log_file);
+	log_file = NULL;
 
 	event_set_log_callback(NULL);
 }
 
 /* Write a log message. */
-void
-log_vwrite(const char *msg, va_list ap)
+static void printflike(1, 0)
+log_vwrite(const char *msg, va_list ap, const char *prefix)
 {
+	char		*s, *out;
+	struct timeval	 tv;
+
 	if (log_file == NULL)
 		return;
 
-	if (vfprintf(log_file, msg, ap) == -1)
-		exit(1);
-	if (fprintf(log_file, "\n") == -1)
-		exit(1);
-	fflush(log_file);
-}
-
-/* Log a warning with error string. */
-#if __GNUC_PREREQ__(4, 6) || defined(__clang__)
-#pragma GCC diagnostic push
-#endif
-#if __GNUC_PREREQ__(4, 5) || defined(__clang__)
-#pragma GCC diagnostic ignored "-Wformat-nonliteral"
-#endif
-void printflike1
-log_warn(const char *msg, ...)
-{
-	va_list	 ap;
-	char	*fmt;
-
-	va_start(ap, msg);
-	if (asprintf(&fmt, "%s: %s", msg, strerror(errno)) == -1)
-		exit(1);
-	log_vwrite(fmt, ap);
-	free(fmt);
-	va_end(ap);
-}
-#if __GNUC_PREREQ__(4, 6) || defined(__clang__)
-#pragma GCC diagnostic push
-#endif
-
-/* Log a warning. */
-void printflike1
-log_warnx(const char *msg, ...)
-{
-	va_list	ap;
-
-	va_start(ap, msg);
-	log_vwrite(msg, ap);
-	va_end(ap);
-}
-
-/* Log an informational message. */
-void printflike1
-log_info(const char *msg, ...)
-{
-	va_list	ap;
-
-	if (log_level > -1) {
-		va_start(ap, msg);
-		log_vwrite(msg, ap);
-		va_end(ap);
+	if (vasprintf(&s, msg, ap) == -1)
+		return;
+	if (stravis(&out, s, VIS_OCTAL|VIS_CSTYLE|VIS_TAB|VIS_NL) == -1) {
+		free(s);
+		return;
 	}
+	free(s);
+
+	gettimeofday(&tv, NULL);
+	if (fprintf(log_file, "%lld.%06d %s%s\n", (long long)tv.tv_sec,
+	    (int)tv.tv_usec, prefix, out) != -1)
+		fflush(log_file);
+	free(out);
 }
 
 /* Log a debug message. */
-void printflike1
+void
 log_debug(const char *msg, ...)
 {
 	va_list	ap;
 
-	if (log_level > 0) {
-		va_start(ap, msg);
-		log_vwrite(msg, ap);
-		va_end(ap);
-	}
+	if (log_file == NULL)
+		return;
+
+	va_start(ap, msg);
+	log_vwrite(msg, ap, "");
+	va_end(ap);
 }
 
-/* Log a debug message at level 2. */
-void printflike1
-log_debug2(const char *msg, ...)
-{
-	va_list	ap;
+#if __GNUC_PREREQ__(4, 6) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
 
-	if (log_level > 1) {
-		va_start(ap, msg);
-		log_vwrite(msg, ap);
-		va_end(ap);
-	}
-}
-
-/* Log a critical error, with error string if necessary, and die. */
+/* Log a critical error with error string and die. */
 __dead void
-log_vfatal(const char *msg, va_list ap)
+fatal(const char *msg, ...)
 {
-	char	*fmt;
+	char	 tmp[256];
+	va_list	 ap;
 
-	if (errno != 0) {
-		if (asprintf(&fmt, "fatal: %s: %s", msg, strerror(errno)) == -1)
-			exit(1);
-		log_vwrite(fmt, ap);
-	} else {
-		if (asprintf(&fmt, "fatal: %s", msg) == -1)
-			exit(1);
-		log_vwrite(fmt, ap);
-	}
-	free(fmt);
+	if (snprintf(tmp, sizeof tmp, "fatal: %s: ", strerror(errno)) < 0)
+		exit(1);
+
+	va_start(ap, msg);
+	log_vwrite(msg, ap, tmp);
+	va_end(ap);
 
 	exit(1);
 }
 
-/* Log a critical error, with error string, and die. */
-__dead void printflike1
-log_fatal(const char *msg, ...)
-{
-	va_list	ap;
-
-	va_start(ap, msg);
-	log_vfatal(msg, ap);
-}
-
 /* Log a critical error and die. */
-__dead void printflike1
-log_fatalx(const char *msg, ...)
+__dead void
+fatalx(const char *msg, ...)
 {
-	va_list	ap;
+	va_list	 ap;
 
-	errno = 0;
 	va_start(ap, msg);
-	log_vfatal(msg, ap);
+	log_vwrite(msg, ap, "fatal: ");
+	va_end(ap);
+
+	exit(1);
 }
+
+#if __GNUC_PREREQ__(4, 6) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif

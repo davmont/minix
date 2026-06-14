@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,34 +29,212 @@
 
 #include "tmux.h"
 
-char   *status_redraw_get_left(
-	    struct client *, time_t, int, struct grid_cell *, size_t *);
-char   *status_redraw_get_right(
-	    struct client *, time_t, int, struct grid_cell *, size_t *);
-char   *status_find_job(struct client *, char **);
-void	status_job_free(void *);
-void	status_job_callback(struct job *);
-char   *status_print(
-	    struct client *, struct winlink *, time_t, struct grid_cell *);
-void	status_replace1(struct client *, char **, char **, char *, size_t, int);
-void	status_message_callback(int, short, void *);
+static void	 status_message_callback(int, short, void *);
+static void	 status_timer_callback(int, short, void *);
 
-const char *status_prompt_up_history(u_int *);
-const char *status_prompt_down_history(u_int *);
-void	status_prompt_add_history(const char *);
-char   *status_prompt_complete(const char *);
+static char	*status_prompt_find_history_file(void);
+static const char *status_prompt_up_history(u_int *, u_int);
+static const char *status_prompt_down_history(u_int *, u_int);
+static void	 status_prompt_add_history(const char *, u_int);
+
+static char	*status_prompt_complete(struct client *, const char *, u_int);
+static char	*status_prompt_complete_window_menu(struct client *,
+		     struct session *, const char *, u_int, char);
+
+struct status_prompt_menu {
+	struct client	 *c;
+	u_int		  start;
+	u_int		  size;
+	char		**list;
+	char		  flag;
+};
+
+static const char	*prompt_type_strings[] = {
+	"command",
+	"search",
+	"target",
+	"window-target"
+};
 
 /* Status prompt history. */
-ARRAY_DECL(, char *) status_prompt_history = ARRAY_INITIALIZER;
+char		**status_prompt_hlist[PROMPT_NTYPES];
+u_int		  status_prompt_hsize[PROMPT_NTYPES];
 
-/* Status output tree. */
-RB_GENERATE(status_out_tree, status_out, entry, status_out_cmp);
-
-/* Output tree comparison function. */
-int
-status_out_cmp(struct status_out *so1, struct status_out *so2)
+/* Find the history file to load/save from/to. */
+static char *
+status_prompt_find_history_file(void)
 {
-	return (strcmp(so1->cmd, so2->cmd));
+	const char	*home, *history_file;
+	char		*path;
+
+	history_file = options_get_string(global_options, "history-file");
+	if (*history_file == '\0')
+		return (NULL);
+	if (*history_file == '/')
+		return (xstrdup(history_file));
+
+	if (history_file[0] != '~' || history_file[1] != '/')
+		return (NULL);
+	if ((home = find_home()) == NULL)
+		return (NULL);
+	xasprintf(&path, "%s%s", home, history_file + 1);
+	return (path);
+}
+
+/* Add loaded history item to the appropriate list. */
+static void
+status_prompt_add_typed_history(char *line)
+{
+	char			*typestr;
+	enum prompt_type	 type = PROMPT_TYPE_INVALID;
+
+	typestr = strsep(&line, ":");
+	if (line != NULL)
+		type = status_prompt_type(typestr);
+	if (type == PROMPT_TYPE_INVALID) {
+		/*
+		 * Invalid types are not expected, but this provides backward
+		 * compatibility with old history files.
+		 */
+		if (line != NULL)
+			*(--line) = ':';
+		status_prompt_add_history(typestr, PROMPT_TYPE_COMMAND);
+	} else
+		status_prompt_add_history(line, type);
+}
+
+/* Load status prompt history from file. */
+void
+status_prompt_load_history(void)
+{
+	FILE	*f;
+	char	*history_file, *line, *tmp;
+	size_t	 length;
+
+	if ((history_file = status_prompt_find_history_file()) == NULL)
+		return;
+	log_debug("loading history from %s", history_file);
+
+	f = fopen(history_file, "r");
+	if (f == NULL) {
+		log_debug("%s: %s", history_file, strerror(errno));
+		free(history_file);
+		return;
+	}
+	free(history_file);
+
+	for (;;) {
+		if ((line = fgetln(f, &length)) == NULL)
+			break;
+
+		if (length > 0) {
+			if (line[length - 1] == '\n') {
+				line[length - 1] = '\0';
+				status_prompt_add_typed_history(line);
+			} else {
+				tmp = xmalloc(length + 1);
+				memcpy(tmp, line, length);
+				tmp[length] = '\0';
+				status_prompt_add_typed_history(tmp);
+				free(tmp);
+			}
+		}
+	}
+	fclose(f);
+}
+
+/* Save status prompt history to file. */
+void
+status_prompt_save_history(void)
+{
+	FILE	*f;
+	u_int	 i, type;
+	char	*history_file;
+
+	if ((history_file = status_prompt_find_history_file()) == NULL)
+		return;
+	log_debug("saving history to %s", history_file);
+
+	f = fopen(history_file, "w");
+	if (f == NULL) {
+		log_debug("%s: %s", history_file, strerror(errno));
+		free(history_file);
+		return;
+	}
+	free(history_file);
+
+	for (type = 0; type < PROMPT_NTYPES; type++) {
+		for (i = 0; i < status_prompt_hsize[type]; i++) {
+			fputs(prompt_type_strings[type], f);
+			fputc(':', f);
+			fputs(status_prompt_hlist[type][i], f);
+			fputc('\n', f);
+		}
+	}
+	fclose(f);
+
+}
+
+/* Status timer callback. */
+static void
+status_timer_callback(__unused int fd, __unused short events, void *arg)
+{
+	struct client	*c = arg;
+	struct session	*s = c->session;
+	struct timeval	 tv;
+
+	evtimer_del(&c->status.timer);
+
+	if (s == NULL)
+		return;
+
+	if (c->message_string == NULL && c->prompt_string == NULL)
+		c->flags |= CLIENT_REDRAWSTATUS;
+
+	timerclear(&tv);
+	tv.tv_sec = options_get_number(s->options, "status-interval");
+
+	if (tv.tv_sec != 0)
+		evtimer_add(&c->status.timer, &tv);
+	log_debug("client %p, status interval %d", c, (int)tv.tv_sec);
+}
+
+/* Start status timer for client. */
+void
+status_timer_start(struct client *c)
+{
+	struct session	*s = c->session;
+
+	if (event_initialized(&c->status.timer))
+		evtimer_del(&c->status.timer);
+	else
+		evtimer_set(&c->status.timer, status_timer_callback, c);
+
+	if (s != NULL && options_get_number(s->options, "status"))
+		status_timer_callback(-1, 0, c);
+}
+
+/* Start status timer for all clients. */
+void
+status_timer_start_all(void)
+{
+	struct client	*c;
+
+	TAILQ_FOREACH(c, &clients, entry)
+		status_timer_start(c);
+}
+
+/* Update status cache. */
+void
+status_update_cache(struct session *s)
+{
+	s->statuslines = options_get_number(s->options, "status");
+	if (s->statuslines == 0)
+		s->statusat = -1;
+	else if (options_get_number(s->options, "status-position") == 0)
+		s->statusat = 0;
+	else
+		s->statusat = 1;
 }
 
 /* Get screen line of status line. -1 means off. */
@@ -65,638 +243,286 @@ status_at_line(struct client *c)
 {
 	struct session	*s = c->session;
 
-	if (!options_get_number(&s->options, "status"))
+	if (c->flags & (CLIENT_STATUSOFF|CLIENT_CONTROL))
 		return (-1);
+	if (s->statusat != 1)
+		return (s->statusat);
+	return (c->tty.sy - status_line_size(c));
+}
 
-	if (options_get_number(&s->options, "status-position") == 0)
+/* Get size of status line for client's session. 0 means off. */
+u_int
+status_line_size(struct client *c)
+{
+	struct session	*s = c->session;
+
+	if (c->flags & (CLIENT_STATUSOFF|CLIENT_CONTROL))
 		return (0);
-	return (c->tty.sy - 1);
+	if (s == NULL)
+		return (options_get_number(global_s_options, "status"));
+	return (s->statuslines);
 }
 
-/* Retrieve options for left string. */
-char *
-status_redraw_get_left(struct client *c,
-    time_t t, int utf8flag, struct grid_cell *gc, size_t *size)
+/* Get the prompt line number for client's session. 1 means at the bottom. */
+u_int
+status_prompt_line_at(struct client *c)
 {
 	struct session	*s = c->session;
-	char		*left;
-	size_t		 leftlen;
+	u_int		 line, lines;
 
-	style_apply_update(gc, &s->options, "status-left-style");
-
-	left = status_replace(c, NULL,
-	    NULL, NULL, options_get_string(&s->options, "status-left"), t, 1);
-
-	*size = options_get_number(&s->options, "status-left-length");
-	leftlen = screen_write_cstrlen(utf8flag, "%s", left);
-	if (leftlen < *size)
-		*size = leftlen;
-	return (left);
-}
-
-/* Retrieve options for right string. */
-char *
-status_redraw_get_right(struct client *c,
-    time_t t, int utf8flag, struct grid_cell *gc, size_t *size)
-{
-	struct session	*s = c->session;
-	char		*right;
-	size_t		 rightlen;
-
-	style_apply_update(gc, &s->options, "status-right-style");
-
-	right = status_replace(c, NULL,
-	    NULL, NULL, options_get_string(&s->options, "status-right"), t, 1);
-
-	*size = options_get_number(&s->options, "status-right-length");
-	rightlen = screen_write_cstrlen(utf8flag, "%s", right);
-	if (rightlen < *size)
-		*size = rightlen;
-	return (right);
-}
-
-/* Set window at window list position. */
-void
-status_set_window_at(struct client *c, u_int x)
-{
-	struct session	*s = c->session;
-	struct winlink	*wl;
-
-	x += c->wlmouse;
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		if (x < wl->status_width && session_select(s, wl->idx) == 0)
-			server_redraw_session(s);
-		x -= wl->status_width + 1;
-	}
-}
-
-/* Draw status for client on the last lines of given context. */
-int
-status_redraw(struct client *c)
-{
-	struct screen_write_ctx	ctx;
-	struct session	       *s = c->session;
-	struct winlink	       *wl;
-	struct screen		old_status, window_list;
-	struct grid_cell	stdgc, lgc, rgc, gc;
-	struct options	       *oo;
-	time_t			t;
-	char		       *left, *right, *sep;
-	u_int			offset, needed;
-	u_int			wlstart, wlwidth, wlavailable, wloffset, wlsize;
-	size_t			llen, rlen, seplen;
-	int			larrow, rarrow, utf8flag;
-
-	/* No status line? */
-	if (c->tty.sy == 0 || !options_get_number(&s->options, "status"))
-		return (1);
-	left = right = NULL;
-	larrow = rarrow = 0;
-
-	/* Update status timer. */
-	if (gettimeofday(&c->status_timer, NULL) != 0)
-		fatal("gettimeofday failed");
-	t = c->status_timer.tv_sec;
-
-	/* Set up default colour. */
-	style_apply(&stdgc, &s->options, "status-style");
-
-	/* Create the target screen. */
-	memcpy(&old_status, &c->status, sizeof old_status);
-	screen_init(&c->status, c->tty.sx, 1, 0);
-	screen_write_start(&ctx, NULL, &c->status);
-	for (offset = 0; offset < c->tty.sx; offset++)
-		screen_write_putc(&ctx, &stdgc, ' ');
-	screen_write_stop(&ctx);
-
-	/* If the height is one line, blank status line. */
-	if (c->tty.sy <= 1)
-		goto out;
-
-	/* Get UTF-8 flag. */
-	utf8flag = options_get_number(&s->options, "status-utf8");
-
-	/* Work out left and right strings. */
-	memcpy(&lgc, &stdgc, sizeof lgc);
-	left = status_redraw_get_left(c, t, utf8flag, &lgc, &llen);
-	memcpy(&rgc, &stdgc, sizeof rgc);
-	right = status_redraw_get_right(c, t, utf8flag, &rgc, &rlen);
-
-	/*
-	 * Figure out how much space we have for the window list. If there
-	 * isn't enough space, just show a blank status line.
-	 */
-	needed = 0;
-	if (llen != 0)
-		needed += llen + 1;
-	if (rlen != 0)
-		needed += rlen + 1;
-	if (c->tty.sx == 0 || c->tty.sx <= needed)
-		goto out;
-	wlavailable = c->tty.sx - needed;
-
-	/* Calculate the total size needed for the window list. */
-	wlstart = wloffset = wlwidth = 0;
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		free(wl->status_text);
-		memcpy(&wl->status_cell, &stdgc, sizeof wl->status_cell);
-		wl->status_text = status_print(c, wl, t, &wl->status_cell);
-		wl->status_width =
-		    screen_write_cstrlen(utf8flag, "%s", wl->status_text);
-
-		if (wl == s->curw)
-			wloffset = wlwidth;
-
-		oo = &wl->window->options;
-		sep = options_get_string(oo, "window-status-separator");
-		seplen = screen_write_strlen(utf8flag, "%s", sep);
-		wlwidth += wl->status_width + seplen;
-	}
-
-	/* Create a new screen for the window list. */
-	screen_init(&window_list, wlwidth, 1, 0);
-
-	/* And draw the window list into it. */
-	screen_write_start(&ctx, NULL, &window_list);
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		screen_write_cnputs(&ctx,
-		    -1, &wl->status_cell, utf8flag, "%s", wl->status_text);
-
-		oo = &wl->window->options;
-		sep = options_get_string(oo, "window-status-separator");
-		screen_write_nputs(&ctx, -1, &stdgc, utf8flag, "%s", sep);
-	}
-	screen_write_stop(&ctx);
-
-	/* If there is enough space for the total width, skip to draw now. */
-	if (wlwidth <= wlavailable)
-		goto draw;
-
-	/* Find size of current window text. */
-	wlsize = s->curw->status_width;
-
-	/*
-	 * If the current window is already on screen, good to draw from the
-	 * start and just leave off the end.
-	 */
-	if (wloffset + wlsize < wlavailable) {
-		if (wlavailable > 0) {
-			rarrow = 1;
-			wlavailable--;
-		}
-		wlwidth = wlavailable;
-	} else {
-		/*
-		 * Work out how many characters we need to omit from the
-		 * start. There are wlavailable characters to fill, and
-		 * wloffset + wlsize must be the last. So, the start character
-		 * is wloffset + wlsize - wlavailable.
-		 */
-		if (wlavailable > 0) {
-			larrow = 1;
-			wlavailable--;
-		}
-
-		wlstart = wloffset + wlsize - wlavailable;
-		if (wlavailable > 0 && wlwidth > wlstart + wlavailable + 1) {
-			rarrow = 1;
-			wlstart++;
-			wlavailable--;
-		}
-		wlwidth = wlavailable;
-	}
-
-	/* Bail if anything is now too small too. */
-	if (wlwidth == 0 || wlavailable == 0) {
-		screen_free(&window_list);
-		goto out;
-	}
-
-	/*
-	 * Now the start position is known, work out the state of the left and
-	 * right arrows.
-	 */
-	offset = 0;
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		if (wl->flags & WINLINK_ALERTFLAGS &&
-		    larrow == 1 && offset < wlstart)
-			larrow = -1;
-
-		offset += wl->status_width;
-
-		if (wl->flags & WINLINK_ALERTFLAGS &&
-		    rarrow == 1 && offset > wlstart + wlwidth)
-			rarrow = -1;
-	}
-
-draw:
-	/* Begin drawing. */
-	screen_write_start(&ctx, NULL, &c->status);
-
-	/* Draw the left string and arrow. */
-	screen_write_cursormove(&ctx, 0, 0);
-	if (llen != 0) {
-		screen_write_cnputs(&ctx, llen, &lgc, utf8flag, "%s", left);
-		screen_write_putc(&ctx, &stdgc, ' ');
-	}
-	if (larrow != 0) {
-		memcpy(&gc, &stdgc, sizeof gc);
-		if (larrow == -1)
-			gc.attr ^= GRID_ATTR_REVERSE;
-		screen_write_putc(&ctx, &gc, '<');
-	}
-
-	/* Draw the right string and arrow. */
-	if (rarrow != 0) {
-		screen_write_cursormove(&ctx, c->tty.sx - rlen - 2, 0);
-		memcpy(&gc, &stdgc, sizeof gc);
-		if (rarrow == -1)
-			gc.attr ^= GRID_ATTR_REVERSE;
-		screen_write_putc(&ctx, &gc, '>');
-	} else
-		screen_write_cursormove(&ctx, c->tty.sx - rlen - 1, 0);
-	if (rlen != 0) {
-		screen_write_putc(&ctx, &stdgc, ' ');
-		screen_write_cnputs(&ctx, rlen, &rgc, utf8flag, "%s", right);
-	}
-
-	/* Figure out the offset for the window list. */
-	if (llen != 0)
-		wloffset = llen + 1;
-	else
-		wloffset = 0;
-	if (wlwidth < wlavailable) {
-		switch (options_get_number(&s->options, "status-justify")) {
-		case 1:	/* centered */
-			wloffset += (wlavailable - wlwidth) / 2;
-			break;
-		case 2:	/* right */
-			wloffset += (wlavailable - wlwidth);
-			break;
-		}
-	}
-	if (larrow != 0)
-		wloffset++;
-
-	/* Copy the window list. */
-	c->wlmouse = -wloffset + wlstart;
-	screen_write_cursormove(&ctx, wloffset, 0);
-	screen_write_copy(&ctx, &window_list, wlstart, 0, wlwidth, 1);
-	screen_free(&window_list);
-
-	screen_write_stop(&ctx);
-
-out:
-	free(left);
-	free(right);
-
-	if (grid_compare(c->status.grid, old_status.grid) == 0) {
-		screen_free(&old_status);
+	lines = status_line_size(c);
+	if (lines == 0)
 		return (0);
-	}
-	screen_free(&old_status);
-	return (1);
+	line = options_get_number(s->options, "message-line");
+	if (line >= lines)
+		return (lines - 1);
+	return (line);
 }
 
-/* Replace a single special sequence (prefixed by #). */
-void
-status_replace1(struct client *c, char **iptr, char **optr, char *out,
-    size_t outsize, int jobsflag)
+/* Get window at window list position. */
+struct style_range *
+status_get_range(struct client *c, u_int x, u_int y)
 {
-	char	ch, tmp[256], *ptr, *endptr;
-	size_t	ptrlen;
-	long	limit;
+	struct status_line	*sl = &c->status;
+	struct style_range	*sr;
 
-	errno = 0;
-	limit = strtol(*iptr, &endptr, 10);
-	if ((limit == 0 && errno != EINVAL) ||
-	    (limit == LONG_MIN && errno != ERANGE) ||
-	    (limit == LONG_MAX && errno != ERANGE) ||
-	    limit != 0)
-		*iptr = endptr;
-	if (limit <= 0)
-		limit = LONG_MAX;
-
-	switch (*(*iptr)++) {
-	case '(':
-		if (!jobsflag) {
-			ch = ')';
-			goto skip_to;
-		}
-		if ((ptr = status_find_job(c, iptr)) == NULL)
-			return;
-		goto do_replace;
-	case '[':
-		/*
-		 * Embedded style, handled at display time. Leave present and
-		 * skip input until ].
-		 */
-		ch = ']';
-		goto skip_to;
-	case '{':
-		ptr = __UNCONST("#{");
-		goto do_replace;
-	case '#':
-		*(*optr)++ = '#';
-		break;
-	default:
-		xsnprintf(tmp, sizeof tmp, "#%c", *(*iptr - 1));
-		ptr = tmp;
-		goto do_replace;
-	}
-
-	return;
-
-do_replace:
-	ptrlen = strlen(ptr);
-	if ((size_t) limit < ptrlen)
-		ptrlen = limit;
-
-	if (*optr + ptrlen >= out + outsize - 1)
-		return;
-	while (ptrlen > 0 && *ptr != '\0') {
-		*(*optr)++ = *ptr++;
-		ptrlen--;
-	}
-
-	return;
-
-skip_to:
-	*(*optr)++ = '#';
-
-	(*iptr)--;	/* include ch */
-	while (**iptr != ch && **iptr != '\0') {
-		if (*optr >=  out + outsize - 1)
-			break;
-		*(*optr)++ = *(*iptr)++;
-	}
-}
-
-/* Replace special sequences in fmt. */
-char *
-status_replace(struct client *c, struct session *s, struct winlink *wl,
-    struct window_pane *wp, const char *fmt, time_t t, int jobsflag)
-{
-	static char		 out[BUFSIZ];
-	char			 in[BUFSIZ], ch, *iptr, *optr, *expanded;
-	size_t			 len;
-	struct format_tree	*ft;
-
-	if (fmt == NULL)
-		return (xstrdup(""));
-
-	if (s == NULL && c != NULL)
-		s = c->session;
-	if (wl == NULL && s != NULL)
-		wl = s->curw;
-	if (wp == NULL && wl != NULL)
-		wp = wl->window->active;
-
-	len = strftime(in, sizeof in, fmt, localtime(&t));
-	in[len] = '\0';
-
-	iptr = in;
-	optr = out;
-
-	while (*iptr != '\0') {
-		if (optr >= out + (sizeof out) - 1)
-			break;
-		ch = *iptr++;
-
-		if (ch != '#' || *iptr == '\0') {
-			*optr++ = ch;
-			continue;
-		}
-		status_replace1(c, &iptr, &optr, out, sizeof out, jobsflag);
-	}
-	*optr = '\0';
-
-	ft = format_create();
-	if (c != NULL)
-		format_client(ft, c);
-	if (s != NULL)
-		format_session(ft, s);
-	if (s != NULL && wl != NULL)
-		format_winlink(ft, s, wl);
-	if (wp != NULL)
-		format_window_pane(ft, wp);
-	expanded = format_expand(ft, out);
-	format_free(ft);
-	return (expanded);
-}
-
-/* Figure out job name and get its result, starting it off if necessary. */
-char *
-status_find_job(struct client *c, char **iptr)
-{
-	struct status_out	*so, so_find;
-	char   			*cmd;
-	int			 lastesc;
-	size_t			 len;
-
-	if (**iptr == '\0')
+	if (y >= nitems(sl->entries))
 		return (NULL);
-	if (**iptr == ')') {		/* no command given */
-		(*iptr)++;
-		return (NULL);
+	TAILQ_FOREACH(sr, &sl->entries[y].ranges, entry) {
+		if (x >= sr->start && x < sr->end)
+			return (sr);
 	}
-
-	cmd = xmalloc(strlen(*iptr) + 1);
-	len = 0;
-
-	lastesc = 0;
-	for (; **iptr != '\0'; (*iptr)++) {
-		if (!lastesc && **iptr == ')')
-			break;		/* unescaped ) is the end */
-		if (!lastesc && **iptr == '\\') {
-			lastesc = 1;
-			continue;	/* skip \ if not escaped */
-		}
-		lastesc = 0;
-		cmd[len++] = **iptr;
-	}
-	if (**iptr == '\0')		/* no terminating ) */ {
-		free(cmd);
-		return (NULL);
-	}
-	(*iptr)++;			/* skip final ) */
-	cmd[len] = '\0';
-
-	/* First try in the new tree. */
-	so_find.cmd = cmd;
-	so = RB_FIND(status_out_tree, &c->status_new, &so_find);
-	if (so != NULL && so->out != NULL) {
-		free(cmd);
-		return (so->out);
-	}
-
-	/* If not found at all, start the job and add to the tree. */
-	if (so == NULL) {
-		job_run(cmd, NULL, status_job_callback, status_job_free, c);
-		c->references++;
-
-		so = xmalloc(sizeof *so);
-		so->cmd = xstrdup(cmd);
-		so->out = NULL;
-		RB_INSERT(status_out_tree, &c->status_new, so);
-	}
-
-	/* Lookup in the old tree. */
-	so_find.cmd = cmd;
-	so = RB_FIND(status_out_tree, &c->status_old, &so_find);
-	free(cmd);
-	if (so != NULL)
-		return (so->out);
 	return (NULL);
 }
 
-/* Free job tree. */
-void
-status_free_jobs(struct status_out_tree *sotree)
+/* Free all ranges. */
+static void
+status_free_ranges(struct style_ranges *srs)
 {
-	struct status_out	*so, *so_next;
+	struct style_range	*sr, *sr1;
 
-	so_next = RB_MIN(status_out_tree, sotree);
-	while (so_next != NULL) {
-		so = so_next;
-		so_next = RB_NEXT(status_out_tree, sotree, so);
-
-		RB_REMOVE(status_out_tree, sotree, so);
-		free(so->out);
-		free(so->cmd);
-		free(so);
+	TAILQ_FOREACH_SAFE(sr, srs, entry, sr1) {
+		TAILQ_REMOVE(srs, sr, entry);
+		free(sr);
 	}
 }
 
-/* Update jobs on status interval. */
-void
-status_update_jobs(struct client *c)
+/* Save old status line. */
+static void
+status_push_screen(struct client *c)
 {
-	/* Free the old tree. */
-	status_free_jobs(&c->status_old);
+	struct status_line *sl = &c->status;
 
-	/* Move the new to old. */
-	memcpy(&c->status_old, &c->status_new, sizeof c->status_old);
-	RB_INIT(&c->status_new);
-}
-
-/* Free status job. */
-void
-status_job_free(void *data)
-{
-	struct client	*c = data;
-
-	c->references--;
-}
-
-/* Job has finished: save its result. */
-void
-status_job_callback(struct job *job)
-{
-	struct client		*c = job->data;
-	struct status_out	*so, so_find;
-	char			*line, *buf;
-	size_t			 len;
-
-	if (c->flags & CLIENT_DEAD)
-		return;
-
-	so_find.cmd = job->cmd;
-	so = RB_FIND(status_out_tree, &c->status_new, &so_find);
-	if (so == NULL || so->out != NULL)
-		return;
-
-	buf = NULL;
-	if ((line = evbuffer_readline(job->event->input)) == NULL) {
-		len = EVBUFFER_LENGTH(job->event->input);
-		buf = xmalloc(len + 1);
-		if (len != 0)
-			memcpy(buf, EVBUFFER_DATA(job->event->input), len);
-		buf[len] = '\0';
-	} else
-		buf = line;
-
-	so->out = buf;
-	server_status_client(c);
-}
-
-/* Return winlink status line entry and adjust gc as necessary. */
-char *
-status_print(
-    struct client *c, struct winlink *wl, time_t t, struct grid_cell *gc)
-{
-	struct options	*oo = &wl->window->options;
-	struct session	*s = c->session;
-	const char	*fmt;
-	char   		*text;
-
-	style_apply_update(gc, oo, "window-status-style");
-	fmt = options_get_string(oo, "window-status-format");
-	if (wl == s->curw) {
-		style_apply_update(gc, oo, "window-status-current-style");
-		fmt = options_get_string(oo, "window-status-current-format");
+	if (sl->active == &sl->screen) {
+		sl->active = xmalloc(sizeof *sl->active);
+		screen_init(sl->active, c->tty.sx, status_line_size(c), 0);
 	}
-	if (wl == TAILQ_FIRST(&s->lastw))
-		style_apply_update(gc, oo, "window-status-last-style");
+	sl->references++;
+}
 
-	if (wl->flags & WINLINK_BELL)
-		style_apply_update(gc, oo, "window-status-bell-style");
-	else if (wl->flags & WINLINK_CONTENT)
-		style_apply_update(gc, oo, "window-status-content-style");
-	else if (wl->flags & (WINLINK_ACTIVITY|WINLINK_SILENCE))
-		style_apply_update(gc, oo, "window-status-activity-style");
+/* Restore old status line. */
+static void
+status_pop_screen(struct client *c)
+{
+	struct status_line *sl = &c->status;
 
-	text = status_replace(c, NULL, wl, NULL, fmt, t, 1);
-	return (text);
+	if (--sl->references == 0) {
+		screen_free(sl->active);
+		free(sl->active);
+		sl->active = &sl->screen;
+	}
+}
+
+/* Initialize status line. */
+void
+status_init(struct client *c)
+{
+	struct status_line	*sl = &c->status;
+	u_int			 i;
+
+	for (i = 0; i < nitems(sl->entries); i++)
+		TAILQ_INIT(&sl->entries[i].ranges);
+
+	screen_init(&sl->screen, c->tty.sx, 1, 0);
+	sl->active = &sl->screen;
+}
+
+/* Free status line. */
+void
+status_free(struct client *c)
+{
+	struct status_line	*sl = &c->status;
+	u_int			 i;
+
+	for (i = 0; i < nitems(sl->entries); i++) {
+		status_free_ranges(&sl->entries[i].ranges);
+		free((void *)sl->entries[i].expanded);
+	}
+
+	if (event_initialized(&sl->timer))
+		evtimer_del(&sl->timer);
+
+	if (sl->active != &sl->screen) {
+		screen_free(sl->active);
+		free(sl->active);
+	}
+	screen_free(&sl->screen);
+}
+
+/* Draw status line for client. */
+int
+status_redraw(struct client *c)
+{
+	struct status_line		*sl = &c->status;
+	struct status_line_entry	*sle;
+	struct session			*s = c->session;
+	struct screen_write_ctx		 ctx;
+	struct grid_cell		 gc;
+	u_int				 lines, i, n, width = c->tty.sx;
+	int				 flags, force = 0, changed = 0, fg, bg;
+	struct options_entry		*o;
+	union options_value		*ov;
+	struct format_tree		*ft;
+	char				*expanded;
+
+	log_debug("%s enter", __func__);
+
+	/* Shouldn't get here if not the active screen. */
+	if (sl->active != &sl->screen)
+		fatalx("not the active screen");
+
+	/* No status line? */
+	lines = status_line_size(c);
+	if (c->tty.sy == 0 || lines == 0)
+		return (1);
+
+	/* Create format tree. */
+	flags = FORMAT_STATUS;
+	if (c->flags & CLIENT_STATUSFORCE)
+		flags |= FORMAT_FORCE;
+	ft = format_create(c, NULL, FORMAT_NONE, flags);
+	format_defaults(ft, c, NULL, NULL, NULL);
+
+	/* Set up default colour. */
+	style_apply(&gc, s->options, "status-style", ft);
+	fg = options_get_number(s->options, "status-fg");
+	if (!COLOUR_DEFAULT(fg))
+		gc.fg = fg;
+	bg = options_get_number(s->options, "status-bg");
+	if (!COLOUR_DEFAULT(bg))
+		gc.bg = bg;
+	if (!grid_cells_equal(&gc, &sl->style)) {
+		force = 1;
+		memcpy(&sl->style, &gc, sizeof sl->style);
+	}
+
+	/* Resize the target screen. */
+	if (screen_size_x(&sl->screen) != width ||
+	    screen_size_y(&sl->screen) != lines) {
+		screen_resize(&sl->screen, width, lines, 0);
+		changed = force = 1;
+	}
+	screen_write_start(&ctx, &sl->screen);
+
+	/* Write the status lines. */
+	o = options_get(s->options, "status-format");
+	if (o == NULL) {
+		for (n = 0; n < width * lines; n++)
+			screen_write_putc(&ctx, &gc, ' ');
+	} else {
+		for (i = 0; i < lines; i++) {
+			screen_write_cursormove(&ctx, 0, i, 0);
+
+			ov = options_array_get(o, i);
+			if (ov == NULL) {
+				for (n = 0; n < width; n++)
+					screen_write_putc(&ctx, &gc, ' ');
+				continue;
+			}
+			sle = &sl->entries[i];
+
+			expanded = format_expand_time(ft, ov->string);
+			if (!force &&
+			    sle->expanded != NULL &&
+			    strcmp(expanded, sle->expanded) == 0) {
+				free(expanded);
+				continue;
+			}
+			changed = 1;
+
+			for (n = 0; n < width; n++)
+				screen_write_putc(&ctx, &gc, ' ');
+			screen_write_cursormove(&ctx, 0, i, 0);
+
+			status_free_ranges(&sle->ranges);
+			format_draw(&ctx, &gc, width, expanded, &sle->ranges,
+			    0);
+
+			free(sle->expanded);
+			sle->expanded = expanded;
+		}
+	}
+	screen_write_stop(&ctx);
+
+	/* Free the format tree. */
+	format_free(ft);
+
+	/* Return if the status line has changed. */
+	log_debug("%s exit: force=%d, changed=%d", __func__, force, changed);
+	return (force || changed);
 }
 
 /* Set a status line message. */
-void printflike2
-status_message_set(struct client *c, const char *fmt, ...)
+void
+status_message_set(struct client *c, int delay, int ignore_styles,
+    int ignore_keys, int no_freeze, const char *fmt, ...)
 {
-	struct timeval		 tv;
-	struct session		*s = c->session;
-	struct message_entry	*msg;
-	va_list			 ap;
-	int			 delay;
-	u_int			 i, limit;
-
-	status_prompt_clear(c);
-	status_message_clear(c);
+	struct timeval	 tv;
+	va_list		 ap;
+	char		*s;
 
 	va_start(ap, fmt);
-	xvasprintf(&c->message_string, fmt, ap);
+	xvasprintf(&s, fmt, ap);
 	va_end(ap);
 
-	ARRAY_EXPAND(&c->message_log, 1);
-	msg = &ARRAY_LAST(&c->message_log);
-	msg->msg_time = time(NULL);
-	msg->msg = xstrdup(c->message_string);
+	log_debug("%s: %s", __func__, s);
 
-	if (s == NULL)
-		limit = 0;
-	else
-		limit = options_get_number(&s->options, "message-limit");
-	if (ARRAY_LENGTH(&c->message_log) > limit) {
-		limit = ARRAY_LENGTH(&c->message_log) - limit;
-		for (i = 0; i < limit; i++) {
-			msg = &ARRAY_FIRST(&c->message_log);
-			free(msg->msg);
-			ARRAY_REMOVE(&c->message_log, 0);
-		}
+	if (c == NULL) {
+		server_add_message("message: %s", s);
+		free(s);
+		return;
 	}
 
-	delay = options_get_number(&c->session->options, "display-time");
-	tv.tv_sec = delay / 1000;
-	tv.tv_usec = (delay % 1000) * 1000L;
+	status_message_clear(c);
+	status_push_screen(c);
+	c->message_string = s;
+	server_add_message("%s message: %s", c->name, s);
 
-	if (event_initialized(&c->message_timer))
-		evtimer_del(&c->message_timer);
-	evtimer_set(&c->message_timer, status_message_callback, c);
-	evtimer_add(&c->message_timer, &tv);
+	/*
+	 * With delay -1, the display-time option is used; zero means wait for
+	 * key press; more than zero is the actual delay time in milliseconds.
+	 */
+	if (delay == -1)
+		delay = options_get_number(c->session->options, "display-time");
+	if (delay > 0) {
+		tv.tv_sec = delay / 1000;
+		tv.tv_usec = (delay % 1000) * 1000L;
 
-	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
-	c->flags |= CLIENT_STATUS;
+		if (event_initialized(&c->message_timer))
+			evtimer_del(&c->message_timer);
+		evtimer_set(&c->message_timer, status_message_callback, c);
+
+		evtimer_add(&c->message_timer, &tv);
+	}
+
+	if (delay != 0)
+		c->message_ignore_keys = ignore_keys;
+	c->message_ignore_styles = ignore_styles;
+
+	if (!no_freeze)
+		c->tty.flags |= TTY_FREEZE;
+	c->tty.flags |= TTY_NOCURSOR;
+	c->flags |= CLIENT_REDRAWSTATUS;
 }
 
 /* Clear status line message. */
@@ -709,15 +535,16 @@ status_message_clear(struct client *c)
 	free(c->message_string);
 	c->message_string = NULL;
 
-	c->tty.flags &= ~(TTY_NOCURSOR|TTY_FREEZE);
-	c->flags |= CLIENT_REDRAW; /* screen was frozen and may have changed */
+	if (c->prompt_string == NULL)
+		c->tty.flags &= ~(TTY_NOCURSOR|TTY_FREEZE);
+	c->flags |= CLIENT_ALLREDRAWFLAGS; /* was frozen and may have changed */
 
-	screen_reinit(&c->status);
+	status_pop_screen(c);
 }
 
 /* Clear status line message after timer expires. */
-void
-status_message_callback(unused int fd, unused short event, void *data)
+static void
+status_message_callback(__unused int fd, __unused short event, void *data)
 {
 	struct client	*c = data;
 
@@ -728,77 +555,128 @@ status_message_callback(unused int fd, unused short event, void *data)
 int
 status_message_redraw(struct client *c)
 {
-	struct screen_write_ctx		ctx;
-	struct session		       *s = c->session;
-	struct screen		        old_status;
-	size_t			        len;
-	struct grid_cell		gc;
-	int				utf8flag;
+	struct status_line	*sl = &c->status;
+	struct screen_write_ctx	 ctx;
+	struct session		*s = c->session;
+	struct screen		 old_screen;
+	size_t			 len;
+	u_int			 lines, offset, messageline;
+	struct grid_cell	 gc;
+	struct format_tree	*ft;
 
 	if (c->tty.sx == 0 || c->tty.sy == 0)
 		return (0);
-	memcpy(&old_status, &c->status, sizeof old_status);
-	screen_init(&c->status, c->tty.sx, 1, 0);
+	memcpy(&old_screen, sl->active, sizeof old_screen);
 
-	utf8flag = options_get_number(&s->options, "status-utf8");
+	lines = status_line_size(c);
+	if (lines <= 1)
+		lines = 1;
+	screen_init(sl->active, c->tty.sx, lines, 0);
 
-	len = screen_write_strlen(utf8flag, "%s", c->message_string);
+	messageline = status_prompt_line_at(c);
+	if (messageline > lines - 1)
+		messageline = lines - 1;
+
+	len = screen_write_strlen("%s", c->message_string);
 	if (len > c->tty.sx)
 		len = c->tty.sx;
 
-	style_apply(&gc, &s->options, "message-style");
+	ft = format_create_defaults(NULL, c, NULL, NULL, NULL);
+	style_apply(&gc, s->options, "message-style", ft);
+	format_free(ft);
 
-	screen_write_start(&ctx, NULL, &c->status);
-
-	screen_write_cursormove(&ctx, 0, 0);
-	screen_write_nputs(&ctx, len, &gc, utf8flag, "%s", c->message_string);
-	for (; len < c->tty.sx; len++)
+	screen_write_start(&ctx, sl->active);
+	screen_write_fast_copy(&ctx, &sl->screen, 0, 0, c->tty.sx, lines);
+	screen_write_cursormove(&ctx, 0, messageline, 0);
+	for (offset = 0; offset < c->tty.sx; offset++)
 		screen_write_putc(&ctx, &gc, ' ');
-
+	screen_write_cursormove(&ctx, 0, messageline, 0);
+	if (c->message_ignore_styles)
+		screen_write_nputs(&ctx, len, &gc, "%s", c->message_string);
+	else
+		format_draw(&ctx, &gc, c->tty.sx, c->message_string, NULL, 0);
 	screen_write_stop(&ctx);
 
-	if (grid_compare(c->status.grid, old_status.grid) == 0) {
-		screen_free(&old_status);
+	if (grid_compare(sl->active->grid, old_screen.grid) == 0) {
+		screen_free(&old_screen);
 		return (0);
 	}
-	screen_free(&old_status);
+	screen_free(&old_screen);
 	return (1);
+}
+
+/* Accept prompt immediately. */
+static enum cmd_retval
+status_prompt_accept(__unused struct cmdq_item *item, void *data)
+{
+	struct client	*c = data;
+
+	if (c->prompt_string != NULL) {
+		c->prompt_inputcb(c, c->prompt_data, "y", 1);
+		status_prompt_clear(c);
+	}
+	return (CMD_RETURN_NORMAL);
 }
 
 /* Enable status line prompt. */
 void
-status_prompt_set(struct client *c, const char *msg, const char *input,
-    int (*callbackfn)(void *, const char *), void (*freefn)(void *),
-    void *data, int flags)
+status_prompt_set(struct client *c, struct cmd_find_state *fs,
+    const char *msg, const char *input, prompt_input_cb inputcb,
+    prompt_free_cb freecb, void *data, int flags, enum prompt_type prompt_type)
 {
-	int	keys;
+	struct format_tree	*ft;
+	char			*tmp;
+
+	server_client_clear_overlay(c);
+
+	if (fs != NULL)
+		ft = format_create_from_state(NULL, c, fs);
+	else
+		ft = format_create_defaults(NULL, c, NULL, NULL, NULL);
+
+	if (input == NULL)
+		input = "";
 
 	status_message_clear(c);
 	status_prompt_clear(c);
+	status_push_screen(c);
 
-	c->prompt_string = status_replace(c, NULL, NULL, NULL, msg,
-	    time(NULL), 0);
+	c->prompt_formats = ft;
+	c->prompt_string = xstrdup (msg);
 
-	c->prompt_buffer = status_replace(c, NULL, NULL, NULL, input,
-	    time(NULL), 0);
-	c->prompt_index = strlen(c->prompt_buffer);
+	if (flags & PROMPT_NOFORMAT)
+		tmp = xstrdup(input);
+	else
+		tmp = format_expand_time(ft, input);
+	if (flags & PROMPT_INCREMENTAL) {
+		c->prompt_last = xstrdup(tmp);
+		c->prompt_buffer = utf8_fromcstr("");
+	} else {
+		c->prompt_last = NULL;
+		c->prompt_buffer = utf8_fromcstr(tmp);
+	}
+	c->prompt_index = utf8_strlen(c->prompt_buffer);
+	free(tmp);
 
-	c->prompt_callbackfn = callbackfn;
-	c->prompt_freefn = freefn;
+	c->prompt_inputcb = inputcb;
+	c->prompt_freecb = freecb;
 	c->prompt_data = data;
 
-	c->prompt_hindex = 0;
+	memset(c->prompt_hindex, 0, sizeof c->prompt_hindex);
 
 	c->prompt_flags = flags;
+	c->prompt_type = prompt_type;
+	c->prompt_mode = PROMPT_ENTRY;
 
-	keys = options_get_number(&c->session->options, "status-keys");
-	if (keys == MODEKEY_EMACS)
-		mode_key_init(&c->prompt_mdata, &mode_key_tree_emacs_edit);
-	else
-		mode_key_init(&c->prompt_mdata, &mode_key_tree_vi_edit);
+	if (~flags & PROMPT_INCREMENTAL)
+		c->tty.flags |= TTY_FREEZE;
+	c->flags |= CLIENT_REDRAWSTATUS;
 
-	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
-	c->flags |= CLIENT_STATUS;
+	if (flags & PROMPT_INCREMENTAL)
+		c->prompt_inputcb(c, c->prompt_data, "=", 0);
+
+	if ((flags & PROMPT_SINGLE) && (flags & PROMPT_ACCEPT))
+		cmdq_append(c, cmdq_get_callback(status_prompt_accept, c));
 }
 
 /* Remove status line prompt. */
@@ -808,8 +686,14 @@ status_prompt_clear(struct client *c)
 	if (c->prompt_string == NULL)
 		return;
 
-	if (c->prompt_freefn != NULL && c->prompt_data != NULL)
-		c->prompt_freefn(c->prompt_data);
+	if (c->prompt_freecb != NULL && c->prompt_data != NULL)
+		c->prompt_freecb(c->prompt_data);
+
+	free(c->prompt_last);
+	c->prompt_last = NULL;
+
+	format_free(c->prompt_formats);
+	c->prompt_formats = NULL;
 
 	free(c->prompt_string);
 	c->prompt_string = NULL;
@@ -817,540 +701,1419 @@ status_prompt_clear(struct client *c)
 	free(c->prompt_buffer);
 	c->prompt_buffer = NULL;
 
-	c->tty.flags &= ~(TTY_NOCURSOR|TTY_FREEZE);
-	c->flags |= CLIENT_REDRAW; /* screen was frozen and may have changed */
+	free(c->prompt_saved);
+	c->prompt_saved = NULL;
 
-	screen_reinit(&c->status);
+	c->tty.flags &= ~(TTY_NOCURSOR|TTY_FREEZE);
+	c->flags |= CLIENT_ALLREDRAWFLAGS; /* was frozen and may have changed */
+
+	status_pop_screen(c);
 }
 
 /* Update status line prompt with a new prompt string. */
 void
 status_prompt_update(struct client *c, const char *msg, const char *input)
 {
+	char	*tmp;
+
 	free(c->prompt_string);
-	c->prompt_string = status_replace(c, NULL, NULL, NULL, msg,
-	    time(NULL), 0);
+	c->prompt_string = xstrdup(msg);
 
 	free(c->prompt_buffer);
-	c->prompt_buffer = status_replace(c, NULL, NULL, NULL, input,
-	    time(NULL), 0);
-	c->prompt_index = strlen(c->prompt_buffer);
+	tmp = format_expand_time(c->prompt_formats, input);
+	c->prompt_buffer = utf8_fromcstr(tmp);
+	c->prompt_index = utf8_strlen(c->prompt_buffer);
+	free(tmp);
 
-	c->prompt_hindex = 0;
+	memset(c->prompt_hindex, 0, sizeof c->prompt_hindex);
 
-	c->flags |= CLIENT_STATUS;
+	c->flags |= CLIENT_REDRAWSTATUS;
+}
+
+/* Redraw character. Return 1 if can continue redrawing, 0 otherwise. */
+static int
+status_prompt_redraw_character(struct screen_write_ctx *ctx, u_int offset,
+    u_int pwidth, u_int *width, struct grid_cell *gc,
+    const struct utf8_data *ud)
+{
+	u_char	ch;
+
+	if (*width < offset) {
+		*width += ud->width;
+		return (1);
+	}
+	if (*width >= offset + pwidth)
+		return (0);
+	*width += ud->width;
+	if (*width > offset + pwidth)
+		return (0);
+
+	ch = *ud->data;
+	if (ud->size == 1 && (ch <= 0x1f || ch == 0x7f)) {
+		gc->data.data[0] = '^';
+		gc->data.data[1] = (ch == 0x7f) ? '?' : ch|0x40;
+		gc->data.size = gc->data.have = 2;
+		gc->data.width = 2;
+	} else
+		utf8_copy(&gc->data, ud);
+	screen_write_cell(ctx, gc);
+	return (1);
+}
+
+/*
+ * Redraw quote indicator '^' if necessary. Return 1 if can continue redrawing,
+ * 0 otherwise.
+ */
+static int
+status_prompt_redraw_quote(const struct client *c, u_int pcursor,
+    struct screen_write_ctx *ctx, u_int offset, u_int pwidth, u_int *width,
+    struct grid_cell *gc)
+{
+	struct utf8_data	ud;
+
+	if (c->prompt_flags & PROMPT_QUOTENEXT && ctx->s->cx == pcursor + 1) {
+		utf8_set(&ud, '^');
+		return (status_prompt_redraw_character(ctx, offset, pwidth,
+		    width, gc, &ud));
+	}
+	return (1);
 }
 
 /* Draw client prompt on status line of present else on last line. */
 int
 status_prompt_redraw(struct client *c)
 {
-	struct screen_write_ctx		ctx;
-	struct session		       *s = c->session;
-	struct screen		        old_status;
-	size_t			        i, size, left, len, off;
-	struct grid_cell		gc, *gcp;
-	int				utf8flag;
+	struct status_line	*sl = &c->status;
+	struct screen_write_ctx	 ctx;
+	struct session		*s = c->session;
+	struct screen		 old_screen;
+	u_int			 i, lines, offset, left, start, width, n;
+	u_int			 pcursor, pwidth, promptline;
+	struct grid_cell	 gc;
+	struct format_tree	*ft = c->prompt_formats;
+	char			*prompt, *tmp;
 
 	if (c->tty.sx == 0 || c->tty.sy == 0)
 		return (0);
-	memcpy(&old_status, &c->status, sizeof old_status);
-	screen_init(&c->status, c->tty.sx, 1, 0);
+	memcpy(&old_screen, sl->active, sizeof old_screen);
 
-	utf8flag = options_get_number(&s->options, "status-utf8");
+	lines = status_line_size(c);
+	if (lines <= 1)
+		lines = 1;
+	screen_init(sl->active, c->tty.sx, lines, 0);
 
-	len = screen_write_strlen(utf8flag, "%s", c->prompt_string);
-	if (len > c->tty.sx)
-		len = c->tty.sx;
-	off = 0;
+	n = options_get_number(s->options, "prompt-cursor-colour");
+	sl->active->default_ccolour = n;
+	n = options_get_number(s->options, "prompt-cursor-style");
+	screen_set_cursor_style(n, &sl->active->default_cstyle,
+	    &sl->active->default_mode);
 
-	/* Change colours for command mode. */
-	if (c->prompt_mdata.mode == 1)
-		style_apply(&gc, &s->options, "message-command-style");
+	promptline = status_prompt_line_at(c);
+	if (promptline > lines - 1)
+		promptline = lines - 1;
+
+	if (c->prompt_mode == PROMPT_COMMAND)
+		style_apply(&gc, s->options, "message-command-style", ft);
 	else
-		style_apply(&gc, &s->options, "message-style");
+		style_apply(&gc, s->options, "message-style", ft);
 
-	screen_write_start(&ctx, NULL, &c->status);
+	tmp = utf8_tocstr(c->prompt_buffer);
+	format_add(c->prompt_formats, "prompt-input", "%s", tmp);
+	prompt = format_expand_time(c->prompt_formats, c->prompt_string);
+	free (tmp);
 
-	screen_write_cursormove(&ctx, 0, 0);
-	screen_write_nputs(&ctx, len, &gc, utf8flag, "%s", c->prompt_string);
+	start = format_width(prompt);
+	if (start > c->tty.sx)
+		start = c->tty.sx;
 
-	left = c->tty.sx - len;
-	if (left != 0) {
-		size = screen_write_strlen(utf8flag, "%s", c->prompt_buffer);
-		if (c->prompt_index >= left) {
-			off = c->prompt_index - left + 1;
-			if (c->prompt_index == size)
-				left--;
-			size = left;
-		}
-		screen_write_nputs(
-		    &ctx, left, &gc, utf8flag, "%s", c->prompt_buffer + off);
+	screen_write_start(&ctx, sl->active);
+	screen_write_fast_copy(&ctx, &sl->screen, 0, 0, c->tty.sx, lines);
+	screen_write_cursormove(&ctx, 0, promptline, 0);
+	for (offset = 0; offset < c->tty.sx; offset++)
+		screen_write_putc(&ctx, &gc, ' ');
+	screen_write_cursormove(&ctx, 0, promptline, 0);
+	format_draw(&ctx, &gc, start, prompt, NULL, 0);
+	screen_write_cursormove(&ctx, start, promptline, 0);
 
-		for (i = len + size; i < c->tty.sx; i++)
-			screen_write_putc(&ctx, &gc, ' ');
+	left = c->tty.sx - start;
+	if (left == 0)
+		goto finished;
+
+	pcursor = utf8_strwidth(c->prompt_buffer, c->prompt_index);
+	pwidth = utf8_strwidth(c->prompt_buffer, -1);
+	if (c->prompt_flags & PROMPT_QUOTENEXT)
+		pwidth++;
+	if (pcursor >= left) {
+		/*
+		 * The cursor would be outside the screen so start drawing
+		 * with it on the right.
+		 */
+		offset = (pcursor - left) + 1;
+		pwidth = left;
+	} else
+		offset = 0;
+	if (pwidth > left)
+		pwidth = left;
+	c->prompt_cursor = start + pcursor - offset;
+
+	width = 0;
+	for (i = 0; c->prompt_buffer[i].size != 0; i++) {
+		if (!status_prompt_redraw_quote(c, pcursor, &ctx, offset,
+		    pwidth, &width, &gc))
+			break;
+		if (!status_prompt_redraw_character(&ctx, offset, pwidth,
+		    &width, &gc, &c->prompt_buffer[i]))
+			break;
 	}
+	status_prompt_redraw_quote(c, pcursor, &ctx, offset, pwidth, &width,
+	    &gc);
 
+finished:
 	screen_write_stop(&ctx);
 
-	/* Apply fake cursor. */
-	off = len + c->prompt_index - off;
-	gcp = grid_view_get_cell(c->status.grid, off, 0);
-	gcp->attr ^= GRID_ATTR_REVERSE;
-
-	if (grid_compare(c->status.grid, old_status.grid) == 0) {
-		screen_free(&old_status);
+	if (grid_compare(sl->active->grid, old_screen.grid) == 0) {
+		screen_free(&old_screen);
 		return (0);
 	}
-	screen_free(&old_status);
+	screen_free(&old_screen);
 	return (1);
 }
 
-/* Handle keys in prompt. */
-void
-status_prompt_key(struct client *c, int key)
+/* Is this a separator? */
+static int
+status_prompt_in_list(const char *ws, const struct utf8_data *ud)
 {
-	struct session		*sess = c->session;
-	struct options		*oo = &sess->options;
-	struct paste_buffer	*pb;
-	char			*s, *first, *last, word[64], swapc;
-	const char		*histstr;
-	const char		*wsep = NULL;
-	u_char			 ch;
-	size_t			 size, n, off, idx;
+	if (ud->size != 1 || ud->width != 1)
+		return (0);
+	return (strchr(ws, *ud->data) != NULL);
+}
 
-	size = strlen(c->prompt_buffer);
-	switch (mode_key_lookup(&c->prompt_mdata, key, NULL)) {
-	case MODEKEYEDIT_CURSORLEFT:
+/* Is this a space? */
+static int
+status_prompt_space(const struct utf8_data *ud)
+{
+	if (ud->size != 1 || ud->width != 1)
+		return (0);
+	return (*ud->data == ' ');
+}
+
+/*
+ * Translate key from vi to emacs. Return 0 to drop key, 1 to process the key
+ * as an emacs key; return 2 to append to the buffer.
+ */
+static int
+status_prompt_translate_key(struct client *c, key_code key, key_code *new_key)
+{
+	if (c->prompt_mode == PROMPT_ENTRY) {
+		switch (key) {
+		case 'a'|KEYC_CTRL:
+		case 'c'|KEYC_CTRL:
+		case 'e'|KEYC_CTRL:
+		case 'g'|KEYC_CTRL:
+		case 'h'|KEYC_CTRL:
+		case '\011': /* Tab */
+		case 'k'|KEYC_CTRL:
+		case 'n'|KEYC_CTRL:
+		case 'p'|KEYC_CTRL:
+		case 't'|KEYC_CTRL:
+		case 'u'|KEYC_CTRL:
+		case 'v'|KEYC_CTRL:
+		case 'w'|KEYC_CTRL:
+		case 'y'|KEYC_CTRL:
+		case '\n':
+		case '\r':
+		case KEYC_LEFT|KEYC_CTRL:
+		case KEYC_RIGHT|KEYC_CTRL:
+		case KEYC_BSPACE:
+		case KEYC_DC:
+		case KEYC_DOWN:
+		case KEYC_END:
+		case KEYC_HOME:
+		case KEYC_LEFT:
+		case KEYC_RIGHT:
+		case KEYC_UP:
+			*new_key = key;
+			return (1);
+		case '\033': /* Escape */
+			c->prompt_mode = PROMPT_COMMAND;
+			c->flags |= CLIENT_REDRAWSTATUS;
+			return (0);
+		}
+		*new_key = key;
+		return (2);
+	}
+
+	switch (key) {
+	case KEYC_BSPACE:
+		*new_key = KEYC_LEFT;
+		return (1);
+	case 'A':
+	case 'I':
+	case 'C':
+	case 's':
+	case 'a':
+		c->prompt_mode = PROMPT_ENTRY;
+		c->flags |= CLIENT_REDRAWSTATUS;
+		break; /* switch mode and... */
+	case 'S':
+		c->prompt_mode = PROMPT_ENTRY;
+		c->flags |= CLIENT_REDRAWSTATUS;
+		*new_key = 'u'|KEYC_CTRL;
+		return (1);
+	case 'i':
+	case '\033': /* Escape */
+		c->prompt_mode = PROMPT_ENTRY;
+		c->flags |= CLIENT_REDRAWSTATUS;
+		return (0);
+	}
+
+	switch (key) {
+	case 'A':
+	case '$':
+		*new_key = KEYC_END;
+		return (1);
+	case 'I':
+	case '0':
+	case '^':
+		*new_key = KEYC_HOME;
+		return (1);
+	case 'C':
+	case 'D':
+		*new_key = 'k'|KEYC_CTRL;
+		return (1);
+	case KEYC_BSPACE:
+	case 'X':
+		*new_key = KEYC_BSPACE;
+		return (1);
+	case 'b':
+		*new_key = 'b'|KEYC_META;
+		return (1);
+	case 'B':
+		*new_key = 'B'|KEYC_VI;
+		return (1);
+	case 'd':
+		*new_key = 'u'|KEYC_CTRL;
+		return (1);
+	case 'e':
+		*new_key = 'e'|KEYC_VI;
+		return (1);
+	case 'E':
+		*new_key = 'E'|KEYC_VI;
+		return (1);
+	case 'w':
+		*new_key = 'w'|KEYC_VI;
+		return (1);
+	case 'W':
+		*new_key = 'W'|KEYC_VI;
+		return (1);
+	case 'p':
+		*new_key = 'y'|KEYC_CTRL;
+		return (1);
+	case 'q':
+		*new_key = 'c'|KEYC_CTRL;
+		return (1);
+	case 's':
+	case KEYC_DC:
+	case 'x':
+		*new_key = KEYC_DC;
+		return (1);
+	case KEYC_DOWN:
+	case 'j':
+		*new_key = KEYC_DOWN;
+		return (1);
+	case KEYC_LEFT:
+	case 'h':
+		*new_key = KEYC_LEFT;
+		return (1);
+	case 'a':
+	case KEYC_RIGHT:
+	case 'l':
+		*new_key = KEYC_RIGHT;
+		return (1);
+	case KEYC_UP:
+	case 'k':
+		*new_key = KEYC_UP;
+		return (1);
+	case 'h'|KEYC_CTRL:
+	case 'c'|KEYC_CTRL:
+	case '\n':
+	case '\r':
+		return (1);
+	}
+	return (0);
+}
+
+/* Paste into prompt. */
+static int
+status_prompt_paste(struct client *c)
+{
+	struct paste_buffer	*pb;
+	const char		*bufdata;
+	size_t			 size, n, bufsize;
+	u_int			 i;
+	struct utf8_data	*ud, *udp;
+	enum utf8_state		 more;
+
+	size = utf8_strlen(c->prompt_buffer);
+	if (c->prompt_saved != NULL) {
+		ud = c->prompt_saved;
+		n = utf8_strlen(c->prompt_saved);
+	} else {
+		if ((pb = paste_get_top(NULL)) == NULL)
+			return (0);
+		bufdata = paste_buffer_data(pb, &bufsize);
+		ud = udp = xreallocarray(NULL, bufsize + 1, sizeof *ud);
+		for (i = 0; i != bufsize; /* nothing */) {
+			more = utf8_open(udp, bufdata[i]);
+			if (more == UTF8_MORE) {
+				while (++i != bufsize && more == UTF8_MORE)
+					more = utf8_append(udp, bufdata[i]);
+				if (more == UTF8_DONE) {
+					udp++;
+					continue;
+				}
+				i -= udp->have;
+			}
+			if (bufdata[i] <= 31 || bufdata[i] >= 127)
+				break;
+			utf8_set(udp, bufdata[i]);
+			udp++;
+			i++;
+		}
+		udp->size = 0;
+		n = udp - ud;
+	}
+	if (n != 0) {
+		c->prompt_buffer = xreallocarray(c->prompt_buffer, size + n + 1,
+		    sizeof *c->prompt_buffer);
+		if (c->prompt_index == size) {
+			memcpy(c->prompt_buffer + c->prompt_index, ud,
+			    n * sizeof *c->prompt_buffer);
+			c->prompt_index += n;
+			c->prompt_buffer[c->prompt_index].size = 0;
+		} else {
+			memmove(c->prompt_buffer + c->prompt_index + n,
+			    c->prompt_buffer + c->prompt_index,
+			    (size + 1 - c->prompt_index) *
+			    sizeof *c->prompt_buffer);
+			memcpy(c->prompt_buffer + c->prompt_index, ud,
+			    n * sizeof *c->prompt_buffer);
+			c->prompt_index += n;
+		}
+	}
+	if (ud != c->prompt_saved)
+		free(ud);
+	return (1);
+}
+
+/* Finish completion. */
+static int
+status_prompt_replace_complete(struct client *c, const char *s)
+{
+	char			 word[64], *allocated = NULL;
+	size_t			 size, n, off, idx, used;
+	struct utf8_data	*first, *last, *ud;
+
+	/* Work out where the cursor currently is. */
+	idx = c->prompt_index;
+	if (idx != 0)
+		idx--;
+	size = utf8_strlen(c->prompt_buffer);
+
+	/* Find the word we are in. */
+	first = &c->prompt_buffer[idx];
+	while (first > c->prompt_buffer && !status_prompt_space(first))
+		first--;
+	while (first->size != 0 && status_prompt_space(first))
+		first++;
+	last = &c->prompt_buffer[idx];
+	while (last->size != 0 && !status_prompt_space(last))
+		last++;
+	while (last > c->prompt_buffer && status_prompt_space(last))
+		last--;
+	if (last->size != 0)
+		last++;
+	if (last < first)
+		return (0);
+	if (s == NULL) {
+		used = 0;
+		for (ud = first; ud < last; ud++) {
+			if (used + ud->size >= sizeof word)
+				break;
+			memcpy(word + used, ud->data, ud->size);
+			used += ud->size;
+		}
+		if (ud != last)
+			return (0);
+		word[used] = '\0';
+	}
+
+	/* Try to complete it. */
+	if (s == NULL) {
+		allocated = status_prompt_complete(c, word,
+		    first - c->prompt_buffer);
+		if (allocated == NULL)
+			return (0);
+		s = allocated;
+	}
+
+	/* Trim out word. */
+	n = size - (last - c->prompt_buffer) + 1; /* with \0 */
+	memmove(first, last, n * sizeof *c->prompt_buffer);
+	size -= last - first;
+
+	/* Insert the new word. */
+	size += strlen(s);
+	off = first - c->prompt_buffer;
+	c->prompt_buffer = xreallocarray(c->prompt_buffer, size + 1,
+	    sizeof *c->prompt_buffer);
+	first = c->prompt_buffer + off;
+	memmove(first + strlen(s), first, n * sizeof *c->prompt_buffer);
+	for (idx = 0; idx < strlen(s); idx++)
+		utf8_set(&first[idx], s[idx]);
+	c->prompt_index = (first - c->prompt_buffer) + strlen(s);
+
+	free(allocated);
+	return (1);
+}
+
+/* Prompt forward to the next beginning of a word. */
+static void
+status_prompt_forward_word(struct client *c, size_t size, int vi,
+    const char *separators)
+{
+	size_t		 idx = c->prompt_index;
+	int		 word_is_separators;
+
+	/* In emacs mode, skip until the first non-whitespace character. */
+	if (!vi)
+		while (idx != size &&
+		    status_prompt_space(&c->prompt_buffer[idx]))
+			idx++;
+
+	/* Can't move forward if we're already at the end. */
+	if (idx == size) {
+		c->prompt_index = idx;
+		return;
+	}
+
+	/* Determine the current character class (separators or not). */
+	word_is_separators = status_prompt_in_list(separators,
+	    &c->prompt_buffer[idx]) &&
+	    !status_prompt_space(&c->prompt_buffer[idx]);
+
+	/* Skip ahead until the first space or opposite character class. */
+	do {
+		idx++;
+		if (status_prompt_space(&c->prompt_buffer[idx])) {
+			/* In vi mode, go to the start of the next word. */
+			if (vi)
+				while (idx != size &&
+				    status_prompt_space(&c->prompt_buffer[idx]))
+					idx++;
+			break;
+		}
+	} while (idx != size && word_is_separators == status_prompt_in_list(
+	    separators, &c->prompt_buffer[idx]));
+
+	c->prompt_index = idx;
+}
+
+/* Prompt forward to the next end of a word. */
+static void
+status_prompt_end_word(struct client *c, size_t size, const char *separators)
+{
+	size_t		 idx = c->prompt_index;
+	int		 word_is_separators;
+
+	/* Can't move forward if we're already at the end. */
+	if (idx == size)
+		return;
+
+	/* Find the next word. */
+	do {
+		idx++;
+		if (idx == size) {
+			c->prompt_index = idx;
+			return;
+		}
+	} while (status_prompt_space(&c->prompt_buffer[idx]));
+
+	/* Determine the character class (separators or not). */
+	word_is_separators = status_prompt_in_list(separators,
+	    &c->prompt_buffer[idx]);
+
+	/* Skip ahead until the next space or opposite character class. */
+	do {
+		idx++;
+		if (idx == size)
+			break;
+	} while (!status_prompt_space(&c->prompt_buffer[idx]) &&
+	    word_is_separators == status_prompt_in_list(separators,
+	    &c->prompt_buffer[idx]));
+
+	/* Back up to the previous character to stop at the end of the word. */
+	c->prompt_index = idx - 1;
+}
+
+/* Prompt backward to the previous beginning of a word. */
+static void
+status_prompt_backward_word(struct client *c, const char *separators)
+{
+	size_t	idx = c->prompt_index;
+	int	word_is_separators;
+
+	/* Find non-whitespace. */
+	while (idx != 0) {
+		--idx;
+		if (!status_prompt_space(&c->prompt_buffer[idx]))
+			break;
+	}
+	word_is_separators = status_prompt_in_list(separators,
+	    &c->prompt_buffer[idx]);
+
+	/* Find the character before the beginning of the word. */
+	while (idx != 0) {
+		--idx;
+		if (status_prompt_space(&c->prompt_buffer[idx]) ||
+		    word_is_separators != status_prompt_in_list(separators,
+		    &c->prompt_buffer[idx])) {
+			/* Go back to the word. */
+			idx++;
+			break;
+		}
+	}
+	c->prompt_index = idx;
+}
+
+/* Handle keys in prompt. */
+int
+status_prompt_key(struct client *c, key_code key)
+{
+	struct options		*oo = c->session->options;
+	char			*s, *cp, prefix = '=';
+	const char		*histstr, *separators = NULL, *keystring;
+	size_t			 size, idx;
+	struct utf8_data	 tmp;
+	int			 keys, word_is_separators;
+
+	if (c->prompt_flags & PROMPT_KEY) {
+		keystring = key_string_lookup_key(key, 0);
+		c->prompt_inputcb(c, c->prompt_data, keystring, 1);
+		status_prompt_clear(c);
+		return (0);
+	}
+	size = utf8_strlen(c->prompt_buffer);
+
+	if (c->prompt_flags & PROMPT_NUMERIC) {
+		if (key >= '0' && key <= '9')
+			goto append_key;
+		s = utf8_tocstr(c->prompt_buffer);
+		c->prompt_inputcb(c, c->prompt_data, s, 1);
+		status_prompt_clear(c);
+		free(s);
+		return (1);
+	}
+	key &= ~KEYC_MASK_FLAGS;
+
+	if (c->prompt_flags & (PROMPT_SINGLE|PROMPT_QUOTENEXT)) {
+		if ((key & KEYC_MASK_KEY) == KEYC_BSPACE)
+			key = 0x7f;
+		else if ((key & KEYC_MASK_KEY) > 0x7f) {
+			if (!KEYC_IS_UNICODE(key))
+				return (0);
+			key &= KEYC_MASK_KEY;
+		} else
+			key &= (key & KEYC_CTRL) ? 0x1f : KEYC_MASK_KEY;
+		c->prompt_flags &= ~PROMPT_QUOTENEXT;
+		goto append_key;
+	}
+
+	keys = options_get_number(c->session->options, "status-keys");
+	if (keys == MODEKEY_VI) {
+		switch (status_prompt_translate_key(c, key, &key)) {
+		case 1:
+			goto process_key;
+		case 2:
+			goto append_key;
+		default:
+			return (0);
+		}
+	}
+
+process_key:
+	switch (key) {
+	case KEYC_LEFT:
+	case 'b'|KEYC_CTRL:
 		if (c->prompt_index > 0) {
 			c->prompt_index--;
-			c->flags |= CLIENT_STATUS;
+			break;
 		}
 		break;
-	case MODEKEYEDIT_SWITCHMODE:
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_SWITCHMODEAPPEND:
-		c->flags |= CLIENT_STATUS;
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_CURSORRIGHT:
+	case KEYC_RIGHT:
+	case 'f'|KEYC_CTRL:
 		if (c->prompt_index < size) {
 			c->prompt_index++;
-			c->flags |= CLIENT_STATUS;
+			break;
 		}
 		break;
-	case MODEKEYEDIT_SWITCHMODEBEGINLINE:
-		c->flags |= CLIENT_STATUS;
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_STARTOFLINE:
+	case KEYC_HOME:
+	case 'a'|KEYC_CTRL:
 		if (c->prompt_index != 0) {
 			c->prompt_index = 0;
-			c->flags |= CLIENT_STATUS;
+			break;
 		}
 		break;
-	case MODEKEYEDIT_SWITCHMODEAPPENDLINE:
-		c->flags |= CLIENT_STATUS;
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_ENDOFLINE:
+	case KEYC_END:
+	case 'e'|KEYC_CTRL:
 		if (c->prompt_index != size) {
 			c->prompt_index = size;
-			c->flags |= CLIENT_STATUS;
+			break;
 		}
 		break;
-	case MODEKEYEDIT_COMPLETE:
-		if (*c->prompt_buffer == '\0')
-			break;
-
-		idx = c->prompt_index;
-		if (idx != 0)
-			idx--;
-
-		/* Find the word we are in. */
-		first = c->prompt_buffer + idx;
-		while (first > c->prompt_buffer && *first != ' ')
-			first--;
-		while (*first == ' ')
-			first++;
-		last = c->prompt_buffer + idx;
-		while (*last != '\0' && *last != ' ')
-			last++;
-		while (*last == ' ')
-			last--;
-		if (*last != '\0')
-			last++;
-		if (last <= first ||
-		    ((size_t) (last - first)) > (sizeof word) - 1)
-			break;
-		memcpy(word, first, last - first);
-		word[last - first] = '\0';
-
-		/* And try to complete it. */
-		if ((s = status_prompt_complete(word)) == NULL)
-			break;
-
-		/* Trim out word. */
-		n = size - (last - c->prompt_buffer) + 1; /* with \0 */
-		memmove(first, last, n);
-		size -= last - first;
-
-		/* Insert the new word. */
-		size += strlen(s);
-		off = first - c->prompt_buffer;
-		c->prompt_buffer = xrealloc(c->prompt_buffer, 1, size + 1);
-		first = c->prompt_buffer + off;
-		memmove(first + strlen(s), first, n);
-		memcpy(first, s, strlen(s));
-
-		c->prompt_index = (first - c->prompt_buffer) + strlen(s);
-		free(s);
-
-		c->flags |= CLIENT_STATUS;
+	case '\011': /* Tab */
+		if (status_prompt_replace_complete(c, NULL))
+			goto changed;
 		break;
-	case MODEKEYEDIT_BACKSPACE:
+	case KEYC_BSPACE:
+	case 'h'|KEYC_CTRL:
 		if (c->prompt_index != 0) {
 			if (c->prompt_index == size)
-				c->prompt_buffer[--c->prompt_index] = '\0';
+				c->prompt_buffer[--c->prompt_index].size = 0;
 			else {
 				memmove(c->prompt_buffer + c->prompt_index - 1,
 				    c->prompt_buffer + c->prompt_index,
-				    size + 1 - c->prompt_index);
+				    (size + 1 - c->prompt_index) *
+				    sizeof *c->prompt_buffer);
 				c->prompt_index--;
 			}
-			c->flags |= CLIENT_STATUS;
+			goto changed;
 		}
 		break;
-	case MODEKEYEDIT_DELETE:
-	case MODEKEYEDIT_SWITCHMODESUBSTITUTE:
+	case KEYC_DC:
+	case 'd'|KEYC_CTRL:
 		if (c->prompt_index != size) {
 			memmove(c->prompt_buffer + c->prompt_index,
 			    c->prompt_buffer + c->prompt_index + 1,
-			    size + 1 - c->prompt_index);
-			c->flags |= CLIENT_STATUS;
+			    (size + 1 - c->prompt_index) *
+			    sizeof *c->prompt_buffer);
+			goto changed;
 		}
 		break;
-	case MODEKEYEDIT_DELETELINE:
-	case MODEKEYEDIT_SWITCHMODESUBSTITUTELINE:
-		*c->prompt_buffer = '\0';
+	case 'u'|KEYC_CTRL:
+		c->prompt_buffer[0].size = 0;
 		c->prompt_index = 0;
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_DELETETOENDOFLINE:
-	case MODEKEYEDIT_SWITCHMODECHANGELINE:
+		goto changed;
+	case 'k'|KEYC_CTRL:
 		if (c->prompt_index < size) {
-			c->prompt_buffer[c->prompt_index] = '\0';
-			c->flags |= CLIENT_STATUS;
+			c->prompt_buffer[c->prompt_index].size = 0;
+			goto changed;
 		}
 		break;
-	case MODEKEYEDIT_DELETEWORD:
-		wsep = options_get_string(oo, "word-separators");
+	case 'w'|KEYC_CTRL:
+		separators = options_get_string(oo, "word-separators");
 		idx = c->prompt_index;
 
-		/* Find a non-separator. */
+		/* Find non-whitespace. */
 		while (idx != 0) {
 			idx--;
-			if (!strchr(wsep, c->prompt_buffer[idx]))
+			if (!status_prompt_space(&c->prompt_buffer[idx]))
 				break;
 		}
+		word_is_separators = status_prompt_in_list(separators,
+		    &c->prompt_buffer[idx]);
 
-		/* Find the separator at the beginning of the word. */
+		/* Find the character before the beginning of the word. */
 		while (idx != 0) {
 			idx--;
-			if (strchr(wsep, c->prompt_buffer[idx])) {
+			if (status_prompt_space(&c->prompt_buffer[idx]) ||
+			    word_is_separators != status_prompt_in_list(
+			    separators, &c->prompt_buffer[idx])) {
 				/* Go back to the word. */
 				idx++;
 				break;
 			}
 		}
 
+		free(c->prompt_saved);
+		c->prompt_saved = xcalloc(sizeof *c->prompt_buffer,
+		    (c->prompt_index - idx) + 1);
+		memcpy(c->prompt_saved, c->prompt_buffer + idx,
+		    (c->prompt_index - idx) * sizeof *c->prompt_buffer);
+
 		memmove(c->prompt_buffer + idx,
 		    c->prompt_buffer + c->prompt_index,
-		    size + 1 - c->prompt_index);
+		    (size + 1 - c->prompt_index) *
+		    sizeof *c->prompt_buffer);
 		memset(c->prompt_buffer + size - (c->prompt_index - idx),
-		    '\0', c->prompt_index - idx);
+		    '\0', (c->prompt_index - idx) * sizeof *c->prompt_buffer);
 		c->prompt_index = idx;
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_NEXTSPACE:
-		wsep = " ";
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_NEXTWORD:
-		if (wsep == NULL)
-			wsep = options_get_string(oo, "word-separators");
 
-		/* Find a separator. */
-		while (c->prompt_index != size) {
-			c->prompt_index++;
-			if (strchr(wsep, c->prompt_buffer[c->prompt_index]))
-				break;
-		}
-
-		/* Find the word right after the separation. */
-		while (c->prompt_index != size) {
-			c->prompt_index++;
-			if (!strchr(wsep, c->prompt_buffer[c->prompt_index]))
-				break;
-		}
-
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_NEXTSPACEEND:
-		wsep = " ";
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_NEXTWORDEND:
-		if (wsep == NULL)
-			wsep = options_get_string(oo, "word-separators");
-
-		/* Find a word. */
-		while (c->prompt_index != size) {
-			c->prompt_index++;
-			if (!strchr(wsep, c->prompt_buffer[c->prompt_index]))
-				break;
-		}
-
-		/* Find the separator at the end of the word. */
-		while (c->prompt_index != size) {
-			c->prompt_index++;
-			if (strchr(wsep, c->prompt_buffer[c->prompt_index]))
-				break;
-		}
-
-		/* Back up to the end-of-word like vi. */
-		if (options_get_number(oo, "status-keys") == MODEKEY_VI &&
-		    c->prompt_index != 0)
-			c->prompt_index--;
-
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_PREVIOUSSPACE:
-		wsep = " ";
-		/* FALLTHROUGH */
-	case MODEKEYEDIT_PREVIOUSWORD:
-		if (wsep == NULL)
-			wsep = options_get_string(oo, "word-separators");
-
-		/* Find a non-separator. */
-		while (c->prompt_index != 0) {
-			c->prompt_index--;
-			if (!strchr(wsep, c->prompt_buffer[c->prompt_index]))
-				break;
-		}
-
-		/* Find the separator at the beginning of the word. */
-		while (c->prompt_index != 0) {
-			c->prompt_index--;
-			if (strchr(wsep, c->prompt_buffer[c->prompt_index])) {
-				/* Go back to the word. */
-				c->prompt_index++;
-				break;
-			}
-		}
-
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_HISTORYUP:
-		histstr = status_prompt_up_history(&c->prompt_hindex);
+		goto changed;
+	case KEYC_RIGHT|KEYC_CTRL:
+	case 'f'|KEYC_META:
+		separators = options_get_string(oo, "word-separators");
+		status_prompt_forward_word(c, size, 0, separators);
+		goto changed;
+	case 'E'|KEYC_VI:
+		status_prompt_end_word(c, size, "");
+		goto changed;
+	case 'e'|KEYC_VI:
+		separators = options_get_string(oo, "word-separators");
+		status_prompt_end_word(c, size, separators);
+		goto changed;
+	case 'W'|KEYC_VI:
+		status_prompt_forward_word(c, size, 1, "");
+		goto changed;
+	case 'w'|KEYC_VI:
+		separators = options_get_string(oo, "word-separators");
+		status_prompt_forward_word(c, size, 1, separators);
+		goto changed;
+	case 'B'|KEYC_VI:
+		status_prompt_backward_word(c, "");
+		goto changed;
+	case KEYC_LEFT|KEYC_CTRL:
+	case 'b'|KEYC_META:
+		separators = options_get_string(oo, "word-separators");
+		status_prompt_backward_word(c, separators);
+		goto changed;
+	case KEYC_UP:
+	case 'p'|KEYC_CTRL:
+		histstr = status_prompt_up_history(c->prompt_hindex,
+		    c->prompt_type);
 		if (histstr == NULL)
 			break;
 		free(c->prompt_buffer);
-		c->prompt_buffer = xstrdup(histstr);
-		c->prompt_index = strlen(c->prompt_buffer);
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_HISTORYDOWN:
-		histstr = status_prompt_down_history(&c->prompt_hindex);
+		c->prompt_buffer = utf8_fromcstr(histstr);
+		c->prompt_index = utf8_strlen(c->prompt_buffer);
+		goto changed;
+	case KEYC_DOWN:
+	case 'n'|KEYC_CTRL:
+		histstr = status_prompt_down_history(c->prompt_hindex,
+		    c->prompt_type);
 		if (histstr == NULL)
 			break;
 		free(c->prompt_buffer);
-		c->prompt_buffer = xstrdup(histstr);
-		c->prompt_index = strlen(c->prompt_buffer);
-		c->flags |= CLIENT_STATUS;
+		c->prompt_buffer = utf8_fromcstr(histstr);
+		c->prompt_index = utf8_strlen(c->prompt_buffer);
+		goto changed;
+	case 'y'|KEYC_CTRL:
+		if (status_prompt_paste(c))
+			goto changed;
 		break;
-	case MODEKEYEDIT_PASTE:
-		if ((pb = paste_get_top(&global_buffers)) == NULL)
-			break;
-		for (n = 0; n < pb->size; n++) {
-			ch = (u_char) pb->data[n];
-			if (ch < 32 || ch == 127)
-				break;
-		}
-
-		c->prompt_buffer = xrealloc(c->prompt_buffer, 1, size + n + 1);
-		if (c->prompt_index == size) {
-			memcpy(c->prompt_buffer + c->prompt_index, pb->data, n);
-			c->prompt_index += n;
-			c->prompt_buffer[c->prompt_index] = '\0';
-		} else {
-			memmove(c->prompt_buffer + c->prompt_index + n,
-			    c->prompt_buffer + c->prompt_index,
-			    size + 1 - c->prompt_index);
-			memcpy(c->prompt_buffer + c->prompt_index, pb->data, n);
-			c->prompt_index += n;
-		}
-
-		c->flags |= CLIENT_STATUS;
-		break;
-	case MODEKEYEDIT_TRANSPOSECHARS:
+	case 't'|KEYC_CTRL:
 		idx = c->prompt_index;
 		if (idx < size)
 			idx++;
 		if (idx >= 2) {
-			swapc = c->prompt_buffer[idx - 2];
-			c->prompt_buffer[idx - 2] = c->prompt_buffer[idx - 1];
-			c->prompt_buffer[idx - 1] = swapc;
+			utf8_copy(&tmp, &c->prompt_buffer[idx - 2]);
+			utf8_copy(&c->prompt_buffer[idx - 2],
+			    &c->prompt_buffer[idx - 1]);
+			utf8_copy(&c->prompt_buffer[idx - 1], &tmp);
 			c->prompt_index = idx;
-			c->flags |= CLIENT_STATUS;
+			goto changed;
 		}
 		break;
-	case MODEKEYEDIT_ENTER:
-		if (*c->prompt_buffer != '\0')
-			status_prompt_add_history(c->prompt_buffer);
-		if (c->prompt_callbackfn(c->prompt_data, c->prompt_buffer) == 0)
+	case '\r':
+	case '\n':
+		s = utf8_tocstr(c->prompt_buffer);
+		if (*s != '\0')
+			status_prompt_add_history(s, c->prompt_type);
+		if (c->prompt_inputcb(c, c->prompt_data, s, 1) == 0)
+			status_prompt_clear(c);
+		free(s);
+		break;
+	case '\033': /* Escape */
+	case 'c'|KEYC_CTRL:
+	case 'g'|KEYC_CTRL:
+		if (c->prompt_inputcb(c, c->prompt_data, NULL, 1) == 0)
 			status_prompt_clear(c);
 		break;
-	case MODEKEYEDIT_CANCEL:
-		if (c->prompt_callbackfn(c->prompt_data, NULL) == 0)
-			status_prompt_clear(c);
-		break;
-	case MODEKEY_OTHER:
-		if ((key & 0xff00) != 0 || key < 32 || key == 127)
+	case 'r'|KEYC_CTRL:
+		if (~c->prompt_flags & PROMPT_INCREMENTAL)
 			break;
-		c->prompt_buffer = xrealloc(c->prompt_buffer, 1, size + 2);
-
-		if (c->prompt_index == size) {
-			c->prompt_buffer[c->prompt_index++] = key;
-			c->prompt_buffer[c->prompt_index] = '\0';
-		} else {
-			memmove(c->prompt_buffer + c->prompt_index + 1,
-			    c->prompt_buffer + c->prompt_index,
-			    size + 1 - c->prompt_index);
-			c->prompt_buffer[c->prompt_index++] = key;
-		}
-
-		if (c->prompt_flags & PROMPT_SINGLE) {
-			if (c->prompt_callbackfn(
-			    c->prompt_data, c->prompt_buffer) == 0)
-				status_prompt_clear(c);
-		}
-
-		c->flags |= CLIENT_STATUS;
+		if (c->prompt_buffer[0].size == 0) {
+			prefix = '=';
+			free(c->prompt_buffer);
+			c->prompt_buffer = utf8_fromcstr(c->prompt_last);
+			c->prompt_index = utf8_strlen(c->prompt_buffer);
+		} else
+			prefix = '-';
+		goto changed;
+	case 's'|KEYC_CTRL:
+		if (~c->prompt_flags & PROMPT_INCREMENTAL)
+			break;
+		if (c->prompt_buffer[0].size == 0) {
+			prefix = '=';
+			free(c->prompt_buffer);
+			c->prompt_buffer = utf8_fromcstr(c->prompt_last);
+			c->prompt_index = utf8_strlen(c->prompt_buffer);
+		} else
+			prefix = '+';
+		goto changed;
+	case 'v'|KEYC_CTRL:
+		c->prompt_flags |= PROMPT_QUOTENEXT;
 		break;
 	default:
-		break;
+		goto append_key;
 	}
+
+	c->flags |= CLIENT_REDRAWSTATUS;
+	return (0);
+
+append_key:
+	if (key <= 0x7f) {
+		utf8_set(&tmp, key);
+		if (key <= 0x1f || key == 0x7f)
+			tmp.width = 2;
+	} else if (KEYC_IS_UNICODE(key))
+		utf8_to_data(key, &tmp);
+	else
+		return (0);
+
+	c->prompt_buffer = xreallocarray(c->prompt_buffer, size + 2,
+	    sizeof *c->prompt_buffer);
+
+	if (c->prompt_index == size) {
+		utf8_copy(&c->prompt_buffer[c->prompt_index], &tmp);
+		c->prompt_index++;
+		c->prompt_buffer[c->prompt_index].size = 0;
+	} else {
+		memmove(c->prompt_buffer + c->prompt_index + 1,
+		    c->prompt_buffer + c->prompt_index,
+		    (size + 1 - c->prompt_index) *
+		    sizeof *c->prompt_buffer);
+		utf8_copy(&c->prompt_buffer[c->prompt_index], &tmp);
+		c->prompt_index++;
+	}
+
+	if (c->prompt_flags & PROMPT_SINGLE) {
+		if (utf8_strlen(c->prompt_buffer) != 1)
+			status_prompt_clear(c);
+		else {
+			s = utf8_tocstr(c->prompt_buffer);
+			if (c->prompt_inputcb(c, c->prompt_data, s, 1) == 0)
+				status_prompt_clear(c);
+			free(s);
+		}
+	}
+
+changed:
+	c->flags |= CLIENT_REDRAWSTATUS;
+	if (c->prompt_flags & PROMPT_INCREMENTAL) {
+		s = utf8_tocstr(c->prompt_buffer);
+		xasprintf(&cp, "%c%s", prefix, s);
+		c->prompt_inputcb(c, c->prompt_data, cp, 0);
+		free(cp);
+		free(s);
+	}
+	return (0);
 }
 
 /* Get previous line from the history. */
-const char *
-status_prompt_up_history(u_int *idx)
+static const char *
+status_prompt_up_history(u_int *idx, u_int type)
 {
-	u_int size;
-
 	/*
-	 * History runs from 0 to size - 1.
-	 *
-	 * Index is from 0 to size. Zero is empty.
+	 * History runs from 0 to size - 1. Index is from 0 to size. Zero is
+	 * empty.
 	 */
 
-	size = ARRAY_LENGTH(&status_prompt_history);
-	if (size == 0 || *idx == size)
+	if (status_prompt_hsize[type] == 0 ||
+	    idx[type] == status_prompt_hsize[type])
 		return (NULL);
-	(*idx)++;
-	return (ARRAY_ITEM(&status_prompt_history, size - *idx));
+	idx[type]++;
+	return (status_prompt_hlist[type][status_prompt_hsize[type] - idx[type]]);
 }
 
 /* Get next line from the history. */
-const char *
-status_prompt_down_history(u_int *idx)
+static const char *
+status_prompt_down_history(u_int *idx, u_int type)
 {
-	u_int size;
-
-	size = ARRAY_LENGTH(&status_prompt_history);
-	if (size == 0 || *idx == 0)
+	if (status_prompt_hsize[type] == 0 || idx[type] == 0)
 		return ("");
-	(*idx)--;
-	if (*idx == 0)
+	idx[type]--;
+	if (idx[type] == 0)
 		return ("");
-	return (ARRAY_ITEM(&status_prompt_history, size - *idx));
+	return (status_prompt_hlist[type][status_prompt_hsize[type] - idx[type]]);
 }
 
 /* Add line to the history. */
-void
-status_prompt_add_history(const char *line)
+static void
+status_prompt_add_history(const char *line, u_int type)
 {
-	u_int size;
+	u_int	i, oldsize, newsize, freecount, hlimit, new = 1;
+	size_t	movesize;
 
-	size = ARRAY_LENGTH(&status_prompt_history);
-	if (size > 0 && strcmp(ARRAY_LAST(&status_prompt_history), line) == 0)
-		return;
+	oldsize = status_prompt_hsize[type];
+	if (oldsize > 0 &&
+	    strcmp(status_prompt_hlist[type][oldsize - 1], line) == 0)
+		new = 0;
 
-	if (size == PROMPT_HISTORY) {
-		free(ARRAY_FIRST(&status_prompt_history));
-		ARRAY_REMOVE(&status_prompt_history, 0);
-	}
-
-	ARRAY_ADD(&status_prompt_history, xstrdup(line));
-}
-
-/* Complete word. */
-char *
-status_prompt_complete(const char *s)
-{
-	const struct cmd_entry 	  	       **cmdent;
-	const struct options_table_entry	*oe;
-	ARRAY_DECL(, const char *)		 list;
-	char					*prefix, *s2;
-	u_int					 i;
-	size_t				 	 j;
-
-	if (*s == '\0')
-		return (NULL);
-
-	/* First, build a list of all the possible matches. */
-	ARRAY_INIT(&list);
-	for (cmdent = cmd_table; *cmdent != NULL; cmdent++) {
-		if (strncmp((*cmdent)->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, (*cmdent)->name);
-	}
-	for (oe = server_options_table; oe->name != NULL; oe++) {
-		if (strncmp(oe->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, oe->name);
-	}
-	for (oe = session_options_table; oe->name != NULL; oe++) {
-		if (strncmp(oe->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, oe->name);
-	}
-	for (oe = window_options_table; oe->name != NULL; oe++) {
-		if (strncmp(oe->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, oe->name);
-	}
-
-	/* If none, bail now. */
-	if (ARRAY_LENGTH(&list) == 0) {
-		ARRAY_FREE(&list);
-		return (NULL);
-	}
-
-	/* If an exact match, return it, with a trailing space. */
-	if (ARRAY_LENGTH(&list) == 1) {
-		xasprintf(&s2, "%s ", ARRAY_FIRST(&list));
-		ARRAY_FREE(&list);
-		return (s2);
-	}
-
-	/* Now loop through the list and find the longest common prefix. */
-	prefix = xstrdup(ARRAY_FIRST(&list));
-	for (i = 1; i < ARRAY_LENGTH(&list); i++) {
-		s = ARRAY_ITEM(&list, i);
-
-		j = strlen(s);
-		if (j > strlen(prefix))
-			j = strlen(prefix);
-		for (; j > 0; j--) {
-			if (prefix[j - 1] != s[j - 1])
-				prefix[j - 1] = '\0';
+	hlimit = options_get_number(global_options, "prompt-history-limit");
+	if (hlimit > oldsize) {
+		if (new == 0)
+			return;
+		newsize = oldsize + new;
+	} else {
+		newsize = hlimit;
+		freecount = oldsize + new - newsize;
+		if (freecount > oldsize)
+			freecount = oldsize;
+		if (freecount == 0)
+			return;
+		for (i = 0; i < freecount; i++)
+			free(status_prompt_hlist[type][i]);
+		movesize = (oldsize - freecount) *
+		    sizeof *status_prompt_hlist[type];
+		if (movesize > 0) {
+			memmove(&status_prompt_hlist[type][0],
+			    &status_prompt_hlist[type][freecount], movesize);
 		}
 	}
 
-	ARRAY_FREE(&list);
-	return (prefix);
+	if (newsize == 0) {
+		free(status_prompt_hlist[type]);
+		status_prompt_hlist[type] = NULL;
+	} else if (newsize != oldsize) {
+		status_prompt_hlist[type] =
+		    xreallocarray(status_prompt_hlist[type], newsize,
+			sizeof *status_prompt_hlist[type]);
+	}
+
+	if (new == 1 && newsize > 0)
+		status_prompt_hlist[type][newsize - 1] = xstrdup(line);
+	status_prompt_hsize[type] = newsize;
+}
+
+/* Add to completion list. */
+static void
+status_prompt_add_list(char ***list, u_int *size, const char *s)
+{
+	u_int	i;
+
+	for (i = 0; i < *size; i++) {
+		if (strcmp((*list)[i], s) == 0)
+			return;
+	}
+	*list = xreallocarray(*list, (*size) + 1, sizeof **list);
+	(*list)[(*size)++] = xstrdup(s);
+}
+
+/* Build completion list. */
+static char **
+status_prompt_complete_list(u_int *size, const char *s, int at_start)
+{
+	char					**list = NULL, *tmp;
+	const char				**layout, *value, *cp;
+	const struct cmd_entry			**cmdent;
+	const struct options_table_entry	 *oe;
+	size_t					  slen = strlen(s), valuelen;
+	struct options_entry			 *o;
+	struct options_array_item		 *a;
+	const char				 *layouts[] = {
+		"even-horizontal", "even-vertical",
+		"main-horizontal", "main-horizontal-mirrored",
+		"main-vertical", "main-vertical-mirrored", "tiled", NULL
+	};
+
+	*size = 0;
+	for (cmdent = cmd_table; *cmdent != NULL; cmdent++) {
+		if (strncmp((*cmdent)->name, s, slen) == 0)
+			status_prompt_add_list(&list, size, (*cmdent)->name);
+		if ((*cmdent)->alias != NULL &&
+		    strncmp((*cmdent)->alias, s, slen) == 0)
+			status_prompt_add_list(&list, size, (*cmdent)->alias);
+	}
+	o = options_get_only(global_options, "command-alias");
+	if (o != NULL) {
+		a = options_array_first(o);
+		while (a != NULL) {
+			value = options_array_item_value(a)->string;
+			if ((cp = strchr(value, '=')) == NULL)
+				goto next;
+			valuelen = cp - value;
+			if (slen > valuelen || strncmp(value, s, slen) != 0)
+				goto next;
+
+			xasprintf(&tmp, "%.*s", (int)valuelen, value);
+			status_prompt_add_list(&list, size, tmp);
+			free(tmp);
+
+		next:
+			a = options_array_next(a);
+		}
+	}
+	if (at_start)
+		return (list);
+	for (oe = options_table; oe->name != NULL; oe++) {
+		if (strncmp(oe->name, s, slen) == 0)
+			status_prompt_add_list(&list, size, oe->name);
+	}
+	for (layout = layouts; *layout != NULL; layout++) {
+		if (strncmp(*layout, s, slen) == 0)
+			status_prompt_add_list(&list, size, *layout);
+	}
+	return (list);
+}
+
+/* Find longest prefix. */
+static char *
+status_prompt_complete_prefix(char **list, u_int size)
+{
+	char	 *out;
+	u_int	  i;
+	size_t	  j;
+
+	if (list == NULL || size == 0)
+		return (NULL);
+	out = xstrdup(list[0]);
+	for (i = 1; i < size; i++) {
+		j = strlen(list[i]);
+		if (j > strlen(out))
+			j = strlen(out);
+		for (; j > 0; j--) {
+			if (out[j - 1] != list[i][j - 1])
+				out[j - 1] = '\0';
+		}
+	}
+	return (out);
+}
+
+/* Complete word menu callback. */
+static void
+status_prompt_menu_callback(__unused struct menu *menu, u_int idx, key_code key,
+    void *data)
+{
+	struct status_prompt_menu	*spm = data;
+	struct client			*c = spm->c;
+	u_int				 i;
+	char				*s;
+
+	if (key != KEYC_NONE) {
+		idx += spm->start;
+		if (spm->flag == '\0')
+			s = xstrdup(spm->list[idx]);
+		else
+			xasprintf(&s, "-%c%s", spm->flag, spm->list[idx]);
+		if (c->prompt_type == PROMPT_TYPE_WINDOW_TARGET) {
+			free(c->prompt_buffer);
+			c->prompt_buffer = utf8_fromcstr(s);
+			c->prompt_index = utf8_strlen(c->prompt_buffer);
+			c->flags |= CLIENT_REDRAWSTATUS;
+		} else if (status_prompt_replace_complete(c, s))
+			c->flags |= CLIENT_REDRAWSTATUS;
+		free(s);
+	}
+
+	for (i = 0; i < spm->size; i++)
+		free(spm->list[i]);
+	free(spm->list);
+}
+
+/* Show complete word menu. */
+static int
+status_prompt_complete_list_menu(struct client *c, char **list, u_int size,
+    u_int offset, char flag)
+{
+	struct menu			*menu;
+	struct menu_item		 item;
+	struct status_prompt_menu	*spm;
+	u_int				 lines = status_line_size(c), height, i;
+	u_int				 py;
+
+	if (size <= 1)
+		return (0);
+	if (c->tty.sy - lines < 3)
+		return (0);
+
+	spm = xmalloc(sizeof *spm);
+	spm->c = c;
+	spm->size = size;
+	spm->list = list;
+	spm->flag = flag;
+
+	height = c->tty.sy - lines - 2;
+	if (height > 10)
+		height = 10;
+	if (height > size)
+		height = size;
+	spm->start = size - height;
+
+	menu = menu_create("");
+	for (i = spm->start; i < size; i++) {
+		item.name = list[i];
+		item.key = '0' + (i - spm->start);
+		item.command = NULL;
+		menu_add_item(menu, &item, NULL, c, NULL);
+	}
+
+	if (options_get_number(c->session->options, "status-position") == 0)
+		py = lines;
+	else
+		py = c->tty.sy - 3 - height;
+	offset += utf8_cstrwidth(c->prompt_string);
+	if (offset > 2)
+		offset -= 2;
+	else
+		offset = 0;
+
+	if (menu_display(menu, MENU_NOMOUSE|MENU_TAB, 0, NULL, offset, py, c,
+	    BOX_LINES_DEFAULT, NULL, NULL, NULL, NULL,
+	    status_prompt_menu_callback, spm) != 0) {
+		menu_free(menu);
+		free(spm);
+		return (0);
+	}
+	return (1);
+}
+
+/* Show complete word menu. */
+static char *
+status_prompt_complete_window_menu(struct client *c, struct session *s,
+    const char *word, u_int offset, char flag)
+{
+	struct menu			 *menu;
+	struct menu_item		  item;
+	struct status_prompt_menu	 *spm;
+	struct winlink			 *wl;
+	char				**list = NULL, *tmp;
+	u_int				  lines = status_line_size(c), height;
+	u_int				  py, size = 0;
+
+	if (c->tty.sy - lines < 3)
+		return (NULL);
+
+	spm = xmalloc(sizeof *spm);
+	spm->c = c;
+	spm->flag = flag;
+
+	height = c->tty.sy - lines - 2;
+	if (height > 10)
+		height = 10;
+	spm->start = 0;
+
+	menu = menu_create("");
+	RB_FOREACH(wl, winlinks, &s->windows) {
+		if (word != NULL && *word != '\0') {
+			xasprintf(&tmp, "%d", wl->idx);
+			if (strncmp(tmp, word, strlen(word)) != 0) {
+				free(tmp);
+				continue;
+			}
+			free(tmp);
+		}
+
+		list = xreallocarray(list, size + 1, sizeof *list);
+		if (c->prompt_type == PROMPT_TYPE_WINDOW_TARGET) {
+			xasprintf(&tmp, "%d (%s)", wl->idx, wl->window->name);
+			xasprintf(&list[size++], "%d", wl->idx);
+		} else {
+			xasprintf(&tmp, "%s:%d (%s)", s->name, wl->idx,
+			    wl->window->name);
+			xasprintf(&list[size++], "%s:%d", s->name, wl->idx);
+		}
+		item.name = tmp;
+		item.key = '0' + size - 1;
+		item.command = NULL;
+		menu_add_item(menu, &item, NULL, c, NULL);
+		free(tmp);
+
+		if (size == height)
+			break;
+	}
+	if (size == 0) {
+		menu_free(menu);
+		free(spm);
+		return (NULL);
+	}
+	if (size == 1) {
+		menu_free(menu);
+		if (flag != '\0') {
+			xasprintf(&tmp, "-%c%s", flag, list[0]);
+			free(list[0]);
+		} else
+			tmp = list[0];
+		free(list);
+		free(spm);
+		return (tmp);
+	}
+	if (height > size)
+		height = size;
+
+	spm->size = size;
+	spm->list = list;
+
+	if (options_get_number(c->session->options, "status-position") == 0)
+		py = lines;
+	else
+		py = c->tty.sy - 3 - height;
+	offset += utf8_cstrwidth(c->prompt_string);
+	if (offset > 2)
+		offset -= 2;
+	else
+		offset = 0;
+
+	if (menu_display(menu, MENU_NOMOUSE|MENU_TAB, 0, NULL, offset, py, c,
+	    BOX_LINES_DEFAULT, NULL, NULL, NULL, NULL,
+	    status_prompt_menu_callback, spm) != 0) {
+		menu_free(menu);
+		free(spm);
+		return (NULL);
+	}
+	return (NULL);
+}
+
+/* Sort complete list. */
+static int
+status_prompt_complete_sort(const void *a, const void *b)
+{
+	const char **aa = __UNCONST(a), **bb = __UNCONST(b);
+
+	return (strcmp(*aa, *bb));
+}
+
+/* Complete a session. */
+static char *
+status_prompt_complete_session(char ***list, u_int *size, const char *s,
+    char flag)
+{
+	struct session	*loop;
+	char		*out, *tmp, n[11];
+
+	RB_FOREACH(loop, sessions, &sessions) {
+		if (*s == '\0' || strncmp(loop->name, s, strlen(s)) == 0) {
+			*list = xreallocarray(*list, (*size) + 2,
+			    sizeof **list);
+			xasprintf(&(*list)[(*size)++], "%s:", loop->name);
+		} else if (*s == '$') {
+			xsnprintf(n, sizeof n, "%u", loop->id);
+			if (s[1] == '\0' ||
+			    strncmp(n, s + 1, strlen(s) - 1) == 0) {
+				*list = xreallocarray(*list, (*size) + 2,
+				    sizeof **list);
+				xasprintf(&(*list)[(*size)++], "$%s:", n);
+			}
+		}
+	}
+	out = status_prompt_complete_prefix(*list, *size);
+	if (out != NULL && flag != '\0') {
+		xasprintf(&tmp, "-%c%s", flag, out);
+		free(out);
+		out = tmp;
+	}
+	return (out);
+}
+
+/* Complete word. */
+static char *
+status_prompt_complete(struct client *c, const char *word, u_int offset)
+{
+	struct session	 *session;
+	const char	 *s, *colon;
+	char		**list = NULL, *copy = NULL, *out = NULL;
+	char		  flag = '\0';
+	u_int		  size = 0, i;
+
+	if (*word == '\0' &&
+	    c->prompt_type != PROMPT_TYPE_TARGET &&
+	    c->prompt_type != PROMPT_TYPE_WINDOW_TARGET)
+		return (NULL);
+
+	if (c->prompt_type != PROMPT_TYPE_TARGET &&
+	    c->prompt_type != PROMPT_TYPE_WINDOW_TARGET &&
+	    strncmp(word, "-t", 2) != 0 &&
+	    strncmp(word, "-s", 2) != 0) {
+		list = status_prompt_complete_list(&size, word, offset == 0);
+		if (size == 0)
+			out = NULL;
+		else if (size == 1)
+			xasprintf(&out, "%s ", list[0]);
+		else
+			out = status_prompt_complete_prefix(list, size);
+		goto found;
+	}
+
+	if (c->prompt_type == PROMPT_TYPE_TARGET ||
+	    c->prompt_type == PROMPT_TYPE_WINDOW_TARGET) {
+		s = word;
+		flag = '\0';
+	} else {
+		s = word + 2;
+		flag = word[1];
+		offset += 2;
+	}
+
+	/* If this is a window completion, open the window menu. */
+	if (c->prompt_type == PROMPT_TYPE_WINDOW_TARGET) {
+		out = status_prompt_complete_window_menu(c, c->session, s,
+		    offset, '\0');
+		goto found;
+	}
+	colon = strchr(s, ':');
+
+	/* If there is no colon, complete as a session. */
+	if (colon == NULL) {
+		out = status_prompt_complete_session(&list, &size, s, flag);
+		goto found;
+	}
+
+	/* If there is a colon but no period, find session and show a menu. */
+	if (strchr(colon + 1, '.') == NULL) {
+		if (*s == ':')
+			session = c->session;
+		else {
+			copy = xstrdup(s);
+			*strchr(copy, ':') = '\0';
+			session = session_find(copy);
+			free(copy);
+			if (session == NULL)
+				goto found;
+		}
+		out = status_prompt_complete_window_menu(c, session, colon + 1,
+		    offset, flag);
+		if (out == NULL)
+			return (NULL);
+	}
+
+found:
+	if (size != 0) {
+		qsort(list, size, sizeof *list, status_prompt_complete_sort);
+		for (i = 0; i < size; i++)
+			log_debug("complete %u: %s", i, list[i]);
+	}
+
+	if (out != NULL && strcmp(word, out) == 0) {
+		free(out);
+		out = NULL;
+	}
+	if (out != NULL ||
+	    !status_prompt_complete_list_menu(c, list, size, offset, flag)) {
+		for (i = 0; i < size; i++)
+			free(list[i]);
+		free(list);
+	}
+	return (out);
+}
+
+/* Return the type of the prompt as an enum. */
+enum prompt_type
+status_prompt_type(const char *type)
+{
+	u_int	i;
+
+	for (i = 0; i < PROMPT_NTYPES; i++) {
+		if (strcmp(type, status_prompt_type_string(i)) == 0)
+			return (i);
+	}
+	return (PROMPT_TYPE_INVALID);
+}
+
+/* Accessor for prompt_type_strings. */
+const char *
+status_prompt_type_string(u_int type)
+{
+	if (type >= PROMPT_NTYPES)
+		return ("invalid");
+	return (prompt_type_strings[type]);
 }

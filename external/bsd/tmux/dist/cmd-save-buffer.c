@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -31,136 +31,90 @@
  * Saves a paste buffer to a file.
  */
 
-enum cmd_retval	 cmd_save_buffer_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_save_buffer_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_save_buffer_entry = {
-	"save-buffer", "saveb",
-	"ab:", 1, 1,
-	"[-a] " CMD_BUFFER_USAGE " path",
-	0,
-	NULL,
-	cmd_save_buffer_exec
+	.name = "save-buffer",
+	.alias = "saveb",
+
+	.args = { "ab:", 1, 1, NULL },
+	.usage = "[-a] " CMD_BUFFER_USAGE " path",
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_save_buffer_exec
 };
 
 const struct cmd_entry cmd_show_buffer_entry = {
-	"show-buffer", "showb",
-	"b:", 0, 0,
-	CMD_BUFFER_USAGE,
-	0,
-	NULL,
-	cmd_save_buffer_exec
+	.name = "show-buffer",
+	.alias = "showb",
+
+	.args = { "b:", 0, 0, NULL },
+	.usage = CMD_BUFFER_USAGE,
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_save_buffer_exec
 };
 
-enum cmd_retval
-cmd_save_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
+static void
+cmd_save_buffer_done(__unused struct client *c, const char *path, int error,
+    __unused int closed, __unused struct evbuffer *buffer, void *data)
 {
-	struct args		*args = self->args;
-	struct client		*c = cmdq->client;
-	struct session          *s;
+	struct cmdq_item	*item = data;
+
+	if (!closed)
+		return;
+
+	if (error != 0)
+		cmdq_error(item, "%s: %s", strerror(error), path);
+	cmdq_continue(item);
+}
+
+static enum cmd_retval
+cmd_save_buffer_exec(struct cmd *self, struct cmdq_item *item)
+{
+	struct args		*args = cmd_get_args(self);
+	struct client		*c = cmdq_get_client(item);
 	struct paste_buffer	*pb;
-	const char		*path;
-	char			*cause, *start, *end, *msg;
-	size_t			 size, used, msglen;
-	int			 cwd, fd, buffer;
-	FILE			*f;
+	int			 flags;
+	const char		*bufname = args_get(args, 'b'), *bufdata;
+	size_t			 bufsize;
+	char			*path;
+	struct evbuffer		*evb;
 
-	if (!args_has(args, 'b')) {
-		if ((pb = paste_get_top(&global_buffers)) == NULL) {
-			cmdq_error(cmdq, "no buffers");
+	if (bufname == NULL) {
+		if ((pb = paste_get_top(NULL)) == NULL) {
+			cmdq_error(item, "no buffers");
 			return (CMD_RETURN_ERROR);
 		}
 	} else {
-		buffer = args_strtonum(args, 'b', 0, INT_MAX, &cause);
-		if (cause != NULL) {
-			cmdq_error(cmdq, "buffer %s", cause);
-			free(cause);
-			return (CMD_RETURN_ERROR);
-		}
-
-		pb = paste_get_index(&global_buffers, buffer);
+		pb = paste_get_name(bufname);
 		if (pb == NULL) {
-			cmdq_error(cmdq, "no buffer %d", buffer);
+			cmdq_error(item, "no buffer %s", bufname);
 			return (CMD_RETURN_ERROR);
 		}
 	}
+	bufdata = paste_buffer_data(pb, &bufsize);
 
-	if (self->entry == &cmd_show_buffer_entry)
-		path = "-";
-	else
-		path = args->argv[0];
-	if (strcmp(path, "-") == 0) {
-		if (c == NULL) {
-			cmdq_error(cmdq, "can't write to stdout");
-			return (CMD_RETURN_ERROR);
+	if (cmd_get_entry(self) == &cmd_show_buffer_entry) {
+		if (c->session != NULL || (c->flags & CLIENT_CONTROL)) {
+			evb = evbuffer_new();
+			if (evb == NULL)
+				fatalx("out of memory");
+			evbuffer_add(evb, bufdata, bufsize);
+			cmdq_print_data(item, evb);
+			evbuffer_free(evb);
+			return (CMD_RETURN_NORMAL);
 		}
-		if (c->session == NULL || (c->flags & CLIENT_CONTROL))
-			goto do_stdout;
-		goto do_print;
-	}
-
-	if (c != NULL && c->session == NULL)
-		cwd = c->cwd;
-	else if ((s = cmd_current_session(cmdq, 0)) != NULL)
-		cwd = s->cwd;
+		path = xstrdup("-");
+	} else
+		path = format_single_from_target(item, args_string(args, 0));
+	if (args_has(args, 'a'))
+		flags = O_APPEND;
 	else
-		cwd = AT_FDCWD;
+		flags = O_TRUNC;
+	file_write(cmdq_get_client(item), path, flags, bufdata, bufsize,
+	    cmd_save_buffer_done, item);
+	free(path);
 
-	f = NULL;
-	if (args_has(self->args, 'a')) {
-		fd = openat(cwd, path, O_CREAT|O_RDWR|O_APPEND, 0600);
-		if (fd != -1)
-			f = fdopen(fd, "ab");
-	} else {
-		fd = openat(cwd, path, O_CREAT|O_RDWR, 0600);
-		if (fd != -1)
-			f = fdopen(fd, "wb");
-	}
-	if (f == NULL) {
-		if (fd != -1)
-			close(fd);
-		cmdq_error(cmdq, "%s: %s", path, strerror(errno));
-		return (CMD_RETURN_ERROR);
-	}
-	if (fwrite(pb->data, 1, pb->size, f) != pb->size) {
-		cmdq_error(cmdq, "%s: fwrite error", path);
-		fclose(f);
-		return (CMD_RETURN_ERROR);
-	}
-	fclose(f);
-
-	return (CMD_RETURN_NORMAL);
-
-do_stdout:
-	evbuffer_add(c->stdout_data, pb->data, pb->size);
-	server_push_stdout(c);
-	return (CMD_RETURN_NORMAL);
-
-do_print:
-	if (pb->size > (INT_MAX / 4) - 1) {
-		cmdq_error(cmdq, "buffer too big");
-		return (CMD_RETURN_ERROR);
-	}
-	msg = NULL;
-	msglen = 0;
-
-	used = 0;
-	while (used != pb->size) {
-		start = pb->data + used;
-		end = memchr(start, '\n', pb->size - used);
-		if (end != NULL)
-			size = end - start;
-		else
-			size = pb->size - used;
-
-		msglen = size * 4 + 1;
-		msg = xrealloc(msg, 1, msglen);
-
-		strvisx(msg, start, size, VIS_OCTAL|VIS_TAB);
-		cmdq_print(cmdq, "%s", msg);
-
-		used += size + (end != NULL);
-	}
-
-	free(msg);
-	return (CMD_RETURN_NORMAL);
+	return (CMD_RETURN_WAIT);
 }

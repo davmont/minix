@@ -1,7 +1,7 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,31 +26,37 @@
  * Rename a window.
  */
 
-enum cmd_retval	 cmd_rename_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_rename_window_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_rename_window_entry = {
-	"rename-window", "renamew",
-	"t:", 1, 1,
-	CMD_TARGET_WINDOW_USAGE " new-name",
-	0,
-	NULL,
-	cmd_rename_window_exec
+	.name = "rename-window",
+	.alias = "renamew",
+
+	.args = { "t:", 1, 1, NULL },
+	.usage = CMD_TARGET_WINDOW_USAGE " new-name",
+
+	.target = { 't', CMD_FIND_WINDOW, 0 },
+
+	.flags = CMD_AFTERHOOK,
+	.exec = cmd_rename_window_exec
 };
 
-enum cmd_retval
-cmd_rename_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_rename_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args	*args = self->args;
-	struct session	*s;
-	struct winlink	*wl;
+	struct args		*args = cmd_get_args(self);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct winlink		*wl = target->wl;
+	char			*newname;
 
-	if ((wl = cmd_find_window(cmdq, args_get(args, 't'), &s)) == NULL)
-		return (CMD_RETURN_ERROR);
+	newname = format_single_from_target(item, args_string(args, 0));
+	window_set_name(wl->window, newname);
+	options_set_number(wl->window->options, "automatic-rename", 0);
 
-	window_set_name(wl->window, args->argv[0]);
-	options_set_number(&wl->window->options, "automatic-rename", 0);
-
+	server_redraw_window_borders(wl->window);
 	server_status_window(wl->window);
+	free(newname);
 
 	return (CMD_RETURN_NORMAL);
 }

@@ -1,4 +1,4 @@
-/* Id */
+/* $OpenBSD$ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -31,149 +31,83 @@
  * Loads a paste buffer from a file.
  */
 
-enum cmd_retval	 cmd_load_buffer_exec(struct cmd *, struct cmd_q *);
-void		 cmd_load_buffer_callback(struct client *, int, void *);
+static enum cmd_retval	cmd_load_buffer_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_load_buffer_entry = {
-	"load-buffer", "loadb",
-	"b:", 1, 1,
-	CMD_BUFFER_USAGE " path",
-	0,
-	NULL,
-	cmd_load_buffer_exec
+	.name = "load-buffer",
+	.alias = "loadb",
+
+	.args = { "b:t:w", 1, 1, NULL },
+	.usage = CMD_BUFFER_USAGE " " CMD_TARGET_CLIENT_USAGE " path",
+
+	.flags = CMD_AFTERHOOK|CMD_CLIENT_TFLAG|CMD_CLIENT_CANFAIL,
+	.exec = cmd_load_buffer_exec
 };
 
-enum cmd_retval
-cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
+struct cmd_load_buffer_data {
+	struct client		*client;
+	struct cmdq_item	*item;
+	char			*name;
+};
+
+static void
+cmd_load_buffer_done(__unused struct client *c, const char *path, int error,
+    int closed, struct evbuffer *buffer, void *data)
 {
-	struct args	*args = self->args;
-	struct client	*c = cmdq->client;
-	struct session  *s;
-	FILE		*f;
-	const char	*path;
-	char		*pdata, *new_pdata, *cause;
-	size_t		 psize;
-	u_int		 limit;
-	int		 ch, error, buffer, *buffer_ptr, cwd, fd;
-
-	if (!args_has(args, 'b'))
-		buffer = -1;
-	else {
-		buffer = args_strtonum(args, 'b', 0, INT_MAX, &cause);
-		if (cause != NULL) {
-			cmdq_error(cmdq, "buffer %s", cause);
-			free(cause);
-			return (CMD_RETURN_ERROR);
-		}
-	}
-
-	path = args->argv[0];
-	if (strcmp(path, "-") == 0) {
-		buffer_ptr = xmalloc(sizeof *buffer_ptr);
-		*buffer_ptr = buffer;
-
-		error = server_set_stdin_callback(c, cmd_load_buffer_callback,
-		    buffer_ptr, &cause);
-		if (error != 0) {
-			cmdq_error(cmdq, "%s: %s", path, cause);
-			free(cause);
-			return (CMD_RETURN_ERROR);
-		}
-		return (CMD_RETURN_WAIT);
-	}
-
-	if (c != NULL && c->session == NULL)
-		cwd = c->cwd;
-	else if ((s = cmd_current_session(cmdq, 0)) != NULL)
-		cwd = s->cwd;
-	else
-		cwd = AT_FDCWD;
-
-	if ((fd = openat(cwd, path, O_RDONLY)) == -1 ||
-	    (f = fdopen(fd, "rb")) == NULL) {
-		if (fd != -1)
-			close(fd);
-		cmdq_error(cmdq, "%s: %s", path, strerror(errno));
-		return (CMD_RETURN_ERROR);
-	}
-
-	pdata = NULL;
-	psize = 0;
-	while ((ch = getc(f)) != EOF) {
-		/* Do not let the server die due to memory exhaustion. */
-		if ((new_pdata = realloc(pdata, psize + 2)) == NULL) {
-			cmdq_error(cmdq, "realloc error: %s", strerror(errno));
-			goto error;
-		}
-		pdata = new_pdata;
-		pdata[psize++] = ch;
-	}
-	if (ferror(f)) {
-		cmdq_error(cmdq, "%s: read error", path);
-		goto error;
-	}
-	if (pdata != NULL)
-		pdata[psize] = '\0';
-
-	fclose(f);
-
-	limit = options_get_number(&global_options, "buffer-limit");
-	if (buffer == -1) {
-		paste_add(&global_buffers, pdata, psize, limit);
-		return (CMD_RETURN_NORMAL);
-	}
-	if (paste_replace(&global_buffers, buffer, pdata, psize) != 0) {
-		cmdq_error(cmdq, "no buffer %d", buffer);
-		free(pdata);
-		return (CMD_RETURN_ERROR);
-	}
-
-	return (CMD_RETURN_NORMAL);
-
-error:
-	free(pdata);
-	if (f != NULL)
-		fclose(f);
-	return (CMD_RETURN_ERROR);
-}
-
-void
-cmd_load_buffer_callback(struct client *c, int closed, void *data)
-{
-	int	*buffer = data;
-	char	*pdata;
-	size_t	 psize;
-	u_int	 limit;
+	struct cmd_load_buffer_data	*cdata = data;
+	struct client			*tc = cdata->client;
+	struct cmdq_item		*item = cdata->item;
+	void				*bdata = EVBUFFER_DATA(buffer);
+	size_t				 bsize = EVBUFFER_LENGTH(buffer);
+	void				*copy;
+	char				*cause;
 
 	if (!closed)
 		return;
-	c->stdin_callback = NULL;
 
-	c->references--;
-	if (c->flags & CLIENT_DEAD)
-		return;
-
-	psize = EVBUFFER_LENGTH(c->stdin_data);
-	if (psize == 0 || (pdata = malloc(psize + 1)) == NULL) {
-		free(data);
-		goto out;
+	if (error != 0)
+		cmdq_error(item, "%s: %s", strerror(error), path);
+	else if (bsize != 0) {
+		copy = xmalloc(bsize);
+		memcpy(copy, bdata, bsize);
+		if (paste_set(copy, bsize, cdata->name, &cause) != 0) {
+			cmdq_error(item, "%s", cause);
+			free(cause);
+			free(copy);
+		} else if (tc != NULL &&
+		    tc->session != NULL &&
+		    (~tc->flags & CLIENT_DEAD))
+			tty_set_selection(&tc->tty, "", copy, bsize);
+		if (tc != NULL)
+			server_client_unref(tc);
 	}
-	memcpy(pdata, EVBUFFER_DATA(c->stdin_data), psize);
-	pdata[psize] = '\0';
-	evbuffer_drain(c->stdin_data, psize);
+	cmdq_continue(item);
 
-	limit = options_get_number(&global_options, "buffer-limit");
-	if (*buffer == -1)
-		paste_add(&global_buffers, pdata, psize, limit);
-	else if (paste_replace(&global_buffers, *buffer, pdata, psize) != 0) {
-		/* No context so can't use server_client_msg_error. */
-		evbuffer_add_printf(c->stderr_data, "no buffer %d\n", *buffer);
-		server_push_stderr(c);
-		free(pdata);
+	free(cdata->name);
+	free(cdata);
+}
+
+static enum cmd_retval
+cmd_load_buffer_exec(struct cmd *self, struct cmdq_item *item)
+{
+	struct args			*args = cmd_get_args(self);
+	struct client			*tc = cmdq_get_target_client(item);
+	struct cmd_load_buffer_data	*cdata;
+	const char			*bufname = args_get(args, 'b');
+	char				*path;
+
+	cdata = xcalloc(1, sizeof *cdata);
+	cdata->item = item;
+	if (bufname != NULL)
+		cdata->name = xstrdup(bufname);
+	if (args_has(args, 'w') && tc != NULL) {
+		cdata->client = tc;
+		cdata->client->references++;
 	}
 
-	free(data);
+	path = format_single_from_target(item, args_string(args, 0));
+	file_read(cmdq_get_client(item), path, cmd_load_buffer_done, cdata);
+	free(path);
 
-out:
-	cmdq_continue(c->cmdq);
+	return (CMD_RETURN_WAIT);
 }
