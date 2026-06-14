@@ -1,9 +1,12 @@
-# $NetBSD: Makefile,v 1.26 2015/08/21 10:44:43 roy Exp $
-#
+# MINIX: dhcpcd 9.4.1, built without privilege separation (PRIVSEP).
+# MINIX lacks the _dhcpcd account and the privsep machinery dhcpcd 9.x uses on
+# NetBSD.  Upstream guards all of it behind #ifdef PRIVSEP, so simply not
+# defining PRIVSEP and not building the privsep*.c sources yields a working
+# single-process dhcpcd.  INET/INET6/AUTH/ARP/IPV4LL stay enabled.
 
 PROG=		dhcpcd
-SRCS=		common.c control.c dhcpcd.c duid.c eloop.c
-SRCS+=		if.c if-options.c script.c
+SRCS=		common.c control.c dhcpcd.c duid.c eloop.c logerr.c
+SRCS+=		if.c if-options.c route.c sa.c script.c
 SRCS+=		dhcp-common.c dhcpcd-embedded.c
 SRCS+=		if-bsd.c
 
@@ -13,58 +16,67 @@ USE_FORT?=	yes	# network client (local server)
 CPPFLAGS+=	-DHAVE_CONFIG_H
 
 .include <bsd.own.mk>
+.include "../../Makefile.inc"
 
 .if defined(__MINIX)
 CWARNFLAGS.gcc+=	-Wno-maybe-uninitialized
+# reallocarray(3) lives behind _OPENBSD_SOURCE in MINIX's <stdlib.h>.
+CPPFLAGS+=	-D_OPENBSD_SOURCE
+# dhcpcd emits #warning's for kernel features MINIX's lwIP stack lacks
+# (route-message filtering, RTM_MISS DST filtering, ND6 ra sending, route
+# socket overflow detection); they are advisory, don't fail the build on them.
+CPPFLAGS+=	-Wno-error=#warnings
 .endif # defined(__MINIX)
 
-SRCS+=		auth.c hmac_md5.c
+# RFC 3118 authentication needs hmac(3)/<hmac.h>, which MINIX libc lacks.
+.if !defined(__MINIX)
+CPPFLAGS+=	-DAUTH
+SRCS+=		auth.c
+.endif
 
 USE_INET?=	yes
 .if (${USE_INET} != "no")
 CPPFLAGS+=	-DINET
-SRCS+=		arp.c dhcp.c ipv4.c ipv4ll.c
+SRCS+=		bpf.c dhcp.c ipv4.c
+CPPFLAGS+=	-DARP
+SRCS+=		arp.c
+CPPFLAGS+=	-DARPING
+CPPFLAGS+=	-DIPV4LL
+SRCS+=		ipv4ll.c
 .endif
 
 .if (${USE_INET6} != "no")
 CPPFLAGS+=	-DINET6
-SRCS+=		ipv6.c ipv6nd.c dhcp6.c
+SRCS+=		ipv6.c ipv6nd.c
+CPPFLAGS+=	-DDHCP6
+SRCS+=		dhcp6.c
 .endif
 
-DIST=		${NETBSDSRCDIR}/external/bsd/dhcpcd/dist
-CPPFLAGS+=	-I${DIST}
+CPPFLAGS+=	-I${SRCDIR}/include -I${DIST}/src
 
-.PATH: ${DIST} ${DIST}/crypt ${LIBC_NET}
+DPADD+=		${LIBUTIL}
+LDADD+=		-lutil
 
-SCRIPTS=			dhcpcd-run-hooks
-SCRIPTSDIR_dhcpcd-run-hooks=	/libexec
+.PATH: ${DIST}/src ${LIBC_NET}
 
 CONFIGFILES=			dhcpcd.conf
 FILESDIR_dhcpcd.conf=		/etc
+FILESMODE_dhcpcd.conf=		644	# -rw-r--r--
 
-HOOKS=			01-test 02-dump 10-wpa_supplicant 15-timezone
+# The hook runner and the individual hook scripts (9.4.1 ships them pre-built,
+# no .in templating).
+SCRIPTS=			dhcpcd-run-hooks
+SCRIPTSDIR_dhcpcd-run-hooks=	/libexec
+
+HOOKS=			01-test 10-wpa_supplicant 15-timezone
 HOOKS+=			20-resolv.conf 29-lookup-hostname 30-hostname
 HOOKS+=			50-ntp.conf
 
-FILES=			${HOOKS:C,^,${DIST}/dhcpcd-hooks/,}
+FILES=			${HOOKS:C,^,${DIST}/hooks/,}
 FILESDIR=		/libexec/dhcpcd-hooks
 
+.PATH: ${DIST}/hooks
+
 MAN=			dhcpcd.conf.5 dhcpcd.8 dhcpcd-run-hooks.8
-
-CLEANFILES=		dhcpcd.conf.5 dhcpcd.8 \
-			dhcpcd-run-hooks dhcpcd-run-hooks.8
-
-.for f in dhcpcd-run-hooks dhcpcd.conf.5 dhcpcd.8 dhcpcd-run-hooks.8
-${f}:	${f}.in
-	${TOOL_SED} -e 's:@SYSCONFDIR@:/etc:g' -e 's:@DBDIR@:/var/db:g' \
-	    -e 's:@LIBDIR@:/lib:g' \
-	    -e 's:@RUNDIR@:/var/run:g' \
-	    -e 's:@HOOKDIR@:/libexec/dhcpcd-hooks:g' \
-	    -e 's:@SCRIPT@:/libexec/dhcpcd-run-hooks:g' \
-	    -e 's:@SERVICEEXISTS@::g' \
-	    -e 's:@SERVICECMD@::g' \
-	    -e 's:@SERVICESTATUS@::g' \
-	    ${DIST}/${f}.in > $@
-.endfor
 
 .include <bsd.prog.mk>
