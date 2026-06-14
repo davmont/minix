@@ -791,7 +791,18 @@ msgbuf_write(int fd, struct msgbuf *msgbuf)
 
 	if (buf0 != NULL) {
 		msg.msg_control = (caddr_t)&cmsgbuf.buf;
-		msg.msg_controllen = CMSG_SPACE(sizeof(cmsgbuf.buf));
+		/*
+		 * MINIX: cmsgbuf.buf is already CMSG_SPACE(sizeof(int)) bytes, so
+		 * msg_controllen must be sizeof(cmsgbuf.buf), NOT
+		 * CMSG_SPACE(sizeof(cmsgbuf.buf)) -- the latter double-wraps and
+		 * claims more control bytes than the buffer holds.  The inflated
+		 * length makes CMSG_NXTHDR (whose bound test is a strict '>') step
+		 * past the real cmsg into uninitialized stack, fabricating a bogus
+		 * trailing header that MINIX's UDS service rejects as "malformed
+		 * control data" (EINVAL), breaking fd passing.  This matches the
+		 * recv side below and canonical upstream imsg.
+		 */
+		msg.msg_controllen = sizeof(cmsgbuf.buf);
 		cmsg = CMSG_FIRSTHDR(&msg);
 		cmsg->cmsg_len = CMSG_LEN(sizeof(int));
 		cmsg->cmsg_level = SOL_SOCKET;
