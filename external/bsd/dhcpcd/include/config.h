@@ -24,11 +24,12 @@
 #define	HAVE_REALLOCARRAY
 #if !defined(__minix)
 #define	HAVE_PPOLL
+#else
+/* MINIX has no ppoll(2), but libc now provides pollts(2) and pselect(2) as
+ * thin poll/select + sigprocmask wrappers, so use the native pollts(2) path
+ * (eloop.c maps ppoll -> pollts) instead of the old eloop_ppoll() shim. */
+#define	HAVE_POLLTS
 #endif /* !defined(__minix) */
-/* MINIX implements neither ppoll(2), pollts(2) nor pselect(2) -- only poll(2)
- * and select(2).  Defining none of HAVE_PPOLL/HAVE_POLLTS/HAVE_PSELECT makes
- * eloop.c fall back to its eloop_ppoll() wrapper, which we patch on MINIX to
- * use select(2) + sigprocmask(2). */
 #define	HAVE_SYS_BITOPS_H
 #define	HAVE_MD5_H
 #define	SHA2_H			<sha2.h>
