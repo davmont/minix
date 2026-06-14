@@ -26,6 +26,8 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   int proc_nr, r;
 #if defined(__i386__)
   reg_t new_fp;
+#elif defined(__x86_64__) || defined(__amd64__)
+  reg_t new_rbp;
 #endif
 
   if (!isokendpt(m_ptr->m_sigcalls.endpt, &proc_nr)) return EINVAL;
@@ -107,6 +109,49 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   fr.sf_sc.sc_usr_lr = rp->p_reg.lr;
   fr.sf_sc.sc_svc_lr = 0;	/* ? */
   fr.sf_sc.sc_pc = rp->p_reg.pc;	/* R15 */
+#elif defined(__x86_64__) || defined(__amd64__)
+  /* Save all 64-bit GPRs into the signal context. */
+  fr.sf_sc.sc_gs     = rp->p_reg.gs;
+  fr.sf_sc.sc_fs     = rp->p_reg.fs;
+  fr.sf_sc.sc_rdi    = rp->p_reg.rdi;
+  fr.sf_sc.sc_rsi    = rp->p_reg.rsi;
+  fr.sf_sc.sc_rbp    = rp->p_reg.rbp;
+  fr.sf_sc.sc_rbx    = rp->p_reg.rbx;
+  fr.sf_sc.sc_rdx    = rp->p_reg.rdx;
+  fr.sf_sc.sc_rcx    = rp->p_reg.rcx;
+  fr.sf_sc.sc_rax    = rp->p_reg.retreg;
+  fr.sf_sc.sc_r8     = rp->p_reg.r8;
+  fr.sf_sc.sc_r9     = rp->p_reg.r9;
+  fr.sf_sc.sc_r10    = rp->p_reg.r10;
+  fr.sf_sc.sc_r11    = rp->p_reg.r11;
+  fr.sf_sc.sc_r12    = rp->p_reg.r12;
+  fr.sf_sc.sc_r13    = rp->p_reg.r13;
+  fr.sf_sc.sc_r14    = rp->p_reg.r14;
+  fr.sf_sc.sc_r15    = rp->p_reg.r15;
+  fr.sf_sc.sc_rip    = rp->p_reg.pc;
+  fr.sf_sc.sc_cs     = rp->p_reg.cs;
+  fr.sf_sc.sc_rflags = rp->p_reg.psw;
+  fr.sf_sc.sc_rsp    = rp->p_reg.sp;
+  fr.sf_sc.sc_ss     = rp->p_reg.ss;
+
+  new_rbp            = (reg_t) &frp->sf_fp;
+  fr.sf_fp           = rp->p_reg.rbp;
+  fr.sf_ra           = rp->p_reg.pc;
+  fr.sf_signum       = smsg.sm_signo;
+  fr.sf_scpcopy      = fr.sf_scp;
+  fr.sf_ra_sigreturn = smsg.sm_sigreturn;
+
+  fr.sf_sc.trap_style = rp->p_seg.p_kern_trap_style;
+
+  if (fr.sf_sc.trap_style == KTS_NONE) {
+      printf("do_sigsend: sigsend an unsaved process\n");
+      return EINVAL;
+  }
+
+  if (proc_used_fpu(rp)) {
+      save_fpu(rp);
+      memcpy(&fr.sf_sc.sc_fpu_state, rp->p_seg.fpu_state, FPU_XFP_SIZE);
+  }
 #endif
 
   /* Finish the sigcontext initialization. */
@@ -147,6 +192,16 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   rp->p_reg.retreg = (reg_t) smsg.sm_signo;
   rp->p_reg.r1 = 0;	/* sf_code */
   rp->p_reg.r2 = (reg_t) fr.sf_scp;
+  rp->p_misc_flags |= MF_CONTEXT_SET;
+#elif defined(__x86_64__) || defined(__amd64__)
+  /* x86_64 SysV ABI: pass signal handler arguments in registers.
+   * RDI = signal number, RSI = code, RDX = &sigcontext.
+   * RBP is set to &sf_fp so the frame pointer chain is walkable.
+   */
+  rp->p_reg.rdi    = (reg_t) smsg.sm_signo;
+  rp->p_reg.rsi    = (reg_t) fr.sf_code;
+  rp->p_reg.rdx    = (reg_t) &frp->sf_sc;
+  rp->p_reg.rbp    = new_rbp;
   rp->p_misc_flags |= MF_CONTEXT_SET;
 #endif
 

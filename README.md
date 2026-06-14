@@ -136,28 +136,45 @@ For the best experience, run MINIX 3 inside a virtual machine.
 
 ```sh
 # i386 (original upstream target)
-sh build.sh -j4 -mi386 -O ../obj.i386 -D ../obj.i386/destdir.i386 -U -u release
+sh build.sh -j4 -mi386 -O ../obj.i386 -U release
 bash releasetools/x86_cdimage.sh
 
-# amd64 (this fork)
-sh build.sh -j4 -mamd64 -O ../obj.amd64 -D ../obj.amd64/destdir.amd64 -U -u release
-bash releasetools/amd64_cdimage.sh
+# amd64 (this fork) — replace 24 with your CPU core count
+sh build.sh -m amd64 -U -j24 -O ../obj.amd64 release
+OBJ=../obj.amd64 bash releasetools/amd64_cdimage.sh
 ```
 
-### Running in QEMU (BIOS)
+The build produces `minix_amd64.iso` in the current directory.
+
+### Running in QEMU
+
+> **Important — `-cpu host` is required for amd64.**
+> MINIX uses the `WRFSBASE` instruction for TLS setup; QEMU's default `kvm64`
+> CPU model does not expose that feature (CPUID leaf 7 EBX bit 0), so the
+> kernel will panic at boot without it.
 
 ```sh
-# amd64 ISO
-qemu-system-x86_64 --enable-kvm -cdrom minix_amd64.iso
+# amd64 — bootloader path (recommended)
+qemu-system-x86_64 --enable-kvm -cpu host -smp 4 -m 256 \
+    -cdrom minix_amd64.iso
+
+# amd64 — direct kernel path (faster iteration)
+qemu-system-x86_64 --enable-kvm -cpu host \
+    -kernel ../obj.amd64/minix/kernel/kernel \
+    -append "bootcd=1 cdproberoot=1" \
+    -cdrom minix_amd64.iso
+
+# i386
+qemu-system-i386 --enable-kvm -m 256 -cdrom minix_i386.iso
 
 # amd64 HDD image
-qemu-system-x86_64 --enable-kvm -m 256M -hda minix_amd64.img
+qemu-system-x86_64 --enable-kvm -cpu host -m 256 -hda minix_amd64.img
 ```
 
 ### Installation (from ISO)
 
 1. Create a VM (256 MB RAM, 2 GB+ HDD).
-2. Mount the ISO and boot.
+2. Mount the ISO and boot (use `-cpu host` for amd64 in QEMU).
 3. Log in as `root` (no password).
 4. Run `setup` and follow the prompts.
 5. Power off, remove the ISO, reboot.

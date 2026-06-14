@@ -416,10 +416,20 @@ void cpu_enable_features(void)
      * The feature bit is _CPUF_X86_FSGSBASE (CPUID leaf 7, EBX bit 0).
      * We set use_fsgsbase on the BSP and propagate to APs: APs set the CR4
      * bit unconditionally if the BSP already set use_fsgsbase.
+     *
+     * FSGSBASE is mandatory: lib/libc/arch/x86_64/gen/_lwp.c uses wrfsbase
+     * unconditionally to set the TLS pointer, with no MSR fallback.  If the
+     * CPU (or QEMU model) does not expose this feature, userspace init will
+     * crash with #UD at the first _lwp_setprivate call.  Panic here so the
+     * failure is diagnosed at boot rather than as a mysterious #UD in init.
+     * Fix: pass -cpu host (or -cpu qemu64,+fsgsbase) to QEMU.
      */
     if (_cpufeature(_CPUF_X86_FSGSBASE)) {
         cr4 |= CR4_FSGSBASE;
         use_fsgsbase = 1;
+    } else {
+        panic("MINIX amd64 requires FSGSBASE (CPUID leaf 7 EBX bit 0).\n"
+              "Use '-cpu host' or '-cpu qemu64,+fsgsbase' in QEMU.");
     }
 
     /* P2.4 — PCID (Process-Context Identifiers).

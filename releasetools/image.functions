@@ -539,8 +539,14 @@ else
 		# on the command line, which would leak into child make invocations
 		# and cause them to recurse into non-existent subdirectories.
 		for _standdir in boot/biosboot cdboot bootxx/bootxx_minixfs3; do
+			# Split dependall and install into separate nbmake invocations.
+			# With MKUPDATE=yes (set in nbmake-${ARCH}), combining them as
+			# "dependall install" causes bsd.prog.mk to mark the just-built
+			# binary as .MADE and skip the install step entirely.
 			${CROSS_TOOLS}/nbmake-${ARCH} \
-				-C sys/arch/i386/stand/${_standdir} dependall install
+				-C sys/arch/i386/stand/${_standdir} dependall
+			${CROSS_TOOLS}/nbmake-${ARCH} \
+				-C sys/arch/i386/stand/${_standdir} install
 		done
 	fi
 
