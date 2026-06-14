@@ -24,10 +24,8 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   register struct proc *rp;
   struct sigframe_sigcontext fr, *frp;
   int proc_nr, r;
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
   reg_t new_fp;
-#elif defined(__x86_64__) || defined(__amd64__)
-  reg_t new_rbp;
 #endif
 
   if (!isokendpt(m_ptr->m_sigcalls.endpt, &proc_nr)) return EINVAL;
@@ -47,6 +45,19 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   /* Compute the user stack pointer where sigframe will start. */
   smsg.sm_stkptr = arch_get_sp(rp);
   frp = (struct sigframe_sigcontext *) smsg.sm_stkptr - 1;
+
+#if defined(__x86_64__)
+  /* The amd64 System V ABI requires that, when control reaches a function,
+   * (%rsp % 16) == 8 -- i.e. the stack is 16-byte aligned right after the
+   * (implicit) return-address push.  restore_user_context() enters the handler
+   * with %rsp == frp and sf_ra_sigreturn (at [frp]) acting as that pushed
+   * return address, so frp itself must be congruent to 8 (mod 16): then the
+   * handler's "push %rbp" lands %rbp on a 16-byte boundary and SSE stack
+   * accesses (e.g. the movaps that zero a struct in libc's syscall/printf
+   * stubs) do not raise a #GP.  Round the frame base down to (16k + 8). */
+  frp = (struct sigframe_sigcontext *)
+      ((((vir_bytes) frp - 8) & ~(vir_bytes) 0xF) + 8);
+#endif
 
   /* Copy the registers to the sigcontext structure. */
   memset(&fr, 0, sizeof(fr));
@@ -90,6 +101,50 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   }
 #endif
 
+#if defined(__x86_64__)
+  fr.sf_sc.sc_gs = rp->p_reg.gs;
+  fr.sf_sc.sc_fs = rp->p_reg.fs;
+  fr.sf_sc.sc_rdi = rp->p_reg.rdi;
+  fr.sf_sc.sc_rsi = rp->p_reg.rsi;
+  fr.sf_sc.sc_rbp = rp->p_reg.rbp;
+  fr.sf_sc.sc_rbx = rp->p_reg.rbx;
+  fr.sf_sc.sc_rdx = rp->p_reg.rdx;
+  fr.sf_sc.sc_rcx = rp->p_reg.rcx;
+  fr.sf_sc.sc_rax = rp->p_reg.rax;
+  fr.sf_sc.sc_r8  = rp->p_reg.r8;
+  fr.sf_sc.sc_r9  = rp->p_reg.r9;
+  fr.sf_sc.sc_r10 = rp->p_reg.r10;
+  fr.sf_sc.sc_r11 = rp->p_reg.r11;
+  fr.sf_sc.sc_r12 = rp->p_reg.r12;
+  fr.sf_sc.sc_r13 = rp->p_reg.r13;
+  fr.sf_sc.sc_r14 = rp->p_reg.r14;
+  fr.sf_sc.sc_r15 = rp->p_reg.r15;
+  fr.sf_sc.sc_rip = rp->p_reg.pc;
+  fr.sf_sc.sc_cs = rp->p_reg.cs;
+  fr.sf_sc.sc_rflags = rp->p_reg.psw;
+  fr.sf_sc.sc_rsp = rp->p_reg.sp;
+  fr.sf_sc.sc_ss = rp->p_reg.ss;
+  fr.sf_fp = rp->p_reg.rbp;
+  fr.sf_signum = smsg.sm_signo;
+  new_fp = (reg_t) &frp->sf_fp;
+  fr.sf_scpcopy = fr.sf_scp;
+  fr.sf_ra_sigreturn = smsg.sm_sigreturn;
+  fr.sf_ra = rp->p_reg.pc;
+
+  fr.sf_sc.trap_style = rp->p_seg.p_kern_trap_style;
+
+  if (fr.sf_sc.trap_style == KTS_NONE) {
+	printf("do_sigsend: sigsend an unsaved process\n");
+	return EINVAL;
+  }
+
+  if (proc_used_fpu(rp)) {
+	/* save the FPU context before saving it to the sig context */
+	save_fpu(rp);
+	memcpy(&fr.sf_sc.sc_fpu_state, rp->p_seg.fpu_state, FPU_XFP_SIZE);
+  }
+#endif
+
 #if defined(__arm__)
   fr.sf_sc.sc_spsr = rp->p_reg.psr;
   fr.sf_sc.sc_r0 = rp->p_reg.retreg;
@@ -109,49 +164,6 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   fr.sf_sc.sc_usr_lr = rp->p_reg.lr;
   fr.sf_sc.sc_svc_lr = 0;	/* ? */
   fr.sf_sc.sc_pc = rp->p_reg.pc;	/* R15 */
-#elif defined(__x86_64__) || defined(__amd64__)
-  /* Save all 64-bit GPRs into the signal context. */
-  fr.sf_sc.sc_gs     = rp->p_reg.gs;
-  fr.sf_sc.sc_fs     = rp->p_reg.fs;
-  fr.sf_sc.sc_rdi    = rp->p_reg.rdi;
-  fr.sf_sc.sc_rsi    = rp->p_reg.rsi;
-  fr.sf_sc.sc_rbp    = rp->p_reg.rbp;
-  fr.sf_sc.sc_rbx    = rp->p_reg.rbx;
-  fr.sf_sc.sc_rdx    = rp->p_reg.rdx;
-  fr.sf_sc.sc_rcx    = rp->p_reg.rcx;
-  fr.sf_sc.sc_rax    = rp->p_reg.retreg;
-  fr.sf_sc.sc_r8     = rp->p_reg.r8;
-  fr.sf_sc.sc_r9     = rp->p_reg.r9;
-  fr.sf_sc.sc_r10    = rp->p_reg.r10;
-  fr.sf_sc.sc_r11    = rp->p_reg.r11;
-  fr.sf_sc.sc_r12    = rp->p_reg.r12;
-  fr.sf_sc.sc_r13    = rp->p_reg.r13;
-  fr.sf_sc.sc_r14    = rp->p_reg.r14;
-  fr.sf_sc.sc_r15    = rp->p_reg.r15;
-  fr.sf_sc.sc_rip    = rp->p_reg.pc;
-  fr.sf_sc.sc_cs     = rp->p_reg.cs;
-  fr.sf_sc.sc_rflags = rp->p_reg.psw;
-  fr.sf_sc.sc_rsp    = rp->p_reg.sp;
-  fr.sf_sc.sc_ss     = rp->p_reg.ss;
-
-  new_rbp            = (reg_t) &frp->sf_fp;
-  fr.sf_fp           = rp->p_reg.rbp;
-  fr.sf_ra           = rp->p_reg.pc;
-  fr.sf_signum       = smsg.sm_signo;
-  fr.sf_scpcopy      = fr.sf_scp;
-  fr.sf_ra_sigreturn = smsg.sm_sigreturn;
-
-  fr.sf_sc.trap_style = rp->p_seg.p_kern_trap_style;
-
-  if (fr.sf_sc.trap_style == KTS_NONE) {
-      printf("do_sigsend: sigsend an unsaved process\n");
-      return EINVAL;
-  }
-
-  if (proc_used_fpu(rp)) {
-      save_fpu(rp);
-      memcpy(&fr.sf_sc.sc_fpu_state, rp->p_seg.fpu_state, FPU_XFP_SIZE);
-  }
 #endif
 
   /* Finish the sigcontext initialization. */
@@ -181,6 +193,18 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 
 #if defined(__i386__)
   rp->p_reg.fp = new_fp;
+#elif defined(__x86_64__)
+  /* Link the frame pointer to the saved context and pass the handler its
+   * arguments in registers, per the amd64 calling convention:
+   * %rdi = signum, %rsi = code, %rdx = pointer to the sigcontext.
+   * Also stash the sigcontext pointer in the callee-saved %r15: the handler
+   * (and its callees) must preserve it per the ABI, so __sigreturn() can
+   * recover it without depending on the exact stack offset of the frame. */
+  rp->p_reg.rbp = new_fp;
+  rp->p_reg.rdi = (reg_t) smsg.sm_signo;
+  rp->p_reg.rsi = (reg_t) fr.sf_code;
+  rp->p_reg.rdx = (reg_t) fr.sf_scp;
+  rp->p_reg.r15 = (reg_t) fr.sf_scp;
 #elif defined(__arm__)
   /* use the ARM link register to set the return address from the signal
    * handler
@@ -192,16 +216,6 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   rp->p_reg.retreg = (reg_t) smsg.sm_signo;
   rp->p_reg.r1 = 0;	/* sf_code */
   rp->p_reg.r2 = (reg_t) fr.sf_scp;
-  rp->p_misc_flags |= MF_CONTEXT_SET;
-#elif defined(__x86_64__) || defined(__amd64__)
-  /* x86_64 SysV ABI: pass signal handler arguments in registers.
-   * RDI = signal number, RSI = code, RDX = &sigcontext.
-   * RBP is set to &sf_fp so the frame pointer chain is walkable.
-   */
-  rp->p_reg.rdi    = (reg_t) smsg.sm_signo;
-  rp->p_reg.rsi    = (reg_t) fr.sf_code;
-  rp->p_reg.rdx    = (reg_t) &frp->sf_sc;
-  rp->p_reg.rbp    = new_rbp;
   rp->p_misc_flags |= MF_CONTEXT_SET;
 #endif
 
