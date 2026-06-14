@@ -125,8 +125,11 @@ unsigned long
 	 strtoul(const char * __restrict, char ** __restrict, int);
 #ifdef _OPENBSD_SOURCE
 long long strtonum(const char *, long long, long long, const char **);
-void	*reallocarray(void *, size_t, size_t);
 #endif
+#if (_POSIX_C_SOURCE - 0) >= 202405L || \
+    defined(_NETBSD_SOURCE) || defined(_OPENBSD_SOURCE)
+void	*reallocarray(void *, size_t, size_t);
+#endif	/* _POSIX_C_SOURCE >= 202405L || _NETBSD_SOURCE || _OPENBSD_SOURCE */
 int	 system(const char *);
 
 /* These are currently just stubs. */

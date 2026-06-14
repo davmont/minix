@@ -20,8 +20,6 @@ CPPFLAGS+=	-DHAVE_CONFIG_H
 
 .if defined(__MINIX)
 CWARNFLAGS.gcc+=	-Wno-maybe-uninitialized
-# reallocarray(3) lives behind _OPENBSD_SOURCE in MINIX's <stdlib.h>.
-CPPFLAGS+=	-D_OPENBSD_SOURCE
 # dhcpcd emits #warning's for kernel features MINIX's lwIP stack lacks
 # (route-message filtering, RTM_MISS DST filtering, ND6 ra sending, route
 # socket overflow detection); they are advisory, don't fail the build on them.

@@ -199,32 +199,7 @@ eloop_ppoll(struct pollfd * fds, nfds_t nfds,
 		}
 	}
 
-#if defined(__minix)
-	/*
-	 * MINIX has no pselect(2).  Emulate it with select(2) bracketed by
-	 * sigprocmask(2).  This carries the well-known race between unblocking
-	 * the signals and entering select(), but it matches what dhcpcd used on
-	 * MINIX before pselect-based eloop and is good enough in practice.
-	 */
-	{
-		sigset_t omask;
-		struct timeval tv, *tvp;
-
-		if (sigmask != NULL)
-			sigprocmask(SIG_SETMASK, sigmask, &omask);
-		if (ts != NULL) {
-			tv.tv_sec = ts->tv_sec;
-			tv.tv_usec = (suseconds_t)(ts->tv_nsec / 1000);
-			tvp = &tv;
-		} else
-			tvp = NULL;
-		r = select(maxfd + 1, &read_fds, &write_fds, NULL, tvp);
-		if (sigmask != NULL)
-			sigprocmask(SIG_SETMASK, &omask, NULL);
-	}
-#else
 	r = pselect(maxfd + 1, &read_fds, &write_fds, NULL, ts, sigmask);
-#endif
 	if (r > 0) {
 		for (n = 0; n < nfds; n++) {
 			fds[n].revents =
