@@ -3,7 +3,10 @@
 # net sources
 .PATH: ${.CURDIR}/resolv
 .if defined(__MINIX)
-CPPFLAGS+=-DCOMPAT__RES -DUSE_SELECT -DNEED_PSELECT
+# MINIX libc now provides pselect(2) (see sys/select.h + minix/lib/libc/sys/
+# pselect.c), so res_send.c must NOT compile its private NEED_PSELECT shim --
+# that would clash with the public prototype.  Use the real pselect(2).
+CPPFLAGS+=-DCOMPAT__RES -DUSE_SELECT
 .else
 CPPFLAGS+=-DCOMPAT__RES -DUSE_POLL
 .endif
