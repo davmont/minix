@@ -312,3 +312,522 @@ out:
 	*pos = cookie;
 	return fsdriver_dentry_finish(&fdd);
 }
+
+/*===========================================================================*
+ *				find_entry				     *
+ *===========================================================================*/
+static int find_entry(struct inode *dirp, const char *name,
+	struct direntry *de_out, unsigned long *short_off)
+{
+/* Scan dirp for an entry matching 'name' (case-insensitive).  Returns 1 and
+ * fills de_out/short_off on a match, 0 if not found, or a negative errno.
+ */
+	struct de_iter it;
+	struct direntry de;
+	char entname[WIN_MAXLEN + 1];
+	int r;
+
+	de_iter_init(&it, dirp, 0);
+	while ((r = de_next(&it, entname, sizeof(entname), &de, short_off)) > 0)
+		if (casematch(entname, name)) {
+			*de_out = de;
+			return 1;
+		}
+
+	return (r < 0) ? r : 0;
+}
+
+/*===========================================================================*
+ *				write_dir_slot				     *
+ *===========================================================================*/
+static int write_dir_slot(struct inode *dirp, unsigned long off,
+	const void *buf)
+{
+/* Write a 32-byte directory slot at byte offset 'off' within dirp. */
+	struct buf *bp;
+	unsigned long sec;
+
+	sec = entry_sector(dirp->i_start, off);
+	if (sec == 0)
+		return EIO;
+	if ((bp = get_block(pmp->pm_dev, sec, NORMAL)) == NULL)
+		return EIO;
+	memcpy(b_data(bp) + off % pmp->pm_BytesPerSec, buf, DIR_ENTRY_SIZE);
+	lmfs_markdirty(bp);
+	put_block(bp);
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				short_name_exists			     *
+ *===========================================================================*/
+static int short_name_exists(struct inode *dirp, const unsigned char name11[11])
+{
+/* Return TRUE if a live 8.3 entry with the given raw name already exists. */
+	struct direntry de;
+	unsigned long off = 0;
+	int r;
+
+	for (;;) {
+		if ((r = read_dir_slot(dirp, off, &de)) != OK)
+			return FALSE;	/* ENOENT == end of directory */
+		off += DIR_ENTRY_SIZE;
+		if (de.deName[0] == SLOT_EMPTY)
+			return FALSE;
+		if (de.deName[0] == SLOT_DELETED ||
+		    de.deAttributes == ATTR_WIN95)
+			continue;
+		if (!memcmp(de.deName, name11, 11))
+			return TRUE;
+	}
+}
+
+/*===========================================================================*
+ *				make_short_name				     *
+ *===========================================================================*/
+static void make_short_name(struct inode *dirp, const char *name,
+	unsigned char out11[11])
+{
+/* Derive a unique uppercase 8.3 short name (BASE~N.EXT) for 'name'. */
+	const char *dot;
+	char base[8], ext[3];
+	int bl = 0, el = 0, i, n;
+	unsigned char c;
+
+	dot = strrchr(name, '.');
+	for (i = 0; name[i] != '\0' && (dot == NULL || &name[i] < dot) &&
+	    bl < 6; i++) {
+		c = (unsigned char) name[i];
+		if (c == ' ' || c == '.')
+			continue;
+		if (c >= 'a' && c <= 'z')
+			c -= 'a' - 'A';
+		else if (c >= 0x80 || c < '0')
+			c = '_';
+		base[bl++] = c;
+	}
+	if (dot != NULL)
+		for (i = 1; dot[i] != '\0' && el < 3; i++) {
+			c = (unsigned char) dot[i];
+			if (c >= 'a' && c <= 'z')
+				c -= 'a' - 'A';
+			else if (c >= 0x80 || c < '0')
+				c = '_';
+			ext[el++] = c;
+		}
+
+	for (n = 1; n < 1000000; n++) {
+		char num[8];
+		int nl, k, p = 0;
+
+		nl = snprintf(num, sizeof(num), "~%d", n);
+		memset(out11, ' ', 11);
+		for (k = 0; k < bl && p < 8 - nl; k++)
+			out11[p++] = base[k];
+		for (k = 0; k < nl; k++)
+			out11[p++] = num[k];
+		for (k = 0; k < el; k++)
+			out11[8 + k] = ext[k];
+		if (!short_name_exists(dirp, out11))
+			return;
+	}
+}
+
+/*===========================================================================*
+ *				put_wchar				     *
+ *===========================================================================*/
+static void put_wchar(struct winentry *wep, int k, unsigned int wc)
+{
+/* Store the k-th (0..12) UTF-16LE character of a long-name slot. */
+	uint8_t *p;
+
+	if (k < 5)
+		p = &wep->wePart1[k * 2];
+	else if (k < 11)
+		p = &wep->wePart2[(k - 5) * 2];
+	else
+		p = &wep->wePart3[(k - 11) * 2];
+	p[0] = wc & 0xff;
+	p[1] = (wc >> 8) & 0xff;
+}
+
+/*===========================================================================*
+ *				fill_winentry				     *
+ *===========================================================================*/
+static void fill_winentry(struct winentry *wep, const char *name, int chunklen,
+	int seq, int last, int chksum)
+{
+	int k;
+
+	memset(wep, 0, DIR_ENTRY_SIZE);
+	wep->weCnt = seq | (last ? WIN_LAST : 0);
+	wep->weAttributes = ATTR_WIN95;
+	wep->weChksum = (uint8_t) chksum;
+
+	for (k = 0; k < WIN_CHARS; k++) {
+		unsigned int wc;
+
+		if (k < chunklen)
+			wc = (unsigned char) name[k];
+		else if (k == chunklen)
+			wc = 0x0000;	/* terminator */
+		else
+			wc = 0xffff;	/* padding */
+		put_wchar(wep, k, wc);
+	}
+}
+
+/*===========================================================================*
+ *				find_free_slots				     *
+ *===========================================================================*/
+static int find_free_slots(struct inode *dirp, int need, unsigned long *off_out)
+{
+/* Find a run of 'need' consecutive free directory slots, extending the
+ * directory by clusters when possible.  FAT12/16 root cannot grow.
+ */
+	struct direntry de;
+	unsigned long off = 0, runstart = 0;
+	int run = 0, r;
+
+	for (;;) {
+		r = read_dir_slot(dirp, off, &de);
+		if (r == ENOENT) {
+			if (dirp->i_root && !FAT32(pmp))
+				return ENOSPC;	/* fixed-size root */
+			if ((r = extend_file(dirp, off + pmp->pm_bpcluster)) != OK)
+				return r;
+			continue;		/* retry: new cluster is zeroed */
+		}
+		if (r != OK)
+			return r;
+
+		if (de.deName[0] == SLOT_EMPTY ||
+		    de.deName[0] == SLOT_DELETED) {
+			if (run == 0)
+				runstart = off;
+			if (++run >= need) {
+				*off_out = runstart;
+				return OK;
+			}
+		} else
+			run = 0;
+		off += DIR_ENTRY_SIZE;
+	}
+}
+
+/*===========================================================================*
+ *				createde				     *
+ *===========================================================================*/
+static int createde(struct inode *dirp, const char *name, uint8_t attrs,
+	unsigned long start, uint32_t size, unsigned long *short_off_out)
+{
+/* Create a directory entry (long-name slots + 8.3 entry) for 'name'. */
+	unsigned char name11[11];
+	struct direntry de;
+	struct winentry we;
+	uint16_t dosdate, dostime;
+	unsigned long off;
+	int namelen, nslots, p, chksum, r;
+
+	namelen = (int) strlen(name);
+	if (namelen == 0 || namelen > WIN_MAXLEN)
+		return EINVAL;
+
+	make_short_name(dirp, name, name11);
+	chksum = winchksum(name11);
+	nslots = (namelen + WIN_CHARS - 1) / WIN_CHARS;
+
+	if ((r = find_free_slots(dirp, nslots + 1, &off)) != OK)
+		return r;
+
+	for (p = 0; p < nslots; p++) {
+		int seq = nslots - p;
+		int cstart = (seq - 1) * WIN_CHARS;
+		int clen = namelen - cstart;
+
+		if (clen > WIN_CHARS)
+			clen = WIN_CHARS;
+		fill_winentry(&we, name + cstart, clen, seq, p == 0, chksum);
+		if ((r = write_dir_slot(dirp, off + p * DIR_ENTRY_SIZE,
+		    &we)) != OK)
+			return r;
+	}
+
+	memset(&de, 0, sizeof(de));
+	memcpy(de.deName, name11, 11);
+	de.deAttributes = attrs;
+	putushort(de.deStartCluster, start & 0xffff);
+	if (FAT32(pmp))
+		putushort(de.deHighClust, (start >> 16) & 0xffff);
+	putulong(de.deFileSize, size);
+	unix2dostime(vfat_now(), &dosdate, &dostime);
+	putushort(de.deMDate, dosdate);
+	putushort(de.deMTime, dostime);
+	putushort(de.deCDate, dosdate);
+	putushort(de.deCTime, dostime);
+	putushort(de.deADate, dosdate);
+
+	if ((r = write_dir_slot(dirp, off + nslots * DIR_ENTRY_SIZE,
+	    &de)) != OK)
+		return r;
+
+	*short_off_out = off + nslots * DIR_ENTRY_SIZE;
+	return OK;
+}
+
+/*===========================================================================*
+ *				removede				     *
+ *===========================================================================*/
+static int removede(struct inode *dirp, unsigned long short_off)
+{
+/* Mark the 8.3 entry at short_off, and the long-name slots preceding it,
+ * as deleted.
+ */
+	struct direntry de;
+	unsigned long off = short_off;
+	int r;
+
+	if ((r = read_dir_slot(dirp, off, &de)) != OK)
+		return r;
+	de.deName[0] = SLOT_DELETED;
+	if ((r = write_dir_slot(dirp, off, &de)) != OK)
+		return r;
+
+	while (off >= DIR_ENTRY_SIZE) {
+		off -= DIR_ENTRY_SIZE;
+		if ((r = read_dir_slot(dirp, off, &de)) != OK)
+			break;
+		if (de.deAttributes != ATTR_WIN95 ||
+		    de.deName[0] == SLOT_DELETED)
+			break;
+		de.deName[0] = SLOT_DELETED;
+		if ((r = write_dir_slot(dirp, off, &de)) != OK)
+			return r;
+	}
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				node_from_dirent			     *
+ *===========================================================================*/
+static int node_from_dirent(struct inode *dirp, unsigned long short_off,
+	struct fsdriver_node *node)
+{
+/* After creating an entry, build its inode and fill the reply node. */
+	struct inode *rip;
+	struct direntry de;
+	int r;
+
+	if ((r = read_dir_slot(dirp, short_off, &de)) != OK)
+		return r;
+	if ((rip = enter_inode(dirp->i_start, short_off, &de)) == NULL)
+		return ENFILE;
+
+	node->fn_ino_nr = rip->i_num;
+	node->fn_mode = rip->i_mode;
+	node->fn_size = rip->i_size;
+	node->fn_uid = pmp->pm_uid;
+	node->fn_gid = pmp->pm_gid;
+	node->fn_dev = NO_DEV;
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				fs_create				     *
+ *===========================================================================*/
+int fs_create(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
+	struct fsdriver_node *node)
+{
+	struct inode *dirp;
+	struct direntry de;
+	unsigned long soff;
+	int r;
+
+	(void) mode; (void) uid; (void) gid;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+	if ((dirp = find_inode(dir_nr)) == NULL)
+		return EINVAL;
+	if (!(dirp->i_attrs & ATTR_DIRECTORY))
+		return ENOTDIR;
+
+	if ((r = find_entry(dirp, name, &de, &soff)) < 0)
+		return -r;
+	if (r == 1)
+		return EEXIST;
+
+	if ((r = createde(dirp, name, ATTR_ARCHIVE, 0, 0, &soff)) != OK)
+		return r;
+
+	return node_from_dirent(dirp, soff, node);
+}
+
+/*===========================================================================*
+ *				write_dot_entries			     *
+ *===========================================================================*/
+static int write_dot_entries(unsigned long cn, unsigned long parentcn)
+{
+/* Write the "." and ".." entries into the first sector of new directory
+ * cluster cn.  parentcn is the parent's start cluster (0 for the root).
+ */
+	struct buf *bp;
+	struct direntry *dep;
+	uint16_t dosdate, dostime;
+	unsigned long sec;
+
+	sec = cntobn(pmp, cn);
+	if ((bp = get_block(pmp->pm_dev, sec, NORMAL)) == NULL)
+		return EIO;
+
+	unix2dostime(vfat_now(), &dosdate, &dostime);
+
+	dep = (struct direntry *) b_data(bp);
+	memset(dep, 0, 2 * DIR_ENTRY_SIZE);
+
+	memset(dep[0].deName, ' ', 11);
+	dep[0].deName[0] = '.';
+	dep[0].deAttributes = ATTR_DIRECTORY;
+	putushort(dep[0].deStartCluster, cn & 0xffff);
+	if (FAT32(pmp))
+		putushort(dep[0].deHighClust, (cn >> 16) & 0xffff);
+	putushort(dep[0].deMDate, dosdate);
+	putushort(dep[0].deMTime, dostime);
+
+	memset(dep[1].deName, ' ', 11);
+	dep[1].deName[0] = '.';
+	dep[1].deName[1] = '.';
+	dep[1].deAttributes = ATTR_DIRECTORY;
+	putushort(dep[1].deStartCluster, parentcn & 0xffff);
+	if (FAT32(pmp))
+		putushort(dep[1].deHighClust, (parentcn >> 16) & 0xffff);
+	putushort(dep[1].deMDate, dosdate);
+	putushort(dep[1].deMTime, dostime);
+
+	lmfs_markdirty(bp);
+	put_block(bp);
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				fs_mkdir				     *
+ *===========================================================================*/
+int fs_mkdir(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid)
+{
+	struct inode *dirp;
+	struct direntry de;
+	unsigned long soff, newcn, parentcn;
+	int r;
+
+	(void) mode; (void) uid; (void) gid;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+	if ((dirp = find_inode(dir_nr)) == NULL)
+		return EINVAL;
+	if (!(dirp->i_attrs & ATTR_DIRECTORY))
+		return ENOTDIR;
+
+	if ((r = find_entry(dirp, name, &de, &soff)) < 0)
+		return -r;
+	if (r == 1)
+		return EEXIST;
+
+	/* Allocate and initialize the new directory's first cluster. */
+	if ((r = cluster_alloc(0, &newcn)) != OK)
+		return r;
+	if ((r = zero_cluster(newcn)) != OK)
+		return r;
+
+	parentcn = dirp->i_root ? 0 : dirp->i_start;
+	if ((r = write_dot_entries(newcn, parentcn)) != OK)
+		return r;
+
+	if ((r = createde(dirp, name, ATTR_DIRECTORY, newcn, 0, &soff)) != OK) {
+		(void) free_chain(newcn);
+		return r;
+	}
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				dir_is_empty				     *
+ *===========================================================================*/
+static int dir_is_empty(unsigned long start)
+{
+/* Return TRUE if the directory whose first cluster is 'start' contains no
+ * entries other than "." and "..".
+ */
+	struct inode tmp;
+	struct de_iter it;
+	struct direntry de;
+	char entname[WIN_MAXLEN + 1];
+	unsigned long soff;
+	int r;
+
+	memset(&tmp, 0, sizeof(tmp));
+	tmp.i_start = start;
+	tmp.i_attrs = ATTR_DIRECTORY;
+	fc_init(&tmp);
+
+	de_iter_init(&it, &tmp, 0);
+	while ((r = de_next(&it, entname, sizeof(entname), &de, &soff)) > 0)
+		if (strcmp(entname, ".") && strcmp(entname, ".."))
+			return FALSE;
+
+	return TRUE;
+}
+
+/*===========================================================================*
+ *				fs_unlink				     *
+ *===========================================================================*/
+int fs_unlink(ino_t dir_nr, char *name, int call)
+{
+	struct inode *dirp;
+	struct direntry de;
+	unsigned long soff, start;
+	int r, isdir;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+	if ((dirp = find_inode(dir_nr)) == NULL)
+		return EINVAL;
+	if (!(dirp->i_attrs & ATTR_DIRECTORY))
+		return ENOTDIR;
+
+	if ((r = find_entry(dirp, name, &de, &soff)) < 0)
+		return -r;
+	if (r == 0)
+		return ENOENT;
+
+	isdir = (de.deAttributes & ATTR_DIRECTORY) ? 1 : 0;
+	if (call == FSC_RMDIR && !isdir)
+		return ENOTDIR;
+	if (call == FSC_UNLINK && isdir)
+		return EPERM;
+
+	start = getushort(de.deStartCluster);
+	if (FAT32(pmp))
+		start |= (unsigned long) getushort(de.deHighClust) << 16;
+
+	if (call == FSC_RMDIR) {
+		if (!strcmp(name, ".") || !strcmp(name, ".."))
+			return EINVAL;
+		if (!dir_is_empty(start))
+			return ENOTEMPTY;
+	}
+
+	if ((r = removede(dirp, soff)) != OK)
+		return r;
+
+	if (start >= CLUST_FIRST && start <= pmp->pm_maxcluster)
+		if ((r = free_chain(start)) != OK)
+			return r;
+
+	return OK;
+}

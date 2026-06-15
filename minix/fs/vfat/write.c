@@ -58,7 +58,7 @@ int update_direntry(struct inode *rip)
 /*===========================================================================*
  *				zero_cluster				     *
  *===========================================================================*/
-static int zero_cluster(unsigned long cn)
+int zero_cluster(unsigned long cn)
 {
 /* Zero every sector of data cluster cn (used when growing files/dirs). */
 	unsigned long bn, s;

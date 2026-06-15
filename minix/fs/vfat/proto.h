@@ -36,6 +36,7 @@ unsigned long entry_sector(unsigned long dirclust, unsigned long diroffset);
 /* write.c */
 int update_direntry(struct inode *rip);
 int extend_file(struct inode *rip, uint32_t newsize);
+int zero_cluster(unsigned long cn);
 int fs_trunc(ino_t ino_nr, off_t start, off_t end);
 void fs_sync(void);
 time_t vfat_now(void);
@@ -45,6 +46,10 @@ int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
 	int *is_mountpt);
 ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t *pos);
+int fs_create(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
+	struct fsdriver_node *node);
+int fs_mkdir(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid);
+int fs_unlink(ino_t dir_nr, char *name, int call);
 
 /* name.c */
 void unix2dostime(time_t t, uint16_t *ddp, uint16_t *dtp);
