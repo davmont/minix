@@ -14,9 +14,7 @@ struct fsdriver isofs_table = {
 	.fdr_lookup	= fs_lookup,
 	.fdr_putnode	= fs_putnode,
 	.fdr_read	= fs_read,
-#if 0 /* FIXME: isofs uses subpage block sizes */
-	.fdr_peek	= fs_read,
-#endif
+	.fdr_peek	= fs_peek,	/* assembles full pages despite 2K blocks */
 	.fdr_getdents	= fs_getdents,
 	.fdr_rdlink	= fs_rdlink,
 	.fdr_stat	= fs_stat,
@@ -25,8 +23,6 @@ struct fsdriver isofs_table = {
 	.fdr_driver	= lmfs_driver,
 	.fdr_bread	= lmfs_bio,
 	.fdr_bwrite	= lmfs_bio,
-#if 0 /* FIXME: isofs uses subpage block sizes */
-	.fdr_bpeek	= lmfs_bio,
-#endif
+	.fdr_bpeek	= lmfs_bio,	/* device-level peek (block-special) */
 	.fdr_bflush	= lmfs_bflush
 };
