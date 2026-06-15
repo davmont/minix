@@ -280,6 +280,15 @@ char mount_label[LABEL_MAX] )
 
   new_vmp->m_fs_flags = fs_flags;
 
+  /*
+   * The file system may have downgraded the mount to read-only on its own
+   * (e.g. ext2 mounting an unclean or feature-rich volume that it can only
+   * read).  Honor that so VFS rejects writes up front and the mount is
+   * correctly reported as read-only.
+   */
+  if (fs_flags & RES_RDONLY)
+	new_vmp->m_flags |= VMNT_READONLY;
+
   /* Fill the statvfs cache with initial values. */
   if (r == OK)
 	r = update_statvfs(new_vmp, &statvfs_buf);

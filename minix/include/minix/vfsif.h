@@ -21,6 +21,7 @@
 #define RES_THREADED		001	/* FS supports multithreading */
 #define RES_HASPEEK		002	/* FS implements REQ_PEEK/REQ_BPEEK */
 #define RES_64BIT		004	/* FS can handle 64-bit file sizes */
+#define RES_RDONLY		010	/* FS forced a read-only mount */
 
 /* VFS/FS error messages */
 #define EENTERMOUNT              (-301)

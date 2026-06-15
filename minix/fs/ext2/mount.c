@@ -49,43 +49,65 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 
   if (superblock->s_rev_level != EXT2_GOOD_OLD_REV) {
 	struct super_block *sp = superblock; /* just shorter name */
+
+	/*
+	 * Truly unsupported INCOMPAT features make the file system
+	 * unmountable.  INCOMPAT_RECOVER is the exception: it means an ext3
+	 * journal still needs to be replayed.  We have no journal support,
+	 * but we can mount such a file system read-only and ignore the journal
+	 * (as Linux does with "ro,noload"); the on-disk state is the last
+	 * checkpoint, which is consistent enough to read.
+	 */
 	mask = ~SUPPORTED_INCOMPAT_FEATURES;
-	if (HAS_INCOMPAT_FEATURE(sp, mask)) {
+	if (HAS_INCOMPAT_FEATURE(sp, mask & ~INCOMPAT_RECOVER)) {
 		if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_COMPRESSION & mask))
 			printf("ext2: fs compression is not supported by server\n");
 		if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_FILETYPE & mask))
 			printf("ext2: fs in dir filetype is not supported by server\n");
-		if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_RECOVER & mask))
-			printf("ext2: fs recovery is not supported by server\n");
 		if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_JOURNAL_DEV & mask))
 			printf("ext2: fs journal dev is not supported by server\n");
 		if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_META_BG & mask))
 			printf("ext2: fs meta bg is not supported by server\n");
+		superblock->s_dev = NO_DEV;
+		bdev_close(fs_dev);
 		return(EINVAL);
 	}
+	if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_RECOVER)) {
+		printf("ext2: fs has an unrecovered journal; "
+			"mounting read-only and ignoring it\n");
+		readonly = 1;
+	}
+
+	/*
+	 * Unsupported RO_COMPAT features are, by definition, safe to ignore as
+	 * long as the file system is mounted read-only.  Do that instead of
+	 * refusing the mount.
+	 */
 	mask = ~SUPPORTED_RO_COMPAT_FEATURES;
 	if (HAS_RO_COMPAT_FEATURE(sp, mask)) {
-		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_SPARSE_SUPER & mask)) {
-			printf("ext2: sparse super is not supported by server, \
-				remount read-only\n");
-		}
-		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_LARGE_FILE & mask)) {
-			printf("ext2: large files are not supported by server, \
-				remount read-only\n");
-		}
-		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_BTREE_DIR & mask)) {
-			printf("ext2: dir's btree is not supported by server, \
-				remount read-only\n");
-		}
-		return(EINVAL);
+		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_SPARSE_SUPER & mask))
+			printf("ext2: sparse super not supported; "
+				"mounting read-only\n");
+		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_LARGE_FILE & mask))
+			printf("ext2: large files not supported; "
+				"mounting read-only\n");
+		if (HAS_RO_COMPAT_FEATURE(sp, RO_COMPAT_BTREE_DIR & mask))
+			printf("ext2: dir btree not supported; "
+				"mounting read-only\n");
+		readonly = 1;
 	}
   }
 
-  if (superblock->s_state == EXT2_ERROR_FS) {
-	printf("ext2: filesystem wasn't cleanly unmounted last time\n");
-        superblock->s_dev = NO_DEV;
-	bdev_close(fs_dev);
-	return(EINVAL);
+  /*
+   * If the file system was not cleanly unmounted, it may be inconsistent.
+   * Rather than refuse it outright, mount it read-only so its contents can
+   * still be read (e.g. to recover data); a read-write mount would risk
+   * further damage and requires a fsck first.
+   */
+  if (superblock->s_state == EXT2_ERROR_FS && !readonly) {
+	printf("ext2: fs wasn't cleanly unmounted; mounting read-only "
+		"(fsck recommended)\n");
+	readonly = 1;
   }
 
   lmfs_set_blocksize(superblock->s_block_size);
@@ -143,6 +165,14 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
    * file mmap() with EINVAL and dynamically-linked binaries fail to load.
    */
   *res_flags = lmfs_vmcache_enabled() ? RES_HASPEEK : RES_NOFLAGS;
+
+  /*
+   * Tell VFS if we downgraded the mount to read-only (unclean fs, journal to
+   * recover, or an unsupported RO_COMPAT feature) so it rejects writes up
+   * front and reports the mount correctly.
+   */
+  if (readonly)
+	*res_flags |= RES_RDONLY;
 
   return(r);
 }
