@@ -93,6 +93,23 @@ int do_sdevio(struct proc * caller, message *m_ptr)
   }
      /* current process must be target for phys_* to be OK */
 
+  /*
+   * For an input transfer (device -> memory) the destination buffer in the
+   * target process may be a freshly mmap'd, demand-zero page that is not yet
+   * physically backed (e.g. ext2's read_super buffer).  The raw PIO below
+   * (phys_ins*) writes straight to physical memory and cannot fault such a
+   * page in, which panics the kernel with a nested pagefault.  Touch the
+   * buffer first via vm_memset(), which makes VM map every page present and
+   * writable -- suspending and retrying this call through VMSUSPEND if a page
+   * must be faulted in.  Zeroing is harmless since the device data that we are
+   * about to read overwrites the buffer anyway.
+   */
+  if (req_dir == _DIO_INPUT && count > 0) {
+	r = vm_memset(caller, destproc->p_endpoint, vir_buf, 0, count);
+	if (r != OK)
+		return r;	/* VMSUSPEND (retried) or a real fault */
+  }
+
   switch_address_space(destproc);
 
   switch (req_type)
