@@ -53,6 +53,38 @@ void dos2unixtime(unsigned int dd, unsigned int dt, struct timespec *tsp)
 }
 
 /*===========================================================================*
+ *				unix2dostime				     *
+ *===========================================================================*/
+void unix2dostime(time_t t, uint16_t *ddp, uint16_t *dtp)
+{
+/* Convert a Unix timestamp (UTC) into DOS date (dd) and time (dt) words.
+ * DOS cannot represent dates before 1980; such times become 0.
+ */
+	struct tm tmv;
+
+	if (t < 0) {
+		*ddp = 0;
+		*dtp = 0;
+		return;
+	}
+
+	(void) gmtime_r(&t, &tmv);
+
+	if (tmv.tm_year + 1900 < 1980 || tmv.tm_year + 1900 > 1980 + 127) {
+		*ddp = 0;
+		*dtp = 0;
+		return;
+	}
+
+	*ddp = (tmv.tm_mday << DD_DAY_SHIFT) +
+	    ((tmv.tm_mon + 1) << DD_MONTH_SHIFT) +
+	    ((tmv.tm_year + 1900 - 1980) << DD_YEAR_SHIFT);
+	*dtp = ((tmv.tm_sec / 2) << DT_2SECONDS_SHIFT) +
+	    (tmv.tm_min << DT_MINUTES_SHIFT) +
+	    (tmv.tm_hour << DT_HOURS_SHIFT);
+}
+
+/*===========================================================================*
  *				dos2unixfn				     *
  *===========================================================================*/
 int dos2unixfn(const unsigned char dn[11], unsigned char *un, int lower)

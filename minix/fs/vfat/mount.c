@@ -154,10 +154,12 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 {
 	struct buf *bp;
 	struct inode *root;
-	int r;
+	int r, readonly;
 
-	/* FAT is read-only here; open the device read-only regardless. */
-	if (bdev_open(dev, BDEV_R_BIT) != OK)
+	readonly = (flags & REQ_RDONLY) ? 1 : 0;
+
+	if (bdev_open(dev, readonly ? BDEV_R_BIT : (BDEV_R_BIT | BDEV_W_BIT))
+	    != OK)
 		return EINVAL;
 
 	pmp = &fat_mount;
@@ -183,15 +185,22 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	}
 
 	pmp->pm_dev = dev;
+	pmp->pm_rdonly = readonly;
 	pmp->pm_uid = 0;
 	pmp->pm_gid = 0;
 	pmp->pm_mask = DEFAULT_FMASK;
 	pmp->pm_dirmask = DEFAULT_DMASK;
+	pmp->pm_inusemap = NULL;
 
-	/* Advertise total/used space (free count unknown -> all used). */
-	lmfs_set_blockusage(
-	    pmp->pm_HugeSectors,	/* total sectors */
-	    pmp->pm_HugeSectors);	/* treat as fully used (RO) */
+	/* Build the in-use cluster bitmap (needed for allocation + free count). */
+	if ((r = fill_inusemap()) != OK) {
+		bdev_close(dev);
+		return r;
+	}
+
+	/* Advertise total/used cluster counts to libminixfs. */
+	lmfs_set_blockusage(pmp->pm_nmbrofclusters,
+	    pmp->pm_nmbrofclusters - pmp->pm_freeclustercount);
 
 	mounted = TRUE;
 
@@ -209,8 +218,8 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	root_node->fn_gid = pmp->pm_gid;
 	root_node->fn_dev = NO_DEV;
 
-	/* Read-only file system: have VFS reject writes up front. */
-	*res_flags = RES_RDONLY;
+	/* If mounted read-only, tell VFS so it rejects writes up front. */
+	*res_flags = readonly ? RES_RDONLY : RES_NOFLAGS;
 
 	return OK;
 }
@@ -230,6 +239,11 @@ void fs_unmount(void)
 
 	bdev_close(pmp->pm_dev);
 	lmfs_invalidate(pmp->pm_dev);
+
+	if (pmp->pm_inusemap != NULL) {
+		free(pmp->pm_inusemap);
+		pmp->pm_inusemap = NULL;
+	}
 
 	mounted = FALSE;
 	pmp = NULL;

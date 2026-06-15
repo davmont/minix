@@ -39,7 +39,16 @@ struct fat_mount {
 	unsigned int pm_curfat;		/* current FAT for FAT32 (0 otherwise) */
 	unsigned int pm_flags;		/* see msdosfsmount option flags */
 	int pm_rootmode;		/* mode bits for the root directory */
+
+	/* Writable-mount state. */
+	int pm_rdonly;			/* TRUE if mounted read-only */
+	unsigned int *pm_inusemap;	/* bitmap of in-use clusters */
+	unsigned long pm_freeclustercount;	/* number of free clusters */
+	unsigned long pm_nxtfree;	/* next free cluster hint */
 };
+
+/* Number of clusters represented per pm_inusemap word. */
+#define N_INUSEBITS	(8 * sizeof(unsigned int))
 
 /* Shorthand for the BPB fields kept inside the mount. */
 #define pm_BytesPerSec	pm_bpb.bpbBytesPerSec

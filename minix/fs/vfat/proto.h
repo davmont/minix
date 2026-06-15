@@ -24,8 +24,21 @@ int fs_putnode(ino_t ino_nr, unsigned int count);
 /* fat.c */
 int bmap(struct inode *rip, unsigned long frcn, unsigned long *bnp,
 	unsigned long *cnp, unsigned long *sizep);
+int chain_nth(unsigned long start, unsigned long frcn, unsigned long *cnp);
 int fatentry_get(unsigned long cn, unsigned long *outcn);
 void fc_init(struct inode *rip);
+int fat_set(unsigned long cn, unsigned long val);
+int fill_inusemap(void);
+int cluster_alloc(unsigned long prev, unsigned long *newcn);
+int free_chain(unsigned long startcn);
+unsigned long entry_sector(unsigned long dirclust, unsigned long diroffset);
+
+/* write.c */
+int update_direntry(struct inode *rip);
+int extend_file(struct inode *rip, uint32_t newsize);
+int fs_trunc(ino_t ino_nr, off_t start, off_t end);
+void fs_sync(void);
+time_t vfat_now(void);
 
 /* direntry.c */
 int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
@@ -34,6 +47,7 @@ ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t *pos);
 
 /* name.c */
+void unix2dostime(time_t t, uint16_t *ddp, uint16_t *dtp);
 int dos2unixfn(const unsigned char dn[11], unsigned char *un, int lower);
 int win2unixfn(const struct winentry *wep, unsigned char *un, size_t unsize,
 	int chksum);

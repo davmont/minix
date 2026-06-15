@@ -42,8 +42,8 @@ int fs_statvfs(struct statvfs *st)
 	st->f_frsize = pmp->pm_bpcluster;
 	st->f_iosize = pmp->pm_bpcluster;
 	st->f_blocks = pmp->pm_nmbrofclusters;
-	st->f_bfree = 0;		/* free-cluster count not tracked (RO) */
-	st->f_bavail = 0;
+	st->f_bfree = pmp->pm_freeclustercount;
+	st->f_bavail = pmp->pm_freeclustercount;
 	st->f_files = 0;
 	st->f_ffree = 0;
 	st->f_favail = 0;
