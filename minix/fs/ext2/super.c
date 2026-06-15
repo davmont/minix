@@ -82,6 +82,14 @@ register struct super_block *sp; /* pointer to a superblock */
 	PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   if (ondisk_superblock == MAP_FAILED)
 	panic("can't allocate buffer for super block");
+  /*
+   * Fault the buffer in before handing it to bdev_read().  On a PIO (no-DMA)
+   * disk the driver fills it via the kernel's phys_ins* path, which writes the
+   * buffer through our page tables but -- being a raw port-I/O instruction --
+   * cannot fault in this freshly mmap'd, still demand-zero page; touching it
+   * here makes it present and writable first.
+   */
+  memset(ondisk_superblock, 0, SUPER_SIZE_D);
 
   dev = sp->s_dev;              /* save device (will be overwritten by copy) */
   if (dev == NO_DEV)
@@ -158,6 +166,8 @@ register struct super_block *sp; /* pointer to a superblock */
 	PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   if (ondisk_group_descs == MAP_FAILED)
 	panic("can't allocate group desc array");
+  /* Fault in before bdev_read(); see the superblock buffer above. */
+  memset(ondisk_group_descs, 0, gd_size * sizeof(struct group_desc));
 
   /* s_first_data_block (block number, where superblock is stored)
    * is 1 for 1Kb blocks and 0 for larger blocks.
