@@ -831,3 +831,123 @@ int fs_unlink(ino_t dir_nr, char *name, int call)
 
 	return OK;
 }
+
+/*===========================================================================*
+ *				update_dotdot				     *
+ *===========================================================================*/
+static int update_dotdot(unsigned long dir_start, unsigned long new_parent)
+{
+/* Point the ".." entry in the directory whose first cluster is dir_start at
+ * new_parent (0 for the root).  ".." is the second slot of the first cluster.
+ */
+	struct buf *bp;
+	struct direntry *dep;
+	unsigned long sec;
+
+	sec = cntobn(pmp, dir_start);
+	if ((bp = get_block(pmp->pm_dev, sec, NORMAL)) == NULL)
+		return EIO;
+
+	dep = &((struct direntry *) b_data(bp))[1];	/* ".." */
+	putushort(dep->deStartCluster, new_parent & 0xffff);
+	if (FAT32(pmp))
+		putushort(dep->deHighClust, (new_parent >> 16) & 0xffff);
+
+	lmfs_markdirty(bp);
+	put_block(bp);
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				dirent_start				     *
+ *===========================================================================*/
+static unsigned long dirent_start(const struct direntry *de)
+{
+	unsigned long start = getushort(de->deStartCluster);
+
+	if (FAT32(pmp))
+		start |= (unsigned long) getushort(de->deHighClust) << 16;
+	return start;
+}
+
+/*===========================================================================*
+ *				fs_rename				     *
+ *===========================================================================*/
+int fs_rename(ino_t old_dir_nr, char *old_name, ino_t new_dir_nr,
+	char *new_name)
+{
+	struct inode *old_dirp, *new_dirp, *rip;
+	struct direntry old_de, new_de;
+	unsigned long old_soff, new_soff, start, size;
+	uint8_t attrs;
+	int r, isdir;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+
+	if ((old_dirp = find_inode(old_dir_nr)) == NULL ||
+	    (new_dirp = find_inode(new_dir_nr)) == NULL)
+		return EINVAL;
+	if (!(old_dirp->i_attrs & ATTR_DIRECTORY) ||
+	    !(new_dirp->i_attrs & ATTR_DIRECTORY))
+		return ENOTDIR;
+
+	/* Locate the source. */
+	if ((r = find_entry(old_dirp, old_name, &old_de, &old_soff)) < 0)
+		return -r;
+	if (r == 0)
+		return ENOENT;
+
+	isdir = (old_de.deAttributes & ATTR_DIRECTORY) ? 1 : 0;
+	start = dirent_start(&old_de);
+	size = getulong(old_de.deFileSize);
+	attrs = old_de.deAttributes;
+
+	/* No-op rename onto the exact same entry. */
+	if (old_dirp == new_dirp && !strcmp(old_name, new_name))
+		return OK;
+
+	/* Replace an existing target, if any. */
+	if ((r = find_entry(new_dirp, new_name, &new_de, &new_soff)) < 0)
+		return -r;
+	if (r == 1) {
+		int tisdir = (new_de.deAttributes & ATTR_DIRECTORY) ? 1 : 0;
+		unsigned long tstart = dirent_start(&new_de);
+
+		if (isdir != tisdir)
+			return isdir ? ENOTDIR : EISDIR;
+		if (tisdir && !dir_is_empty(tstart))
+			return ENOTEMPTY;
+		if ((r = removede(new_dirp, new_soff)) != OK)
+			return r;
+		if (tstart >= CLUST_FIRST && tstart <= pmp->pm_maxcluster)
+			if ((r = free_chain(tstart)) != OK)
+				return r;
+	}
+
+	/* Create the destination entry, then drop the source. */
+	if ((r = createde(new_dirp, new_name, attrs, start, (uint32_t) size,
+	    &new_soff)) != OK)
+		return r;
+	if ((r = removede(old_dirp, old_soff)) != OK)
+		return r;
+
+	/* A directory moved to a different parent needs its ".." fixed. */
+	if (isdir && old_dirp != new_dirp && start >= CLUST_FIRST) {
+		unsigned long np = new_dirp->i_root ? 0 : new_dirp->i_start;
+
+		if ((r = update_dotdot(start, np)) != OK)
+			return r;
+	}
+
+	/* Re-key a cached inode to its new directory-entry location. */
+	rip = find_inode(make_ino(old_dirp->i_start, old_soff));
+	if (rip != NULL) {
+		rip->i_num = make_ino(new_dirp->i_start, new_soff);
+		rip->i_dirclust = new_dirp->i_start;
+		rip->i_diroffset = new_soff;
+	}
+
+	return OK;
+}

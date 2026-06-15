@@ -38,7 +38,10 @@ int update_direntry(struct inode *rip);
 int extend_file(struct inode *rip, uint32_t newsize);
 int zero_cluster(unsigned long cn);
 int fs_trunc(ino_t ino_nr, off_t start, off_t end);
+int fs_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime);
+int fs_chmod(ino_t ino_nr, mode_t *mode);
 void fs_sync(void);
+void update_fsinfo(void);
 time_t vfat_now(void);
 
 /* direntry.c */
@@ -50,6 +53,8 @@ int fs_create(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
 	struct fsdriver_node *node);
 int fs_mkdir(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid);
 int fs_unlink(ino_t dir_nr, char *name, int call);
+int fs_rename(ino_t old_dir_nr, char *old_name, ino_t new_dir_nr,
+	char *new_name);
 
 /* name.c */
 void unix2dostime(time_t t, uint16_t *ddp, uint16_t *dtp);

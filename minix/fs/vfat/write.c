@@ -199,9 +199,90 @@ int fs_trunc(ino_t ino_nr, off_t start, off_t end)
 }
 
 /*===========================================================================*
+ *				fs_utime				     *
+ *===========================================================================*/
+int fs_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime)
+{
+/* Set a file's modification time.  FAT has no sub-second or full atime, so we
+ * honour mtime (and treat atime as advisory).
+ */
+	struct inode *rip;
+
+	(void) atime;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+	if ((rip = find_inode(ino_nr)) == NULL)
+		return EINVAL;
+
+	if (mtime->tv_nsec == UTIME_NOW)
+		rip->i_mtime = vfat_now();
+	else if (mtime->tv_nsec != UTIME_OMIT)
+		rip->i_mtime = mtime->tv_sec;
+
+	return update_direntry(rip);
+}
+
+/*===========================================================================*
+ *				fs_chmod				     *
+ *===========================================================================*/
+int fs_chmod(ino_t ino_nr, mode_t *mode)
+{
+/* The only permission bit FAT can represent is "read-only".  Map the absence
+ * of owner write permission to ATTR_READONLY and report back the mode we can
+ * actually honour.
+ */
+	struct inode *rip;
+	int r;
+
+	if (pmp->pm_rdonly)
+		return EROFS;
+	if ((rip = find_inode(ino_nr)) == NULL)
+		return EINVAL;
+
+	if (*mode & S_IWUSR)
+		rip->i_attrs &= ~ATTR_READONLY;
+	else
+		rip->i_attrs |= ATTR_READONLY;
+
+	node_to_mode(rip);
+	*mode = rip->i_mode;
+
+	if ((r = update_direntry(rip)) != OK)
+		return r;
+
+	return OK;
+}
+
+/*===========================================================================*
+ *				update_fsinfo				     *
+ *===========================================================================*/
+void update_fsinfo(void)
+{
+/* Write the current free-cluster count and next-free hint into the FAT32
+ * FSInfo block.  No-op for FAT12/16 or if there is no FSInfo block.
+ */
+	struct buf *bp;
+	struct fsinfo *fp;
+
+	if (pmp == NULL || pmp->pm_rdonly || !FAT32(pmp) || pmp->pm_fsinfo == 0)
+		return;
+
+	if ((bp = get_block(pmp->pm_dev, pmp->pm_fsinfo, NORMAL)) == NULL)
+		return;
+
+	fp = (struct fsinfo *) b_data(bp);
+	putulong(fp->fsinfree, pmp->pm_freeclustercount);
+	putulong(fp->fsinxtfree, pmp->pm_nxtfree);
+	lmfs_markdirty(bp);
+	put_block(bp);
+}
+
+/*===========================================================================*
  *				fs_sync					     *
  *===========================================================================*/
 void fs_sync(void)
 {
+	update_fsinfo();
 	lmfs_flushall();
 }

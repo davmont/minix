@@ -235,6 +235,7 @@ void fs_unmount(void)
 	if ((root = find_inode(ROOT_INODE)) != NULL)
 		put_inode(root);
 
+	update_fsinfo();
 	lmfs_flushall();
 
 	bdev_close(pmp->pm_dev);
