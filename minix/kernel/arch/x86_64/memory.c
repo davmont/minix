@@ -391,7 +391,16 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
 		if (new_cr3)
 			reload_cr3();
 
-		if ((pfa = phys_memset(ptr, pattern, chunk))) {
+		/*
+		 * createpde() signals an unmapped target page by returning a
+		 * zero-length chunk.  Unlike i386's windowed scheme, amd64's
+		 * phys_memset() would then write nothing and never fault, so the
+		 * loop would spin forever (chunk == 0 makes no progress).  Treat
+		 * it as the fault case ourselves -- exactly as lin_lin_copy()
+		 * does -- and ask VM to back the page (it is always a process
+		 * page here, so whoptr is non-NULL).
+		 */
+		if (chunk == 0 || (pfa = phys_memset(ptr, pattern, chunk))) {
 			if (whoptr) {
 				vm_suspend(caller, whoptr, ph, count,
 				           VMSTYPE_KERNELCALL, 1);
