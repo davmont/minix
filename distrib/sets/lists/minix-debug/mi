@@ -204,6 +204,7 @@
 ./usr/libdata/debug/service/memory.debug                minix-debug     debug
 ./usr/libdata/debug/service/mfs.debug                   minix-debug     debug
 ./usr/libdata/debug/service/mib.debug                   minix-debug     debug
+./usr/libdata/debug/service/vfat.debug                  minix-debug     debug
 ./usr/libdata/debug/service/pfs.debug                   minix-debug     debug
 ./usr/libdata/debug/service/pm.debug                    minix-debug     debug
 ./usr/libdata/debug/service/procfs.debug                minix-debug     debug
