@@ -69,7 +69,17 @@
 #include <krb5/hdb.h>
 #include <hdb-private.h>
 
+#if defined(__minix)
+/*
+ * MINIX: default to the SQLite HDB backend.  The historic default (db1/
+ * ndbm via dbopen(3)) fails with EINVAL on MINIX, whereas the SQLite
+ * backend works.  Selecting it here lets `kadmin -l' and the KDC open the
+ * database with no explicit `database = sqlite:...' in krb5.conf.
+ */
+#define HDB_DEFAULT_DB "sqlite:" HDB_DB_DIR "/heimdal"
+#else
 #define HDB_DEFAULT_DB HDB_DB_DIR "/heimdal"
+#endif
 #define HDB_DB_FORMAT_ENTRY "hdb/db-format"
 
 #endif /* __HDB_LOCL_H__ */
