@@ -1,4 +1,4 @@
-/*	$NetBSD: krb5.h,v 1.1.1.3 2014/04/24 12:45:50 pettai Exp $	*/
+/*	$NetBSD: krb5.h,v 1.3.8.1 2023/08/11 13:40:01 martin Exp $	*/
 
 /*
  * Copyright (c) 1997 - 2007 Kungliga Tekniska Högskolan
@@ -119,53 +119,52 @@ typedef struct krb5_enc_data {
 } krb5_enc_data;
 
 /* alternative names */
-enum {
-    ENCTYPE_NULL		= KRB5_ENCTYPE_NULL,
-    ENCTYPE_DES_CBC_CRC		= KRB5_ENCTYPE_DES_CBC_CRC,
-    ENCTYPE_DES_CBC_MD4		= KRB5_ENCTYPE_DES_CBC_MD4,
-    ENCTYPE_DES_CBC_MD5		= KRB5_ENCTYPE_DES_CBC_MD5,
-    ENCTYPE_DES3_CBC_MD5	= KRB5_ENCTYPE_DES3_CBC_MD5,
-    ENCTYPE_OLD_DES3_CBC_SHA1	= KRB5_ENCTYPE_OLD_DES3_CBC_SHA1,
-    ENCTYPE_SIGN_DSA_GENERATE	= KRB5_ENCTYPE_SIGN_DSA_GENERATE,
-    ENCTYPE_ENCRYPT_RSA_PRIV	= KRB5_ENCTYPE_ENCRYPT_RSA_PRIV,
-    ENCTYPE_ENCRYPT_RSA_PUB	= KRB5_ENCTYPE_ENCRYPT_RSA_PUB,
-    ENCTYPE_DES3_CBC_SHA1	= KRB5_ENCTYPE_DES3_CBC_SHA1,
-    ENCTYPE_AES128_CTS_HMAC_SHA1_96 = KRB5_ENCTYPE_AES128_CTS_HMAC_SHA1_96,
-    ENCTYPE_AES256_CTS_HMAC_SHA1_96 = KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96,
-    ENCTYPE_ARCFOUR_HMAC	= KRB5_ENCTYPE_ARCFOUR_HMAC_MD5,
-    ENCTYPE_ARCFOUR_HMAC_MD5	= KRB5_ENCTYPE_ARCFOUR_HMAC_MD5,
-    ENCTYPE_ARCFOUR_HMAC_MD5_56	= KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56,
-    ENCTYPE_ENCTYPE_PK_CROSS	= KRB5_ENCTYPE_ENCTYPE_PK_CROSS,
-    ENCTYPE_DES_CBC_NONE	= KRB5_ENCTYPE_DES_CBC_NONE,
-    ENCTYPE_DES3_CBC_NONE	= KRB5_ENCTYPE_DES3_CBC_NONE,
-    ENCTYPE_DES_CFB64_NONE	= KRB5_ENCTYPE_DES_CFB64_NONE,
-    ENCTYPE_DES_PCBC_NONE	= KRB5_ENCTYPE_DES_PCBC_NONE,
-    ETYPE_NULL			= KRB5_ENCTYPE_NULL,
-    ETYPE_DES_CBC_CRC		= KRB5_ENCTYPE_DES_CBC_CRC,
-    ETYPE_DES_CBC_MD4		= KRB5_ENCTYPE_DES_CBC_MD4,
-    ETYPE_DES_CBC_MD5		= KRB5_ENCTYPE_DES_CBC_MD5,
-    ETYPE_DES3_CBC_MD5		= KRB5_ENCTYPE_DES3_CBC_MD5,
-    ETYPE_OLD_DES3_CBC_SHA1	= KRB5_ENCTYPE_OLD_DES3_CBC_SHA1,
-    ETYPE_SIGN_DSA_GENERATE	= KRB5_ENCTYPE_SIGN_DSA_GENERATE,
-    ETYPE_ENCRYPT_RSA_PRIV	= KRB5_ENCTYPE_ENCRYPT_RSA_PRIV,
-    ETYPE_ENCRYPT_RSA_PUB	= KRB5_ENCTYPE_ENCRYPT_RSA_PUB,
-    ETYPE_DES3_CBC_SHA1		= KRB5_ENCTYPE_DES3_CBC_SHA1,
-    ETYPE_AES128_CTS_HMAC_SHA1_96	= KRB5_ENCTYPE_AES128_CTS_HMAC_SHA1_96,
-    ETYPE_AES256_CTS_HMAC_SHA1_96	= KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96,
-    ETYPE_ARCFOUR_HMAC_MD5	= KRB5_ENCTYPE_ARCFOUR_HMAC_MD5,
-    ETYPE_ARCFOUR_HMAC_MD5_56	= KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56,
-    ETYPE_ENCTYPE_PK_CROSS	= KRB5_ENCTYPE_ENCTYPE_PK_CROSS,
-    ETYPE_ARCFOUR_MD4		= KRB5_ENCTYPE_ARCFOUR_MD4,
-    ETYPE_ARCFOUR_HMAC_OLD	= KRB5_ENCTYPE_ARCFOUR_HMAC_OLD,
-    ETYPE_ARCFOUR_HMAC_OLD_EXP	= KRB5_ENCTYPE_ARCFOUR_HMAC_OLD_EXP,
-    ETYPE_DES_CBC_NONE		= KRB5_ENCTYPE_DES_CBC_NONE,
-    ETYPE_DES3_CBC_NONE		= KRB5_ENCTYPE_DES3_CBC_NONE,
-    ETYPE_DES_CFB64_NONE	= KRB5_ENCTYPE_DES_CFB64_NONE,
-    ETYPE_DES_PCBC_NONE		= KRB5_ENCTYPE_DES_PCBC_NONE,
-    ETYPE_DIGEST_MD5_NONE	= KRB5_ENCTYPE_DIGEST_MD5_NONE,
-    ETYPE_CRAM_MD5_NONE		= KRB5_ENCTYPE_CRAM_MD5_NONE
-
-};
+#define ENCTYPE_NULL KRB5_ENCTYPE_NULL
+#define ENCTYPE_DES_CBC_CRC KRB5_ENCTYPE_DES_CBC_CRC
+#define ENCTYPE_DES_CBC_MD4 KRB5_ENCTYPE_DES_CBC_MD4
+#define ENCTYPE_DES_CBC_MD5 KRB5_ENCTYPE_DES_CBC_MD5
+#define ENCTYPE_DES3_CBC_MD5 KRB5_ENCTYPE_DES3_CBC_MD5
+#define ENCTYPE_OLD_DES3_CBC_SHA1 KRB5_ENCTYPE_OLD_DES3_CBC_SHA1
+#define ENCTYPE_SIGN_DSA_GENERATE KRB5_ENCTYPE_SIGN_DSA_GENERATE
+#define ENCTYPE_ENCRYPT_RSA_PRIV KRB5_ENCTYPE_ENCRYPT_RSA_PRIV
+#define ENCTYPE_ENCRYPT_RSA_PUB KRB5_ENCTYPE_ENCRYPT_RSA_PUB
+#define ENCTYPE_DES3_CBC_SHA1 KRB5_ENCTYPE_DES3_CBC_SHA1
+#define ENCTYPE_AES128_CTS_HMAC_SHA1_96 KRB5_ENCTYPE_AES128_CTS_HMAC_SHA1_96
+#define ENCTYPE_AES256_CTS_HMAC_SHA1_96 KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96
+#define ENCTYPE_ARCFOUR_HMAC KRB5_ENCTYPE_ARCFOUR_HMAC_MD5
+#define ENCTYPE_ARCFOUR_HMAC_MD5 KRB5_ENCTYPE_ARCFOUR_HMAC_MD5
+#define ENCTYPE_ARCFOUR_HMAC_MD5_56 KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56
+#define ENCTYPE_ENCTYPE_PK_CROSS KRB5_ENCTYPE_ENCTYPE_PK_CROSS
+#define ENCTYPE_DES_CBC_NONE KRB5_ENCTYPE_DES_CBC_NONE
+#define ENCTYPE_DES3_CBC_NONE KRB5_ENCTYPE_DES3_CBC_NONE
+#define ENCTYPE_DES_CFB64_NONE KRB5_ENCTYPE_DES_CFB64_NONE
+#define ENCTYPE_DES_PCBC_NONE KRB5_ENCTYPE_DES_PCBC_NONE
+#define ETYPE_NULL KRB5_ENCTYPE_NULL
+#define ETYPE_DES_CBC_CRC KRB5_ENCTYPE_DES_CBC_CRC
+#define ETYPE_DES_CBC_MD4 KRB5_ENCTYPE_DES_CBC_MD4
+#define ETYPE_DES_CBC_MD5 KRB5_ENCTYPE_DES_CBC_MD5
+#define ETYPE_DES3_CBC_MD5 KRB5_ENCTYPE_DES3_CBC_MD5
+#define ETYPE_OLD_DES3_CBC_SHA1 KRB5_ENCTYPE_OLD_DES3_CBC_SHA1
+#define ETYPE_SIGN_DSA_GENERATE KRB5_ENCTYPE_SIGN_DSA_GENERATE
+#define ETYPE_ENCRYPT_RSA_PRIV KRB5_ENCTYPE_ENCRYPT_RSA_PRIV
+#define ETYPE_ENCRYPT_RSA_PUB KRB5_ENCTYPE_ENCRYPT_RSA_PUB
+#define ETYPE_DES3_CBC_SHA1 KRB5_ENCTYPE_DES3_CBC_SHA1
+#define ETYPE_AES128_CTS_HMAC_SHA1_96 KRB5_ENCTYPE_AES128_CTS_HMAC_SHA1_96
+#define ETYPE_AES256_CTS_HMAC_SHA1_96 KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96
+#define ETYPE_AES128_CTS_HMAC_SHA256_128 KRB5_ENCTYPE_AES128_CTS_HMAC_SHA256_128
+#define ETYPE_AES256_CTS_HMAC_SHA384_192 KRB5_ENCTYPE_AES256_CTS_HMAC_SHA384_192
+#define ETYPE_ARCFOUR_HMAC_MD5 KRB5_ENCTYPE_ARCFOUR_HMAC_MD5
+#define ETYPE_ARCFOUR_HMAC_MD5_56 KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56
+#define ETYPE_ENCTYPE_PK_CROSS KRB5_ENCTYPE_ENCTYPE_PK_CROSS
+#define ETYPE_ARCFOUR_MD4 KRB5_ENCTYPE_ARCFOUR_MD4
+#define ETYPE_ARCFOUR_HMAC_OLD KRB5_ENCTYPE_ARCFOUR_HMAC_OLD
+#define ETYPE_ARCFOUR_HMAC_OLD_EXP KRB5_ENCTYPE_ARCFOUR_HMAC_OLD_EXP
+#define ETYPE_DES_CBC_NONE KRB5_ENCTYPE_DES_CBC_NONE
+#define ETYPE_DES3_CBC_NONE KRB5_ENCTYPE_DES3_CBC_NONE
+#define ETYPE_DES_CFB64_NONE KRB5_ENCTYPE_DES_CFB64_NONE
+#define ETYPE_DES_PCBC_NONE KRB5_ENCTYPE_DES_PCBC_NONE
+#define ETYPE_DIGEST_MD5_NONE KRB5_ENCTYPE_DIGEST_MD5_NONE
+#define ETYPE_CRAM_MD5_NONE KRB5_ENCTYPE_CRAM_MD5_NONE
 
 /* PDU types */
 typedef enum krb5_pdu {
@@ -276,14 +275,28 @@ typedef enum krb5_key_usage {
     /* Encryption type of the kdc session contribution in pk-init */
     KRB5_KU_AS_REQ = 56,
     /* Checksum of over the AS-REQ send by the KDC in PA-REQ-ENC-PA-REP */
+    KRB5_KU_FAST_REQ_CHKSUM = 50,
+    /* FAST armor checksum */
+    KRB5_KU_FAST_ENC = 51,
+    /* FAST armor encryption */
+    KRB5_KU_FAST_REP = 52,
+    /* FAST armor reply */
+    KRB5_KU_FAST_FINISHED = 53,
+    /* FAST finished checksum */
+    KRB5_KU_ENC_CHALLENGE_CLIENT = 54,
+    /* fast challenge from client */
+    KRB5_KU_ENC_CHALLENGE_KDC = 55,
+    /* fast challenge from kdc */
     KRB5_KU_DIGEST_ENCRYPT = -18,
     /* Encryption key usage used in the digest encryption field */
     KRB5_KU_DIGEST_OPAQUE = -19,
     /* Checksum key usage used in the digest opaque field */
     KRB5_KU_KRB5SIGNEDPATH = -21,
     /* Checksum key usage on KRB5SignedPath */
-    KRB5_KU_CANONICALIZED_NAMES = -23
+    KRB5_KU_CANONICALIZED_NAMES = -23,
     /* Checksum key usage on PA-CANONICALIZED */
+    KRB5_KU_H5L_COOKIE = -25
+    /* encrypted foo */
 } krb5_key_usage;
 
 typedef krb5_key_usage krb5_keyusage;
@@ -369,6 +382,7 @@ typedef struct krb5_cccol_cursor_data *krb5_cccol_cursor;
 typedef struct krb5_ccache_data {
     const struct krb5_cc_ops *ops;
     krb5_data data;
+    int initialized; /* if non-zero: krb5_cc_initialize() called, now empty */
 }krb5_ccache_data;
 
 typedef struct krb5_ccache_data *krb5_ccache;
@@ -433,6 +447,7 @@ typedef union {
 #define KRB5_GC_NO_TRANSIT_CHECK	(1U << 5)
 #define KRB5_GC_CONSTRAINED_DELEGATION	(1U << 6)
 #define KRB5_GC_CANONICALIZE		(1U << 7)
+#define KRB5_GC_ANONYMOUS		(1U << 8)
 
 /* constants for compare_creds (and cc_retrieve_cred) */
 #define KRB5_TC_DONT_MATCH_REALM	(1U << 31)
@@ -643,6 +658,8 @@ typedef struct krb5_auth_context_data {
 
     krb5_keytype keytype;	/* ¿requested key type ? */
     krb5_cksumtype cksumtype;	/* ¡requested checksum type! */
+    
+    AuthorizationData *auth_data;
 
 }krb5_auth_context_data, *krb5_auth_context;
 
@@ -673,7 +690,16 @@ typedef EncAPRepPart krb5_ap_rep_enc_part;
 #define KRB5_TGS_NAME ("krbtgt")
 #define KRB5_WELLKNOWN_NAME ("WELLKNOWN")
 #define KRB5_ANON_NAME ("ANONYMOUS")
+#define KRB5_ANON_REALM ("WELLKNOWN:ANONYMOUS")
+#define KRB5_WELLKNOWN_ORG_H5L_REALM ("WELLKNOWN:ORG.H5L")
 #define KRB5_DIGEST_NAME ("digest")
+
+
+#define KRB5_PKU2U_REALM_NAME ("WELLKNOWN:PKU2U")
+#define KRB5_LKDC_REALM_NAME ("WELLKNOWN:COM.APPLE.LKDC")
+
+#define KRB5_GSS_HOSTBASED_SERVICE_NAME ("WELLKNOWN:ORG.H5L.HOSTBASED-SERVICE")
+#define KRB5_GSS_REFERALS_REALM_NAME ("WELLKNOWN:ORG.H5L.REFERALS-REALM")
 
 typedef enum {
     KRB5_PROMPT_TYPE_PASSWORD		= 0x1,
@@ -722,6 +748,7 @@ struct _krb5_get_init_creds_opt {
     int forwardable;
     int proxiable;
     int anonymous;
+    int change_password_prompt;
     krb5_enctype *etype_list;
     int etype_list_length;
     krb5_addresses *address_list;
@@ -745,6 +772,7 @@ typedef struct _krb5_get_init_creds_opt krb5_get_init_creds_opt;
 #define KRB5_GET_INIT_CREDS_OPT_SALT		0x0080 /* no supported */
 #define KRB5_GET_INIT_CREDS_OPT_ANONYMOUS	0x0100
 #define KRB5_GET_INIT_CREDS_OPT_DISABLE_TRANSITED_CHECK	0x0200
+#define KRB5_GET_INIT_CREDS_OPT_CHANGE_PASSWORD_PROMPT	0x0400
 
 /* krb5_init_creds_step flags argument */
 #define KRB5_INIT_CREDS_STEP_FLAG_CONTINUE	0x0001
@@ -808,6 +836,7 @@ enum {
     KRB5_KRBHST_FLAGS_LARGE_MSG	  = 2
 };
 
+typedef krb5_error_code (*krb5_sendto_prexmit)(krb5_context, int, void *, int, krb5_data *);
 typedef krb5_error_code
 (KRB5_CALLCONV * krb5_send_to_kdc_func)(krb5_context, void *, krb5_krbhst_info *, time_t,
 					const krb5_data *, krb5_data *);
@@ -816,7 +845,9 @@ typedef krb5_error_code
 enum {
     KRB5_PRINCIPAL_PARSE_NO_REALM = 1, /**< Require that there are no realm */
     KRB5_PRINCIPAL_PARSE_REQUIRE_REALM = 2, /**< Require a realm present */
-    KRB5_PRINCIPAL_PARSE_ENTERPRISE = 4 /**< Parse as a NT-ENTERPRISE name */
+    KRB5_PRINCIPAL_PARSE_ENTERPRISE = 4, /**< Parse as a NT-ENTERPRISE name */
+    KRB5_PRINCIPAL_PARSE_IGNORE_REALM = 8, /**< Ignore realm if present */
+    KRB5_PRINCIPAL_PARSE_NO_DEF_REALM = 16 /**< Don't default the realm */
 };
 
 /** flags for krb5_unparse_name_flags */
@@ -829,8 +860,13 @@ enum {
 typedef struct krb5_sendto_ctx_data *krb5_sendto_ctx;
 
 #define KRB5_SENDTO_DONE	0
-#define KRB5_SENDTO_RESTART	1
+#define KRB5_SENDTO_RESET	1
 #define KRB5_SENDTO_CONTINUE	2
+#define KRB5_SENDTO_TIMEOUT	3
+#define KRB5_SENDTO_INITIAL	4
+#define KRB5_SENDTO_FILTER	5
+#define KRB5_SENDTO_FAILED	6
+#define KRB5_SENDTO_KRBHST	7
 
 typedef krb5_error_code
 (KRB5_CALLCONV * krb5_sendto_ctx_func)(krb5_context, krb5_sendto_ctx, void *,
@@ -841,6 +877,8 @@ enum krb5_plugin_type {
     PLUGIN_TYPE_DATA = 1,
     PLUGIN_TYPE_FUNC
 };
+
+#define KRB5_PLUGIN_INVOKE_ALL  1
 
 struct credentials; /* this is to keep the compiler happy */
 struct getargs;
@@ -880,6 +918,48 @@ typedef struct {
 typedef krb5_error_code
 (KRB5_CALLCONV * krb5_gic_process_last_req)(krb5_context, krb5_last_req_entry **, void *);
 
+typedef struct {
+    krb5_enctype	ks_enctype;
+    krb5int32		ks_salttype;
+}krb5_key_salt_tuple;
+
+/*
+ * Name canonicalization rule options
+ */
+
+typedef enum krb5_name_canon_rule_options {
+        KRB5_NCRO_GC_ONLY       = 1 << 0,
+        KRB5_NCRO_USE_REFERRALS = 1 << 1,
+        KRB5_NCRO_NO_REFERRALS  = 1 << 2,
+        KRB5_NCRO_USE_FAST      = 1 << 3,
+        KRB5_NCRO_USE_DNSSEC    = 1 << 4,
+        KRB5_NCRO_LOOKUP_REALM  = 1 << 5
+} krb5_name_canon_rule_options;
+
+typedef struct krb5_name_canon_rule_data *krb5_name_canon_rule;
+typedef const struct krb5_name_canon_rule_data *krb5_const_name_canon_rule;
+typedef struct krb5_name_canon_iterator_data *krb5_name_canon_iterator;
+
+/*
+ * krb5_get_init_creds_opt_set_pkinit flags
+ */
+
+#define KRB5_GIC_OPT_PKINIT_USE_ENCKEY	    2 /* use RSA, not DH */
+#define KRB5_GIC_OPT_PKINIT_ANONYMOUS	    4 /* anonymous PKINIT */
+#define KRB5_GIC_OPT_PKINIT_BTMM	    8 /* reserved by Apple */
+#define KRB5_GIC_OPT_PKINIT_NO_KDC_ANCHOR   16 /* do not authenticate KDC */
+
+/*
+ * _krb5_principal_is_anonymous() flags 
+ */
+#define KRB5_ANON_MATCH_AUTHENTICATED	1 /* authenticated with anon flag */
+#define KRB5_ANON_MATCH_UNAUTHENTICATED	2 /* anonymous PKINIT */
+#define KRB5_ANON_IGNORE_NAME_TYPE	4 /* don't check the name type */
+#define KRB5_ANON_MATCH_ANY	        ( KRB5_ANON_MATCH_AUTHENTICATED | \
+                                          KRB5_ANON_MATCH_UNAUTHENTICATED )
+#define KRB5_ANON_MATCH_ANY_NONT	( KRB5_ANON_MATCH_ANY | \
+                                          KRB5_ANON_IGNORE_NAME_TYPE )
+
 /*
  *
  */
@@ -895,6 +975,7 @@ extern KRB5_LIB_VARIABLE const char *krb5_defkeyname;
 
 
 extern KRB5_LIB_VARIABLE const krb5_cc_ops krb5_acc_ops;
+extern KRB5_LIB_VARIABLE const krb5_cc_ops krb5_dcc_ops;
 extern KRB5_LIB_VARIABLE const krb5_cc_ops krb5_fcc_ops;
 extern KRB5_LIB_VARIABLE const krb5_cc_ops krb5_mcc_ops;
 extern KRB5_LIB_VARIABLE const krb5_cc_ops krb5_kcm_ops;
@@ -913,6 +994,26 @@ extern KRB5_LIB_VARIABLE const char *krb5_cc_type_file;
 extern KRB5_LIB_VARIABLE const char *krb5_cc_type_memory;
 extern KRB5_LIB_VARIABLE const char *krb5_cc_type_kcm;
 extern KRB5_LIB_VARIABLE const char *krb5_cc_type_scc;
+extern KRB5_LIB_VARIABLE const char *krb5_cc_type_dcc;
+
+/* clang analyzer workarounds */
+
+#ifdef __clang_analyzer__
+/*
+ * The clang analyzer (lint) can't know that krb5_enomem() always returns
+ * non-zero, so code like:
+ *
+ *      if ((x = malloc(...)) == NULL)
+ *          ret = krb5_enomem(context)
+ *      if (ret == 0)
+ *          *x = ...;
+ *
+ * causes false positives.
+ *
+ * The fix is to make krb5_enomem() a macro that always evaluates to ENOMEM.
+ */
+#define krb5_enomem(c) (krb5_enomem(c), ENOMEM)
+#endif
 
 #endif /* __KRB5_H__ */
 

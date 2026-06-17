@@ -1,4 +1,4 @@
-/*	$NetBSD: rand.c,v 1.1.1.1 2011/04/13 18:15:42 elric Exp $	*/
+/*	$NetBSD: rand.c,v 1.3 2019/12/15 22:50:51 christos Exp $	*/
 
 /*
  * Copyright (c) 1997 - 2002 Kungliga Tekniska Högskolan
@@ -32,19 +32,50 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <config.h>
 
 #include <krb5/roken.h>
+
+#ifdef HAVE_WIN32_RAND_S
+static int hasRand_s = 1;
+#endif
 
 void ROKEN_LIB_FUNCTION
 rk_random_init(void)
 {
 #if defined(HAVE_ARC4RANDOM)
-    arc4random_stir();
+    /* nothing to do */;
 #elif defined(HAVE_SRANDOMDEV)
     srandomdev();
 #elif defined(HAVE_RANDOM)
     srandom(time(NULL));
 #else
+# ifdef HAVE_WIN32_RAND_S
+    OSVERSIONINFO osInfo;
+
+    osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+    hasRand_s =
+	(GetVersionEx(&osInfo)
+	  && ((osInfo.dwMajorVersion > 5) ||
+	       (osInfo.dwMajorVersion == 5) && (osInfo.dwMinorVersion >= 1)));
+# endif
     srand (time(NULL));
 #endif
 }
+
+#ifdef HAVE_WIN32_RAND_S
+unsigned int ROKEN_LIB_FUNCTION
+rk_random(void)
+{
+    if (hasRand_s) {
+	unsigned int n;
+	int code;
+
+	code = rand_s(&n);
+	if (code == 0)
+	    return n;
+    }
+
+    return rand();
+}
+#endif

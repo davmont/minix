@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.2 2013/09/11 23:04:09 joerg Exp $
+# $NetBSD: Makefile,v 1.4.10.1 2023/08/11 13:40:07 martin Exp $
 
 .include <bsd.own.mk>
 .include <${.CURDIR}/../../Makefile.inc>
@@ -15,15 +15,18 @@ LIBDPLIBS+=	krb5		${.CURDIR}/../libkrb5		\
 		hdb		${.CURDIR}/../libhdb		\
 		hx509		${.CURDIR}/../libhx509		\
 		asn1		${.CURDIR}/../libasn1		\
+		heimbase	${.CURDIR}/../libheimbase	\
 		heimntlm	${.CURDIR}/../libheimntlm	\
 		roken		${.CURDIR}/../libroken
 
 SRCS =	default_config.c	\
         set_dbinfo.c		\
         digest.c		\
+        fast.c			\
         kerberos5.c		\
         krb5tgs.c		\
         pkinit.c		\
+        pkinit-ec.c		\
         log.c			\
         misc.c			\
         kx509.c			\
@@ -33,7 +36,13 @@ SRCS =	default_config.c	\
 INCSDIR=/usr/include/krb5
 INCS= kdc-protos.h kdc.h
 
-CPPFLAGS+= -I${HEIMDIST}/lib/krb5
+CPPFLAGS+=				\
+	-I${HEIMDIST}/lib/krb5		\
+	-I${HEIMDIST}/lib
+
+COPTS.kx509.c+= -Wno-error=deprecated-declarations
+COPTS.pkinit-ec.c+= -Wno-error=deprecated-declarations
+COPTS.pkinit.c+= -Wno-error=deprecated-declarations
 
 # Prevent collision with old MIT Kerberos includes -- require manual
 # intervention of the operator.

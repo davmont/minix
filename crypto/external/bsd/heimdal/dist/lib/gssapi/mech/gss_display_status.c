@@ -1,4 +1,4 @@
-/*	$NetBSD: gss_display_status.c,v 1.1.1.2 2014/04/24 12:45:29 pettai Exp $	*/
+/*	$NetBSD: gss_display_status.c,v 1.2.22.1 2023/08/11 13:39:58 martin Exp $	*/
 
 /*-
  * Copyright (c) 2005 Doug Rabson
@@ -93,8 +93,7 @@ routine_error(OM_uint32 v)
 	"Incorrect channel bindings were supplied",
 	"An invalid status code was supplied",
 	"A token had an invalid MIC",
-	"No credentials were supplied, "
-	"or the credentials were unavailable or inaccessible.",
+	"No credentials were supplied, or the credentials were unavailable or inaccessible.",
 	"No context has been established",
 	"A token was invalid",
 	"A credential was invalid",
@@ -136,25 +135,43 @@ supplementary_error(OM_uint32 v)
 	return msgs[v];
 }
 
-
+/**
+ * Convert a GSS-API status code to text
+ *
+ * @param minor_status     minor status code
+ * @param status_value     status value to convert
+ * @param status_type      One of:
+ *                         GSS_C_GSS_CODE - status_value is a GSS status code,
+ *                         GSS_C_MECH_CODE - status_value is a mechanism status code
+ * @param mech_type        underlying mechanism. Use GSS_C_NO_OID to obtain the
+ *                         system default.
+ * @param message_context  state information to extract further messages from the
+ *                         status_value
+ * @param status_string    the allocated text representation. Release with
+ *                         gss_release_buffer()
+ *
+ * @returns a gss_error code.
+ *
+ * @ingroup gssapi
+ */
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_display_status(OM_uint32 *minor_status,
     OM_uint32 status_value,
     int status_type,
     const gss_OID mech_type,
-    OM_uint32 *message_content,
+    OM_uint32 *message_context,
     gss_buffer_t status_string)
 {
 	OM_uint32 major_status;
 
 	_mg_buffer_zero(status_string);
-	*message_content = 0;
+	*message_context = 0;
 
 	major_status = _gss_mg_get_error(mech_type, status_type,
 					 status_value, status_string);
 	if (major_status == GSS_S_COMPLETE) {
 
-	    *message_content = 0;
+	    *message_context = 0;
 	    *minor_status = 0;
 	    return GSS_S_COMPLETE;
 	}

@@ -2,7 +2,7 @@
 
 .include "bsd.own.mk"
 
-.if (${MKKERBEROS} != "no")
+.if (${MKKERBEROS} != "no") || defined(__MINIX)	# MINIX: build Heimdal (KDC+tools) even with MKKERBEROS=no; consumers stay non-Kerberized
 SUBDIR =		\
 	hprop		\
 	iprop-log	\

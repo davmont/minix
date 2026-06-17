@@ -1,4 +1,4 @@
-/*	$NetBSD: check-common.c,v 1.1.1.2 2014/04/24 12:45:28 pettai Exp $	*/
+/*	$NetBSD: check-common.c,v 1.2.22.1 2023/08/11 13:39:56 martin Exp $	*/
 
 /*
  * Copyright (c) 1999 - 2006 Kungliga Tekniska Högskolan
@@ -35,9 +35,7 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
@@ -48,8 +46,6 @@
 
 #include <krb5/asn1-common.h>
 #include "check-common.h"
-
-__RCSID("NetBSD");
 
 struct map_page {
     void *start;
@@ -198,12 +194,12 @@ int
 generic_test (const struct test_case *tests,
 	      unsigned ntests,
 	      size_t data_size,
-	      int (ASN1CALL *encode)(unsigned char *, size_t, void *, size_t *),
-	      int (ASN1CALL *length)(void *),
-	      int (ASN1CALL *decode)(unsigned char *, size_t, void *, size_t *),
-	      int (ASN1CALL *free_data)(void *),
+              generic_encode encode,
+              generic_length length,
+              generic_decode decode,
+              generic_free free_data,
 	      int (*cmp)(void *a, void *b),
-	      int (ASN1CALL *copy)(const void *from, void *to))
+              generic_copy copy)
 {
     unsigned char *buf, *buf2;
     int i;

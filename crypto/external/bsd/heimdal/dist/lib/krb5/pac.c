@@ -1,4 +1,4 @@
-/*	$NetBSD: pac.c,v 1.2 2014/05/12 15:21:46 christos Exp $	*/
+/*	$NetBSD: pac.c,v 1.3.22.1 2023/08/11 13:40:01 martin Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2007 Kungliga Tekniska Högskolan
@@ -114,6 +114,56 @@ HMAC_MD5_any_checksum(krb5_context context,
 }
 
 
+static krb5_error_code pac_header_size(krb5_context context,
+				       uint32_t num_buffers,
+				       uint32_t *result)
+{
+    krb5_error_code ret;
+    uint32_t header_size;
+
+    /* Guard against integer overflow on 32-bit systems. */
+    if (num_buffers > UINT32_MAX / PAC_INFO_BUFFER_SIZE) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "PAC has too many buffers");
+	return ret;
+    }
+    header_size = PAC_INFO_BUFFER_SIZE * num_buffers;
+
+    /* Guard against integer overflow on 32-bit systems. */
+    if (header_size > UINT32_MAX - PACTYPE_SIZE) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "PAC has too many buffers");
+	return ret;
+    }
+    header_size += PACTYPE_SIZE;
+
+    *result = header_size;
+
+    return 0;
+}
+
+static krb5_error_code pac_aligned_size(krb5_context context,
+					uint32_t size,
+					uint32_t *aligned_size)
+{
+    krb5_error_code ret;
+
+    /* Guard against integer overflow on 32-bit systems. */
+    if (size > UINT32_MAX - (PAC_ALIGNMENT - 1)) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "integer overrun");
+	return ret;
+    }
+    size += PAC_ALIGNMENT - 1;
+
+    /* align to PAC_ALIGNMENT */
+    size = (size / PAC_ALIGNMENT) * PAC_ALIGNMENT;
+
+    *aligned_size = size;
+
+    return 0;
+}
+
 /*
  *
  */
@@ -155,8 +205,12 @@ krb5_pac_parse(krb5_context context, const void *ptr, size_t len,
 	goto out;
     }
 
-    p->pac = calloc(1,
-		    sizeof(*p->pac) + (sizeof(p->pac->buffers[0]) * (tmp - 1)));
+    ret = pac_header_size(context, tmp, &header_end);
+    if (ret) {
+	return ret;
+    }
+
+    p->pac = calloc(1, header_end);
     if (p->pac == NULL) {
 	ret = krb5_enomem(context);
 	goto out;
@@ -165,7 +219,6 @@ krb5_pac_parse(krb5_context context, const void *ptr, size_t len,
     p->pac->numbuffers = tmp;
     p->pac->version = tmp2;
 
-    header_end = PACTYPE_SIZE + (PAC_INFO_BUFFER_SIZE * p->pac->numbuffers);
     if (header_end > len) {
 	ret = EINVAL;
 	goto out;
@@ -294,37 +347,65 @@ krb5_pac_add_buffer(krb5_context context, krb5_pac p,
 {
     krb5_error_code ret;
     void *ptr;
-    size_t len, offset, header_end, old_end;
+    uint32_t unaligned_len, num_buffers, len, offset, header_end, old_end;
     uint32_t i;
 
-    len = p->pac->numbuffers;
+    if (data->length > UINT32_MAX) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "integer overrun");
+	return ret;
+    }
 
-    ptr = realloc(p->pac,
-		  sizeof(*p->pac) + (sizeof(p->pac->buffers[0]) * len));
+    num_buffers = p->pac->numbuffers;
+
+    if (num_buffers >= UINT32_MAX) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "integer overrun");
+	return ret;
+    }
+    ret = pac_header_size(context, num_buffers + 1, &header_end);
+    if (ret) {
+	return ret;
+    }
+
+    ptr = realloc(p->pac, header_end);
     if (ptr == NULL)
 	return krb5_enomem(context);
 
     p->pac = ptr;
 
-    for (i = 0; i < len; i++)
-	p->pac->buffers[i].offset_lo += PAC_INFO_BUFFER_SIZE;
+    for (i = 0; i < num_buffers; i++) {
+	if (p->pac->buffers[i].offset_lo > UINT32_MAX - PAC_INFO_BUFFER_SIZE) {
+	    ret = EINVAL;
+	    krb5_set_error_message(context, ret, "integer overrun");
+	    return ret;
+	}
 
+	p->pac->buffers[i].offset_lo += PAC_INFO_BUFFER_SIZE;
+    }
+
+    if (p->data.length > UINT32_MAX - PAC_INFO_BUFFER_SIZE) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "integer overrun");
+	return ret;
+    }
     offset = p->data.length + PAC_INFO_BUFFER_SIZE;
 
-    p->pac->buffers[len].type = type;
-    p->pac->buffers[len].buffersize = data->length;
-    p->pac->buffers[len].offset_lo = offset;
-    p->pac->buffers[len].offset_hi = 0;
+    p->pac->buffers[num_buffers].type = type;
+    p->pac->buffers[num_buffers].buffersize = data->length;
+    p->pac->buffers[num_buffers].offset_lo = offset;
+    p->pac->buffers[num_buffers].offset_hi = 0;
 
     old_end = p->data.length;
-    len = p->data.length + data->length + PAC_INFO_BUFFER_SIZE;
-    if (len < p->data.length) {
+    if (offset > UINT32_MAX - data->length) {
 	krb5_set_error_message(context, EINVAL, "integer overrun");
 	return EINVAL;
     }
+    unaligned_len = offset + data->length;
 
-    /* align to PAC_ALIGNMENT */
-    len = ((len + PAC_ALIGNMENT - 1) / PAC_ALIGNMENT) * PAC_ALIGNMENT;
+    ret = pac_aligned_size(context, unaligned_len, &len);
+    if (ret)
+	return ret;
 
     ret = krb5_data_realloc(&p->data, len);
     if (ret) {
@@ -335,7 +416,7 @@ krb5_pac_add_buffer(krb5_context context, krb5_pac p,
     /*
      * make place for new PAC INFO BUFFER header
      */
-    header_end = PACTYPE_SIZE + (PAC_INFO_BUFFER_SIZE * p->pac->numbuffers);
+    header_end -= PAC_INFO_BUFFER_SIZE;
     memmove((unsigned char *)p->data.data + header_end + PAC_INFO_BUFFER_SIZE,
 	    (unsigned char *)p->data.data + header_end ,
 	    old_end - header_end);
@@ -348,7 +429,7 @@ krb5_pac_add_buffer(krb5_context context, krb5_pac p,
     memcpy((unsigned char *)p->data.data + offset,
 	   data->data, data->length);
     memset((unsigned char *)p->data.data + offset + data->length,
-	   0, p->data.length - offset - data->length);
+ 	   0, p->data.length - unaligned_len);
 
     p->pac->numbuffers += 1;
 
@@ -377,8 +458,8 @@ krb5_pac_get_buffer(krb5_context context, krb5_pac p,
     uint32_t i;
 
     for (i = 0; i < p->pac->numbuffers; i++) {
-	const size_t len = p->pac->buffers[i].buffersize;
-	const size_t offset = p->pac->buffers[i].offset_lo;
+	const uint32_t len = p->pac->buffers[i].buffersize;
+	const uint32_t offset = p->pac->buffers[i].offset_lo;
 
 	if (p->pac->buffers[i].type != type)
 	    continue;
@@ -407,7 +488,7 @@ krb5_pac_get_types(krb5_context context,
 {
     size_t i;
 
-    *types = calloc(p->pac->numbuffers, sizeof(*types));
+    *types = calloc(p->pac->numbuffers, sizeof(**types));
     if (*types == NULL) {
 	*len = 0;
 	return krb5_enomem(context);
@@ -551,6 +632,8 @@ create_checksum(krb5_context context,
     if (cksumtype == (uint32_t)CKSUMTYPE_HMAC_MD5) {
 	ret = HMAC_MD5_any_checksum(context, key, data, datalen,
 				    KRB5_KU_OTHER_CKSUM, &cksum);
+        if (ret)
+            return ret;
     } else {
 	ret = krb5_crypto_init(context, key, 0, &crypto);
 	if (ret)
@@ -597,11 +680,12 @@ verify_logonname(krb5_context context,
 		 krb5_const_principal principal)
 {
     krb5_error_code ret;
-    krb5_principal p2;
     uint32_t time1, time2;
     krb5_storage *sp;
     uint16_t len;
-    char *s;
+    char *s = NULL;
+    char *principal_string = NULL;
+    char *logon_string = NULL;
 
     sp = krb5_storage_from_readonly_mem((const char *)data->data + logon_name->offset_lo,
 					logon_name->buffersize);
@@ -617,7 +701,13 @@ verify_logonname(krb5_context context,
 	uint64_t t1, t2;
 	t1 = unix2nttime(authtime);
 	t2 = ((uint64_t)time2 << 32) | time1;
-	if (t1 != t2) {
+	/*
+	 * When neither the ticket nor the PAC set an explicit authtime,
+	 * both times are zero, but relative to different time scales.
+	 * So we must compare "not set" values without converting to a
+	 * common time reference.
+         */
+	if (t1 != t2 && (t2 != 0 && authtime != 0)) {
 	    krb5_storage_free(sp);
 	    krb5_set_error_message(context, EINVAL, "PAC timestamp mismatch");
 	    return EINVAL;
@@ -666,29 +756,36 @@ verify_logonname(krb5_context context,
 	    return ret;
 	}
 	u8len += 1; /* Add space for NUL */
-	s = malloc(u8len);
-	if (s == NULL) {
+	logon_string = malloc(u8len);
+	if (logon_string == NULL) {
 	    free(ucs2);
 	    return krb5_enomem(context);
 	}
-	ret = wind_ucs2utf8(ucs2, ucs2len, s, &u8len);
+	ret = wind_ucs2utf8(ucs2, ucs2len, logon_string, &u8len);
 	free(ucs2);
 	if (ret) {
-	    free(s);
+	    free(logon_string);
 	    krb5_set_error_message(context, ret, "Failed to convert to UTF-8");
 	    return ret;
 	}
     }
-    ret = krb5_parse_name_flags(context, s, KRB5_PRINCIPAL_PARSE_NO_REALM, &p2);
-    free(s);
-    if (ret)
+    ret = krb5_unparse_name_flags(context, principal,
+				  KRB5_PRINCIPAL_UNPARSE_NO_REALM |
+				  KRB5_PRINCIPAL_UNPARSE_DISPLAY,
+				  &principal_string);
+    if (ret) {
+	free(logon_string);
 	return ret;
-
-    if (krb5_principal_compare_any_realm(context, principal, p2) != TRUE) {
-	ret = EINVAL;
-	krb5_set_error_message(context, ret, "PAC logon name mismatch");
     }
-    krb5_free_principal(context, p2);
+
+    ret = strcmp(logon_string, principal_string);
+    if (ret != 0) {
+	ret = EINVAL;
+	krb5_set_error_message(context, ret, "PAC logon name [%s] mismatch principal name [%s]",
+			       logon_string, principal_string);
+    }
+    free(logon_string);
+    free(principal_string);
     return ret;
 out:
     return ret;
@@ -724,7 +821,9 @@ build_logon_name(krb5_context context,
     CHECK(ret, krb5_store_uint32(sp, t >> 32), out);
 
     ret = krb5_unparse_name_flags(context, principal,
-				  KRB5_PRINCIPAL_UNPARSE_NO_REALM, &s);
+				  KRB5_PRINCIPAL_UNPARSE_NO_REALM |
+				  KRB5_PRINCIPAL_UNPARSE_DISPLAY,
+				  &s);
     if (ret)
 	goto out;
 
@@ -735,8 +834,8 @@ build_logon_name(krb5_context context,
 
 	ret = wind_utf8ucs2_length(s, &ucs2_len);
 	if (ret) {
+	    krb5_set_error_message(context, ret, "Principal %s is not valid UTF-8", s);
 	    free(s);
-	    krb5_set_error_message(context, ret, "Failed to count length of UTF-8 string");
 	    return ret;
 	}
 
@@ -747,12 +846,13 @@ build_logon_name(krb5_context context,
 	}
 
 	ret = wind_utf8ucs2(s, ucs2, &ucs2_len);
-	free(s);
 	if (ret) {
 	    free(ucs2);
-	    krb5_set_error_message(context, ret, "Failed to convert string to UCS-2");
+	    krb5_set_error_message(context, ret, "Principal %s is not valid UTF-8", s);
+	    free(s);
 	    return ret;
-	}
+	} else 
+	    free(s);
 
 	s2_len = (ucs2_len + 1) * 2;
 	s2 = malloc(s2_len);
@@ -851,14 +951,13 @@ krb5_pac_verify(krb5_context context,
     {
 	krb5_data *copy;
 
+	if (pac->server_checksum->buffersize < 4 ||
+            pac->privsvr_checksum->buffersize < 4)
+	    return EINVAL;
+
 	ret = krb5_copy_data(context, &pac->data, &copy);
 	if (ret)
 	    return ret;
-
-	if (pac->server_checksum->buffersize < 4)
-	    return EINVAL;
-	if (pac->privsvr_checksum->buffersize < 4)
-	    return EINVAL;
 
 	memset((char *)copy->data + pac->server_checksum->offset_lo + 4,
 	       0,
@@ -950,7 +1049,7 @@ pac_checksum(krb5_context context,
     return 0;
 }
 
-krb5_error_code
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 _krb5_pac_sign(krb5_context context,
 	       krb5_pac p,
 	       time_t authtime,
@@ -965,11 +1064,45 @@ _krb5_pac_sign(krb5_context context,
     size_t server_size, priv_size;
     uint32_t server_offset = 0, priv_offset = 0;
     uint32_t server_cksumtype = 0, priv_cksumtype = 0;
-    int num = 0;
-    size_t i;
+    uint32_t num = 0;
+    uint32_t i;
     krb5_data logon, d;
 
     krb5_data_zero(&logon);
+
+    for (i = 0; i < p->pac->numbuffers; i++) {
+	if (p->pac->buffers[i].type == PAC_SERVER_CHECKSUM) {
+	    if (p->server_checksum == NULL) {
+		p->server_checksum = &p->pac->buffers[i];
+	    }
+	    if (p->server_checksum != &p->pac->buffers[i]) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret,
+				       N_("PAC have two server checksums", ""));
+		goto out;
+	    }
+	} else if (p->pac->buffers[i].type == PAC_PRIVSVR_CHECKSUM) {
+	    if (p->privsvr_checksum == NULL) {
+		p->privsvr_checksum = &p->pac->buffers[i];
+	    }
+	    if (p->privsvr_checksum != &p->pac->buffers[i]) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret,
+				       N_("PAC have two KDC checksums", ""));
+		goto out;
+	    }
+	} else if (p->pac->buffers[i].type == PAC_LOGON_NAME) {
+	    if (p->logon_name == NULL) {
+		p->logon_name = &p->pac->buffers[i];
+	    }
+	    if (p->logon_name != &p->pac->buffers[i]) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret,
+				       N_("PAC have two logon names", ""));
+		goto out;
+	    }
+	}
+    }
 
     if (p->logon_name == NULL)
 	num++;
@@ -980,8 +1113,18 @@ _krb5_pac_sign(krb5_context context,
 
     if (num) {
 	void *ptr;
+        uint32_t len;
 
-	ptr = realloc(p->pac, sizeof(*p->pac) + (sizeof(p->pac->buffers[0]) * (p->pac->numbuffers + num - 1)));
+ 	if (p->pac->numbuffers > UINT32_MAX - num) {
+ 	    ret = EINVAL;
+ 	    krb5_set_error_message(context, ret, "integer overrun");
+ 	    goto out;
+ 	}
+ 	ret = pac_header_size(context, p->pac->numbuffers + num, &len);
+ 	if (ret)
+ 	    goto out;
+ 
+ 	ptr = realloc(p->pac, len);
 	if (ptr == NULL)
 	    return krb5_enomem(context);
 
@@ -1034,7 +1177,9 @@ _krb5_pac_sign(krb5_context context,
     CHECK(ret, krb5_store_uint32(sp, p->pac->numbuffers), out);
     CHECK(ret, krb5_store_uint32(sp, p->pac->version), out);
 
-    end = PACTYPE_SIZE + (PAC_INFO_BUFFER_SIZE * p->pac->numbuffers);
+    ret = pac_header_size(context, p->pac->numbuffers, &end);
+    if (ret)
+        goto out;
 
     for (i = 0; i < p->pac->numbuffers; i++) {
 	uint32_t len;
@@ -1044,11 +1189,31 @@ _krb5_pac_sign(krb5_context context,
 	/* store data */
 
 	if (p->pac->buffers[i].type == PAC_SERVER_CHECKSUM) {
+	    if (server_size > UINT32_MAX - 4) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret, "integer overrun");
+		goto out;
+	    }
+	    if (end > UINT32_MAX - 4) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret, "integer overrun");
+		goto out;
+	    }
 	    len = server_size + 4;
 	    server_offset = end + 4;
 	    CHECK(ret, krb5_store_uint32(spdata, server_cksumtype), out);
 	    CHECK(ret, fill_zeros(context, spdata, server_size), out);
 	} else if (p->pac->buffers[i].type == PAC_PRIVSVR_CHECKSUM) {
+	    if (priv_size > UINT32_MAX - 4) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret, "integer overrun");
+		goto out;
+	    }
+	    if (end > UINT32_MAX - 4) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret, "integer overrun");
+		goto out;
+	    }
 	    len = priv_size + 4;
 	    priv_offset = end + 4;
 	    CHECK(ret, krb5_store_uint32(spdata, priv_cksumtype), out);
@@ -1079,11 +1244,20 @@ _krb5_pac_sign(krb5_context context,
 
 	/* advance data endpointer and align */
 	{
-	    int32_t e;
+	    uint32_t e;
 
+	    if (end > UINT32_MAX - len) {
+		ret = EINVAL;
+		krb5_set_error_message(context, ret, "integer overrun");
+		goto out;
+	    }
 	    end += len;
-	    e = ((end + PAC_ALIGNMENT - 1) / PAC_ALIGNMENT) * PAC_ALIGNMENT;
-	    if ((int32_t)end != e) {
+
+	    ret = pac_aligned_size(context, end, &e);
+	    if (ret)
+		goto out;
+
+	    if (end != e) {
 		CHECK(ret, fill_zeros(context, spdata, e - end), out);
 	    }
 	    end = e;

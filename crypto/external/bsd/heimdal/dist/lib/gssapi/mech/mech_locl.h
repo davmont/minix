@@ -1,4 +1,4 @@
-/*	$NetBSD: mech_locl.h,v 1.1.1.3 2014/04/24 12:45:29 pettai Exp $	*/
+/*	$NetBSD: mech_locl.h,v 1.2.22.1 2023/08/11 13:39:58 martin Exp $	*/
 
 /*
  * Copyright (c) 2006 Kungliga Tekniska Högskolan
@@ -53,6 +53,7 @@
 
 #include <krb5/roken.h>
 
+#include <krb5/krb5.h>
 #include <gssapi/gssapi.h>
 #include <gssapi_mech.h>
 #include <gssapi/gssapi_krb5.h>

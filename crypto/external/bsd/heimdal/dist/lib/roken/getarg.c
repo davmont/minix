@@ -1,4 +1,4 @@
-/*	$NetBSD: getarg.c,v 1.3 2014/04/24 13:45:34 pettai Exp $	*/
+/*	$NetBSD: getarg.c,v 1.5 2017/01/29 19:23:28 christos Exp $	*/
 
 /*
  * Copyright (c) 1997 - 2002 Kungliga Tekniska Högskolan
@@ -39,7 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <krb5/roken.h>
-#include <krb5/getarg.h>
+#include <getarg.h>
 
 #define ISFLAG(X) ((X).type == arg_flag || (X).type == arg_negative_flag)
 
@@ -475,10 +475,9 @@ static int
 arg_match_short (struct getargs *args, size_t num_args,
 		 char *argv, int argc, char **rargv, int *goptind)
 {
-    size_t j, k, len;
+    size_t j, k;
 
-    len = strlen(rargv[*goptind]);
-    for(j = 1; j > 0 && j < len; j++) {
+    for(j = 1; j > 0 && j < strlen(rargv[*goptind]); j++) {
 	for(k = 0; k < num_args; k++) {
 	    char *goptarg;
 
@@ -598,7 +597,7 @@ struct getargs args[] = {
 int main(int argc, char **argv)
 {
     int goptind = 0;
-    while(getarg(args, 5, argc, argv, &goptind))
+    while (getarg(args, 5, argc, argv, &goptind))
 	printf("Bad arg: %s\n", argv[goptind]);
     printf("flag1 = %d\n", flag1);
     printf("flag2 = %d\n", flag2);

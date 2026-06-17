@@ -1,4 +1,4 @@
-/*	$NetBSD: crypto-headers.h,v 1.1.1.1 2011/04/13 18:14:34 elric Exp $	*/
+/*	$NetBSD: crypto-headers.h,v 1.3.14.2 2023/09/15 15:34:27 martin Exp $	*/
 
 #ifndef __crypto_header__
 #define __crypto_header__
@@ -7,7 +7,8 @@
 #error "need config.h"
 #endif
 
-#ifdef HAVE_OPENSSL
+#ifdef HAVE_HCRYPTO_W_OPENSSL
+
 
 #define OPENSSL_DES_LIBDES_COMPATIBILITY
 
@@ -27,12 +28,16 @@
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/ecdh.h>
-#ifndef BN_is_negative
-#define BN_set_negative(bn, flag) ((bn)->neg=(flag)?1:0)
-#define BN_is_negative(bn) ((bn)->neg != 0)
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+# ifndef BN_is_negative
+#  define BN_set_negative(bn, flag) ((bn)->neg=(flag)?1:0)
+#  define BN_is_negative(bn) ((bn)->neg != 0)
+# endif
 #endif
 
-#else /* !HAVE_OPENSSL */
+#include <hcrypto/ui.h>
+
+#else /* !HAVE_HCRYPTO_W_OPENSSL */
 
 #ifdef KRB5
 #include <krb5/krb5-types.h>
@@ -50,10 +55,7 @@
 #include <hcrypto/engine.h>
 #include <hcrypto/pkcs12.h>
 #include <hcrypto/hmac.h>
-#include <hcrypto/ec.h>
-#include <hcrypto/ecdsa.h>
-#include <hcrypto/ecdh.h>
 
-#endif /* HAVE_OPENSSL */
+#endif
 
 #endif /* __crypto_header__ */

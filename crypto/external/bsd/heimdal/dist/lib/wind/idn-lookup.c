@@ -1,4 +1,4 @@
-/*	$NetBSD: idn-lookup.c,v 1.1.1.1 2011/04/13 18:15:58 elric Exp $	*/
+/*	$NetBSD: idn-lookup.c,v 1.2.22.1 2023/08/11 13:40:02 martin Exp $	*/
 
 /*
  * Copyright (c) 2004 Kungliga Tekniska Högskolan
@@ -158,7 +158,9 @@ main(int argc, char **argv)
     if (argc == 0)
 	usage(1);
 
-    for (i = 0; i < argc; ++i)
-	lookup(argv[i]);
+    for (i = 0; i < argc; ++i) {
+        if (argv[i][0]) /* Quiet lint */
+            lookup(argv[i]);
+    }
     return 0;
 }

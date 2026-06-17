@@ -1,4 +1,4 @@
-/*	$NetBSD: test-normalize.c,v 1.1.1.1 2011/04/13 18:16:00 elric Exp $	*/
+/*	$NetBSD: test-normalize.c,v 1.2.22.1 2023/08/11 13:40:02 martin Exp $	*/
 
 /*
  * Copyright (c) 2004 Kungliga Tekniska Högskolan
@@ -49,7 +49,7 @@
 static size_t
 parse_vector(char *buf, uint32_t *v)
 {
-    char *last;
+    char *last = NULL;
     unsigned ret = 0;
     const char *n;
     unsigned u;
@@ -157,9 +157,13 @@ main(int argc, char **argv)
     if (f == NULL) {
 	const char *srcdir = getenv("srcdir");
 	if (srcdir != NULL) {
-	    char longname[256];
-	    snprintf(longname, sizeof(longname), "%s/%s", srcdir, filename);
+	    char *longname = NULL;
+
+	    if (asprintf(&longname, "%s/%s", srcdir, filename) == -1 ||
+                longname == NULL)
+                errx(1, "Out of memory");
 	    f = fopen(longname, "r");
+            free(longname);
 	}
 	if (f == NULL)
 	    err(1, "open %s", filename);

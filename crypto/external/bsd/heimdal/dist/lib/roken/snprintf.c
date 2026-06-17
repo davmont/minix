@@ -1,4 +1,4 @@
-/*	$NetBSD: snprintf.c,v 1.1.1.2 2014/04/24 12:45:52 pettai Exp $	*/
+/*	$NetBSD: snprintf.c,v 1.2.22.1 2023/08/11 13:40:02 martin Exp $	*/
 
 /*
  * Copyright (c) 1995-2003 Kungliga Tekniska Högskolan
@@ -117,6 +117,10 @@ typedef long long longest;
 #else
 typedef unsigned long u_longest;
 typedef long longest;
+#endif
+
+#ifndef HAVE_UINTPTR_T
+typedef u_longest uintptr_t;
 #endif
 
 
@@ -274,7 +278,7 @@ append_string (struct snprintf_state *state,
 	len += pad(state, width, ' ');
 
     if (prec != -1) {
-	while (*arg && prec--) {
+	while (prec-- && *arg) {
 	    (*state->append_char) (state, *arg++);
 	    ++len;
 	}
@@ -447,13 +451,16 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 		break;
 	    case 'd' :
 	    case 'i' : {
-		longest arg;
-		u_longest num;
+		int64_t arg;
+		uint64_t num;
 		int minusp = 0;
 
 		PARSE_INT_FORMAT(arg, ap, signed);
 
-		if (arg < 0) {
+                if (arg == INT64_MIN) {
+		    minusp = 1;
+                    num = (uint64_t)INT64_MAX + 1;
+                } else if (arg < 0) {
 		    minusp = 1;
 		    num = -arg;
 		} else
@@ -500,7 +507,7 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 		break;
 	    }
 	    case 'p' : {
-		u_longest arg = (u_longest)va_arg(ap, void*);
+		uintptr_t arg = (uintptr_t)va_arg(ap, void*);
 
 		len += append_number (state, arg, 0x10, "0123456789ABCDEF",
 				      width, prec, flags, 0);

@@ -1,4 +1,4 @@
-/*	$NetBSD: parse-name-test.c,v 1.1.1.1 2011/04/13 18:15:36 elric Exp $	*/
+/*	$NetBSD: parse-name-test.c,v 1.2 2017/01/28 21:31:49 christos Exp $	*/
 
 /*
  * Copyright (c) 2002 Kungliga Tekniska Högskolan
@@ -82,7 +82,6 @@ main(int argc, char **argv)
     for (t = tests; t->input_string; ++t) {
 	krb5_principal princ;
 	int i, j;
-	size_t out_len, in_len;
 	char name_buf[1024];
 	char *s;
 
@@ -118,8 +117,7 @@ main(int argc, char **argv)
 		}
 	    }
 	}
-	out_len = strlen(t->output_string);
-	for (j = 0; j < out_len; ++j) {
+	for (j = 0; j < strlen(t->output_string); ++j) {
 	    ret = krb5_unparse_name_fixed(context, princ,
 					  name_buf, j);
 	    if (ret != ERANGE) {
@@ -154,8 +152,7 @@ main(int argc, char **argv)
 	free(s);
 
 	if (!t->realmp) {
-	    in_len = strlen(t->input_string);
-	    for (j = 0; j < in_len; ++j) {
+	    for (j = 0; j < strlen(t->input_string); ++j) {
 		ret = krb5_unparse_name_fixed_short(context, princ,
 						    name_buf, j);
 		if (ret != ERANGE) {

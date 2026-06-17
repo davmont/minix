@@ -1,4 +1,4 @@
-/*	$NetBSD: salt-des.c,v 1.1.1.2 2014/04/24 12:45:51 pettai Exp $	*/
+/*	$NetBSD: salt-des.c,v 1.3.8.1 2023/08/11 13:40:01 martin Exp $	*/
 
 /*
  * Copyright (c) 1997 - 2008 Kungliga Tekniska Högskolan
@@ -111,7 +111,7 @@ krb5_DES_AFS3_Transarc_string_to_key (krb5_data pw,
     memset(&schedule, 0, sizeof(schedule));
     memset(&temp_key, 0, sizeof(temp_key));
     memset(&ivec, 0, sizeof(ivec));
-    memset(password, 0, sizeof(password));
+    memset_s(password, sizeof(password), 0, sizeof(password));
 
     DES_set_odd_parity (key);
 }
@@ -193,12 +193,11 @@ krb5_DES_string_to_key(krb5_context context,
 
     len = password.length + salt.saltvalue.length;
     s = malloc(len);
-    if(len > 0 && s == NULL) {
-	krb5_set_error_message(context, ENOMEM, N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (len > 0 && s == NULL)
+	return krb5_enomem(context);
     memcpy(s, password.data, password.length);
-    memcpy(s + password.length, salt.saltvalue.data, salt.saltvalue.length);
+    if (salt.saltvalue.length)
+        memcpy(s + password.length, salt.saltvalue.data, salt.saltvalue.length);
     DES_string_to_key_int(s, len, &tmp);
     key->keytype = enctype;
     krb5_data_copy(&key->keyvalue, tmp, sizeof(tmp));
@@ -221,6 +220,6 @@ struct salt_type _krb5_des_salt[] = {
 	DES_AFS3_string_to_key
     },
 #endif
-    { 0 }
+    { 0, NULL, NULL }
 };
 #endif

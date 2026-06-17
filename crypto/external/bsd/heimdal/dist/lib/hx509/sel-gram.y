@@ -1,7 +1,7 @@
-/*	$NetBSD: sel-gram.y,v 1.1.1.1 2011/04/13 18:15:12 elric Exp $	*/
+/*	$NetBSD: sel-gram.y,v 1.4 2021/06/20 12:01:07 christos Exp $	*/
 
 /*
- * Copyright (c) 2008 Kungliga Tekniska Högskolan
+ * Copyright (c) 2017 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -40,7 +40,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <hx_locl.h>
-
 
 %}
 

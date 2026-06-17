@@ -1,7 +1,7 @@
-/*	$NetBSD: crypto.c,v 1.1.1.2 2014/04/24 12:45:29 pettai Exp $	*/
+/*	$NetBSD: crypto.c,v 1.3 2018/02/05 16:00:52 christos Exp $	*/
 
 /*
- * Copyright (c) 2006 Kungliga Tekniska Högskolan
+ * Copyright (c) 2006-2016 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -34,11 +34,17 @@
  */
 
 #include "ntlm.h"
-
-uint32_t
-_krb5_crc_update (const char *p, size_t len, uint32_t res);
-void
-_krb5_crc_init_table(void);
+struct hx509_certs_data;
+struct krb5_pk_identity;
+struct krb5_pk_cert;
+struct ContentInfo;
+struct AlgorithmIdentifier;
+struct _krb5_krb_auth_data;
+struct krb5_dh_moduli;
+struct _krb5_key_data;
+struct _krb5_encryption_type;
+struct _krb5_key_type;
+#include "krb5_locl.h"
 
 /*
  *
@@ -150,16 +156,26 @@ v2_sign_message(gss_buffer_t in,
 {
     unsigned char hmac[16];
     unsigned int hmaclen;
-    HMAC_CTX c;
+    HMAC_CTX *c;
 
-    HMAC_CTX_init(&c);
-    HMAC_Init_ex(&c, signkey, 16, EVP_md5(), NULL);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+    HMAC_CTX cs;
+    c = &cs;
+    HMAC_CTX_init(c);
+#else
+    c = HMAC_CTX_new();
+#endif
+    HMAC_Init_ex(c, signkey, 16, EVP_md5(), NULL);
 
     encode_le_uint32(seq, hmac);
-    HMAC_Update(&c, hmac, 4);
-    HMAC_Update(&c, in->value, in->length);
-    HMAC_Final(&c, hmac, &hmaclen);
-    HMAC_CTX_cleanup(&c);
+    HMAC_Update(c, hmac, 4);
+    HMAC_Update(c, in->value, in->length);
+    HMAC_Final(c, hmac, &hmaclen);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+    HMAC_CTX_cleanup(c);
+#else
+    HMAC_CTX_free(c);
+#endif
 
     encode_le_uint32(1, &out[0]);
     if (sealkey)
@@ -265,7 +281,7 @@ v2_unseal_message(gss_buffer_t in,
 OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_get_mic
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             gss_qop_t qop_req,
             const gss_buffer_t message_buffer,
             gss_buffer_t message_token
@@ -340,7 +356,7 @@ _gss_ntlm_get_mic
 OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_verify_mic
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_buffer_t message_buffer,
             const gss_buffer_t token_buffer,
             gss_qop_t * qop_state
@@ -426,7 +442,7 @@ _gss_ntlm_verify_mic
 OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_wrap_size_limit (
             OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             int conf_req_flag,
             gss_qop_t qop_req,
             OM_uint32 req_output_size,
@@ -457,7 +473,7 @@ _gss_ntlm_wrap_size_limit (
 OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_wrap
 (OM_uint32 * minor_status,
- const gss_ctx_id_t context_handle,
+ gss_const_ctx_id_t context_handle,
  int conf_req_flag,
  gss_qop_t qop_req,
  const gss_buffer_t input_message_buffer,
@@ -528,7 +544,7 @@ _gss_ntlm_wrap
 OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_unwrap
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_buffer_t input_message_buffer,
             gss_buffer_t output_message_buffer,
             int * conf_state,

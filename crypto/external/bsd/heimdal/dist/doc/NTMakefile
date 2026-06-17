@@ -57,9 +57,14 @@ hx509_TEXINFOS = \
 
 {}.tin{$(OBJ)}.texi:
 	$(SED) -e "s,[@]dbdir[@],x,g"	\
+	-e "s,[@]dbtype[@],sqlite,g" < $** > $@ \
 	-e "s,[@]PACKAGE_VERSION[@],$(VER_PACKAGE_VERSION),g" < $** > $@
 
 MAKEINFOFLAGS = --css-include=$(SRCDIR)/heimdal.css
+
+!ifdef APPVEYOR
+MAKEINFO = $(PERL) C:\msys64\usr\bin\makeinfo
+!endif
 
 ######################################################################
 # Build heimdal.chm
@@ -71,6 +76,7 @@ MAKEINFOFLAGS = --css-include=$(SRCDIR)/heimdal.css
 $(OBJ)\heimdal\index.html $(OBJ)\heimdal\Copyrights-and-Licenses.html: $(heimdal_TEXINFOS)
 	cd $(OBJ)
 	$(MAKEINFO) $(MAKEINFOFLAGS) --html heimdal.texi
+	-$(MKDIR) heimdal
 	cd $(SRCDIR)
 
 $(OBJ)\heimdal\toc.hhc: $(OBJ)\heimdal\Copyrights-and-Licenses.html
@@ -91,6 +97,7 @@ $(DOCDIR)\heimdal.chm: $(OBJ)\heimdal\heimdal.hhp $(OBJ)\heimdal\toc.hhc
 $(OBJ)\hx509\index.html $(OBJ)\hx509\How-to-use-the-PKCS11-module.html: $(hx509_TEXINFOS)
 	cd $(OBJ)
 	$(MAKEINFO) $(MAKEINFOFLAGS) --html hx509.texi
+	-$(MKDIR) hx509
 	cd $(SRCDIR)
 
 $(OBJ)\hx509\toc.hhc: $(OBJ)\hx509\How-to-use-the-PKCS11-module.html

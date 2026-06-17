@@ -1,8 +1,8 @@
-/*	$NetBSD: sel-lex.l,v 1.1.1.3 2014/04/24 12:45:42 pettai Exp $	*/
+/*	$NetBSD: sel-lex.l,v 1.4 2021/06/20 12:01:07 christos Exp $	*/
 
 %{
 /*
- * Copyright (c) 2004, 2008 Kungliga Tekniska Högskolan
+ * Copyright (c) 2004 - 2017 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -36,6 +36,11 @@
 
 /* Id */
 
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -52,7 +57,6 @@ unsigned lineno = 1;
 
 static char * handle_string(void);
 static int lex_input(char *, int);
-static int lex_classic_input(void);
 
 struct hx_expr_input _hx509_expr_input;
 
@@ -68,6 +72,8 @@ struct hx_expr_input _hx509_expr_input;
 #undef ECHO
 
 %}
+
+%option noyywrap
 %%
 
 TRUE			{ return kw_TRUE; }
@@ -78,12 +84,12 @@ IN			{ return kw_IN; }
 TAILMATCH		{ return kw_TAILMATCH; }
 
 [A-Za-z][-A-Za-z0-9_]*	{
-			  yylval.string = strdup ((const char *)yytext);
+			  _hx509_sel_yylval.string = strdup ((const char *)_hx509_sel_yytext);
 			  return IDENTIFIER;
 			}
-"\""			{ yylval.string = handle_string(); return STRING; }
+"\""			{ _hx509_sel_yylval.string = handle_string(); return STRING; }
 \n			{ ++lineno; }
-[,.!={}()%]		{ return *yytext; }
+[,.!={}()%]		{ return *_hx509_sel_yytext; }
 [ \t]			;
 %%
 
@@ -116,12 +122,6 @@ handle_string(void)
     }
     x[i] = '\0';
     return strdup(x);
-}
-
-int
-yywrap ()
-{
-     return 1;
 }
 
 static int

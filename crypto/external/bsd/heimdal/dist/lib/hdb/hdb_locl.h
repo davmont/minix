@@ -1,4 +1,4 @@
-/*	$NetBSD: hdb_locl.h,v 1.1.1.2 2011/04/14 14:08:23 elric Exp $	*/
+/*	$NetBSD: hdb_locl.h,v 1.2 2017/01/28 21:31:48 christos Exp $	*/
 
 /*
  * Copyright (c) 1997-2001 Kungliga Tekniska Högskolan
@@ -40,6 +40,9 @@
 
 #include <config.h>
 
+#include <assert.h>
+#include <krb5/heimbase.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -66,7 +69,17 @@
 #include <krb5/hdb.h>
 #include <hdb-private.h>
 
+#if defined(__minix)
+/*
+ * MINIX: default to the SQLite HDB backend.  The historic default (db1/
+ * ndbm via dbopen(3)) fails with EINVAL on MINIX, whereas the SQLite
+ * backend works.  Selecting it here lets `kadmin -l' and the KDC open the
+ * database with no explicit `database = sqlite:...' in krb5.conf.
+ */
+#define HDB_DEFAULT_DB "sqlite:" HDB_DB_DIR "/heimdal"
+#else
 #define HDB_DEFAULT_DB HDB_DB_DIR "/heimdal"
+#endif
 #define HDB_DB_FORMAT_ENTRY "hdb/db-format"
 
 #endif /* __HDB_LOCL_H__ */

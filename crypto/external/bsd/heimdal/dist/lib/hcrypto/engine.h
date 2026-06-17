@@ -1,7 +1,7 @@
-/*	$NetBSD: engine.h,v 1.1.1.2 2011/04/14 14:08:31 elric Exp $	*/
+/*	$NetBSD: engine.h,v 1.2.22.1 2023/08/11 13:39:58 martin Exp $	*/
 
 /*
- * Copyright (c) 2006 Kungliga Tekniska Högskolan
+ * Copyright (c) 2006-2016 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -64,13 +64,15 @@
 #define ENGINE_set_default_DH hc_ENGINE_set_default_DH
 #define ENGINE_set_default_RSA hc_ENGINE_set_default_RSA
 
+#define ENGINE hc_ENGINE
+
 /*
  *
  */
 
 typedef struct hc_engine ENGINE;
 
-#define NID_md2			0
+/*#define NID_md2			0 */
 #define NID_md4			1
 #define NID_md5			2
 #define NID_sha1		4

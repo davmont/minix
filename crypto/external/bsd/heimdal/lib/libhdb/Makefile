@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.3 2013/09/11 23:04:09 joerg Exp $
+# $NetBSD: Makefile,v 1.4.22.2 2023/10/14 06:56:35 martin Exp $
 
 USE_FORT?= yes	# network protocol library
 
@@ -18,22 +18,26 @@ LIBDPLIBS+=	hx509		${HEIMBASE}/lib/libhx509	\
 		com_err		${HEIMBASE}/lib/libcom_err	\
 		roken		${HEIMBASE}/lib/libroken	\
 		wind		${HEIMBASE}/lib/libwind		\
-		heimbase	${HEIMBASE}/lib/libheimbase
+		heimbase	${HEIMBASE}/lib/libheimbase	\
+		sqlite3		${NETBSDSRCDIR}/external/public-domain/sqlite/lib
 
 HEIMSRCS= hdb_err.et hdb.asn1
+ASN1_OPTS.hdb.asn1+= --one-code-file --sequence=HDB-Ext-KeySet --sequence=Keys
 
 SRCS=			\
 	common.c	\
 	db.c		\
 	db3.c		\
+	dbinfo.c	\
 	ext.c		\
-	hdb-ldap.c	\
-	hdb.c		\
 	hdb-keytab.c	\
+	hdb-ldap.c	\
 	hdb-mitdb.c	\
+	hdb-sqlite.c	\
+	hdb.c		\
+	hdb_err.c	\
 	keys.c		\
 	keytab.c	\
-	dbinfo.c	\
 	mkey.c		\
 	ndbm.c		\
 	print.c
@@ -45,7 +49,8 @@ CPPFLAGS+=				\
 	-I${HEIMBASE}/include/krb5	\
 	-I${HEIMDIST}/lib/asn1		\
 	-I${HEIMDIST}/lib/krb5		\
-	-DHDB_DB_DIR=\"/var/heimdal\"	\
+	-I${HEIMDIST}/lib		\
+	-DHDB_DB_DIR=\"/var/heimdal\"
 
 .include <${HEIMBASE}/Makefile.rules.inc>
 .include <bsd.lib.mk>
