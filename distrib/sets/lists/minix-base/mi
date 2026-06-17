@@ -1041,7 +1041,8 @@
 ./usr/lib/libsqlite3.so                                 minix-base
 ./usr/lib/libsqlite3.so.1                               minix-base
 ./usr/lib/libsqlite3.so.1.1                             minix-base      obsolete
-./usr/lib/libsqlite3.so.1.2                             minix-base
+./usr/lib/libsqlite3.so.1.2                             minix-base      obsolete
+./usr/lib/libsqlite3.so.1.4                             minix-base
 ./usr/lib/libssl.a                                      minix-base      crypto
 ./usr/lib/libssl.so.10.1                                minix-base      crypto,obsolete
 ./usr/lib/libssl.so.15.0                                minix-base      crypto
@@ -1089,6 +1090,9 @@
 ./usr/lib/minlib.pc                                     minix-base      obsolete
 ./usr/lib/named                                         minix-base
 ./usr/lib/named/filter-aaaa.so.0                        minix-base
+./usr/lib/openssl                                       minix-base      crypto
+./usr/lib/openssl/modules                               minix-base      crypto
+./usr/lib/openssl/modules/legacy.so                     minix-base      crypto
 ./usr/lib/pkgconfig                                     minix-base
 ./usr/lib/pkgconfig/atf-c++.pc                          minix-base      atf
 ./usr/lib/pkgconfig/atf-c.pc                            minix-base      atf

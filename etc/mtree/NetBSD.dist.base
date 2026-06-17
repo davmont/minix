@@ -221,6 +221,8 @@
 ./usr/lib/lua
 ./usr/lib/lua/5.3
 ./usr/lib/named
+./usr/lib/openssl
+./usr/lib/openssl/modules
 ./usr/lib/pkgconfig
 ./usr/lib/security
 ./usr/libdata

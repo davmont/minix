@@ -8,7 +8,13 @@ _MAKEFILE_OPENSSL_INCLUDED=1
 OPENSSLSRC=	${CRYPTODIST}/external/bsd/openssl/dist
 CPPFLAGS+=	-DOPENSSLDIR=\"/etc/openssl\"
 CPPFLAGS+=	-DENGINESDIR=\"/usr/lib/openssl\"
-CPPFLAGS+=	-DMODULESDIR=\"/usr/lib/openssl/modules\"
+# OSSL_MODULESDIR is the install dir for loadable provider modules (legacy.so,
+# ...); liblegacy/libdefault use it as LIBDIR.  It was never defined here, so
+# the modules installed to the destdir root.  Define it (and derive the
+# matching -DMODULESDIR from it) so provider modules land where libcrypto's
+# loader looks for them.
+OSSL_MODULESDIR=/usr/lib/openssl/modules
+CPPFLAGS+=	-DMODULESDIR=\"${OSSL_MODULESDIR}\"
 # OpenSSL 3.0 sets DSO_DLFCN/HAVE_DLFCN_H itself via crypto/dso_conf.h;
 # don't double-define them here.
 
