@@ -646,8 +646,20 @@ hdb_generate_key_set(krb5_context context, krb5_principal principal,
     char **config_ktypes = NULL;
     static const char *default_keytypes[] = {
 	"aes256-cts-hmac-sha1-96:pw-salt",
+#if defined(__minix)
+	/*
+	 * MINIX: default to AES only.  des3-cbc-sha1 and arcfour-hmac-md5
+	 * use ciphers (3DES, RC4) that OpenSSL 3 relegated to the "legacy"
+	 * provider; hcrypto's evp-openssl backend faults when string2key
+	 * reaches them with the legacy provider unloaded.  They are also
+	 * deprecated and insecure, so AES is both the safe and the correct
+	 * modern default (matches current MIT/Heimdal practice).
+	 */
+	"aes128-cts-hmac-sha1-96:pw-salt",
+#else
 	"des3-cbc-sha1:pw-salt",
 	"arcfour-hmac-md5:pw-salt",
+#endif
 	NULL
     };
 
