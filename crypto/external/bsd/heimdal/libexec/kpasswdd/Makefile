@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.2 2011/05/25 19:21:18 he Exp $
+# $NetBSD: Makefile,v 1.2.56.2 2023/10/14 06:56:35 martin Exp $
 
 .include <bsd.own.mk>
 .include <${.CURDIR}/../../Makefile.inc>
@@ -10,9 +10,12 @@ SRCS=	kpasswdd.c
 MAN=	kpasswdd.8
 
 CPPFLAGS+= -DINETD_SUPPORT
+CPPFLAGS+= -I${HEIMDIST}/lib
 
-LDADD+= -lkadm5srv -lhdb -lutil
-DPADD+= ${LIBKADM5SRV} ${LIBHDB} ${LIBUTIL}
+PROGDPLIBS+= ${DPLIBASN1} ${DPLIBKADM5SRV} ${DPLIBHDB}
 
 .include <${HEIMBASE}/Makefile.rules.inc>
 .include <bsd.prog.mk>
+
+LDADD+= -lutil ${KRB5LDADD} ${HDBLDADD}
+DPADD+= ${LIBUTIL} ${KRB5DPADD} ${HDBDPADD}

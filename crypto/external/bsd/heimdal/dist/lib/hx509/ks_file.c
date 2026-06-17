@@ -1,4 +1,4 @@
-/*	$NetBSD: ks_file.c,v 1.1.1.2 2014/04/24 12:45:41 pettai Exp $	*/
+/*	$NetBSD: ks_file.c,v 1.4.8.1 2023/08/11 13:39:59 martin Exp $	*/
 
 /*
  * Copyright (c) 2005 - 2007 Kungliga Tekniska Högskolan
@@ -54,12 +54,16 @@ parse_certificate(hx509_context context, const char *fn,
 		  const void *data, size_t len,
 		  const AlgorithmIdentifier *ai)
 {
+    heim_error_t error = NULL;
     hx509_cert cert;
     int ret;
 
-    ret = hx509_cert_init_data(context, data, len, &cert);
-    if (ret)
+    cert = hx509_cert_init_data(context, data, len, &error);
+    if (cert == NULL) {
+	ret = heim_error_get_code(error);
+	heim_release(error);
 	return ret;
+    }
 
     ret = _hx509_collector_certs_add(context, c, cert);
     hx509_cert_free(cert);
@@ -94,9 +98,10 @@ try_decrypt(hx509_context context,
 			 password, passwordlen,
 			 1, key, NULL);
     if (ret <= 0) {
-	hx509_set_error_string(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
+	ret = HX509_CRYPTO_INTERNAL_ERROR;
+	hx509_set_error_string(context, 0, ret,
 			       "Failed to do string2key for private key");
-	return HX509_CRYPTO_INTERNAL_ERROR;
+        goto out;
     }
 
     clear.data = malloc(len);
@@ -109,11 +114,26 @@ try_decrypt(hx509_context context,
     clear.length = len;
 
     {
-	EVP_CIPHER_CTX ctx;
-	EVP_CIPHER_CTX_init(&ctx);
-	EVP_CipherInit_ex(&ctx, c, NULL, key, ivdata, 0);
-	EVP_Cipher(&ctx, clear.data, cipher, len);
-	EVP_CIPHER_CTX_cleanup(&ctx);
+	EVP_CIPHER_CTX *ctx;
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+	EVP_CIPHER_CTX ctxst;
+	ctx = &ctxst;
+	EVP_CIPHER_CTX_init(ctx);
+#else
+	ctx = EVP_CIPHER_CTX_new();
+#endif
+	if (!EVP_CipherInit_ex(ctx, c, NULL, key, ivdata, 0)) {
+	    hx509_set_error_string(context, 0, EINVAL,
+				   "Cannot initialize cipher");
+	    ret = EINVAL;
+	    goto out;
+	}
+	EVP_Cipher(ctx, clear.data, cipher, len);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+	EVP_CIPHER_CTX_cleanup(ctx);
+#else
+	EVP_CIPHER_CTX_free(ctx);
+#endif
     }
 
     ret = _hx509_collector_private_key_add(context,
@@ -123,10 +143,10 @@ try_decrypt(hx509_context context,
 					   &clear,
 					   NULL);
 
-    memset(clear.data, 0, clear.length);
+    memset_s(clear.data, clear.length, 0, clear.length);
     free(clear.data);
 out:
-    memset(key, 0, keylen);
+    memset_s(key, keylen, 0, keylen);
     free(key);
     return ret;
 }
@@ -289,7 +309,7 @@ parse_pem_private_key(hx509_context context, const char *fn,
 		ret = try_decrypt(context, c, ai, cipher, ivdata, password,
 				  strlen(password), data, len);
 	    /* XXX add password to lock password collection ? */
-	    memset(password, 0, sizeof(password));
+	    memset_s(password, sizeof(password), 0, sizeof(password));
 	}
 	free(ivdata);
 
@@ -317,7 +337,9 @@ struct pem_formats {
     { "CERTIFICATE", parse_certificate, NULL },
     { "PRIVATE KEY", parse_pkcs8_private_key, NULL },
     { "RSA PRIVATE KEY", parse_pem_private_key, hx509_signature_rsa },
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     { "EC PRIVATE KEY", parse_pem_private_key, hx509_signature_ecPublicKey }
+#endif
 };
 
 
@@ -528,7 +550,7 @@ store_func(hx509_context context, void *ctx, hx509_cert c)
 {
     struct store_ctx *sc = ctx;
     heim_octet_string data;
-    int ret;
+    int ret = 0;
 
     ret = hx509_cert_binary(context, c, &data);
     if (ret)
@@ -549,14 +571,14 @@ store_func(hx509_context context, void *ctx, hx509_cert c)
 					    HX509_KEY_FORMAT_DER, &data);
 	    if (ret)
 		break;
-	    hx509_pem_write(context, _hx509_private_pem_name(key), NULL, sc->f,
-			    data.data, data.length);
+            ret = hx509_pem_write(context, _hx509_private_pem_name(key), NULL,
+                                  sc->f, data.data, data.length);
 	    free(data.data);
 	}
 	break;
     }
 
-    return 0;
+    return ret;
 }
 
 static int

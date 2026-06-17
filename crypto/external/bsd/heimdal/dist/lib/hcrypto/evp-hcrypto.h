@@ -1,4 +1,4 @@
-/*	$NetBSD: evp-hcrypto.h,v 1.1.1.2 2011/04/14 14:08:32 elric Exp $	*/
+/*	$NetBSD: evp-hcrypto.h,v 1.2.22.1 2023/08/11 13:39:58 martin Exp $	*/
 
 /*
  * Copyright (c) 2009 Kungliga Tekniska Högskolan
@@ -39,7 +39,6 @@
 #define HEIM_EVP_HCRYPTO_H 1
 
 /* symbol renaming */
-#define EVP_hcrypto_md2 hc_EVP_hcrypto_md2
 #define EVP_hcrypto_md4 hc_EVP_hcrypto_md4
 #define EVP_hcrypto_md5 hc_EVP_hcrypto_md5
 #define EVP_hcrypto_sha1 hc_EVP_hcrypto_sha1
@@ -69,7 +68,6 @@
 
 HC_CPP_BEGIN
 
-const EVP_MD * EVP_hcrypto_md2(void);
 const EVP_MD * EVP_hcrypto_md4(void);
 const EVP_MD * EVP_hcrypto_md5(void);
 const EVP_MD * EVP_hcrypto_sha1(void);

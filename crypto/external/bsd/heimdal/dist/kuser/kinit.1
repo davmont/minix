@@ -1,4 +1,4 @@
-.\"	$NetBSD: kinit.1,v 1.3 2014/04/24 13:45:34 pettai Exp $
+.\"	$NetBSD: kinit.1,v 1.5.8.1 2023/08/11 13:39:56 martin Exp $
 .\"
 .\" Copyright (c) 1998 - 2003, 2006 Kungliga Tekniska Högskolan
 .\" (Royal Institute of Technology, Stockholm, Sweden).
@@ -46,7 +46,8 @@
 .Fl Fl cache= Ns Ar cachename
 .Xc
 .Oc
-.Op Fl f | Fl Fl no-forwardable
+.Op Fl f | Fl Fl forwardable
+.Op Fl F | Fl Fl no-forwardable
 .Oo Fl t Ar keytabname \*(Ba Xo
 .Fl Fl keytab= Ns Ar keytabname
 .Xc
@@ -83,7 +84,7 @@
 .Op Fl Fl password-file= Ns Ar filename
 .Op Fl Fl fcache-version= Ns Ar version-number
 .Op Fl A | Fl Fl no-addresses
-.Op Fl Fl anonymous
+.Op Fl n | Fl Fl anonymous
 .Op Fl Fl enterprise
 .Op Fl Fl version
 .Op Fl Fl help
@@ -101,9 +102,10 @@ Supported options:
 .It Fl c Ar cachename Fl Fl cache= Ns Ar cachename
 The credentials cache to put the acquired ticket in, if other than
 default.
-.It Fl f Fl Fl no-forwardable
-Get ticket that can be forwarded to another host, or if the negative
-flags use, don't get a forwardable flag.
+.It Fl f Fl Fl forwardable
+Obtain a ticket than can be forwarded to another host.
+.It Fl F Fl Fl no-forwardable
+Do not obtain a forwardable ticket.
 .It Fl t Ar keytabname , Fl Fl keytab= Ns Ar keytabname
 Don't ask for a password, but instead get the key from the specified
 keytab.
@@ -165,10 +167,22 @@ in
 .Xr krb5.conf 5 .
 .It Fl A , Fl Fl no-addresses
 Request a ticket with no addresses.
-.It Fl Fl anonymous
-Request an anonymous ticket (which means that the ticket will be
-issued to an anonymous principal, typically
-.Dq anonymous@REALM ) .
+.It Fl n , Fl Fl anonymous
+Request an anonymous ticket.
+With the default (false) setting of the
+.Ar historical_anon_pkinit
+configuration parameter, if the principal is specified as @REALM, then
+anonymous PKINIT will be used to acquire an unauthenticated anonymous ticket
+and both the client name and (with fully RFC-comformant KDCs) realm in the
+returned ticket will be anonymized.
+Otherwise, authentication proceeds as normal and the anonymous ticket will have
+only the client name anonymized.
+With
+.Ar historical_anon_pkinit
+set to
+.Li true ,
+the principal is interpreted as a realm even without an at-sign prefix, and it
+is not possible to obtain authenticated anonymized tickets.
 .It Fl Fl enterprise
 Parse principal as a enterprise (KRB5-NT-ENTERPRISE) name. Enterprise
 names are email like principals that are stored in the name part of
@@ -212,8 +226,6 @@ The file name of
 .Pa krb5.conf ,
 the default being
 .Pa /etc/krb5.conf .
-.It Ev KRBTKFILE
-Specifies the Kerberos 4 ticket file to store version 4 tickets in.
 .El
 .\".Sh FILES
 .\".Sh EXAMPLES

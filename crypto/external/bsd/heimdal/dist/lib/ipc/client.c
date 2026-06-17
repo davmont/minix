@@ -1,4 +1,4 @@
-/*	$NetBSD: client.c,v 1.1.1.2 2014/04/24 12:45:48 pettai Exp $	*/
+/*	$NetBSD: client.c,v 1.2.22.1 2023/08/11 13:39:59 martin Exp $	*/
 
 /*
  * Copyright (c) 2009 Kungliga Tekniska Högskolan
@@ -334,10 +334,8 @@ connect_unix(struct path_ctx *s)
 	return errno;
     rk_cloexec(s->fd);
 
-    if (connect(s->fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-	close(s->fd);
+    if (connect(s->fd, (struct sockaddr *)&addr, sizeof(addr)) != 0)
 	return errno;
-    }
 
     return 0;
 }
@@ -354,10 +352,12 @@ common_path_init(const char *service,
 	return ENOMEM;
     s->fd = -1;
 
-    asprintf(&s->path, "/var/run/.heim_%s-%s", service, file);
+    if (asprintf(&s->path, "/var/run/.heim_%s-%s", service, file) == -1) {
+	free(s);
+	return ENOMEM;
+    }
 
     *ctx = s;
-
     return 0;
 }
 

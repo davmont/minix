@@ -1,4 +1,4 @@
-/*	$NetBSD: evp-hcrypto.c,v 1.1.1.1 2011/04/13 18:14:49 elric Exp $	*/
+/*	$NetBSD: evp-hcrypto.c,v 1.2.22.1 2023/08/11 13:39:58 martin Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2008 Kungliga Tekniska Högskolan
@@ -34,13 +34,10 @@
  */
 
 #include <config.h>
+#include <krb5/roken.h>
 
 #define HC_DEPRECATED
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <assert.h>
 
 #include <evp.h>
@@ -56,7 +53,6 @@
 #include <rc4.h>
 
 #include <sha.h>
-#include <md2.h>
 #include <md4.h>
 #include <md5.h>
 
@@ -71,7 +67,7 @@ aes_init(EVP_CIPHER_CTX *ctx,
 	 int encp)
 {
     AES_KEY *k = ctx->cipher_data;
-    if (ctx->encrypt)
+    if (ctx->encrypt || EVP_CIPHER_CTX_mode(ctx) == EVP_CIPH_CFB8_MODE)
 	AES_set_encrypt_key(key, ctx->cipher->key_len * 8, k);
     else
 	AES_set_decrypt_key(key, ctx->cipher->key_len * 8, k);
@@ -85,7 +81,7 @@ aes_do_cipher(EVP_CIPHER_CTX *ctx,
 	      unsigned int size)
 {
     AES_KEY *k = ctx->cipher_data;
-    if (ctx->flags & EVP_CIPH_CFB8_MODE)
+    if (EVP_CIPHER_CTX_mode(ctx) == EVP_CIPH_CFB8_MODE)
         AES_cfb8_encrypt(in, out, size, k, ctx->iv, ctx->encrypt);
     else
         AES_cbc_encrypt(in, out, size, k, ctx->iv, ctx->encrypt);
@@ -406,28 +402,6 @@ EVP_hcrypto_md4(void)
     return &md4;
 }
 
-/**
- * The message digest MD2 - hcrypto
- *
- * @return the message digest type.
- *
- * @ingroup hcrypto_evp
- */
-
-const EVP_MD *
-EVP_hcrypto_md2(void)
-{
-    static const struct hc_evp_md md2 = {
-	16,
-	16,
-	sizeof(MD2_CTX),
-	(hc_evp_md_init)MD2_Init,
-	(hc_evp_md_update)MD2_Update,
-	(hc_evp_md_final)MD2_Final,
-	NULL
-    };
-    return &md2;
-}
 
 /*
  *
@@ -533,7 +507,7 @@ des_ede3_cbc_do_cipher(EVP_CIPHER_CTX *ctx,
 }
 
 /**
- * The tripple DES cipher type - hcrypto
+ * The triple DES cipher type - hcrypto
  *
  * @return the DES-EDE3-CBC EVP_CIPHER pointer.
  *

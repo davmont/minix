@@ -1,11 +1,6 @@
-# $NetBSD: Makefile.inc,v 1.2 2011/05/25 19:21:16 he Exp $
+# $NetBSD: Makefile.inc,v 1.4.14.1 2023/08/11 13:39:44 martin Exp $
 
 BINDIR=/usr/bin
 
-LDADD+= -lkrb5 -lhx509 -lasn1 -lroken -lcom_err -lwind
-LDADD+= -lheimbase ${LIBVERS}
-LDADD+= -lcrypto -lcrypt
-
-DPADD+= ${LIBKRB5} ${LIBHX509} ${LIBASN1} ${LIBROKEN} ${LIBCOM_ERR} ${LIBWIND}
-DPADD+= ${LIBHEIMBASE} ${LIBVERS}
-DPADD+= ${LIBCRYPTO} ${LIBCRYPT}
+PROGDPLIBS += ${DPLIBKRB5} ${DPLIBHX509} ${DPLIBASN1} ${DPLIBCOM_ERR}
+PROGDPLIBS += ${DPLIBWIND} ${DPLIBHEIMBASE} ${DPLIBROKEN} ${DPLIBVERS}

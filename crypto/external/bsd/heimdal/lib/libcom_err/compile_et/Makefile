@@ -1,8 +1,6 @@
-# $NetBSD: Makefile,v 1.3 2011/08/28 10:28:35 elric Exp $
+# $NetBSD: Makefile,v 1.5 2018/05/01 19:59:42 christos Exp $
 
-NOMAN=		# defined
-
-.include <bsd.own.mk>
+.include <bsd.hostinit.mk>
 .include <${.CURDIR}/../../../Makefile.inc>
 
 .PATH:	${HEIMDIST}/lib/com_err	\
@@ -50,10 +48,11 @@ CLEANFILES+=	print_version.h make-print-version make-print-version.lo
 beforedepend:
 	[ -h krb5 ] || ln -sf . krb5
 	ln -sf ${HEIMBASE}/include/roken.h
+	ln -sf ${HEIMBASE}/include/krb5-types.h
 	ln -sf ${HEIMBASE}/dist/lib/roken/roken-common.h
 	ln -sf ${HEIMBASE}/dist/lib/roken/getarg.h
 
-CLEANFILES+=	krb5 roken.h roken-common.h getarg.h
+CLEANFILES+=	krb5 roken.h krb5-types.h roken-common.h getarg.h
 
 .ifndef HOSTPROG
 HOSTPROG=	${PROG}

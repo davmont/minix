@@ -1,4 +1,4 @@
-/*	$NetBSD: unwrap.c,v 1.1.1.2 2014/04/24 12:45:29 pettai Exp $	*/
+/*	$NetBSD: unwrap.c,v 1.3.14.1 2023/08/11 13:39:57 martin Exp $	*/
 
 /*
  * Copyright (c) 1997 - 2004 Kungliga Tekniska Högskolan
@@ -52,7 +52,7 @@ unwrap_des
   size_t len;
   EVP_MD_CTX *md5;
   u_char hash[16];
-  EVP_CIPHER_CTX des_ctx;
+  EVP_CIPHER_CTX *des_ctx;
   DES_key_schedule schedule;
   DES_cblock deskey;
   DES_cblock zero;
@@ -66,6 +66,8 @@ unwrap_des
 
   if (IS_DCE_STYLE(context_handle)) {
      token_len = 22 + 8 + 15; /* 45 */
+     if (input_message_buffer->length < token_len)
+	  return GSS_S_BAD_MECH;
   } else {
      token_len = input_message_buffer->length;
   }
@@ -77,6 +79,11 @@ unwrap_des
 				   GSS_KRB5_MECHANISM);
   if (ret)
       return ret;
+
+  len = (p - (u_char *)input_message_buffer->value)
+      + 22 + 8;
+  if (input_message_buffer->length < len)
+      return GSS_S_BAD_MECH;
 
   if (memcmp (p, "\x00\x00", 2) != 0)
     return GSS_S_BAD_SIG;
@@ -106,10 +113,23 @@ unwrap_des
 	  deskey[i] ^= 0xf0;
 
 
-      EVP_CIPHER_CTX_init(&des_ctx);
-      EVP_CipherInit_ex(&des_ctx, EVP_des_cbc(), NULL, deskey, zero, 0);
-      EVP_Cipher(&des_ctx, p, p, input_message_buffer->length - len);
-      EVP_CIPHER_CTX_cleanup(&des_ctx);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+      EVP_CIPHER_CTX des_ctxs;
+      des_ctx = &des_ctxs;
+      EVP_CIPHER_CTX_init(des_ctx);
+#else
+      des_ctx = EVP_CIPHER_CTX_new();
+#endif
+      if (!EVP_CipherInit_ex(des_ctx, EVP_des_cbc(), NULL, deskey, zero, 0)) {
+	*minor_status = EINVAL;
+	return GSS_S_FAILURE;
+      }
+      EVP_Cipher(des_ctx, p, p, input_message_buffer->length - len);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+      EVP_CIPHER_CTX_cleanup(des_ctx);
+#else
+      EVP_CIPHER_CTX_free(des_ctx);
+#endif
 
       memset (&schedule, 0, sizeof(schedule));
   }
@@ -119,7 +139,7 @@ unwrap_des
   } else {
     /* check pad */
     ret = _gssapi_verify_pad(input_message_buffer,
-			     input_message_buffer->length - len,
+			     input_message_buffer->length - len - 8,
 			     &padlength);
     if (ret)
         return ret;
@@ -146,10 +166,24 @@ unwrap_des
 
   p -= 16;
 
-  EVP_CIPHER_CTX_init(&des_ctx);
-  EVP_CipherInit_ex(&des_ctx, EVP_des_cbc(), NULL, key->keyvalue.data, hash, 0);
-  EVP_Cipher(&des_ctx, p, p, 8);
-  EVP_CIPHER_CTX_cleanup(&des_ctx);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+  EVP_CIPHER_CTX des_ctxs;
+  des_ctx = &des_ctxs;
+  EVP_CIPHER_CTX_init(des_ctx);
+#else
+  des_ctx = EVP_CIPHER_CTX_new();
+#endif
+  if (!EVP_CipherInit_ex(des_ctx, EVP_des_cbc(), NULL, key->keyvalue.data, hash,
+      0)) {
+    *minor_status = EINVAL;
+    return GSS_S_FAILURE;
+  }
+  EVP_Cipher(des_ctx, p, p, 8);
+#if OPENSSL_VERSION_NUMBER < 0x10100000UL
+  EVP_CIPHER_CTX_cleanup(des_ctx);
+#else
+  EVP_CIPHER_CTX_free(des_ctx);
+#endif
 
   memset (deskey, 0, sizeof(deskey));
   memset (&schedule, 0, sizeof(schedule));
@@ -182,9 +216,10 @@ unwrap_des
   output_message_buffer->value  = malloc(output_message_buffer->length);
   if(output_message_buffer->length != 0 && output_message_buffer->value == NULL)
       return GSS_S_FAILURE;
-  memcpy (output_message_buffer->value,
-	  p + 24,
-	  output_message_buffer->length);
+  if (output_message_buffer->value != NULL)
+      memcpy (output_message_buffer->value,
+	      p + 24,
+	      output_message_buffer->length);
   return GSS_S_COMPLETE;
 }
 #endif
@@ -217,6 +252,8 @@ unwrap_des3
 
   if (IS_DCE_STYLE(context_handle)) {
      token_len = 34 + 8 + 15; /* 57 */
+     if (input_message_buffer->length < token_len)
+	  return GSS_S_BAD_MECH;
   } else {
      token_len = input_message_buffer->length;
   }
@@ -229,7 +266,12 @@ unwrap_des3
   if (ret)
       return ret;
 
-  if (memcmp (p, "\x04\x00", 2) != 0) /* HMAC SHA1 DES3_KD */
+  len = (p - (u_char *)input_message_buffer->value)
+      + 34 + 8;
+  if (input_message_buffer->length < len)
+      return GSS_S_BAD_MECH;
+
+  if (ct_memcmp (p, "\x04\x00", 2) != 0) /* HMAC SHA1 DES3_KD */
     return GSS_S_BAD_SIG;
   p += 2;
   if (ct_memcmp (p, "\x02\x00", 2) == 0) {
@@ -276,7 +318,7 @@ unwrap_des3
   } else {
     /* check pad */
     ret = _gssapi_verify_pad(input_message_buffer,
-			     input_message_buffer->length - len,
+			     input_message_buffer->length - len - 8,
 			     &padlength);
     if (ret)
         return ret;
@@ -376,15 +418,16 @@ unwrap_des3
   output_message_buffer->value  = malloc(output_message_buffer->length);
   if(output_message_buffer->length != 0 && output_message_buffer->value == NULL)
       return GSS_S_FAILURE;
-  memcpy (output_message_buffer->value,
-	  p + 36,
-	  output_message_buffer->length);
+  if (output_message_buffer->value != NULL)
+      memcpy (output_message_buffer->value,
+	      p + 36,
+	      output_message_buffer->length);
   return GSS_S_COMPLETE;
 }
 
 OM_uint32 GSSAPI_CALLCONV _gsskrb5_unwrap
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_buffer_t input_message_buffer,
             gss_buffer_t output_message_buffer,
             int * conf_state,
@@ -394,7 +437,6 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_unwrap
   krb5_keyblock *key;
   krb5_context context;
   OM_uint32 ret;
-  krb5_keytype keytype;
   gsskrb5_ctx ctx = (gsskrb5_ctx) context_handle;
 
   output_message_buffer->value = NULL;
@@ -416,12 +458,13 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_unwrap
       *minor_status = ret;
       return GSS_S_FAILURE;
   }
-  krb5_enctype_to_keytype (context, key->keytype, &keytype);
 
   *minor_status = 0;
 
-  switch (keytype) {
-  case KEYTYPE_DES :
+  switch (key->keytype) {
+  case KRB5_ENCTYPE_DES_CBC_CRC :
+  case KRB5_ENCTYPE_DES_CBC_MD4 :
+  case KRB5_ENCTYPE_DES_CBC_MD5 :
 #ifdef HEIM_WEAK_CRYPTO
       ret = unwrap_des (minor_status, ctx,
 			input_message_buffer, output_message_buffer,
@@ -430,13 +473,14 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_unwrap
       ret = GSS_S_FAILURE;
 #endif
       break;
-  case KEYTYPE_DES3 :
+  case KRB5_ENCTYPE_DES3_CBC_MD5 :
+  case KRB5_ENCTYPE_DES3_CBC_SHA1 :
       ret = unwrap_des3 (minor_status, ctx, context,
 			 input_message_buffer, output_message_buffer,
 			 conf_state, qop_state, key);
       break;
-  case KEYTYPE_ARCFOUR:
-  case KEYTYPE_ARCFOUR_56:
+  case KRB5_ENCTYPE_ARCFOUR_HMAC_MD5:
+  case KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56:
       ret = _gssapi_unwrap_arcfour (minor_status, ctx, context,
 				    input_message_buffer, output_message_buffer,
 				    conf_state, qop_state, key);

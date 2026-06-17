@@ -1,4 +1,4 @@
-/*	$NetBSD: test_plugin.c,v 1.1.1.2 2014/04/24 12:45:51 pettai Exp $	*/
+/*	$NetBSD: test_plugin.c,v 1.2.22.1 2023/08/11 13:40:01 martin Exp $	*/
 
 /*
  * Copyright (c) 2006 Kungliga Tekniska Högskolan
@@ -36,19 +36,19 @@
 #include <krb5_locl.h>
 #include "locate_plugin.h"
 
-static krb5_error_code
+static krb5_error_code KRB5_CALLCONV
 resolve_init(krb5_context context, void **ctx)
 {
     *ctx = NULL;
     return 0;
 }
 
-static void
+static void KRB5_CALLCONV
 resolve_fini(void *ctx)
 {
 }
 
-static krb5_error_code
+static krb5_error_code KRB5_CALLCONV
 resolve_lookup(void *ctx,
 	       enum locate_service_type service,
 	       const char *realm,
@@ -79,7 +79,8 @@ krb5plugin_service_locate_ftable resolve = {
     0,
     resolve_init,
     resolve_fini,
-    resolve_lookup
+    resolve_lookup,
+    NULL
 };
 
 
@@ -115,11 +116,13 @@ main(int argc, char **argv)
 
     while(krb5_krbhst_next_as_string(context, handle, host, sizeof(host)) == 0){
 	found++;
- 	if (strcmp(host, "127.0.0.2") != 0)
+ 	if (!found && strcmp(host, "127.0.0.2") != 0 && strcmp(host, "tcp/127.0.0.2") != 0)
 	    krb5_errx(context, 1, "wrong address: %s", host);
     }
     if (!found)
 	krb5_errx(context, 1, "failed to find host");
+    if (found < 2)
+	krb5_errx(context, 1, "did not get the two expected results");
 
     krb5_krbhst_free(context, handle);
 

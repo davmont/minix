@@ -1,4 +1,4 @@
-/*	$NetBSD: stash.c,v 1.1.1.2 2014/04/24 12:45:27 pettai Exp $	*/
+/*	$NetBSD: stash.c,v 1.2.22.1 2023/08/11 13:39:55 martin Exp $	*/
 
 /*
  * Copyright (c) 2004 Kungliga Tekniska Högskolan
@@ -43,10 +43,11 @@ extern int local_flag;
 int
 stash(struct stash_options *opt, int argc, char **argv)
 {
-    char buf[1024];
+    char buf[1024+1];
     krb5_error_code ret;
     krb5_enctype enctype;
     hdb_master_key mkey;
+    int aret;
 
     if(!local_flag) {
 	krb5_warnx(context, "stash is only available in local (-l) mode");
@@ -60,8 +61,8 @@ stash(struct stash_options *opt, int argc, char **argv)
     }
 
     if(opt->key_file_string == NULL) {
-	asprintf(&opt->key_file_string, "%s/m-key", hdb_db_dir(context));
-	if (opt->key_file_string == NULL)
+	aret = asprintf(&opt->key_file_string, "%s/m-key", hdb_db_dir(context));
+	if (aret == -1)
 	    errx(1, "out of memory");
     }
 
@@ -76,6 +77,7 @@ stash(struct stash_options *opt, int argc, char **argv)
 	if (ret)
 	    krb5_warn(context, ret, "reading master key from %s",
 		      opt->key_file_string);
+	hdb_free_master_key(context, mkey);
 	return 0;
     } else {
 	krb5_keyblock key;
@@ -86,7 +88,7 @@ stash(struct stash_options *opt, int argc, char **argv)
 	salt.saltvalue.length = 0;
 	if(opt->master_key_fd_integer != -1) {
 	    ssize_t n;
-	    n = read(opt->master_key_fd_integer, buf, sizeof(buf));
+	    n = read(opt->master_key_fd_integer, buf, sizeof(buf)-1);
 	    if(n == 0)
 		krb5_warnx(context, "end of file reading passphrase");
 	    else if(n < 0) {
@@ -99,21 +101,30 @@ stash(struct stash_options *opt, int argc, char **argv)
 	    random_password (buf, sizeof(buf));
 	    printf("Using random master stash password: %s\n", buf);
 	} else {
-	    if(UI_UTIL_read_pw_string(buf, sizeof(buf), "Master key: ", 1)) {
+	    if(UI_UTIL_read_pw_string(buf, sizeof(buf), "Master key: ",
+				      UI_UTIL_FLAG_VERIFY)) {
 		hdb_free_master_key(context, mkey);
 		return 0;
 	    }
 	}
 	ret = krb5_string_to_key_salt(context, enctype, buf, salt, &key);
-	ret = hdb_add_master_key(context, &key, &mkey);
+        if (ret == 0)
+            ret = hdb_add_master_key(context, &key, &mkey);
+        if (ret)
+            krb5_warn(context, errno, "setting master key");
 	krb5_free_keyblock_contents(context, &key);
     }
 
     {
-	char *new, *old;
-	asprintf(&old, "%s.old", opt->key_file_string);
-	asprintf(&new, "%s.new", opt->key_file_string);
-	if(old == NULL || new == NULL) {
+	char *new = NULL, *old = NULL;
+
+	aret = asprintf(&old, "%s.old", opt->key_file_string);
+	if (aret == -1) {
+	    ret = ENOMEM;
+	    goto out;
+	}
+	aret = asprintf(&new, "%s.new", opt->key_file_string);
+	if (aret == -1) {
 	    ret = ENOMEM;
 	    goto out;
 	}

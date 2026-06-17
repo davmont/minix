@@ -1,4 +1,4 @@
-/*	$NetBSD: kdc-replay.c,v 1.1.1.2 2014/04/24 12:45:27 pettai Exp $	*/
+/*	$NetBSD: kdc-replay.c,v 1.2.22.1 2023/08/11 13:39:55 martin Exp $	*/
 
 /*
  * Copyright (c) 2007 Kungliga Tekniska Högskolan
@@ -39,11 +39,11 @@ static int version_flag;
 static int help_flag;
 
 struct getargs args[] = {
-    { "version",   0,	arg_flag, &version_flag },
-    { "help",     'h',	arg_flag, &help_flag }
+    { "version",   0,	arg_flag, &version_flag, NULL, NULL },
+    { "help",     'h',	arg_flag, &help_flag,    NULL, NULL }
 };
 
-const static int num_args = sizeof(args) / sizeof(args[0]);
+static const int num_args = sizeof(args) / sizeof(args[0]);
 
 static void
 usage(int ret)
@@ -186,6 +186,8 @@ main(int argc, char **argv)
 	    unsigned int tag2;
 	    ret = der_get_tag (r.data, r.length,
 			       &cl, &ty, &tag2, NULL);
+            if (ret)
+                krb5_err(context, 1, ret, "Could not decode replay data");
 	    if (MAKE_TAG(cl, ty, 0) != clty)
 		krb5_errx(context, 1, "class|type mismatch: %d != %d",
 			  (int)MAKE_TAG(cl, ty, 0), (int)clty);

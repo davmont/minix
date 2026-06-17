@@ -1,4 +1,4 @@
-/*	$NetBSD: rpc.c,v 1.2 2014/05/12 15:34:23 christos Exp $	*/
+/*	$NetBSD: rpc.c,v 1.3.22.1 2023/08/11 13:39:55 martin Exp $	*/
 
 /*
  * Copyright (c) 2008 Kungliga Tekniska Högskolan
@@ -933,7 +933,7 @@ process_stream(krb5_context contextp,
 	    INSIST(gctx.ctx == NULL);
 
 	    gctx.inprogress = 1;
-	    /* FALL THOUGH */
+	    /* FALLTHROUGH */
 	case RPG_CONTINUE_INIT: {
 	    gss_name_t src_name = GSS_C_NO_NAME;
 	    krb5_data in;
@@ -1099,7 +1099,7 @@ handle_mit(krb5_context contextp, void *buf, size_t len, krb5_socket_t sock)
 
     dcontext = contextp;
 
-    sp = krb5_storage_from_fd(sock);
+    sp = krb5_storage_from_socket(sock);
     INSIST(sp != NULL);
 
     process_stream(contextp, buf, len, sp);
