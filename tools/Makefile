@@ -106,6 +106,7 @@ SUBDIR += .WAIT texinfo \
 	.WAIT ${TOOLCHAIN_BITS} \
 	${DTRACE_BITS} \
 		 cksum \
+		asn1_compile compile_et slc \
 		file \
 		makefs .WAIT mkcsmapper mkesdb mklocale \
 		.WAIT \
