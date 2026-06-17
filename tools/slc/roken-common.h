@@ -1,1 +1,0 @@
-/home/david/Code/minix/crypto/external/bsd/heimdal/dist/lib/roken/roken-common.h
