@@ -3,6 +3,17 @@
 HEIMBASE?=	${NETBSDSRCDIR}/crypto/external/bsd/heimdal
 HEIMDIST=	${HEIMBASE}/dist
 
+.if defined(__MINIX)
+# MINIX links userland statically by default (LDSTATIC?=-static).  Build the
+# Kerberos tools dynamically instead: a static binary cannot dlopen OpenSSL 3's
+# loadable legacy provider, so des3-cbc-sha1 / arcfour-hmac-md5 (3DES/RC4/MD4)
+# are unavailable and string2key faults on them.  Linking dynamically lets
+# krb5_init_context() load the legacy provider on demand -- exactly how Linux
+# ships Kerberos -- which restores those enctypes.  (NetBSD already builds
+# Heimdal dynamically; this just matches that on MINIX.)
+LDSTATIC=
+.endif
+
 SSLBASE?=	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
 
 DPLIBASN1=	asn1 ${HEIMBASE}/lib/libasn1

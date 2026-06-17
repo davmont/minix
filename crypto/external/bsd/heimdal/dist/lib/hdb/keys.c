@@ -646,23 +646,8 @@ hdb_generate_key_set(krb5_context context, krb5_principal principal,
     char **config_ktypes = NULL;
     static const char *default_keytypes[] = {
 	"aes256-cts-hmac-sha1-96:pw-salt",
-#if defined(__minix)
-	/*
-	 * MINIX: default to AES only.  des3-cbc-sha1 and arcfour-hmac-md5
-	 * use ciphers (3DES, RC4, MD4) that OpenSSL 3 moved to the "legacy"
-	 * provider, which is a loadable module (legacy.so).  MINIX's Kerberos
-	 * tools are statically linked and cannot dlopen a provider module, so
-	 * those algorithms are unavailable and string2key faults on them.
-	 * (Restoring them needs OpenSSL's legacy provider built as a static
-	 * builtin -- liblegacy with -DSTATIC_LEGACY -- registered via
-	 * OSSL_PROVIDER_add_builtin in krb5_init_context.)  They are also
-	 * deprecated and insecure, so AES is the safe, correct modern default.
-	 */
-	"aes128-cts-hmac-sha1-96:pw-salt",
-#else
 	"des3-cbc-sha1:pw-salt",
 	"arcfour-hmac-md5:pw-salt",
-#endif
 	NULL
     };
 
