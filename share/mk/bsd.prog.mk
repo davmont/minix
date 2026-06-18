@@ -448,6 +448,17 @@ PROGDO.${_lib}!=	cd "${_dir}" && ${PRINTOBJDIR}
 .MAKEOVERRIDES+=PROGDO.${_lib}
 .endif
 LDADD+=		-L${PROGDO.${_lib}} -l${_lib}
+.if defined(__MINIX)
+# MINIX links userland statically by default, so the rpath-link blocks above
+# (gated on a non-standard SHLIBDIR/SHLIBINSTALLDIR) never fire here.  When a
+# program IS linked dynamically, the linker still needs each dependency's
+# build-tree dir on -rpath-link to resolve *transitive* shared-library deps
+# (e.g. a program -> libgssapi.so -> libheimntlm.so) during a clean dependall,
+# before the libraries are installed to ${DESTDIR}.  -L only drives explicit
+# -l resolution, not the implicit DT_NEEDED chain.  Harmless for static links
+# (ld ignores -rpath-link).
+LDADD+=		-Wl,-rpath-link,${PROGDO.${_lib}}
+.endif
 .if exists(${PROGDO.${_lib}}/lib${_lib}_pic.a)
 DPADD+=		${PROGDO.${_lib}}/lib${_lib}_pic.a
 .elif exists(${PROGDO.${_lib}}/lib${_lib}.so)

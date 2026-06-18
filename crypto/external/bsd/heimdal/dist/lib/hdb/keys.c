@@ -646,21 +646,8 @@ hdb_generate_key_set(krb5_context context, krb5_principal principal,
     char **config_ktypes = NULL;
     static const char *default_keytypes[] = {
 	"aes256-cts-hmac-sha1-96:pw-salt",
-#if defined(__minix)
-	/*
-	 * MINIX: default to AES only.  The Kerberos tools are statically
-	 * linked here, and a static binary cannot dlopen OpenSSL 3's loadable
-	 * legacy provider, so des3-cbc-sha1 and arcfour-hmac-md5 (3DES/RC4/MD4)
-	 * are unavailable and string2key faults on them.  They are deprecated
-	 * and insecure anyway, so AES is the safe, correct modern default.
-	 * (Restoring them requires building the tools dynamically -- see the
-	 * note in crypto/external/bsd/heimdal/Makefile.inc.)
-	 */
-	"aes128-cts-hmac-sha1-96:pw-salt",
-#else
 	"des3-cbc-sha1:pw-salt",
 	"arcfour-hmac-md5:pw-salt",
-#endif
 	NULL
     };
 
