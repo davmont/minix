@@ -12,6 +12,17 @@ HEIMDIST=	${HEIMBASE}/dist
 # ships Kerberos -- which restores those enctypes.  (NetBSD already builds
 # Heimdal dynamically; this just matches that on MINIX.)
 LDSTATIC=
+
+# Disable ELF symbol versioning for the Heimdal shared libraries.  The shared
+# rule in Makefile.rules.inc gates versioning on a *parse-time*
+# `exists(version-script.map)', but that map is generated at build time -- so a
+# clean build leaves some libs unversioned while consumers (e.g. libgssapi) end
+# up with versioned references, which then fail to link:
+#   libgssapi.so: undefined reference to `heim_ntlm_*@HEIMDAL_NTLM_1.0'
+# MINIX's Heimdal is new and has no ABI-compatibility constraints, so a single
+# unversioned ABI is both correct and deterministic across clean/incremental
+# builds.  (Defined before Makefile.rules.inc is pulled in by each lib.)
+NO_VERSION_SCRIPT=	yes
 .endif
 
 SSLBASE?=	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
