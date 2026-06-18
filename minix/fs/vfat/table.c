@@ -27,6 +27,7 @@ struct fsdriver vfat_table = {
 	.fdr_mountpt	= fs_mountpt,
 	.fdr_statvfs	= fs_statvfs,
 	.fdr_sync	= fs_sync,
+	.fdr_peek	= fs_peek,	/* assembles full pages from clusters */
 	.fdr_driver	= lmfs_driver,
 	.fdr_bread	= lmfs_bio,
 	.fdr_bpeek	= lmfs_bio,

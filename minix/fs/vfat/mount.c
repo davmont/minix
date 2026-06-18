@@ -218,8 +218,12 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	root_node->fn_gid = pmp->pm_gid;
 	root_node->fn_dev = NO_DEV;
 
-	/* If mounted read-only, tell VFS so it rejects writes up front. */
-	*res_flags = readonly ? RES_RDONLY : RES_NOFLAGS;
+	/*
+	 * If mounted read-only, tell VFS so it rejects writes up front.  Also
+	 * advertise RES_HASPEEK: we implement fdr_peek (page-assembling file
+	 * peek), so VM can back mmap() and demand-paged exec() from FAT.
+	 */
+	*res_flags = (readonly ? RES_RDONLY : RES_NOFLAGS) | RES_HASPEEK;
 
 	return OK;
 }
