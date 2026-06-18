@@ -67,6 +67,8 @@ void dos2unixtime(unsigned int dd, unsigned int dt, struct timespec *tsp);
 /* read.c */
 ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t pos, int call);
+ssize_t fs_peek(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
+	off_t pos, int call);
 
 /* stadir.c */
 int fs_stat(ino_t ino_nr, struct stat *statbuf);

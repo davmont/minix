@@ -1,6 +1,8 @@
 /* File reading for the vfat server. */
 #include "fs.h"
 #include <sys/stat.h>
+#include <sys/mman.h>		/* mmap, for fs_peek */
+#include <minix/vm.h>		/* vm_set_cacheblock, for fs_peek */
 
 /*===========================================================================*
  *				fs_readwrite				     *
@@ -133,4 +135,63 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	}
 
 	return total;
+}
+
+/*===========================================================================*
+ *				fs_peek					     *
+ *===========================================================================*/
+ssize_t fs_peek(ino_t ino_nr, struct fsdriver_data *__unused data, size_t bytes,
+	off_t pos, int __unused call)
+{
+/* Assemble a full page of file data and hand it to VM's cache, so that VM can
+ * back file mmap()s and demand-paged exec() from a FAT volume.  FAT data
+ * clusters do not align to page-size device-block boundaries, so -- exactly
+ * like isofs -- we read the requested range into a private anonymous page via
+ * the normal read path (which walks the cluster chain) and register that page
+ * with VM for one-time use, rather than trying to peek raw device blocks.
+ */
+	static u32_t flags = 0;	/* persistent storage for the VMMC_ flags */
+	static off_t dev_off = 0; /* fake, ever-increasing device offset */
+	struct fsdriver_data buf_data;
+	char *buf;
+	ssize_t r;
+
+	if ((buf = mmap(NULL, bytes, PROT_READ | PROT_WRITE,
+	    MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED)
+		return ENOMEM;
+
+	/*
+	 * Read the file data into our local page via the cluster-walking read
+	 * path.  For the SELF endpoint, fsdriver_copyout() uses the union's
+	 * 'ptr' member (a full pointer), not 'grant' (a 32-bit grant id that
+	 * would truncate the pointer on amd64).
+	 */
+	buf_data.endpt = SELF;
+	buf_data.ptr = buf;
+	buf_data.size = bytes;
+
+	r = fs_readwrite(ino_nr, &buf_data, bytes, pos, FSC_READ);
+
+	if (r >= 0) {
+		/* Zero the tail beyond EOF so VM gets a fully defined page. */
+		if ((size_t)r < bytes)
+			memset(&buf[r], 0, bytes - r);
+
+		/*
+		 * One-time page: the device offset is just a unique cache key
+		 * that is discarded right after use; an ever-increasing value
+		 * keeps it unique.
+		 */
+		r = vm_set_cacheblock(buf, pmp->pm_dev, dev_off, ino_nr, pos,
+		    &flags, bytes, VMSF_ONCE);
+
+		if (r == OK) {
+			dev_off += bytes;
+			r = bytes;
+		}
+	}
+
+	munmap(buf, bytes);
+
+	return r;
 }
