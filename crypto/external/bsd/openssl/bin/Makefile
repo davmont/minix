@@ -136,4 +136,23 @@ CLEANFILES+=CA.pl
 
 .endif
 
+# Install the OpenSSL master configuration into the default OPENSSLDIR
+# (/etc/openssl) so the openssl(1) CLI and libcrypto find it without an
+# explicit OPENSSL_CONF.  The copy under share/examples/openssl above is kept
+# as reference.  It is staged under a distinct source name because
+# bsd.files.mk shares the per-file FILESDIR_<file> override between FILES
+# entries, and is installed via FILES (not CONFIGFILES) because MINIX's
+# install chain runs realinstall->filesinstall but not configinstall.
+FILES+=				openssl_etc.cnf
+FILESDIR_openssl_etc.cnf=	/etc/openssl
+FILESNAME_openssl_etc.cnf=	openssl.cnf
+FILESBUILD_openssl_etc.cnf=	yes
+
+openssl_etc.cnf: openssl.cnf
+	${_MKTARGET_CREATE}
+	rm -f ${.TARGET}
+	cp ${.ALLSRC} ${.TARGET}
+
+CLEANFILES+=	openssl_etc.cnf
+
 .include <bsd.prog.mk>
