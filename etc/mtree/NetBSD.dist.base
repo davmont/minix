@@ -835,6 +835,7 @@
 /set type=dir uid=0 gid=0 mode=1777
 ./tmp
 ./usr/tmp
+./usr/tmp/vi.recover
 
 /set type=dir uid=2 gid=0 mode=755
 ./usr/tests/minix-posix
