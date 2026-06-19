@@ -4,18 +4,16 @@ HEIMBASE?=	${NETBSDSRCDIR}/crypto/external/bsd/heimdal
 HEIMDIST=	${HEIMBASE}/dist
 
 .if defined(__MINIX)
-# NOTE: the Kerberos tools are built STATICALLY here (MINIX's default).  A
-# previous attempt to build them dynamically -- so they could dlopen OpenSSL
-# 3's loadable legacy provider and thus restore des3-cbc-sha1 / arcfour-hmac-md5
-# -- broke the clean build: dynamic heimdal programs need the build-tree lib
-# dirs on -Wl,-rpath-link to resolve transitive shared-lib deps (e.g.
-# libgssapi.so -> libheimntlm.so), but MINIX's bsd.prog.mk only emits
-# -rpath-link when SHLINKDIR != /usr/libexec (it is /usr/libexec here), and
-# PROGDPLIBS adds only -L/-l, not -rpath-link.  So programs failed to link with
-# "libgssapi.so: undefined reference to heim_ntlm_*".  Restoring those legacy
-# enctypes therefore depends on the broader static->dynamic migration (which
-# must fix transitive -rpath-link); until then the tools stay static and the
-# default key set is AES-only (see lib/hdb/keys.c).
+# MINIX links userland statically by default (LDSTATIC?=-static).  Build the
+# Kerberos tools dynamically instead: a static binary cannot dlopen OpenSSL 3's
+# loadable legacy provider, so des3-cbc-sha1 / arcfour-hmac-md5 (3DES/RC4/MD4)
+# are unavailable and string2key faults on them.  Linking dynamically lets
+# krb5_init_context() load the legacy provider on demand -- exactly how Linux
+# ships Kerberos -- which restores those enctypes.  (NetBSD already builds
+# Heimdal dynamically; this just matches that on MINIX.)  This relies on the
+# transitive -Wl,-rpath-link emitted by share/mk/bsd.prog.mk for dynamic
+# programs (so a clean build can resolve libgssapi.so -> libheimntlm.so etc.).
+LDSTATIC=
 
 # Disable ELF symbol versioning for the Heimdal shared libraries.  The shared
 # rule in Makefile.rules.inc gates versioning on a *parse-time*
