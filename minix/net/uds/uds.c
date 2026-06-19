@@ -261,8 +261,10 @@ uds_socket(int domain, int type, int protocol, endpoint_t user_endpt __unused,
 	return uds_get_id(uds);
 }
 
+static void uds_add_queue(struct udssock * uds, struct udssock * link);
+
 /*
- * Connect a pair of sockets.
+ * Connect a pair of sockets, as created through socketpair(2).
  */
 static int
 uds_pair(struct sock * sock1, struct sock * sock2, endpoint_t user_endpt)
@@ -272,9 +274,24 @@ uds_pair(struct sock * sock1, struct sock * sock2, endpoint_t user_endpt)
 
 	dprintf(("UDS: pair(%d,%d)\n", uds_get_id(uds1), uds_get_id(uds2)));
 
-	/* Only connection-oriented types are acceptable. */
-	if (uds_get_type(uds1) == SOCK_DGRAM)
-		return EOPNOTSUPP;
+	/*
+	 * Connectionless (SOCK_DGRAM) sockets have no connected peer through
+	 * uds_conn.  Instead, "connecting" a datagram socket links it to a
+	 * default send target through uds_link (see uds_connect()).  Set up a
+	 * datagram socket pair the same way, by cross-linking the two sockets
+	 * so that each is the other's default target.  This is effectively a
+	 * mutual connect(2), a state the rest of the code already supports
+	 * (uds_send_peer(), the EPERM check in uds_connect(), and the close
+	 * teardown in uds_close()).  This is what lets e.g. dhcpcd(8), which
+	 * relies on socketpair(AF_UNIX, SOCK_DGRAM, ...) for its privilege-
+	 * separation channels, run on MINIX.
+	 */
+	if (uds_get_type(uds1) == SOCK_DGRAM) {
+		uds_add_queue(uds2, uds1);	/* uds1->uds_link = uds2 */
+		uds_add_queue(uds1, uds2);	/* uds2->uds_link = uds1 */
+
+		return OK;
+	}
 
 	/* Connect the sockets. */
 	uds1->uds_conn = uds2;
