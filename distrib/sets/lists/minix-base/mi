@@ -3993,6 +3993,7 @@
 ./usr/src                                               minix-base
 ./usr/src/src.tar.gz                                    minix-base      src
 ./usr/tmp                                               minix-base
+./usr/tmp/vi.recover                                    minix-base
 ./usr/var                                               minix-base
 ./usr/var/db                                            minix-base
 ./usr/var/db/pkg                                        minix-base
