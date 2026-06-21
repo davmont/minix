@@ -229,7 +229,12 @@
 ./libexec/resolvconf                                    minix-base
 ./libexec/resolvconf/dnsmasq                            minix-base
 ./libexec/resolvconf/libc                               minix-base
+./libexec/resolvconf/libc.d                             minix-base
+./libexec/resolvconf/libc.d/avahi-daemon                minix-base
+./libexec/resolvconf/libc.d/mdnsd                       minix-base
 ./libexec/resolvconf/named                              minix-base
+./libexec/resolvconf/pdns_recursor                      minix-base
+./libexec/resolvconf/pdnsd                              minix-base
 ./libexec/resolvconf/unbound                            minix-base
 ./mnt                                                   minix-base
 ./proc                                                  minix-base
