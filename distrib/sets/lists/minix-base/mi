@@ -406,6 +406,7 @@
 ./usr/bin/fold                                          minix-base
 ./usr/bin/format                                        minix-base
 ./usr/bin/fpr                                           minix-base
+./usr/bin/free                                          minix-base
 ./usr/bin/from                                          minix-base
 ./usr/bin/fsplit                                        minix-base
 ./usr/bin/ftp                                           minix-base

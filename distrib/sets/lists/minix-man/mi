@@ -121,6 +121,7 @@
 ./usr/man/man1/foreach.1                                minix-man
 ./usr/man/man1/format.1                                 minix-man
 ./usr/man/man1/fpr.1                                    minix-man
+./usr/man/man1/free.1                                   minix-man
 ./usr/man/man1/from.1                                   minix-man
 ./usr/man/man1/fsck.mfs.1                               minix-man
 ./usr/man/man1/fsplit.1                                 minix-man

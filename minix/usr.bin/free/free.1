@@ -1,0 +1,54 @@
+.\" $NetBSD$
+.Dd June 20, 2026
+.Dt FREE 1
+.Os
+.Sh NAME
+.Nm free
+.Nd display the amount of free and used physical memory
+.Sh SYNOPSIS
+.Nm
+.Op Fl b | Fl k | Fl m | Fl g | Fl h
+.Sh DESCRIPTION
+.Nm
+displays the total amount of physical memory in the system together with
+the amount currently used, free, and held in the file-system buffer cache.
+The values are obtained from the
+.Va vm.uvmexp2
+.Xr sysctl 7
+node.
+.Pp
+By default sizes are shown in kibibytes.
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl b
+Show sizes in bytes.
+.It Fl k
+Show sizes in kibibytes (the default).
+.It Fl m
+Show sizes in mebibytes.
+.It Fl g
+Show sizes in gibibytes.
+.It Fl h
+Show sizes in a human-readable form, choosing the largest unit that
+keeps the value below 1024.
+.El
+.Pp
+The
+.Dq used
+column is computed as
+.Dq total
+minus
+.Dq free ;
+the
+.Dq cached
+column counts pages held for the file-system cache, which the system can
+reclaim under memory pressure.
+.Sh SEE ALSO
+.Xr top 1 ,
+.Xr sysctl 7
+.Sh HISTORY
+A
+.Nm
+command was written for
+.Nx Ns -based
+MINIX 3.
