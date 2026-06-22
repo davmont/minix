@@ -31,11 +31,15 @@ extern "C" {
 # ifndef OPENSSL_RAND_SEED_OS
 #  define OPENSSL_RAND_SEED_OS
 # endif
-/* MINIX libc has no libpthread; force the threads_none.c fallback path. */
-# if !defined(__minix)
-#  ifndef OPENSSL_THREADS
-#   define OPENSSL_THREADS
-#  endif
+/* MINIX now ships libpthread, so OpenSSL must use real thread locking
+ * (threads_pthread.c): BIND's isc netmgr runs worker threads that use libcrypto
+ * concurrently, and the threads_none.c no-op locks caused intermittent
+ * data-race crashes.  The public pthread_* primitives that threads_pthread.c
+ * needs are provided as weak no-op stubs by libc (lib/libc/thread-stub) for
+ * programs not linked with libpthread, and overridden by the real ones when
+ * libpthread is present. */
+# ifndef OPENSSL_THREADS
+#  define OPENSSL_THREADS
 # endif
 # ifndef OPENSSL_NO_ACVP_TESTS
 #  define OPENSSL_NO_ACVP_TESTS

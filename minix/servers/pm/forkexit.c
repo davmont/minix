@@ -219,8 +219,11 @@ do_lwp_create(void)
   }
 
   /* Point the new thread at its entry point and (preallocated) stack, and hand
-   * it the trampoline cookie via %rdi (the thread's first-argument register). */
-  if((s=sys_exec(child_ep, stack, (vir_bytes) 0 /* name */, entry,
+   * it the trampoline cookie via %rdi (the thread's first-argument register).
+   * Pass the (inherited) process name so the thread's kernel p_name matches the
+   * group leader's instead of "<unset>" -- improves ps(1)/debugging and lets
+   * per-process kernel diagnostics recognise threads as part of the program. */
+  if((s=sys_exec(child_ep, stack, (vir_bytes) rmc->mp_name /* inherit name */, entry,
 	(vir_bytes) 0 /* ps_strings */, tlsbase,
 	m_in.m_lc_pm_lwp_create.arg /* %rdi cookie */)) != OK) {
 	rmc->mp_scheduler = NONE;
