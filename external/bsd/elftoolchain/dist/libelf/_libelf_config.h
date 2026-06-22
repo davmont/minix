@@ -1,4 +1,4 @@
-/*	$NetBSD: _libelf_config.h,v 1.3 2015/09/29 19:43:39 christos Exp $	*/
+/*	$NetBSD: _libelf_config.h,v 1.5 2016/02/20 02:43:42 christos Exp $	*/
 
 /*-
  * Copyright (c) 2008-2011 Joseph Koshy
@@ -25,10 +25,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * Id: _libelf_config.h 2287 2011-12-04 06:45:47Z jkoshy 
+ * Id: _libelf_config.h 3396 2016-02-10 21:50:05Z emaste 
  */
 
-#ifdef	__DragonFly__
+#if defined(__APPLE__) || defined(__DragonFly__)
 
 #if	defined(__amd64__)
 #define	LIBELF_ARCH		EM_X86_64
@@ -52,6 +52,12 @@
 #if	defined(__amd64__)
 
 #define	LIBELF_ARCH		EM_X86_64
+#define	LIBELF_BYTEORDER	ELFDATA2LSB
+#define	LIBELF_CLASS		ELFCLASS64
+
+#elif	defined(__aarch64__)
+
+#define	LIBELF_ARCH		EM_AARCH64
 #define	LIBELF_BYTEORDER	ELFDATA2LSB
 #define	LIBELF_CLASS		ELFCLASS64
 
@@ -93,6 +99,12 @@
 #define	LIBELF_BYTEORDER	ELFDATA2MSB
 #define	LIBELF_CLASS		ELFCLASS32
 
+#elif	defined(__riscv64)
+
+#define	LIBELF_ARCH		EM_RISCV
+#define	LIBELF_BYTEORDER	ELFDATA2LSB
+#define	LIBELF_CLASS		ELFCLASS64
+
 #elif	defined(__sparc__)
 
 #define	LIBELF_ARCH		EM_SPARCV9
@@ -104,11 +116,17 @@
 #endif
 #endif  /* __FreeBSD__ */
 
-#if !defined(__minix)
-/* MINIX: LSC: Not accurate anymore. */
 /*
  * Definitions for Minix3.
+ *
+ * MINIX: the hardcoded EM_386/ELFCLASS32 block below is wrong for the amd64
+ * port (it would configure libelf for 32-bit ELF on a 64-bit system, and it
+ * omits Elf_Note).  Disable it and let MINIX fall through to the NetBSD block,
+ * which derives the right values (incl. Elf_Note) from <machine/elf_machdep.h>
+ * / ARCH_ELFSIZE -- MINIX amd64 provides ARCH_ELFSIZE=64, ELF64_MACHDEP_ID=
+ * EM_X86_64, ELF64_MACHDEP_ENDIANNESS=ELFDATA2LSB.
  */
+#if !defined(__minix)
 #ifdef __minix
 
 #define	LIBELF_ARCH		EM_386
@@ -159,6 +177,7 @@
  *     kernel such as GNU/kFreeBSD.
  */
 
+#ifndef HAVE_NBTOOL_CONFIG_H
 #if defined(__linux__) || defined(__GNU__) || defined(__GLIBC__)
 
 #if defined(__linux__)
@@ -180,3 +199,4 @@
 #endif
 
 #endif /* defined(__linux__) || defined(__GNU__) || defined(__GLIBC__) */
+#endif /* HAVE_NBTOOL_CONFIG_H */
