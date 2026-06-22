@@ -1,7 +1,7 @@
-/*	$NetBSD: lualib.h,v 1.2 2014/07/19 18:38:34 lneto Exp $	*/
+/*	$NetBSD: lualib.h,v 1.7.10.1 2023/08/11 16:22:07 martin Exp $	*/
 
 /*
-** $Id: lualib.h,v 1.2 2014/07/19 18:38:34 lneto Exp $
+** Id: lualib.h 
 ** Lua standard libraries
 ** See Copyright Notice in lua.h
 */
@@ -12,6 +12,9 @@
 
 #include "lua.h"
 
+
+/* version suffix for environment variable names */
+#define LUA_VERSUFFIX          "_" LUA_VERSION_MAJOR "_" LUA_VERSION_MINOR
 
 
 LUAMOD_API int (luaopen_base) (lua_State *L);
@@ -34,9 +37,6 @@ LUAMOD_API int (luaopen_string) (lua_State *L);
 #define LUA_UTF8LIBNAME	"utf8"
 LUAMOD_API int (luaopen_utf8) (lua_State *L);
 
-#define LUA_BITLIBNAME	"bit32"
-LUAMOD_API int (luaopen_bit32) (lua_State *L);
-
 #define LUA_MATHLIBNAME	"math"
 LUAMOD_API int (luaopen_math) (lua_State *L);
 
@@ -49,12 +49,6 @@ LUAMOD_API int (luaopen_package) (lua_State *L);
 
 /* open all previous libraries */
 LUALIB_API void (luaL_openlibs) (lua_State *L);
-
-
-
-#if !defined(lua_assert)
-#define lua_assert(x)	((void)0)
-#endif
 
 
 #endif

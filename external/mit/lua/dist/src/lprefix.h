@@ -1,7 +1,7 @@
-/*	$NetBSD: lprefix.h,v 1.2 2015/02/02 14:03:05 lneto Exp $	*/
+/*	$NetBSD: lprefix.h,v 1.7.10.1 2023/08/11 16:22:07 martin Exp $	*/
 
 /*
-** Id: lprefix.h,v 1.2 2014/12/29 16:54:13 roberto Exp 
+** Id: lprefix.h 
 ** Definitions for Lua code that must come before any other header file
 ** See Copyright Notice in lua.h
 */
@@ -31,13 +31,13 @@
 #endif
 
 #endif				/* } */
-#endif
+#endif /* _KERNEL */
 
 
 /*
 ** Windows stuff
 */
-#if defined(_WIN32) 	/* { */
+#if defined(_WIN32)	/* { */
 
 #if !defined(_CRT_SECURE_NO_WARNINGS)
 #define _CRT_SECURE_NO_WARNINGS  /* avoid warnings about ISO C functions */

@@ -220,7 +220,7 @@
 ./usr/lib/cawf
 ./usr/lib/keymaps
 ./usr/lib/lua
-./usr/lib/lua/5.3
+./usr/lib/lua/5.4
 ./usr/lib/named
 ./usr/lib/openssl
 ./usr/lib/openssl/modules
@@ -732,7 +732,7 @@
 ./usr/share/locale/zh_TW.eucTW/LC_MESSAGES
 ./usr/share/locale/zh_TW/LC_MESSAGES
 ./usr/share/lua
-./usr/share/lua/5.3
+./usr/share/lua/5.4
 ./usr/share/misc
 ./usr/share/mk
 ./usr/share/nls
