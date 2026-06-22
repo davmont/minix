@@ -161,7 +161,7 @@ getent(char *bp, char *name, char *cp)
 				}
 				break;
 			}
-			if (cp >= bp + BUFSIZ) {
+			if (cp >= bp + BUFSIZ - 1) {
 				prog_write(2,"Remcap entry too long\n", 23);
 				break;
 			} else
@@ -220,11 +220,10 @@ tnchktc(void)
 	for (q = tcbuf; *q++ != ':'; )
 		;
 	l = p - holdtbuf + strlen(q);
-	if (l > BUFSIZ) {
+	if (l >= BUFSIZ) {
 		prog_write(2, "Remcap entry too long\n", 23);
-		q[BUFSIZ - (p-holdtbuf)] = 0;
 	}
-	strcpy(p, q);
+	strlcpy(p, q, BUFSIZ - (p - holdtbuf));
 	tbuf = holdtbuf;
 	return (1);
 }
