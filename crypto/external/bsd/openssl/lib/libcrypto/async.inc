@@ -7,15 +7,9 @@ async.c \
 async_err.c \
 async_wait.c \
 
-# Pick the right arch source.  On MINIX (OPENSSL_THREADS is undefined
-# because there's no libpthread), async_posix.c becomes an empty TU
-# and we need async_null.c to provide the ASYNC_is_capable /
-# async_local_cleanup stubs.
-.if defined(__MINIX)
-ASYNC_SRCS += async_null.c
-.else
+# Pick the right arch source.  MINIX now defines OPENSSL_THREADS (libpthread
+# exists), so async_posix.c is a real TU and is used like every other platform.
 ASYNC_SRCS += async_posix.c
-.endif
 
 SRCS += ${ASYNC_SRCS}
 
