@@ -789,7 +789,8 @@ int procheader(char *name)
 		uncaps(name);
 #endif
 	if (Topipe > 0) {
-		sprintf(Pathname, "%s %s", Progname+2, name);
+		if (snprintf(Pathname, sizeof(Pathname), "%s %s", Progname+2, name) >= sizeof(Pathname))
+			exit(E2BIG);
 		if (Verbose)
 			fprintf(stderr,  "Topipe: %s %s\n",
 			  Pathname, Thisbinary?"BIN":"ASCII");
