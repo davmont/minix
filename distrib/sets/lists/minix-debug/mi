@@ -558,7 +558,7 @@
 ./usr/libdata/debug/usr/lib/libdes.so.15.0.debug         minix-debug     debug
 ./usr/libdata/debug/usr/lib/libdns.so.8.2.debug         minix-debug     debug
 ./usr/libdata/debug/usr/lib/libedit.so.3.1.debug        minix-debug     debug
-./usr/libdata/debug/usr/lib/libelf.so.1.0.debug         minix-debug     debug
+./usr/libdata/debug/usr/lib/libelf.so.2.0.debug         minix-debug     debug
 ./usr/libdata/debug/usr/lib/libevent.so.5.0.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/libevent_openssl.so.5.0.debug minix-debug     debug
 ./usr/libdata/debug/usr/lib/libexecinfo.so.0.0.debug    minix-debug     debug

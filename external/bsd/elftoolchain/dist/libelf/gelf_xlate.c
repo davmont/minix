@@ -1,4 +1,4 @@
-/*	$NetBSD: gelf_xlate.c,v 1.2 2014/03/09 16:58:04 christos Exp $	*/
+/*	$NetBSD: gelf_xlate.c,v 1.4 2022/05/01 19:41:35 jkoshy Exp $	*/
 
 /*-
  * Copyright (c) 2006,2008 Joseph Koshy
@@ -26,16 +26,14 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-
 #include <gelf.h>
 #include <libelf.h>
 #include <string.h>
 
 #include "_libelf.h"
 
-__RCSID("$NetBSD: gelf_xlate.c,v 1.2 2014/03/09 16:58:04 christos Exp $");
-ELFTC_VCSID("Id: gelf_xlate.c 2225 2011-11-26 18:55:54Z jkoshy ");
+__RCSID("$NetBSD: gelf_xlate.c,v 1.4 2022/05/01 19:41:35 jkoshy Exp $");
+ELFTC_VCSID("Id: gelf_xlate.c 3174 2015-03-27 17:13:41Z emaste");
 
 Elf_Data *
 elf32_xlatetof(Elf_Data *dst, const Elf_Data *src, unsigned int encoding)
