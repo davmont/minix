@@ -184,13 +184,16 @@ parse_keys(hdb_entry *ent, char *str)
 	    return 1;
 	key->key.keytype = tmp;
 	p = strsep(&str, ":");
-	ret = krb5_data_alloc(&key->key.keyvalue, (strlen(p) - 1) / 2 + 1);
-	if (ret)
-	    krb5_err (context, 1, ret, "krb5_data_alloc");
-	for(i = 0; i < strlen(p); i += 2) {
-	    if(sscanf(p + i, "%02x", &tmp) != 1)
-		return 1;
-	    ((u_char*)key->key.keyvalue.data)[i / 2] = tmp;
+	{
+	    size_t p_len = strlen(p);
+	    ret = krb5_data_alloc(&key->key.keyvalue, (p_len - 1) / 2 + 1);
+	    if (ret)
+		krb5_err (context, 1, ret, "krb5_data_alloc");
+	    for(i = 0; i < p_len; i += 2) {
+		if(sscanf(p + i, "%02x", &tmp) != 1)
+		    return 1;
+		((u_char*)key->key.keyvalue.data)[i / 2] = tmp;
+	    }
 	}
 	p = strsep(&str, ":");
 	if(strcmp(p, "-") != 0){
