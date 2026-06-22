@@ -87,14 +87,20 @@ encode_domain(char *dst, const char *src)
 	char *odst, *p;
 
 	odst = dst;
-	while (src && (len = strlen(src)) != 0) {
-		p = strchr(src, '.');
-		*dst++ = len = MIN(63, p == NULL ? len : p - src);
-		memcpy(dst, src, len);
-		dst += len;
-		if (p == NULL)
-			break;
-		src = p + 1;
+	if (src && src[0] != '\0') {
+		len = strlen(src);
+		while (len != 0) {
+			p = strchr(src, '.');
+			ssize_t plen = p == NULL ? len : p - src;
+			ssize_t wlen = MIN(63, plen);
+			*dst++ = wlen;
+			memcpy(dst, src, wlen);
+			dst += wlen;
+			if (p == NULL)
+				break;
+			src = p + 1;
+			len -= plen + 1;
+		}
 	}
 	*dst++ = '\0';
 
