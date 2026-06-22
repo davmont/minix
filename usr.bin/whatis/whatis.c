@@ -158,7 +158,7 @@ whatis(char **argv, char *path, int buildpath)
 			*end++ = '\0';
 
 		if (buildpath) {
-			(void)sprintf(hold, "%s/%s", name, _PATH_WHATIS);
+			(void)snprintf(hold, sizeof(hold), "%s/%s", name, _PATH_WHATIS);
 			name = hold;
 		}
 
