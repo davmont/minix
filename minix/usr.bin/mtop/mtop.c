@@ -354,15 +354,19 @@ static char *cputimemodename(int cputimemode)
 {
 	static char name[100];
 	int i;
+	size_t len = 0;
+	size_t n;
 
 	name[0] = '\0';
 
 	for(i = 0; i < CPUTIMENAMES; i++) {
 		if(CPUTIME(cputimemode, i)) {
-			assert(strlen(name) +
-				strlen(cputimenames[i]) < sizeof(name));
-			strcat(name, cputimenames[i]);
-			strcat(name, " ");
+			n = strlen(cputimenames[i]);
+			assert(len + n + 1 < sizeof(name));
+			memcpy(name + len, cputimenames[i], n);
+			len += n;
+			name[len++] = ' ';
+			name[len] = '\0';
 		}
 	}
 
