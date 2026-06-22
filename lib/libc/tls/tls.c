@@ -55,6 +55,7 @@ __dso_hidden void	__libc_static_tls_setup(void);
 static const void *tls_initaddr;
 static size_t tls_initsize;
 static size_t tls_size;
+static size_t tls_align = sizeof(void *);
 static size_t tls_allocation;
 static void *initial_thread_tcb;
 
@@ -83,7 +84,19 @@ _rtld_tls_allocate(void)
 
 	if (initial_thread_tcb == NULL) {
 #ifdef __HAVE_TLS_VARIANT_II
-		tls_size = roundup2(tls_size, sizeof(void *));
+		/*
+		 * Round the TLS block size up to the PT_TLS segment alignment,
+		 * not merely the pointer size.  For Variant II the thread
+		 * pointer sits at p + tls_size, and the static linker computed
+		 * each variable's @tpoff using roundup2(p_memsz, p_align).  If
+		 * we round to a smaller value here the thread pointer lands too
+		 * low and every %fs-relative TLS access is off by the alignment
+		 * gap, corrupting memory just below the block.  This bites any
+		 * static binary that has a thread-local needing >8-byte
+		 * alignment (e.g. BIND's libisc has a 16-byte-aligned one).
+		 */
+		tls_size = roundup2(tls_size,
+		    tls_align < sizeof(void *) ? sizeof(void *) : tls_align);
 #endif
 		tls_allocation = tls_size + sizeof(*tcb);
 
@@ -145,6 +158,7 @@ __libc_static_tls_setup_cb(struct dl_phdr_info *data, size_t len, void *cookie)
 		tls_initaddr = (void *)(phdr->p_vaddr + data->dlpi_addr);
 		tls_initsize = phdr->p_filesz;
 		tls_size = phdr->p_memsz;
+		tls_align = phdr->p_align;
 	}
 	return 0;
 }
