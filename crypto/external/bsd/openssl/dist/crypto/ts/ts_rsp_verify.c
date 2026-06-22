@@ -373,14 +373,18 @@ static int ts_check_status_info(TS_RESP *response)
     if (info->failure_info) {
         int i;
         int first = 1;
+        size_t len = 0;
         for (i = 0; i < (int)OSSL_NELEM(ts_failure_info); ++i) {
             if (ASN1_BIT_STRING_get_bit(info->failure_info,
                                         ts_failure_info[i].code)) {
                 if (!first)
-                    strcat(failure_text, ",");
+                    strcpy(&failure_text[len++], ",");
                 else
                     first = 0;
-                strcat(failure_text, ts_failure_info[i].text);
+
+                size_t txt_len = strlen(ts_failure_info[i].text);
+                strcpy(&failure_text[len], ts_failure_info[i].text);
+                len += txt_len;
             }
         }
     }
