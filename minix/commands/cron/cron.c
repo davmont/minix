@@ -120,7 +120,7 @@ static void run_job(cronjob_t *job)
 			}
 
 			memset(subject, 0, sizeof(subject));
-			sprintf(subject,
+			snprintf(subject, sizeof(subject),
 				"Output from your %s job: %.50s",
 				job->atjob ? "AT" : "cron",
 				job->cmd);
