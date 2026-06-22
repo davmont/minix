@@ -1,7 +1,7 @@
-/*	$NetBSD: linit.c,v 1.4 2015/02/02 14:03:05 lneto Exp $	*/
+/*	$NetBSD: linit.c,v 1.9.10.1 2023/08/11 16:22:06 martin Exp $	*/
 
 /*
-** Id: linit.c,v 1.38 2015/01/05 13:48:33 roberto Exp 
+** Id: linit.c 
 ** Initialization of libraries for lua.c and other clients
 ** See Copyright Notice in lua.h
 */
@@ -20,10 +20,10 @@
 ** open the library, which is already linked to the application.
 ** For that, do the following code:
 **
-**  luaL_getsubtable(L, LUA_REGISTRYINDEX, "_PRELOAD");
+**  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
 **  lua_pushcfunction(L, luaopen_modname);
 **  lua_setfield(L, -2, modname);
-**  lua_pop(L, 1);  // remove _PRELOAD table
+**  lua_pop(L, 1);  // remove PRELOAD table
 */
 
 #include "lprefix.h"
@@ -31,7 +31,7 @@
 
 #ifndef _KERNEL
 #include <stddef.h>
-#endif
+#endif /* _KERNEL */
 
 #include "lua.h"
 
@@ -44,25 +44,22 @@
 ** program
 */
 static const luaL_Reg loadedlibs[] = {
-  {"_G", luaopen_base},
+  {LUA_GNAME, luaopen_base},
 #ifndef _KERNEL
   {LUA_LOADLIBNAME, luaopen_package},
-#endif
+#endif /* _KERNEL */
   {LUA_COLIBNAME, luaopen_coroutine},
   {LUA_TABLIBNAME, luaopen_table},
 #ifndef _KERNEL
   {LUA_IOLIBNAME, luaopen_io},
   {LUA_OSLIBNAME, luaopen_os},
-#endif
+#endif /* _KERNEL */
   {LUA_STRLIBNAME, luaopen_string},
 #ifndef _KERNEL
   {LUA_MATHLIBNAME, luaopen_math},
-#endif
+#endif /* _KERNEL */
   {LUA_UTF8LIBNAME, luaopen_utf8},
   {LUA_DBLIBNAME, luaopen_debug},
-#if defined(LUA_COMPAT_BITLIB)
-  {LUA_BITLIBNAME, luaopen_bit32},
-#endif
   {NULL, NULL}
 };
 

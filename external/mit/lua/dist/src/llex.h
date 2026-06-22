@@ -1,7 +1,7 @@
-/*	$NetBSD: llex.h,v 1.3 2015/02/02 14:03:05 lneto Exp $	*/
+/*	$NetBSD: llex.h,v 1.8.10.1 2023/08/11 16:22:07 martin Exp $	*/
 
 /*
-** Id: llex.h,v 1.78 2014/10/29 15:38:24 roberto Exp 
+** Id: llex.h 
 ** Lexical Analyzer
 ** See Copyright Notice in lua.h
 */
@@ -9,11 +9,19 @@
 #ifndef llex_h
 #define llex_h
 
+#ifndef _KERNEL
+#include <limits.h>
+#endif /* _KERNEL */
+
 #include "lobject.h"
 #include "lzio.h"
 
 
-#define FIRST_RESERVED	257
+/*
+** Single-char tokens (terminal symbols) are represented by their own
+** numeric code. Other tokens start at the following value.
+*/
+#define FIRST_RESERVED	(UCHAR_MAX + 1)
 
 
 #if !defined(LUA_ENV)
@@ -39,11 +47,11 @@ enum RESERVED {
   TK_FLT, TK_INT, TK_NAME, TK_STRING
 #else /* _KERNEL */
   TK_INT, TK_NAME, TK_STRING
-#endif
+#endif /* _KERNEL */
 };
 
 /* number of reserved words */
-#define NUM_RESERVED	(cast(int, TK_WHILE-FIRST_RESERVED+1))
+#define NUM_RESERVED	(cast_int(TK_WHILE-FIRST_RESERVED + 1))
 
 
 typedef union {
@@ -75,7 +83,6 @@ typedef struct LexState {
   struct Dyndata *dyd;  /* dynamic structures used by the parser */
   TString *source;  /* current source name */
   TString *envn;  /* environment variable name */
-  char decpoint;  /* locale decimal point */
 } LexState;
 
 

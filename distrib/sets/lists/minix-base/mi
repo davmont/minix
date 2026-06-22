@@ -963,8 +963,10 @@
 ./usr/lib/liblua.so                                     minix-base
 ./usr/lib/liblua.so.1.0                                 minix-base      obsolete
 ./usr/lib/liblua.so.1                                   minix-base      obsolete
-./usr/lib/liblua.so.5                                   minix-base
-./usr/lib/liblua.so.5.3                                 minix-base
+./usr/lib/liblua.so.5.3                                 minix-base      obsolete
+./usr/lib/liblua.so.5                                   minix-base      obsolete
+./usr/lib/liblua.so.6                                   minix-base
+./usr/lib/liblua.so.6.1                                 minix-base
 ./usr/lib/liblutok.a                                    minix-base      kyua
 ./usr/lib/liblutok.so.2.0                               minix-base      kyua
 ./usr/lib/liblutok.so.2                                 minix-base      kyua
@@ -1094,10 +1096,14 @@
 ./usr/lib/lua/5.1/gpio.so                               minix-base      obsolete
 ./usr/lib/lua/5.1/sqlite.so                             minix-base      obsolete
 ./usr/lib/lua/5.1/syslog.so                             minix-base      obsolete
-./usr/lib/lua/5.3                                       minix-base
-./usr/lib/lua/5.3/gpio.so                               minix-base
-./usr/lib/lua/5.3/sqlite.so                             minix-base
-./usr/lib/lua/5.3/syslog.so                             minix-base
+./usr/lib/lua/5.3                                       minix-base      obsolete
+./usr/lib/lua/5.3/gpio.so                               minix-base      obsolete
+./usr/lib/lua/5.3/sqlite.so                             minix-base      obsolete
+./usr/lib/lua/5.3/syslog.so                             minix-base      obsolete
+./usr/lib/lua/5.4                                       minix-base
+./usr/lib/lua/5.4/gpio.so                               minix-base
+./usr/lib/lua/5.4/sqlite.so                             minix-base
+./usr/lib/lua/5.4/syslog.so                             minix-base
 ./usr/lib/minlib.pc                                     minix-base      obsolete
 ./usr/lib/named                                         minix-base
 ./usr/lib/named/filter-aaaa.so.0                        minix-base
@@ -3252,7 +3258,8 @@
 ./usr/share/locale/zh_TW                                minix-base      nls
 ./usr/share/locale/zh_TW/LC_MESSAGES                    minix-base      nls
 ./usr/share/lua                                         minix-base
-./usr/share/lua/5.3                                     minix-base
+./usr/share/lua/5.3                                     minix-base      obsolete
+./usr/share/lua/5.4                                     minix-base
 ./usr/share/misc                                        minix-base
 ./usr/share/misc/NetBSD.el                              minix-base
 ./usr/share/misc/acronyms-o                             minix-base

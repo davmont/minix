@@ -70,7 +70,7 @@ CLEANFILES+= a.out [Ee]rrs mklog core *.core
 
 ##
 ##### Global variables
-LUA_VERSION?=	5.3
+LUA_VERSION?=	5.4
 LUA_LIBDIR?=	${LIBDIR}/lua/${LUA_VERSION}
 LUAC?=		/usr/bin/luac
 

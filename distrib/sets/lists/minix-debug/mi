@@ -572,7 +572,7 @@
 ./usr/libdata/debug/usr/lib/libisccc.so.8.2.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/libisccfg.so.8.2.debug      minix-debug     debug
 ./usr/libdata/debug/usr/lib/libkvm.so.6.0.debug         minix-debug     debug
-./usr/libdata/debug/usr/lib/liblua.so.5.3.debug         minix-debug     debug
+./usr/libdata/debug/usr/lib/liblua.so.6.1.debug         minix-debug     debug
 ./usr/libdata/debug/usr/lib/liblutok.so.2.0.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/liblwres.so.8.2.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/liblzma.so.2.0.debug        minix-debug     debug
