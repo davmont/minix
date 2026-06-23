@@ -179,6 +179,25 @@ int do_procctl(message *msg, int transid)
 			if(msg->m_source != VFS_PROC_NR)
 				return EPERM;
 
+			/*
+			 * Thread (LWP) memory request: VFS asks VM to fault in
+			 * a range of a process's address space before retrying
+			 * a CPF_TRY safecopy (e.g. a pipe read/write of a
+			 * thread's buffer).  A thread shares its group leader's
+			 * page tables but has its own empty region tree, so
+			 * resolve against the leader, mirroring
+			 * handle_pagefault() and do_memory().  Without this the
+			 * range is looked up in the thread's empty tree, VFS's
+			 * retried copy gets EFAULT, and the thread's syscall
+			 * (e.g. write(2)) fails spuriously.
+			 */
+			if(vmp->vm_lwp_leader != NO_LWP_LEADER) {
+				assert(vmp->vm_lwp_leader >= 0 &&
+					vmp->vm_lwp_leader < NR_PROCS);
+				vmp = &vmproc[vmp->vm_lwp_leader];
+				assert(vmp->vm_flags & VMF_INUSE);
+			}
+
                         handle_memory_start(vmp, msg->VMPCTL_M1,
 				msg->VMPCTL_LEN, msg->VMPCTL_FLAGS,
                                 VFS_PROC_NR, VFS_PROC_NR, transid, 1);
