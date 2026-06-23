@@ -262,6 +262,122 @@ do_lwp_self(void)
 }
 
 /*===========================================================================*
+ *				lwp_start_teardown			     *
+ *===========================================================================*/
+static void
+lwp_start_teardown(struct mproc *rmp)
+{
+/* Begin tearing down a single member LWP: stop it, give up its scheduling, and
+ * drop its reference to the shared VFS open-file table.  The rest (kernel proc
+ * + VM state + the PM slot) is finished once VFS replies — see
+ * handle_vfs_reply()/VFS_PM_LWP_EXIT_REPLY -> lwp_exit_finish(). */
+  endpoint_t proc_nr_e = rmp->mp_endpoint;
+  message m;
+  int r;
+
+  if (!(rmp->mp_flags & PROC_STOPPED)) {
+	if ((r = sys_stop(proc_nr_e)) != OK)
+		panic("lwp_start_teardown: sys_stop failed: %d", r);
+	rmp->mp_flags |= PROC_STOPPED;
+  }
+
+  if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
+	printf("PM: lwp_start_teardown: sched_stop failed: %d\n", r);
+  rmp->mp_scheduler = NONE;
+
+  memset(&m, 0, sizeof(m));
+  m.m_type = VFS_PM_LWP_EXIT;
+  m.VFS_PM_ENDPT = proc_nr_e;
+  tell_vfs(rmp, &m);
+}
+
+/*===========================================================================*
+ *				count_group_members			     *
+ *===========================================================================*/
+static int
+count_group_members(int group)
+{
+/* Count the live non-leader member LWPs still in the given thread group. */
+  struct mproc *t;
+  int n = 0;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE)) continue;
+	if (!(t->mp_flags & MP_LWP)) continue;
+	if (t->mp_lwp_group != group) continue;
+	n++;
+  }
+  return n;
+}
+
+/*===========================================================================*
+ *				exit_group_leader			     *
+ *===========================================================================*/
+static void
+exit_group_leader(struct mproc *leader)
+{
+/* All member LWPs are gone; exit the thread-group leader with the recorded
+ * fatal-signal status (in mp_sigstatus) so the parent's wait(2) reports the
+ * correct WTERMSIG.
+ *
+ * We deliberately do NOT request a core dump here, even for core-generating
+ * signals: dumping the core of a process whose thread group has just been torn
+ * down leaves VFS/VM state that wedges the next threaded process (the dump path
+ * is not thread-group aware).  The offending thread's stacktrace is already
+ * logged by sig_proc_exit() for diagnosis.
+ * TODO: thread-group-aware core dump (dump the surviving leader's AS).
+ */
+  leader->mp_flags &= ~MP_GROUP_DYING;
+  exit_proc(leader, 0, FALSE /*dump_core*/);
+}
+
+/*===========================================================================*
+ *				terminate_lwp_group			     *
+ *===========================================================================*/
+void
+terminate_lwp_group(struct mproc *culprit, int signo)
+{
+/* POSIX: an unhandled fatal signal in any thread terminates the WHOLE process.
+ * Tear down every member LWP of the group, then exit the leader with the signal
+ * status.  VM frees the shared address space only when the last member is gone
+ * (see vm/exit.c free_proc), so the leader must exit LAST: members are torn
+ * down asynchronously (each via a VFS round-trip) and the last member's
+ * lwp_exit_finish() calls exit_group_leader().  'culprit' is the thread that
+ * took the signal (the leader itself, or any member). */
+  int group;
+  struct mproc *leader, *t;
+  int members;
+
+  group = (culprit->mp_flags & MP_LWP) ? culprit->mp_lwp_group :
+	(int)(culprit - mproc);
+  leader = &mproc[group];
+
+  /* Record the cause on the leader and mark the group as dying. */
+  leader->mp_sigstatus = (char) signo;
+  leader->mp_flags |= MP_GROUP_DYING;
+
+  /* Start tearing down every member LWP (this includes 'culprit' if it is a
+   * member).  Force each detached so lwp_exit_finish() self-reaps it without a
+   * zombie or waking a joiner. */
+  members = 0;
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE)) continue;
+	if (!(t->mp_flags & MP_LWP)) continue;
+	if (t->mp_lwp_group != group) continue;
+	if (t->mp_flags & EXITING) continue;	/* already on its way out */
+	t->mp_flags |= MP_LWP_DETACHED;
+	t->mp_flags &= ~(MP_LWP_ZOMBIE | MP_LWP_JOINING);
+	lwp_start_teardown(t);
+	members++;
+  }
+
+  /* If no members remain (or there never were any), exit the leader now. */
+  if (members == 0)
+	exit_group_leader(leader);
+  /* else: the last member's lwp_exit_finish() will call exit_group_leader(). */
+}
+
+/*===========================================================================*
  *				do_lwp_exit				     *
  *===========================================================================*/
 int
@@ -276,8 +392,6 @@ do_lwp_exit(void)
  * with VFS, and reaping happens at process granularity).
  */
   register struct mproc *rmp = mp;	/* the calling thread */
-  int r, proc_nr_e;
-  message m;
 
   /* Only a non-leader thread may vanish silently.  Anything else (a plain
    * process, or a group leader — including the main thread) becomes a normal
@@ -288,27 +402,7 @@ do_lwp_exit(void)
 	return SUSPEND;
   }
 
-  proc_nr_e = rmp->mp_endpoint;
-
-  /* Stop the thread so it cannot run between the teardown steps. */
-  if (!(rmp->mp_flags & PROC_STOPPED)) {
-	if ((r = sys_stop(proc_nr_e)) != OK)
-		panic("do_lwp_exit: sys_stop failed: %d", r);
-	rmp->mp_flags |= PROC_STOPPED;
-  }
-
-  /* Give up scheduling this thread. */
-  if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
-	printf("PM: do_lwp_exit: sched_stop failed: %d\n", r);
-  rmp->mp_scheduler = NONE;
-
-  /* Drop this thread's reference to the shared VFS open-file table.  The rest
-   * of the teardown (kernel proc + VM state + the PM slot) is finished once VFS
-   * replies — see handle_vfs_reply()/VFS_PM_LWP_EXIT_REPLY. */
-  memset(&m, 0, sizeof(m));
-  m.m_type = VFS_PM_LWP_EXIT;
-  m.VFS_PM_ENDPT = proc_nr_e;
-  tell_vfs(rmp, &m);
+  lwp_start_teardown(rmp);
 
   return SUSPEND;		/* the thread is gone; no reply */
 }
@@ -333,6 +427,7 @@ lwp_exit_finish(struct mproc *rmp)
   endpoint_t proc_nr_e = rmp->mp_endpoint;
   struct mproc *joiner;
   int r, i;
+  int group = rmp->mp_lwp_group;	/* remember before the slot is cleared */
 
   if ((r = vm_willexit(proc_nr_e)) != OK)
 	panic("lwp_exit_finish: vm_willexit failed: %d", r);
@@ -367,6 +462,17 @@ lwp_exit_finish(struct mproc *rmp)
   rmp->mp_pid = 0;
   rmp->mp_flags = 0;
   procs_in_use--;
+
+  /* If this member belonged to a thread group being torn down by a fatal
+   * signal (terminate_lwp_group) and it was the last member, exit the leader
+   * now — the shared address space is down to just the leader, so VM will free
+   * it and the parent reaps the proper signal status. */
+  if (group != NO_LWP_GROUP) {
+	struct mproc *leader = &mproc[group];
+	if ((leader->mp_flags & (IN_USE | MP_GROUP_DYING)) ==
+	    (IN_USE | MP_GROUP_DYING) && count_group_members(group) == 0)
+		exit_group_leader(leader);
+  }
 }
 
 /*===========================================================================*
