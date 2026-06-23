@@ -87,6 +87,21 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   int i, s;
 
   random_init();
+
+  /* Seed the entropy pool from the CPU hardware RNG (RDRAND) when present,
+   * so /dev/random and /dev/urandom are usable immediately after boot.
+   * Otherwise the pool only fills from IRQ/TSC timing, which in a quiet or
+   * virtualised system can take an unpredictable time to reach MIN_SAMPLES,
+   * leaving early crypto consumers (e.g. OpenSSL's DRBG) unable to seed.
+   * 64 bytes is far more than MIN_SAMPLES worth and triggers a reseed. */
+  {
+	unsigned char hwseed[64];
+	int got;
+
+	if ((got = arch_hw_random(hwseed, sizeof(hwseed))) > 0)
+		random_putbytes(hwseed, got);
+  }
+
   r_random(0);				/* also set periodic timer */
 
   /* Retrieve first randomness buffer with parameters. */
@@ -127,7 +142,36 @@ static ssize_t r_read(devminor_t minor, u64_t UNUSED(position),
 
   if (minor != RANDOM_DEV) return(EIO);
 
-  if (!random_isseeded()) return(EAGAIN);
+  if (!random_isseeded()) {
+	/* The IRQ/TSC entropy source has not yet gathered MIN_SAMPLES.  Top up
+	 * from the CPU hardware RNG if available (this normally seeds us at
+	 * once on modern x86); failing that, stir in a high-resolution
+	 * timestamp so we never hand back output keyed on the all-zero initial
+	 * state.  Either way we return data rather than EAGAIN: like Linux and
+	 * the BSDs, /dev/urandom (which shares this minor with /dev/random on
+	 * MINIX) must not block, so that early crypto consumers can proceed. */
+	unsigned char hwseed[64];
+	int got;
+
+	if ((got = arch_hw_random(hwseed, sizeof(hwseed))) > 0) {
+		random_putbytes(hwseed, got);
+	} else {
+		/* No hardware RNG: gather a batch of high-resolution
+		 * timestamps and feed them straight into the pool.  32 bytes
+		 * is MIN_SAMPLES worth, so this forces an initial (low-grade)
+		 * reseed rather than keying the generator on the all-zero
+		 * initial state. */
+		unsigned char tbuf[32];
+		u32_t hi, lo;
+		size_t k;
+
+		for (k = 0; k + sizeof(lo) <= sizeof(tbuf); k += sizeof(lo)) {
+			read_tsc(&hi, &lo);
+			memcpy(tbuf + k, &lo, sizeof(lo));
+		}
+		random_putbytes(tbuf, sizeof(tbuf));
+	}
+  }
 
   for (offset = 0; offset < size; offset += chunk) {
 	chunk = MIN(size - offset, RANDOM_BUF_SIZE);

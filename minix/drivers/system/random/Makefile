@@ -1,6 +1,6 @@
 # Makefile for random driver (RANDOM)
 PROG=	random
-SRCS=	main.c random.c rijndael_api.c rijndael_alg.c
+SRCS=	main.c random.c rdrand.c rijndael_api.c rijndael_alg.c
 
 FILES=${PROG}.conf
 FILESNAME=${PROG}
