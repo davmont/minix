@@ -558,6 +558,33 @@ static int pt_ptalloc(pt_t *pt, int pde, u32_t flags)
 	return OK;
 }
 
+/*
+ * LWP page-table sharing recovery.  Threads (LWPs) share their group leader's
+ * physical page directory (pt_dir / pt_dir_phys, copied at fork) but each
+ * vmproc keeps its own pt_pt[] shadow array.  When any group member allocates
+ * a page table, the shared directory entry becomes present for the whole
+ * group, yet only the allocating member records pt_pt[pde]; the others -- in
+ * particular the leader, against whom a thread's faults are resolved -- keep a
+ * stale NULL.  That used to trip "assert pt->pt_pt[pde]" in
+ * pt_ptalloc_in_range() and abort VM (deadlocking the system, since RS cannot
+ * recover VM while VM holds the fault).  Recover the pointer from a sibling
+ * that shares this directory; the pt_pt[pde] value is a VM-virtual address of
+ * the PT page and is identical group-wide.  Returns the pointer or NULL.
+ */
+static pte_t *recover_shared_ptpt(pt_t *pt, int pde)
+{
+	int i;
+
+	for(i = 0; i < VMP_NR; i++) {
+		pt_t *sib = &vmproc[i].vm_pt;
+		if(sib == pt) continue;
+		if(!(vmproc[i].vm_flags & VMF_INUSE)) continue;
+		if(sib->pt_dir_phys != pt->pt_dir_phys) continue;
+		if(sib->pt_pt[pde]) return sib->pt_pt[pde];
+	}
+	return NULL;
+}
+
 /*===========================================================================*
  *			    pt_ptalloc_in_range		     		     *
  *===========================================================================*/
@@ -594,6 +621,13 @@ int pt_ptalloc_in_range(pt_t *pt, vir_bytes start, vir_bytes end,
 				return r;
 			}
 			assert(pt->pt_pt[pde]);
+		} else if(!pt->pt_pt[pde]) {
+			/* Directory entry present but our shadow pointer is
+			 * stale: a thread-group sibling allocated this PT in
+			 * the shared directory.  Recover the pointer instead
+			 * of aborting (see recover_shared_ptpt()). */
+			pte_t *rec = recover_shared_ptpt(pt, pde);
+			if(rec) pt->pt_pt[pde] = rec;
 		}
 		assert(pt->pt_pt[pde]);
 		assert(pt->pt_dir[pde]);
