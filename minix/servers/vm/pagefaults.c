@@ -361,6 +361,24 @@ void do_memory(void)
 				panic("do_memory: bad endpoint: %d", who);
 			vmp = &vmproc[p];
 
+			/*
+			 * Thread (LWP) memory request: a thread shares its
+			 * group leader's page tables but has its own empty
+			 * region tree.  Resolve the kernel's memory request
+			 * (e.g. an IPC reply delivered to a thread-stack
+			 * buffer via vm_suspend()/VMSTYPE_DELIVERMSG) against
+			 * the leader's regions, mirroring handle_pagefault().
+			 * Filling the leader's page tables fills the shared
+			 * tables the thread runs on.  Normal processes
+			 * (vm_lwp_leader == NO_LWP_LEADER) are unaffected.
+			 */
+			if(vmp->vm_lwp_leader != NO_LWP_LEADER) {
+				assert(vmp->vm_lwp_leader >= 0 &&
+					vmp->vm_lwp_leader < NR_PROCS);
+				vmp = &vmproc[vmp->vm_lwp_leader];
+				assert(vmp->vm_flags & VMF_INUSE);
+			}
+
 			assert(!IS_VFS_FS_TRANSID(transid));
 
 			/* is VFS blocked? */
