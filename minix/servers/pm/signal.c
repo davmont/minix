@@ -549,6 +549,22 @@ sig_proc_exit(
 )
 {
   rmp->mp_sigstatus = (char) signo;
+
+  /* POSIX: an unhandled fatal signal in any thread terminates the whole
+   * process.  If this slot is part of a thread group (the leader or any member
+   * LWP), tear down the entire group rather than just this one thread — leaving
+   * the other threads (and the parent's wait) hanging.  Dump the offending
+   * thread's stacktrace first, while it still exists, for diagnosis. */
+  if (rmp->mp_lwp_group != NO_LWP_GROUP) {
+	if (sigismember(&core_sset, signo) && !(rmp->mp_flags & PRIV_PROC)) {
+		printf("PM: coredump signal %d for %d / %s (lwp ep %d)\n", signo,
+			rmp->mp_pid, rmp->mp_name, rmp->mp_endpoint);
+		sys_diagctl_stacktrace(rmp->mp_endpoint);
+	}
+	terminate_lwp_group(rmp, signo);
+	return;
+  }
+
   if (sigismember(&core_sset, signo)) {
 	if(!(rmp->mp_flags & PRIV_PROC)) {
 		printf("PM: coredump signal %d for %d / %s\n", signo,

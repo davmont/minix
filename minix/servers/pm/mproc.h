@@ -116,6 +116,9 @@ EXTERN struct mproc {
 #define MP_LWP_DETACHED 0x800000 /* thread created detached: self-reaps on exit */
 #define MP_LWP_ZOMBIE  0x1000000	/* joinable thread exited, awaiting _lwp_wait() */
 #define MP_LWP_JOINING 0x2000000	/* thread blocked in _lwp_wait() for another LWP */
+#define MP_GROUP_DYING 0x4000000	/* leader: tearing down its thread group on a
+					 * fatal signal/exit; the leader itself exits
+					 * once the last member LWP is gone */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)
