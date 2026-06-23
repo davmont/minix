@@ -14,3 +14,7 @@ int random_isseeded(void);
 void random_update(int source, rand_t *buf, int count);
 void random_getbytes(void *buf, size_t size);
 void random_putbytes(void *buf, size_t size);
+
+/* Hardware RNG (RDRAND) seeding; arch-specific, see rdrand.c.  Returns the
+ * number of random bytes written to buf (0 if no hardware RNG is available). */
+int arch_hw_random(void *buf, size_t size);
