@@ -260,7 +260,13 @@ static int rs_write(register tty_t *tp, int try)
 	ocount = buflen(rs->obuf) - rs->ocount;
 	count = bufend(rs->obuf) - rs->ohead;
 	if (count > ocount) count = ocount;
-	if (count > tp->tty_outleft) count = tp->tty_outleft;
+	/* Only clamp to the pending write request for a real write.  For a
+	 * select(2) write-readiness probe (try), there is no active request
+	 * (tty_outleft == 0), so clamping to it would make 'count' zero and
+	 * wrongly report the line as never writable -- which stalls async
+	 * writers (libevent/libuv, e.g. tmux) on a serial console forever.
+	 * For a try, readiness means the output buffer has free space. */
+	if (!try && count > tp->tty_outleft) count = tp->tty_outleft;
 	if (count == 0 || tp->tty_inhibited) {
 		if (try) return 0;
 		break;
