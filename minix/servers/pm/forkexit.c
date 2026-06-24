@@ -320,15 +320,19 @@ exit_group_leader(struct mproc *leader)
  * fatal-signal status (in mp_sigstatus) so the parent's wait(2) reports the
  * correct WTERMSIG.
  *
- * We deliberately do NOT request a core dump here, even for core-generating
- * signals: dumping the core of a process whose thread group has just been torn
- * down leaves VFS/VM state that wedges the next threaded process (the dump path
- * is not thread-group aware).  The offending thread's stacktrace is already
- * logged by sig_proc_exit() for diagnosis.
- * TODO: thread-group-aware core dump (dump the surviving leader's AS).
+ * For a core-generating fatal signal, dump the core of the leader now: it is
+ * the last holder of the group's shared address space (VM frees the space only
+ * when the leader exits -- see vm/exit.c free_proc), so the dump captures all
+ * threads' stacks, the heap and globals.  The faulting thread's stacktrace was
+ * already logged by sig_proc_exit().
  */
+  int dump_core;
+
+  dump_core = sigismember(&core_sset, leader->mp_sigstatus) &&
+	      !(leader->mp_flags & PRIV_PROC);
+
   leader->mp_flags &= ~MP_GROUP_DYING;
-  exit_proc(leader, 0, FALSE /*dump_core*/);
+  exit_proc(leader, 0, dump_core);
 }
 
 /*===========================================================================*
