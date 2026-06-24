@@ -791,6 +791,26 @@ fsdriver_chmod(const struct fsdriver * __restrict fdp,
 }
 
 /*
+ * Process a CHFLAGS request from VFS.
+ */
+int
+fsdriver_chflags(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict m_out)
+{
+	ino_t ino_nr;
+	int flags, privileged;
+
+	ino_nr = m_in->m_vfs_fs_chflags.inode;
+	flags = (int) m_in->m_vfs_fs_chflags.flags;
+	privileged = m_in->m_vfs_fs_chflags.privileged;
+
+	if (fdp->fdr_chflags == NULL)
+		return ENOSYS;
+
+	return fdp->fdr_chflags(ino_nr, flags, privileged);
+}
+
+/*
  * Process a UTIME request from VFS.
  */
 int

@@ -72,8 +72,9 @@ typedef struct {
 #define REQ_GETDENTS	(FS_BASE + 31)
 #define REQ_PEEK	(FS_BASE + 32)
 #define REQ_BPEEK	(FS_BASE + 33)
+#define REQ_CHFLAGS	(FS_BASE + 34)
 
-#define NREQS			    34
+#define NREQS			    35
 
 #define IS_FS_RQ(type) (((type) & ~0xff) == FS_BASE)
 

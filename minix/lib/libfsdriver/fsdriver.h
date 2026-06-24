@@ -17,6 +17,8 @@ extern int fsdriver_chown(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
 extern int fsdriver_chmod(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
+extern int fsdriver_chflags(const struct fsdriver * __restrict,
+	const message * __restrict, message * __restrict);
 extern int fsdriver_inhibread(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
 extern int fsdriver_stat(const struct fsdriver * __restrict,

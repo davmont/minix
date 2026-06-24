@@ -2002,6 +2002,16 @@ _ASSERT_MSG_SIZE(mess_vfs_fs_chmod);
 typedef struct {
 	ino_t inode;
 
+	uint32_t flags;		/* new file flags (UF_ and SF_ bits) */
+	int privileged;		/* nonzero if the caller is the super-user */
+
+	uint8_t data[40];
+} mess_vfs_fs_chflags;
+_ASSERT_MSG_SIZE(mess_vfs_fs_chflags);
+
+typedef struct {
+	ino_t inode;
+
 	uid_t uid;
 	gid_t gid;
 
@@ -2677,6 +2687,7 @@ typedef struct noxfer_message {
 		mess_tty_lsys_fkey_ctl	m_tty_lsys_fkey_ctl;
 		mess_vfs_fs_breadwrite	m_vfs_fs_breadwrite;
 		mess_vfs_fs_chmod	m_vfs_fs_chmod;
+		mess_vfs_fs_chflags	m_vfs_fs_chflags;
 		mess_vfs_fs_chown	m_vfs_fs_chown;
 		mess_vfs_fs_create	m_vfs_fs_create;
 		mess_vfs_fs_flush	m_vfs_fs_flush;

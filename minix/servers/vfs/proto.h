@@ -190,6 +190,7 @@ void unsuspend_by_endpt(endpoint_t proc_e);
 /* protect.c */
 int do_access(void);
 int do_chmod(void);
+int do_chflags(void);
 int do_chown(void);
 int do_umask(void);
 int forbidden(struct fproc *rfp, struct vnode *vp, mode_t
@@ -216,6 +217,8 @@ int req_breadwrite(endpoint_t fs_e, endpoint_t user_e, dev_t dev, off_t pos,
 	off_t *new_posp, size_t *cum_iop);
 int req_chmod(endpoint_t fs_e, ino_t inode_nr, mode_t rmode,
 	mode_t *new_modep);
+int req_chflags(endpoint_t fs_e, ino_t inode_nr, uint32_t flags,
+	int privileged);
 int req_chown(endpoint_t fs_e, ino_t inode_nr, uid_t newuid, gid_t newgid,
 	mode_t *new_modep);
 int req_create(endpoint_t fs_e, ino_t inode_nr, int omode, uid_t uid,

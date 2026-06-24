@@ -6,7 +6,6 @@
  *
  * Conventions:
  *  - posix_fadvise: returns 0; the syscall is purely advisory.
- *  - chflags/fchflags: ENOTSUP (per-file flags not implemented).
  *  - extattr_*: ENOTSUP (no extended attribute support).
  *  - openat/fstatat/linkat/unlinkat/readlinkat/fchmodat/fchownat:
  *    fall through to the non-at variant when dirfd == AT_FDCWD or
@@ -35,23 +34,7 @@ posix_fadvise(int fd, off_t offset, off_t len, int advice)
 	return 0;
 }
 
-/* -------- chflags / fchflags: no per-file flags ------------------ */
-
-int
-chflags(const char *path, unsigned long flags)
-{
-	(void)path; (void)flags;
-	errno = ENOTSUP;
-	return -1;
-}
-
-int
-fchflags(int fd, unsigned long flags)
-{
-	(void)fd; (void)flags;
-	errno = ENOTSUP;
-	return -1;
-}
+/* chflags/fchflags/lchflags now have real implementations in libc/sys. */
 
 /* -------- extattr_*: no extended attribute support --------------- */
 
