@@ -149,8 +149,9 @@ ro_compat bit forces RO. Each later phase adds its bit to the supported set.
   creates a wide-inode V4 (sets `INCOMPAT_WIDE_INODE`, 128-byte inodes) via
   format-agnostic inode accessors.  `i_size` stays 32-bit in core (the 2 GB
   cap still holds) — widening it is Phase 2.
-  *Follow-up:* `fsck.mfs` does not yet understand the 128-byte inode and
-  refuses a wide-inode V4 cleanly; teaching it the d4 layout is pending.
+  `fsck.mfs` understands the 128-byte inode (`read_inode`/`write_inode`
+  convert d2/d4 to a layout-agnostic in-memory inode; geometry is
+  feature-aware).
 * **Phase 2 — large files. DONE.** In-core `i_size` widened to `off_t`; a new
   in-core `s_max_filesize` is the zone-addressing capacity for a wide-inode FS
   (~4 GB at 4 KB blocks) and `s_max_size` for V2/V3; the grow/truncate checks
