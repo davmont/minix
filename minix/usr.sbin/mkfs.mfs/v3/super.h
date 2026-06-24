@@ -37,10 +37,24 @@ struct super_block {
   uint16_t s_block_size;	/* block size in bytes. */
   int8_t s_disk_version;	/* filesystem format sub-version */
 
+  /* The following items are valid on disk only for V4 (magic SUPER_V4); they
+   * must mirror servers/mfs/super.h exactly so the on-disk offsets agree.  For
+   * a V4 FS these masks are written here (zero in Phase 0); for V3 they are
+   * written as zero and ignored by the server.  Keeping them before the
+   * in-memory-only fields ensures the server reads zero feature masks for a
+   * freshly created V4 FS.  See MFSV4_DESIGN.md.
+   */
+  uint8_t s_v4_pad8;
+  uint16_t s_v4_pad16;
+  uint32_t s_feature_compat;
+  uint32_t s_feature_incompat;
+  uint32_t s_feature_ro_compat;
+  uint32_t s_v4_reserved[5];
+
   /* The following items are only used when the super_block is in memory.
-   * If this ever changes, i.e. more fields after s_disk_version has to go to
-   * disk, update LAST_ONDISK_FIELD in servers/mfs/super.c as that controls
-   * which part of the struct is copied to and from disk.
+   * If this ever changes, i.e. more fields have to go to disk, update
+   * LAST_ONDISK_FIELD in servers/mfs/super.c as that controls which part of
+   * the struct is copied to and from disk.
    */
 /* XXX padding inserted here... */
 
@@ -69,6 +83,6 @@ struct super_block {
 /* To keep the super block on disk clean, the MFS server only read/write up to
  * and including this field:
  */
-#define LAST_ONDISK_FIELD	s_disk_version
+#define LAST_ONDISK_FIELD	s_v4_reserved
 
 #endif

@@ -179,9 +179,11 @@ static int rw_super(struct super_block *sp, int writing)
   int r;
 
 /* To keep the 1kb on disk clean, only read/write up to and including
- * this field.
+ * this field.  For V4 this covers the feature-flag masks and reserved area;
+ * for V3 those trailing bytes are written as zero (harmless, and beyond an
+ * old V3-only driver's read window).
  */
-#define LAST_ONDISK_FIELD s_disk_version
+#define LAST_ONDISK_FIELD s_v4_reserved
   int ondisk_bytes = (int) ((char *) &sp->LAST_ONDISK_FIELD - (char *) sp)
   	+ sizeof(sp->LAST_ONDISK_FIELD);
 
@@ -250,15 +252,18 @@ int read_super(struct super_block *sp)
   magic = sp->s_magic;		/* determines file system type */
 
   if(magic == SUPER_V2 || magic == SUPER_MAGIC) {
-	printf("MFS: only supports V3 filesystems.\n");
+	printf("MFS: only supports V3 and V4 filesystems.\n");
 	return EINVAL;
   }
 
-  /* Get file system version and type - only support v3. */
-  if(magic != SUPER_V3) {
+  /* Get file system version and type - only V3 and V4 are supported. */
+  if(magic == SUPER_V3) {
+	version = V3;
+  } else if(magic == SUPER_V4) {
+	version = V4;
+  } else {
 	return EINVAL;
   }
-  version = V3;
   native = 1;
 
   /* If the super block has the wrong byte order, swap the fields; the magic
@@ -280,15 +285,53 @@ int read_super(struct super_block *sp)
 	return EINVAL;
   }
 
-  /* Calculate some other numbers that depend on the version here too, to
-   * hide some of the differences.
+  /* V4 feature flags.  For V3, the trailing on-disk bytes are not part of the
+   * format, so force the V4-only fields to zero in core (a V3 FS made by an old
+   * mkfs may have left arbitrary bytes there).  For V4, byte-swap the masks and
+   * check them against what this driver understands: an unknown incompat bit is
+   * fatal; an unknown ro_compat bit forces a read-only mount.  See
+   * MFSV4_DESIGN.md.
    */
-  assert(version == V3);
+  sp->s_force_ro = 0;
+  if (version == V4) {
+	sp->s_feature_compat = (u32_t) conv4(native, sp->s_feature_compat);
+	sp->s_feature_incompat = (u32_t) conv4(native, sp->s_feature_incompat);
+	sp->s_feature_ro_compat = (u32_t) conv4(native, sp->s_feature_ro_compat);
+
+	if (sp->s_feature_incompat & ~(u32_t)MFS_INCOMPAT_SUPPORTED) {
+		printf("MFS: V4 FS uses unsupported incompat features "
+			"(0x%x); cannot mount.\n",
+			sp->s_feature_incompat & ~(u32_t)MFS_INCOMPAT_SUPPORTED);
+		return EINVAL;
+	}
+	if (sp->s_feature_ro_compat & ~(u32_t)MFS_RO_COMPAT_SUPPORTED) {
+		printf("MFS: V4 FS uses unsupported ro_compat features "
+			"(0x%x); mounting read-only.\n",
+			sp->s_feature_ro_compat & ~(u32_t)MFS_RO_COMPAT_SUPPORTED);
+		sp->s_force_ro = 1;
+	}
+  } else {
+	sp->s_feature_compat = 0;
+	sp->s_feature_incompat = 0;
+	sp->s_feature_ro_compat = 0;
+  }
+
+  /* Calculate some other numbers that depend on the version here too, to
+   * hide some of the differences.  A V4 FS with the WIDE_INODE feature uses
+   * the 128-byte d4_inode; otherwise (V3, or a plain V4) the 64-byte d2_inode.
+   */
+  assert(version == V3 || version == V4);
   sp->s_block_size = (unsigned short) conv2(native,(int) sp->s_block_size);
   if (sp->s_block_size < PAGE_SIZE) {
  	return EINVAL;
   }
-  sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
+  if (version == V4 && (sp->s_feature_incompat & MFS_INCOMPAT_WIDE_INODE)) {
+	sp->s_inode_size = V4_INODE_SIZE;
+	sp->s_inodes_per_block = V4_INODES_PER_BLOCK(sp->s_block_size);
+  } else {
+	sp->s_inode_size = V2_INODE_SIZE;
+	sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
+  }
   sp->s_ndzones = V2_NR_DZONES;
   sp->s_nindirs = V2_INDIRECTS(sp->s_block_size);
 
@@ -316,13 +359,24 @@ int read_super(struct super_block *sp)
   if (SUPER_SIZE > sp->s_block_size) 
   	return(EINVAL);
   
-  if ((sp->s_block_size % V2_INODE_SIZE) != 0) {
+  if ((sp->s_block_size % sp->s_inode_size) != 0) {
   	return(EINVAL);
   }
 
-  /* Limit s_max_size to INT32_MAX (field is 32-bit) */
+  /* Limit s_max_size to INT32_MAX (the on-disk field is 32-bit) */
   if ((uint32_t)sp->s_max_size > INT32_MAX)
 	sp->s_max_size = INT32_MAX;
+
+  /* Effective maximum file size.  V2/V3 (and a plain V4) use the 32-bit
+   * on-disk d2_size, so the limit is s_max_size (<= 2 GB).  A V4 wide-inode
+   * FS stores a 64-bit d4_size, so the real limit is the zone-addressing
+   * capacity: direct + single-indirect + double-indirect zones.
+   */
+  if (sp->s_inode_size == V4_INODE_SIZE)
+	sp->s_max_filesize = (off_t)((off_t) sp->s_ndzones + sp->s_nindirs +
+		(off_t) sp->s_nindirs * sp->s_nindirs) * sp->s_block_size;
+  else
+	sp->s_max_filesize = (off_t) sp->s_max_size;
 
   sp->s_isearch = 0;		/* inode searches initially start at 0 */
   sp->s_zsearch = 0;		/* zone searches initially start at 0 */

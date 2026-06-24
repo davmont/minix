@@ -24,9 +24,34 @@
 #define SUPER_V2      0x2468	/* magic # for V2 file systems */
 #define SUPER_V2_REV  0x6824	/* V2 magic written on PC, read on 68K or vv */
 #define SUPER_V3      0x4d5a	/* magic # for V3 file systems */
+#define SUPER_V4      0x4d5b	/* magic # for V4 file systems */
 
-#define V2		   2	/* version number of V2 file systems */ 
-#define V3		   3	/* version number of V3 file systems */ 
+#define V2		   2	/* version number of V2 file systems */
+#define V3		   3	/* version number of V3 file systems */
+#define V4		   4	/* version number of V4 file systems */
+
+/* V4 feature flags (see MFSV4_DESIGN.md).  Three masks, modelled on ext2/UFS2:
+ *  - incompat:  an unknown bit here means the FS must not be mounted at all.
+ *  - ro_compat: an unknown bit here means the FS may only be mounted read-only.
+ *  - compat:    an unknown bit here may be ignored; mount read/write is fine.
+ * The driver mounts a V4 FS read/write only if it understands every incompat
+ * and ro_compat bit that is set.  Phase 0 defines no features yet, so the
+ * supported sets are empty: a plain V4 FS (no flags) behaves like V3.
+ */
+#define MFS_INCOMPAT_WIDE_INODE	0x00000001 /* 128-byte d4_inode (Phase 1) */
+#define MFS_INCOMPAT_JOURNAL	0x00000002 /* metadata journal (future) */
+#define MFS_INCOMPAT_XATTR_BLOCK 0x00000004 /* xattrs in a zone (future) */
+
+#define MFS_RO_COMPAT_HASHDIR	0x00000001 /* hashed directories (future) */
+
+#define MFS_COMPAT_DIR_INDEX_HINT 0x00000001 /* advisory dir hints (future) */
+
+/* Feature bits this driver understands.  A V4 FS with an incompat bit outside
+ * this set is refused; with a ro_compat bit outside this set is forced
+ * read-only.  Each later phase adds its bit here.
+ */
+#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE)
+#define MFS_RO_COMPAT_SUPPORTED	0
 
 /* Miscellaneous constants */
 #define NO_BIT   ((bit_t) 0)	/* returned by alloc_bit() to signal failure */
@@ -63,6 +88,10 @@
 #define V2_INODE_SIZE             sizeof (d2_inode)  /* bytes in V2 dsk ino */
 #define V2_INDIRECTS(b)   ((b)/V2_ZONE_NUM_SIZE)  /* # zones/indir block */
 #define V2_INODES_PER_BLOCK(b) ((b)/V2_INODE_SIZE)/* # V2 dsk inodes/blk */
+
+/* Derived sizes pertaining to the V4 (MFS4 wide-inode) file system. */
+#define V4_INODE_SIZE             sizeof (d4_inode)  /* bytes in V4 dsk ino */
+#define V4_INODES_PER_BLOCK(b) ((b)/V4_INODE_SIZE)/* # V4 dsk inodes/blk */
 
 #endif
 

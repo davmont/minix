@@ -1,7 +1,9 @@
 /* Hacks for version 1.6 */					
 
-#define INODES_PER_BLOCK V2_INODES_PER_BLOCK(block_size)
-#define INODE_SIZE ((int) V2_INODE_SIZE)
+/* Inode geometry.  inode_size is 64 (V2/V3, plain V4) or 128 (V4 wide inode);
+ * it is set from the superblock in chksuper(). */
+#define INODES_PER_BLOCK (block_size / inode_size)
+#define INODE_SIZE inode_size
 #define WORDS_PER_BLOCK (block_size / (int) sizeof(bitchunk_t))
 #define MAX_ZONES (V2_NR_DZONES+V2_INDIRECTS(block_size)+(long)V2_INDIRECTS(block_size)*V2_INDIRECTS(block_size))
 #define NR_DZONE_NUM V2_NR_DZONES
@@ -10,14 +12,10 @@
 #define ZONE_NUM_SIZE V2_ZONE_NUM_SIZE
 #define bit_nr bit_t
 #define block_nr block_t
-#define d_inode d2_inode
 #define d_inum mfs_d_ino
 #define dir_struct struct direct
-#define i_mode d2_mode
-#define i_nlinks d2_nlinks
-#define i_size d2_size
-#define i_zone d2_zone
 #define zone_nr zone_t
+#define d_inode struct m_inode
 
 /* fsck - file system checker		Author: Robbert van Renesse */
 
@@ -61,6 +59,8 @@
 #undef N_DATA
 
 unsigned int fs_version = 2, block_size = 0;
+int inode_size = 64;		/* on-disk inode size: 64 (d2) or 128 (d4) */
+int wide_inode = 0;		/* nonzero: V4 FS with the 128-byte d4 inode */
 
 #define BITSHIFT	  5	/* = log2(#bits(int)) */
 
@@ -90,6 +90,20 @@ unsigned int fs_version = 2, block_size = 0;
 
 #include "mfs/super.h"
 static struct super_block sb;
+
+/* In-memory inode used by fsck, wide enough for both the 64-byte V2/V3 (d2)
+ * and the 128-byte V4 wide (d4) on-disk layouts.  read_inode()/write_inode()
+ * convert to/from the on-disk format, so the rest of fsck is layout-agnostic. */
+struct m_inode {
+  mode_t i_mode;
+  nlink_t i_nlinks;
+  uid_t i_uid;
+  gid_t i_gid;
+  off_t i_size;
+  time_t i_atime, i_mtime, i_ctime, i_crtime;
+  u32_t i_flags;
+  zone_t i_zone[V2_NR_TZONES];
+};
 
 #define STICKY_BIT	01000	/* not defined anywhere else */
 
@@ -191,6 +205,8 @@ void chkword(unsigned w1, unsigned w2, bit_nr bit, char *type, int *n,
 void chkmap(bitchunk_t *cmap, bitchunk_t *dmap, bit_nr bit, block_nr
 	blkno, int nblk, char *type);
 void chkilist(void);
+void read_inode(ino_t ino, struct m_inode *ip);
+void write_inode(ino_t ino, struct m_inode *ip);
 void getcount(void);
 void counterror(ino_t ino);
 void chkcount(void);
@@ -582,6 +598,18 @@ void rw_super(int put)
   } else if(sb.s_magic == SUPER_V3) {
   	fs_version = 3;
   	block_size = sb.s_block_size;
+  } else if(sb.s_magic == SUPER_V4) {
+  	/* MFS4.  The 128-byte wide inode (WIDE_INODE) is handled via
+  	 * read_inode()/write_inode(); refuse any other incompat feature we do
+  	 * not understand rather than misreading it.  See mfs/MFSV4_DESIGN.md. */
+  	if (sb.s_feature_incompat & ~(u32_t)MFS_INCOMPAT_WIDE_INODE)
+  		fatal("fsck.mfs: MFS4 file system uses unsupported incompat features");
+  	fs_version = 3;
+  	block_size = sb.s_block_size;
+  	if (sb.s_feature_incompat & MFS_INCOMPAT_WIDE_INODE) {
+  		wide_inode = 1;
+  		inode_size = 128;	/* sizeof(d4_inode) */
+  	}
   } else {
   	fatal("bad magic number in super block");
   }
@@ -605,7 +633,8 @@ void chksuper()
   register off_t maxsize;
 
   n = bitmapsize((bit_t) sb.s_ninodes + 1, block_size);
-  if (sb.s_magic != SUPER_V2 && sb.s_magic != SUPER_V3)
+  if (sb.s_magic != SUPER_V2 && sb.s_magic != SUPER_V3 &&
+  	sb.s_magic != SUPER_V4)
   	fatal("bad magic number in super block");
   if (sb.s_imap_blocks < n) {
   	printf("need %d bocks for inode bitmap; only have %d\n",
@@ -664,6 +693,80 @@ int inooff(int inn)
   return (int)(((u64_t)(inn - 1) * INODE_SIZE) % block_size);
 }
 
+/* Read inode 'ino' from disk into the layout-agnostic in-memory inode 'ip',
+ * converting from the 128-byte V4 (d4) or 64-byte V2/V3 (d2) on-disk format. */
+void read_inode(ino_t ino, struct m_inode *ip)
+{
+  int k;
+
+  if (wide_inode) {
+	d4_inode d4;
+	devread(inoblock(ino), inooff(ino), (char *) &d4, sizeof(d4));
+	ip->i_mode = d4.d4_mode;
+	ip->i_nlinks = d4.d4_nlinks;
+	ip->i_uid = d4.d4_uid;
+	ip->i_gid = d4.d4_gid;
+	ip->i_size = (off_t) d4.d4_size;
+	ip->i_atime = (time_t) d4.d4_atime;
+	ip->i_mtime = (time_t) d4.d4_mtime;
+	ip->i_ctime = (time_t) d4.d4_ctime;
+	ip->i_crtime = (time_t) d4.d4_crtime;
+	ip->i_flags = d4.d4_flags;
+	for (k = 0; k < V2_NR_TZONES; k++) ip->i_zone[k] = d4.d4_zone[k];
+  } else {
+	d2_inode d2;
+	devread(inoblock(ino), inooff(ino), (char *) &d2, sizeof(d2));
+	ip->i_mode = d2.d2_mode;
+	ip->i_nlinks = d2.d2_nlinks;
+	ip->i_uid = d2.d2_uid;
+	ip->i_gid = d2.d2_gid;
+	ip->i_size = (off_t) d2.d2_size;
+	ip->i_atime = (time_t) d2.d2_atime;
+	ip->i_mtime = (time_t) d2.d2_mtime;
+	ip->i_ctime = (time_t) d2.d2_ctime;
+	ip->i_crtime = 0;
+	ip->i_flags = 0;
+	for (k = 0; k < V2_NR_TZONES; k++) ip->i_zone[k] = d2.d2_zone[k];
+  }
+}
+
+/* Write the in-memory inode 'ip' back to disk as inode 'ino', in the on-disk
+ * format of the file system (d4 for a wide-inode V4, else d2). */
+void write_inode(ino_t ino, struct m_inode *ip)
+{
+  int k;
+
+  if (wide_inode) {
+	d4_inode d4;
+	memset(&d4, 0, sizeof(d4));
+	d4.d4_mode = ip->i_mode;
+	d4.d4_nlinks = ip->i_nlinks;
+	d4.d4_uid = ip->i_uid;
+	d4.d4_gid = ip->i_gid;
+	d4.d4_size = (u64_t) ip->i_size;
+	d4.d4_atime = ip->i_atime;
+	d4.d4_mtime = ip->i_mtime;
+	d4.d4_ctime = ip->i_ctime;
+	d4.d4_crtime = ip->i_crtime;
+	d4.d4_flags = ip->i_flags;
+	for (k = 0; k < V2_NR_TZONES; k++) d4.d4_zone[k] = ip->i_zone[k];
+	devwrite(inoblock(ino), inooff(ino), (char *) &d4, sizeof(d4));
+  } else {
+	d2_inode d2;
+	memset(&d2, 0, sizeof(d2));
+	d2.d2_mode = ip->i_mode;
+	d2.d2_nlinks = ip->i_nlinks;
+	d2.d2_uid = ip->i_uid;
+	d2.d2_gid = ip->i_gid;
+	d2.d2_size = (i32_t) ip->i_size;
+	d2.d2_atime = ip->i_atime;
+	d2.d2_mtime = ip->i_mtime;
+	d2.d2_ctime = ip->i_ctime;
+	for (k = 0; k < V2_NR_TZONES; k++) d2.d2_zone[k] = ip->i_zone[k];
+	devwrite(inoblock(ino), inooff(ino), (char *) &d2, sizeof(d2));
+  }
+}
+
 /* Make a listing of the inodes given by `clist'.  If `repair' is set, ask
  * the user for changes.
  */
@@ -680,17 +783,16 @@ char **clist;
 	setbit(spec_imap, bit);
 	ino = bit;
 	do {
-		devread(inoblock(ino), inooff(ino), (char *) ip, INODE_SIZE);
+		read_inode(ino, ip);
 		printf("inode %llu:\n", (unsigned long long)ino);
 		printf("    mode   = %6o", ip->i_mode);
 		if (input(buf, 80)) ip->i_mode = atoo(buf);
-		printf("    nlinks = %6u", ip->i_nlinks);
+		printf("    nlinks = %6u", (unsigned) ip->i_nlinks);
 		if (input(buf, 80)) ip->i_nlinks = atol(buf);
-		printf("    size   = %6d", ip->i_size);
+		printf("    size   = %6lld", (long long) ip->i_size);
 		if (input(buf, 80)) ip->i_size = atol(buf);
 		if (yes("Write this back")) {
-			devwrite(inoblock(ino), inooff(ino), (char *) ip,
-				INODE_SIZE);
+			write_inode(ino, ip);
 			break;
 		}
 	} while (yes("Do you want to change it again"));
@@ -851,8 +953,9 @@ void chkilist()
   fflush(stdout);
   do
 	if (!bitset(imap, (bit_nr) ino)) {
-		devread(inoblock(ino), inooff(ino), (char *) &mode,
-			sizeof(mode));
+		d_inode itmp;
+		read_inode(ino, &itmp);
+		mode = itmp.i_mode;
 		if (mode != I_NOT_ALLOC) {
 			printf("mode inode %llu not cleared", (unsigned long long)ino);
 			if (yes(". clear")) devwrite(inoblock(ino),
@@ -878,7 +981,7 @@ void counterror(ino_t ino)
 	printf("INODE NLINK COUNT\n");
 	firstcnterr = 0;
   }
-  devread(inoblock(ino), inooff(ino), (char *) &inode, INODE_SIZE);
+  read_inode(ino, &inode);
   count[ino] += inode.i_nlinks;	/* it was already subtracted; add it back */
   printf("%5llu %5u %5u", (unsigned long long)ino, (unsigned) inode.i_nlinks, count[ino]);
   if (yes(" adjust")) {
@@ -887,7 +990,7 @@ void counterror(ino_t ino)
 		inode.i_mode = I_NOT_ALLOC;
 		clrbit(imap, (bit_nr) ino);
 	}
-	devwrite(inoblock(ino), inooff(ino), (char *) &inode, INODE_SIZE);
+	write_inode(ino, &inode);
   }
 }
 
@@ -962,7 +1065,7 @@ void list(ino_t ino, d_inode *ip)
       case I_BLOCK_SPECIAL:
 	printf("  %2x,%2x ", major(ip->i_zone[0]), minor(ip->i_zone[0]));
 	break;
-      default:	printf("%7d ", ip->i_size);
+      default:	printf("%7lld ", (long long) ip->i_size);
   }
   printpath(0, 1);
 }
@@ -1159,7 +1262,7 @@ int chkdirzone(ino_t ino, d_inode *ip, off_t pos, zone_nr zno)
 	if (yes(". extend")) {
 		setbit(spec_imap, (bit_nr) ino);
 		ip->i_size = size;
-		devwrite(inoblock(ino), inooff(ino), (char *) ip, INODE_SIZE);
+		write_inode(ino, ip);
 	}
   }
   return(1);
@@ -1180,14 +1283,13 @@ int chksymlinkzone(ino_t ino, d_inode *ip, off_t pos, zone_nr zno)
 	len= strlen(target);
 	if (len != ip->i_size)
 	{
-		printf("bad size in symbolic link (%d instead of %d) ",
-			ip->i_size, (int)len);
+		printf("bad size in symbolic link (%lld instead of %d) ",
+			(long long) ip->i_size, (int)len);
 		printpath(2, 0);
 		if (yes(". update")) {
 			setbit(spec_imap, (bit_nr) ino);
 			ip->i_size = len;
-			devwrite(inoblock(ino), inooff(ino), 
-				(char *) ip, INODE_SIZE);
+			write_inode(ino, ip);
 		}
 	}
 	return 1;
@@ -1353,7 +1455,7 @@ int chklink(ino_t ino, d_inode *ip)
 	if (ip->i_size == 0)
 		printf("empty symbolic link ");
 	else
-		printf("symbolic link too large (size %d) ", ip->i_size);
+		printf("symbolic link too large (size %lld) ", (long long) ip->i_size);
 	printpath(2, 1);
 	ok = 0;
   }
@@ -1468,7 +1570,7 @@ dir_struct *dp;
   }
   visited = bitset(imap, (bit_nr) ino);
   if (!visited || listing) {
-	devread(inoblock(ino), inooff(ino), (char *) &inode, INODE_SIZE);
+	read_inode(ino, &inode);
 	if (listing) list(ino, &inode);
 	if (!visited && !chkinode(ino, &inode)) {
 		setbit(spec_imap, (bit_nr) ino);
