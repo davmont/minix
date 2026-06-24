@@ -77,6 +77,18 @@ ino_t nrinodes, inode_offset, next_inode;
 int lct = 0, fd, print = 0;
 int simple = 0, dflag = 0, verbose = 0;
 int v4flag = 0;			/* -4: create a V4 (MFS4) file system */
+int jflag = 0;			/* -j: create a metadata journal (implies -4) */
+zone_t journal_zone = 0;	/* first block of the journal (0 = none) */
+uint32_t journal_nblk = 0;	/* journal length in blocks */
+
+/* Journal superblock (mirror struct mfs_journal_super in servers/mfs/journal.h). */
+struct mfs_journal_super {
+  uint32_t jsb_magic;
+  uint32_t jsb_blocks;
+  uint32_t jsb_sequence;
+  uint32_t jsb_start;
+  uint32_t jsb_flags;
+};
 int donttest;			/* skip test if it fits on medium */
 char *progname;
 uint64_t fs_offset_bytes, fs_offset_blocks, written_fs_size = 0;
@@ -165,9 +177,10 @@ main(int argc, char *argv[])
 #endif
   zone_shift = 0;
   extra_space_percent = 0;
-  while ((ch = getopt(argc, argv, "4B:b:di:ltvx:z:I:T:")) != EOF)
+  while ((ch = getopt(argc, argv, "4jB:b:di:ltvx:z:I:T:")) != EOF)
 	switch (ch) {
 	    case '4':	v4flag = 1;	break;
+	    case 'j':	jflag = 1; v4flag = 1;	break;	/* journal implies V4 */
 #ifndef MFS_STATIC_BLOCK_SIZE
 	    case 'B':
 		block_size = strtoul(optarg, &sfx, 0);
@@ -700,6 +713,22 @@ super(zone_t zones, ino_t inodes)
 #endif
 	/* MFS4 baseline uses the 128-byte wide inode (Phase 1). */
 	sup->s_feature_incompat = MFS_INCOMPAT_WIDE_INODE;
+#ifdef MFS_INCOMPAT_JOURNAL
+	if(jflag) {
+		/* Reserve a journal of zones/64 blocks (64..8192) at the end
+		 * of the filesystem; record its location in the reserved
+		 * superblock words.  See JOURNAL_DESIGN.md. */
+		journal_nblk = (uint32_t) (zones / 64);
+		if(journal_nblk < 64) journal_nblk = 64;
+		if(journal_nblk > 8192) journal_nblk = 8192;
+		if(journal_nblk >= zones - sup->s_firstdatazone)
+			errx(1, "file system too small for a journal");
+		journal_zone = (zone_t) (zones - journal_nblk);
+		sup->s_feature_incompat |= MFS_INCOMPAT_JOURNAL;
+		sup->s_v4_reserved[0] = (uint32_t) journal_zone;
+		sup->s_v4_reserved[1] = journal_nblk;
+	}
+#endif
   }
 #endif
   (void)v4flag;	/* may be unused in legacy (V1/V2) builders */
@@ -748,6 +777,30 @@ super(zone_t zones, ino_t inodes)
   insert_bit(zone_map, 0);	/* bit zero must always be allocated */
   insert_bit((block_t) INODE_MAP, 0);	/* inode zero not used but
 					 * must be allocated */
+
+#ifdef MFS_INCOMPAT_JOURNAL
+  /* Reserve the journal zones so the allocator never hands them out, and write
+   * the (empty) journal superblock at the journal's first block. */
+  if (jflag) {
+	zone_t z;
+	void *jblk;
+	struct mfs_journal_super *jsb;
+
+	for (z = journal_zone; z < (zone_t) zones; z++)
+		insert_bit(zone_map, z - zoff);
+
+	if ((jblk = alloc_block()) == NULL)
+		err(1, "couldn't allocate the journal superblock");
+	jsb = jblk;
+	jsb->jsb_magic = MFS_JOURNAL_MAGIC;
+	jsb->jsb_blocks = journal_nblk;
+	jsb->jsb_sequence = 0;	/* empty journal */
+	jsb->jsb_start = 1;
+	jsb->jsb_flags = 0;
+	put_block((block_t) journal_zone, jblk);
+	free(jblk);
+  }
+#endif
 
   free(buf);
 }
@@ -1535,9 +1588,10 @@ read_and_set(block_t n)
 __dead void
 usage(void)
 {
-  fprintf(stderr, "Usage: %s [-4dltv] [-b blocks] [-i inodes]\n"
+  fprintf(stderr, "Usage: %s [-4jdltv] [-b blocks] [-i inodes]\n"
 	"\t[-z zone_shift] [-I offset] [-x extra] [-B blocksize] special [proto]\n"
-	"\t-4 creates an MFS version 4 (MFS4) file system\n",
+	"\t-4 creates an MFS version 4 (MFS4) file system\n"
+	"\t-j adds a metadata journal (implies -4)\n",
       progname);
   exit(4);
 }

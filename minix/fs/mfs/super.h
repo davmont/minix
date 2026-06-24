@@ -65,6 +65,8 @@ EXTERN struct super_block {
   off_t s_max_filesize;		/* effective max file size: s_max_size for
 				 * V2/V3 (32-bit), or the zone-addressing
 				 * capacity for a V4 wide-inode FS (>2 GB) */
+  u32_t s_journal_start;	/* first journal block (V4 INCOMPAT_JOURNAL) */
+  u32_t s_journal_blocks;	/* journal length in blocks, 0 = no journal */
   zone_t s_firstdatazone;	/* number of first data zone (big) */
   dev_t s_dev;			/* whose super block is this? */
   int s_rd_only;		/* set to 1 iff file sys mounted read only */

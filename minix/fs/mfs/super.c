@@ -310,10 +310,15 @@ int read_super(struct super_block *sp)
 			sp->s_feature_ro_compat & ~(u32_t)MFS_RO_COMPAT_SUPPORTED);
 		sp->s_force_ro = 1;
 	}
+	/* The journal location lives in two of the reserved words. */
+	sp->s_journal_start = (u32_t) conv4(native, sp->s_v4_reserved[0]);
+	sp->s_journal_blocks = (u32_t) conv4(native, sp->s_v4_reserved[1]);
   } else {
 	sp->s_feature_compat = 0;
 	sp->s_feature_incompat = 0;
 	sp->s_feature_ro_compat = 0;
+	sp->s_journal_start = 0;
+	sp->s_journal_blocks = 0;
   }
 
   /* Calculate some other numbers that depend on the version here too, to
@@ -403,6 +408,20 @@ int read_super(struct super_block *sp)
   	printf("MFS: unsupported feature flags on this FS.\n"
 		"Please use a newer MFS to mount it.\n");
 	return(EINVAL);
+  }
+
+  /* A journalled FS must point at a sane, in-bounds journal area. */
+  if (sp->s_feature_incompat & MFS_INCOMPAT_JOURNAL) {
+	if (sp->s_journal_blocks < 1 ||
+	    sp->s_journal_start < sp->s_firstdatazone ||
+	    (off_t) sp->s_journal_start + sp->s_journal_blocks >
+		(off_t) sp->s_zones) {
+		printf("MFS: invalid journal location (%u..+%u, zones %u)\n",
+			sp->s_journal_start, sp->s_journal_blocks, sp->s_zones);
+		return(EINVAL);
+	}
+  } else {
+	sp->s_journal_start = sp->s_journal_blocks = 0;
   }
 
   return(OK);

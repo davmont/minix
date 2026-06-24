@@ -50,7 +50,7 @@
  * this set is refused; with a ro_compat bit outside this set is forced
  * read-only.  Each later phase adds its bit here.
  */
-#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE)
+#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL)
 #define MFS_RO_COMPAT_SUPPORTED	0
 
 /* Miscellaneous constants */

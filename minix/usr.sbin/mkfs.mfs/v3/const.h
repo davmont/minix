@@ -21,6 +21,8 @@
 
 /* V4 feature flags (mirror servers/mfs/const.h). */
 #define MFS_INCOMPAT_WIDE_INODE	0x00000001 /* 128-byte d4_inode */
+#define MFS_INCOMPAT_JOURNAL	0x00000002 /* metadata journal */
+#define MFS_JOURNAL_MAGIC	0x314c4a4dUL	/* "MJL1" */
 
 /* Miscellaneous constants */
 #define SU_UID		 ((uid_t) 0)	/* super_user's uid_t */

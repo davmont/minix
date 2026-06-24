@@ -602,7 +602,8 @@ void rw_super(int put)
   	/* MFS4.  The 128-byte wide inode (WIDE_INODE) is handled via
   	 * read_inode()/write_inode(); refuse any other incompat feature we do
   	 * not understand rather than misreading it.  See mfs/MFSV4_DESIGN.md. */
-  	if (sb.s_feature_incompat & ~(u32_t)MFS_INCOMPAT_WIDE_INODE)
+  	if (sb.s_feature_incompat &
+  	    ~(u32_t)(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL))
   		fatal("fsck.mfs: MFS4 file system uses unsupported incompat features");
   	fs_version = 3;
   	block_size = sb.s_block_size;
@@ -1685,6 +1686,16 @@ char *f, **clist, **ilist, **zlist;
 
   getcount();
   chktree();
+  /* The journal occupies zones that are allocated on disk but referenced by no
+   * inode; mark them in the computed map so the bitmap check does not flag
+   * them.  See mfs/JOURNAL_DESIGN.md. */
+  if (sb.s_magic == SUPER_V4 &&
+      (sb.s_feature_incompat & MFS_INCOMPAT_JOURNAL)) {
+	zone_nr jz, js = (zone_nr) sb.s_v4_reserved[0];
+	zone_nr jn = (zone_nr) sb.s_v4_reserved[1];
+	for (jz = js; jz < js + jn && jz < (zone_nr) sb.s_zones; jz++)
+		setbit(zmap, (bit_nr) (jz - FIRST + 1));
+  }
   chkmap(zmap, spec_zmap, (bit_nr) FIRST - 1, BLK_ZMAP, N_ZMAP, "zone");
   chkcount();
   chkmap(imap, spec_imap, (bit_nr) 0, BLK_IMAP, N_IMAP, "inode");
