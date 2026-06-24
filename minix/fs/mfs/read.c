@@ -310,8 +310,8 @@ int index;			/* index into *bp */
 
   sp = &superblock;
 
-  /* read a zone from an indirect block */
-  assert(sp->s_version == V3);
+  /* read a zone from an indirect block (V4 reuses the V2/V3 layout) */
+  assert(sp->s_version == V3 || sp->s_version == V4);
   zone = (zone_t) conv4(sp->s_native, (long) b_v2_ind(bp)[index]);
 
   if (zone != NO_ZONE &&

@@ -75,6 +75,7 @@ unsigned int zone_size;
 ino_t nrinodes, inode_offset, next_inode;
 int lct = 0, fd, print = 0;
 int simple = 0, dflag = 0, verbose = 0;
+int v4flag = 0;			/* -4: create a V4 (MFS4) file system */
 int donttest;			/* skip test if it fits on medium */
 char *progname;
 uint64_t fs_offset_bytes, fs_offset_blocks, written_fs_size = 0;
@@ -150,8 +151,9 @@ main(int argc, char *argv[])
 #endif
   zone_shift = 0;
   extra_space_percent = 0;
-  while ((ch = getopt(argc, argv, "B:b:di:ltvx:z:I:T:")) != EOF)
+  while ((ch = getopt(argc, argv, "4B:b:di:ltvx:z:I:T:")) != EOF)
 	switch (ch) {
+	    case '4':	v4flag = 1;	break;
 #ifndef MFS_STATIC_BLOCK_SIZE
 	    case 'B':
 		block_size = strtoul(optarg, &sfx, 0);
@@ -669,6 +671,20 @@ super(zone_t zones, ino_t inodes)
 	errx(1, "block_size too large.");
   sup->s_disk_version = 0;
 #endif
+
+  /* -4: create an MFS V4 file system.  Phase 0 V4 is identical to V3 except for
+   * the magic and the (zeroed) feature-flag masks, which the block buffer
+   * already holds as zero.  See MFSV4_DESIGN.md.
+   */
+#ifdef SUPER_V4
+  if(v4flag) {
+	sup->s_magic = SUPER_V4;
+#ifdef MFS_SUPER_BLOCK_SIZE
+	sup->s_disk_version = 4;	/* informational; the magic is authoritative */
+#endif
+  }
+#endif
+  (void)v4flag;	/* may be unused in legacy (V1/V2) builders */
 
   ind_per_zone = (long long) indir_per_zone;
   zo = NR_DZONES + ind_per_zone + ind_per_zone*ind_per_zone;
@@ -1449,8 +1465,9 @@ read_and_set(block_t n)
 __dead void
 usage(void)
 {
-  fprintf(stderr, "Usage: %s [-dltv] [-b blocks] [-i inodes]\n"
-	"\t[-z zone_shift] [-I offset] [-x extra] [-B blocksize] special [proto]\n",
+  fprintf(stderr, "Usage: %s [-4dltv] [-b blocks] [-i inodes]\n"
+	"\t[-z zone_shift] [-I offset] [-x extra] [-B blocksize] special [proto]\n"
+	"\t-4 creates an MFS version 4 (MFS4) file system\n",
       progname);
   exit(4);
 }

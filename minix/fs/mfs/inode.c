@@ -401,7 +401,8 @@ int rw_flag;			/* READING or WRITING */
   /* Copy the inode from the disk block to the in-core table or vice versa.
    * If the fourth parameter below is FALSE, the bytes are swapped.
    */
-  assert(sp->s_version == V3);
+  /* Phase 0 V4 reuses the V2/V3 on-disk inode layout. */
+  assert(sp->s_version == V3 || sp->s_version == V4);
   new_icopy(rip, dip2, rw_flag, sp->s_native);
   
   put_block(bp);

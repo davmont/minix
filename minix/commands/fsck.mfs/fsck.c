@@ -582,6 +582,14 @@ void rw_super(int put)
   } else if(sb.s_magic == SUPER_V3) {
   	fs_version = 3;
   	block_size = sb.s_block_size;
+  } else if(sb.s_magic == SUPER_V4) {
+  	/* Phase 0 MFS4 uses the V3 inode layout, so fsck handles it as V3.
+  	 * Refuse if the FS uses incompat features we don't understand; later
+  	 * phases add per-feature handling.  See mfs/MFSV4_DESIGN.md. */
+  	if (sb.s_feature_incompat & ~(uint32_t)MFS_INCOMPAT_SUPPORTED)
+  		fatal("MFS4 file system uses unsupported incompat features");
+  	fs_version = 3;
+  	block_size = sb.s_block_size;
   } else {
   	fatal("bad magic number in super block");
   }
@@ -605,7 +613,8 @@ void chksuper()
   register off_t maxsize;
 
   n = bitmapsize((bit_t) sb.s_ninodes + 1, block_size);
-  if (sb.s_magic != SUPER_V2 && sb.s_magic != SUPER_V3)
+  if (sb.s_magic != SUPER_V2 && sb.s_magic != SUPER_V3 &&
+  	sb.s_magic != SUPER_V4)
   	fatal("bad magic number in super block");
   if (sb.s_imap_blocks < n) {
   	printf("need %d bocks for inode bitmap; only have %d\n",

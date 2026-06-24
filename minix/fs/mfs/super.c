@@ -179,9 +179,11 @@ static int rw_super(struct super_block *sp, int writing)
   int r;
 
 /* To keep the 1kb on disk clean, only read/write up to and including
- * this field.
+ * this field.  For V4 this covers the feature-flag masks and reserved area;
+ * for V3 those trailing bytes are written as zero (harmless, and beyond an
+ * old V3-only driver's read window).
  */
-#define LAST_ONDISK_FIELD s_disk_version
+#define LAST_ONDISK_FIELD s_v4_reserved
   int ondisk_bytes = (int) ((char *) &sp->LAST_ONDISK_FIELD - (char *) sp)
   	+ sizeof(sp->LAST_ONDISK_FIELD);
 
@@ -250,15 +252,18 @@ int read_super(struct super_block *sp)
   magic = sp->s_magic;		/* determines file system type */
 
   if(magic == SUPER_V2 || magic == SUPER_MAGIC) {
-	printf("MFS: only supports V3 filesystems.\n");
+	printf("MFS: only supports V3 and V4 filesystems.\n");
 	return EINVAL;
   }
 
-  /* Get file system version and type - only support v3. */
-  if(magic != SUPER_V3) {
+  /* Get file system version and type - only V3 and V4 are supported. */
+  if(magic == SUPER_V3) {
+	version = V3;
+  } else if(magic == SUPER_V4) {
+	version = V4;
+  } else {
 	return EINVAL;
   }
-  version = V3;
   native = 1;
 
   /* If the super block has the wrong byte order, swap the fields; the magic
@@ -280,10 +285,42 @@ int read_super(struct super_block *sp)
 	return EINVAL;
   }
 
-  /* Calculate some other numbers that depend on the version here too, to
-   * hide some of the differences.
+  /* V4 feature flags.  For V3, the trailing on-disk bytes are not part of the
+   * format, so force the V4-only fields to zero in core (a V3 FS made by an old
+   * mkfs may have left arbitrary bytes there).  For V4, byte-swap the masks and
+   * check them against what this driver understands: an unknown incompat bit is
+   * fatal; an unknown ro_compat bit forces a read-only mount.  See
+   * MFSV4_DESIGN.md.
    */
-  assert(version == V3);
+  sp->s_force_ro = 0;
+  if (version == V4) {
+	sp->s_feature_compat = (u32_t) conv4(native, sp->s_feature_compat);
+	sp->s_feature_incompat = (u32_t) conv4(native, sp->s_feature_incompat);
+	sp->s_feature_ro_compat = (u32_t) conv4(native, sp->s_feature_ro_compat);
+
+	if (sp->s_feature_incompat & ~(u32_t)MFS_INCOMPAT_SUPPORTED) {
+		printf("MFS: V4 FS uses unsupported incompat features "
+			"(0x%x); cannot mount.\n",
+			sp->s_feature_incompat & ~(u32_t)MFS_INCOMPAT_SUPPORTED);
+		return EINVAL;
+	}
+	if (sp->s_feature_ro_compat & ~(u32_t)MFS_RO_COMPAT_SUPPORTED) {
+		printf("MFS: V4 FS uses unsupported ro_compat features "
+			"(0x%x); mounting read-only.\n",
+			sp->s_feature_ro_compat & ~(u32_t)MFS_RO_COMPAT_SUPPORTED);
+		sp->s_force_ro = 1;
+	}
+  } else {
+	sp->s_feature_compat = 0;
+	sp->s_feature_incompat = 0;
+	sp->s_feature_ro_compat = 0;
+  }
+
+  /* Calculate some other numbers that depend on the version here too, to
+   * hide some of the differences.  Phase 0 V4 uses the V3 inode layout, so the
+   * derived geometry is identical for both versions.
+   */
+  assert(version == V3 || version == V4);
   sp->s_block_size = (unsigned short) conv2(native,(int) sp->s_block_size);
   if (sp->s_block_size < PAGE_SIZE) {
  	return EINVAL;

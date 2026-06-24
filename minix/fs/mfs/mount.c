@@ -49,6 +49,21 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	printf("MFS: WARNING: FS 0x%llx unclean, mounting readonly\n", (unsigned long long)fs_dev);
   }
 
+  /* ro_compat check: a V4 FS using ro_compat features we don't understand may
+   * be read but not written.  Reopen the device read-only, as for unclean. */
+  if(superblock.s_force_ro && !readonly) {
+	if(bdev_close(fs_dev) != OK)
+		panic("couldn't bdev_close after unsupported ro_compat feature");
+	readonly = 1;
+
+	if (bdev_open(fs_dev, BDEV_R_BIT) != OK) {
+		panic("couldn't bdev_open after unsupported ro_compat feature");
+		return(EINVAL);
+	}
+	printf("MFS: WARNING: FS 0x%llx has unsupported ro_compat features, "
+		"mounting readonly\n", (unsigned long long)fs_dev);
+  }
+
   lmfs_set_blocksize(superblock.s_block_size);
 
   /* Compute the current number of used zones, and report it to libminixfs.

@@ -39,10 +39,22 @@ EXTERN struct super_block {
   unsigned short s_block_size;	/* block size in bytes. */
   char s_disk_version;		/* filesystem format sub-version */
 
+  /* The following items are valid on disk only for V4 and above (magic
+   * SUPER_V4).  For V3 they are forced to zero in core after reading.  See
+   * MFSV4_DESIGN.md.  When adding more on-disk fields, append them here and
+   * move LAST_ONDISK_FIELD in super.c to the new final field.
+   */
+  u8_t s_v4_pad8;		/* explicit padding for a deterministic layout */
+  u16_t s_v4_pad16;
+  u32_t s_feature_compat;	/* unknown bit: ignore (mount r/w) */
+  u32_t s_feature_incompat;	/* unknown bit: do not mount */
+  u32_t s_feature_ro_compat;	/* unknown bit: mount read-only */
+  u32_t s_v4_reserved[5];	/* reserved; must be zero */
+
   /* The following items are only used when the super_block is in memory.
-   * If this ever changes, i.e. more fields after s_disk_version has to go to
-   * disk, update LAST_ONDISK_FIELD in super.c as that controls which part of the
-   * struct is copied to and from disk.
+   * If this ever changes, i.e. more fields have to go to disk, update
+   * LAST_ONDISK_FIELD in super.c as that controls which part of the struct is
+   * copied to and from disk.
    */
   
   /*struct inode *s_isup;*/	/* inode for root dir of mounted file sys */
@@ -51,6 +63,7 @@ EXTERN struct super_block {
   zone_t s_firstdatazone;	/* number of first data zone (big) */
   dev_t s_dev;			/* whose super block is this? */
   int s_rd_only;		/* set to 1 iff file sys mounted read only */
+  int s_force_ro;		/* V4: unknown ro_compat feature forces read-only */
   int s_native;			/* set to 1 iff not byte swapped file system */
   int s_version;		/* file system version, zero means bad magic */
   int s_ndzones;		/* # direct zones in an inode */

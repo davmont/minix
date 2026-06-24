@@ -202,8 +202,8 @@ zone_t zone;			/* zone to write */
 
   sp = &superblock;
 
-  /* write a zone into an indirect block */
-  assert(sp->s_version == V3);
+  /* write a zone into an indirect block (V4 reuses the V2/V3 layout) */
+  assert(sp->s_version == V3 || sp->s_version == V4);
   b_v2_ind(bp)[index] = (zone_t)  conv4(sp->s_native, (long) zone);
 }
 
