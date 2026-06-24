@@ -40,7 +40,8 @@ EXTERN struct inode {
   char i_dirt;			/* CLEAN or DIRTY */
   zone_t i_zsearch;		/* where to start search for new zones */
   off_t i_last_dpos;		/* where to start dentry search */
-  
+  struct dirhash *i_dirhash;	/* in-memory name lookup hash (dirs), or NULL */
+
   char i_mountpoint;		/* true if mounted on */
 
   char i_seek;			/* set on LSEEK, cleared on READ/WRITE */

@@ -107,7 +107,7 @@ int flag;			 /* LOOK_UP, ENTER, DELETE or IS_EMPTY */
   register struct direct *dp = NULL;
   register struct buf *bp = NULL;
   int i, r, e_hit, t, match;
-  off_t pos;
+  off_t pos, ent_pos = 0;
   unsigned new_slots, old_slots;
   struct super_block *sp;
   int extended = 0;
@@ -119,7 +119,52 @@ int flag;			 /* LOOK_UP, ENTER, DELETE or IS_EMPTY */
 
   if((flag == DELETE || flag == ENTER) && ldir_ptr->i_sp->s_rd_only)
 	return EROFS;
-  
+
+  /* Fast path: consult the in-memory directory hash for a name lookup or
+   * deletion in a large directory.  The hash is a pure accelerator: a hit is
+   * verified against the on-disk entry, and a miss (or any inconsistency)
+   * simply falls through to the linear scan below, so correctness never
+   * depends on the hash being complete. */
+  if (flag == LOOK_UP || flag == DELETE) {
+	off_t hpos, bpos;
+	unsigned int bsize = ldir_ptr->i_sp->s_block_size;
+
+	dirhash_build(ldir_ptr);
+	if (dirhash_lookup(ldir_ptr, string, &hpos)) {
+		bpos = hpos - (hpos % bsize);
+		bp = get_block_map(ldir_ptr, bpos);
+		if (bp != NULL) {
+			dp = &b_dir(bp)[(unsigned int)(hpos - bpos) /
+				DIR_ENTRY_SIZE];
+			if (dp->mfs_d_ino != NO_ENTRY &&
+			    strncmp(dp->mfs_d_name, string,
+			    sizeof(dp->mfs_d_name)) == 0) {
+				if (flag == LOOK_UP) {
+					sp = ldir_ptr->i_sp;
+					*numb = (ino_t) conv4(sp->s_native,
+						(int) dp->mfs_d_ino);
+				} else {	/* DELETE */
+					t = MFS_NAME_MAX - sizeof(ino_t);
+					*((ino_t *) &dp->mfs_d_name[t]) =
+						dp->mfs_d_ino;
+					dp->mfs_d_ino = NO_ENTRY;
+					MARKDIRTY(bp);
+					ldir_ptr->i_update |= CTIME | MTIME;
+					IN_MARKDIRTY(ldir_ptr);
+					if (hpos < ldir_ptr->i_last_dpos)
+						ldir_ptr->i_last_dpos = hpos;
+					dirhash_remove(ldir_ptr, string);
+				}
+				put_block(bp);
+				return(OK);
+			}
+			put_block(bp);
+		}
+		/* The hash disagreed with the directory; drop it and rescan. */
+		dirhash_free(ldir_ptr);
+	}
+  }
+
   /* Step through the directory one block at a time. */
   old_slots = (unsigned) (ldir_ptr->i_size/DIR_ENTRY_SIZE);
   new_slots = 0;
@@ -179,6 +224,7 @@ int flag;			 /* LOOK_UP, ENTER, DELETE or IS_EMPTY */
 				IN_MARKDIRTY(ldir_ptr);
 				if (pos < ldir_ptr->i_last_dpos)
 					ldir_ptr->i_last_dpos = pos;
+				dirhash_remove(ldir_ptr, string);
 			} else {
 				sp = ldir_ptr->i_sp;	/* 'flag' is LOOK_UP */
 				*numb = (ino_t) conv4(sp->s_native,
@@ -216,16 +262,20 @@ int flag;			 /* LOOK_UP, ENTER, DELETE or IS_EMPTY */
   if (e_hit == FALSE) { /* directory is full and no room left in last block */
 	new_slots++;		/* increase directory size by 1 entry */
 	if (new_slots == 0) return(EFBIG); /* dir size limited by slot count */
+	ent_pos = ldir_ptr->i_size;	/* new block, first slot */
 	if ( (bp = new_block(ldir_ptr, ldir_ptr->i_size)) == NULL)
 		return(err_code);
 	dp = &b_dir(bp)[0];
 	extended = 1;
+  } else {
+	/* The free slot 'dp' lies in the block at file offset 'pos'. */
+	ent_pos = pos + (off_t)(dp - b_dir(bp)) * DIR_ENTRY_SIZE;
   }
 
   /* 'bp' now points to a directory block with space. 'dp' points to slot. */
   (void) memset(dp->mfs_d_name, 0, (size_t) MFS_NAME_MAX); /* clear entry */
   for (i = 0; i < MFS_NAME_MAX && string[i]; i++) dp->mfs_d_name[i] = string[i];
-  sp = ldir_ptr->i_sp; 
+  sp = ldir_ptr->i_sp;
   dp->mfs_d_ino = conv4(sp->s_native, (int) *numb);
   MARKDIRTY(bp);
   put_block(bp);
@@ -236,6 +286,8 @@ int flag;			 /* LOOK_UP, ENTER, DELETE or IS_EMPTY */
 	/* Send the change to disk if the directory is extended. */
 	if (extended) rw_inode(ldir_ptr, WRITING);
   }
+  /* Keep the directory hash (if any) in step with the new entry. */
+  dirhash_enter(ldir_ptr, string, ent_pos);
   return(OK);
 }
 
