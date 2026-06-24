@@ -315,9 +315,17 @@ static void dump_segments(struct filp *f, Elf_Phdr phdrs[], int phnum)
 			(phys_bytes) CLICK_SIZE);
 
 		if(r != OK) {
-			/* memory didn't exist; write as zeroes */
+			/* Memory could not be read (e.g. an unmapped guard
+			 * page, a demand-zero page not yet faulted in, or
+			 * memory belonging to a torn-down LWP in a thread
+			 * group's shared address space).  Emit it as zeroes:
+			 * we must still write the page so that the file stays
+			 * consistent with the p_offset/p_filesz that the
+			 * program headers already committed to.  Skipping the
+			 * write here would shorten the file and shift every
+			 * following segment out of alignment with its header.
+			 */
 			memset(buf, 0, sizeof(buf));
-			continue;
 		}
 
 		write_buf(f, (char *) buf, (off + CLICK_SIZE <= (off_t) len) ?
