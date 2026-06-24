@@ -6,6 +6,7 @@
  */
 #include <limits.h>
 #include <minix/timers.h>
+#include <machine/stackframe.h>
 #include <signal.h>
 
 #include <sys/cdefs.h>
@@ -87,6 +88,12 @@ EXTERN struct mproc {
   endpoint_t mp_lwp_jointgt;	/* while MP_LWP_JOINING: lwpid being joined, or
 				 * ANY_LWP for _lwp_wait(0); 0 otherwise */
 
+  /* When a thread group dies on a core-generating signal, the faulting
+   * thread is torn down before the leader's core is dumped.  Its registers
+   * are captured here (on the leader's slot, flagged MP_LWP_COREREGS) so the
+   * core records the thread that actually crashed, not the surviving leader. */
+  struct stackframe_s mp_lwp_coreregs;	/* faulting thread's registers */
+
   int mp_magic;			/* sanity check, MP_MAGIC */
 } mproc[NR_PROCS];
 
@@ -119,6 +126,8 @@ EXTERN struct mproc {
 #define MP_GROUP_DYING 0x4000000	/* leader: tearing down its thread group on a
 					 * fatal signal/exit; the leader itself exits
 					 * once the last member LWP is gone */
+#define MP_LWP_COREREGS 0x8000000	/* leader: mp_lwp_coreregs holds the faulting
+					 * thread's registers for the core dump */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)

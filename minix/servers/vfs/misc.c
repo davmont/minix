@@ -959,7 +959,7 @@ int do_svrctl(void)
 /*===========================================================================*
  *				pm_dumpcore				     *
  *===========================================================================*/
-int pm_dumpcore(int csig, vir_bytes exe_name)
+int pm_dumpcore(int csig, vir_bytes exe_name, vir_bytes regs_ptr)
 {
   int r, core_fd;
   struct filp *f;
@@ -991,7 +991,7 @@ int pm_dumpcore(int csig, vir_bytes exe_name)
   /* write the core dump */
   f = get_filp(core_fd, VNODE_WRITE);
   assert(f != NULL);
-  write_elf_core_file(f, csig, proc_name);
+  write_elf_core_file(f, csig, proc_name, regs_ptr);
   unlock_filp(f);
 
 core_exit:

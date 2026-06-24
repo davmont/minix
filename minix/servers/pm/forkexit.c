@@ -320,15 +320,19 @@ exit_group_leader(struct mproc *leader)
  * fatal-signal status (in mp_sigstatus) so the parent's wait(2) reports the
  * correct WTERMSIG.
  *
- * We deliberately do NOT request a core dump here, even for core-generating
- * signals: dumping the core of a process whose thread group has just been torn
- * down leaves VFS/VM state that wedges the next threaded process (the dump path
- * is not thread-group aware).  The offending thread's stacktrace is already
- * logged by sig_proc_exit() for diagnosis.
- * TODO: thread-group-aware core dump (dump the surviving leader's AS).
+ * For a core-generating fatal signal, dump the core of the leader now: it is
+ * the last holder of the group's shared address space (VM frees the space only
+ * when the leader exits -- see vm/exit.c free_proc), so the dump captures all
+ * threads' stacks, the heap and globals.  The faulting thread's stacktrace was
+ * already logged by sig_proc_exit().
  */
+  int dump_core;
+
+  dump_core = sigismember(&core_sset, leader->mp_sigstatus) &&
+	      !(leader->mp_flags & PRIV_PROC);
+
   leader->mp_flags &= ~MP_GROUP_DYING;
-  exit_proc(leader, 0, FALSE /*dump_core*/);
+  exit_proc(leader, 0, dump_core);
 }
 
 /*===========================================================================*
@@ -812,6 +816,14 @@ exit_proc(
   if (dump_core) {
 	m.VFS_PM_TERM_SIG = rmp->mp_sigstatus;
 	m.VFS_PM_PATH = rmp->mp_name;
+	/* If a thread group is dying, hand VFS the faulting thread's
+	 * registers (captured in sig_proc_exit before its teardown) so the
+	 * core records the crashing thread rather than the leader.  NULL
+	 * tells VFS to fall back to the dumped process's own registers. */
+	if (rmp->mp_flags & MP_LWP_COREREGS)
+		m.VFS_PM_CORE_REGS = (void *) &rmp->mp_lwp_coreregs;
+	else
+		m.VFS_PM_CORE_REGS = NULL;
   }
 
   tell_vfs(rmp, &m);

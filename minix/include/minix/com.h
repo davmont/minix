@@ -592,6 +592,9 @@
 
 /* Additional parameters for PM_DUMPCORE */
 #  define VFS_PM_TERM_SIG	m7_i2	/* process's termination signal */
+#  define VFS_PM_CORE_REGS	m7_p2	/* faulting thread's registers in PM's
+					 * address space, or NULL to use the
+					 * dumped process's own registers */
 
 /*===========================================================================*
  *                Messages used from VFS to file servers		     *

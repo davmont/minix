@@ -65,7 +65,8 @@ void dmap_unmap_by_endpt(endpoint_t proc_nr);
 int map_service(struct rprocpub *rpub);
 
 /* elf_core_dump.c */
-void write_elf_core_file(struct filp *f, int csig, char *exe_name);
+void write_elf_core_file(struct filp *f, int csig, char *exe_name,
+	vir_bytes regs_ptr);
 
 /* exec.c */
 int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
@@ -132,7 +133,7 @@ void pm_reboot(void);
 int do_svrctl(void);
 int do_getsysinfo(void);
 int do_vm_call(void);
-int pm_dumpcore(int sig, vir_bytes exe_name);
+int pm_dumpcore(int sig, vir_bytes exe_name, vir_bytes regs_ptr);
 void ds_event(void);
 int dupvm(struct fproc *fp, int pfd, int *vmfd, struct filp **f);
 int do_getrusage(void);

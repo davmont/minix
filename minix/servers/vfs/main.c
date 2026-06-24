@@ -671,7 +671,7 @@ void replycode(endpoint_t whom, int result)
 void service_pm_postponed(void)
 {
   int r, term_signal;
-  vir_bytes core_path;
+  vir_bytes core_path, core_regs;
   vir_bytes exec_path, stack_frame, pc, newsp, ps_str;
   size_t exec_path_len, stack_frame_len;
   endpoint_t proc_e;
@@ -735,6 +735,7 @@ void service_pm_postponed(void)
 	proc_e = job_m_in.VFS_PM_ENDPT;
 	term_signal = job_m_in.VFS_PM_TERM_SIG;
 	core_path = (vir_bytes) job_m_in.VFS_PM_PATH;
+	core_regs = (vir_bytes) job_m_in.VFS_PM_CORE_REGS;
 
 	/* A zero signal used to indicate that a coredump should be generated
 	 * without terminating the target process, but this was broken in so
@@ -746,7 +747,7 @@ void service_pm_postponed(void)
 
 	assert(proc_e == fp->fp_endpoint);
 
-	r = pm_dumpcore(term_signal, core_path);
+	r = pm_dumpcore(term_signal, core_path, core_regs);
 
 	/* Reply status to PM */
 	m_out.m_type = VFS_PM_CORE_REPLY;
