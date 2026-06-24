@@ -26,6 +26,7 @@ void init_inode_cache(void);
 struct inode *get_inode(dev_t dev, ino_t numb);
 void put_inode(struct inode *rip);
 void update_times(struct inode *rip);
+int update_atime(struct inode *rip);
 void rw_inode(struct inode *rip, int rw_flag);
 
 /* link.c */
