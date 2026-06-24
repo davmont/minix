@@ -19,7 +19,7 @@ static void fill_note_segment_and_entries_hdrs(Elf_Phdr phdrs[],
 static void adjust_offsets(Elf_Phdr phdrs[], int phnum);
 static void dump_elf_header(struct filp *f, Elf_Ehdr elf_header);
 static void dump_notes(struct filp *f, Elf_Nhdr nhdrs[], int csig,
-	char *proc_name);
+	char *proc_name, vir_bytes regs_ptr);
 static void dump_program_headers(struct filp *f, Elf_Phdr phdrs[], int
 	phnum);
 static void dump_segments(struct filp *f, Elf_Phdr phdrs[], int
@@ -29,7 +29,8 @@ static void write_buf(struct filp *f, char *buf, size_t size);
 /*===========================================================================*
  *				write_elf_core_file			     *
  *===========================================================================*/
-void write_elf_core_file(struct filp *f, int csig, char *proc_name)
+void write_elf_core_file(struct filp *f, int csig, char *proc_name,
+	vir_bytes regs_ptr)
 {
 /* First, fill in all the required headers, second, adjust the offsets,
  * third, dump everything into the core file
@@ -68,7 +69,7 @@ void write_elf_core_file(struct filp *f, int csig, char *proc_name)
   dump_program_headers(f, phdrs, phnum);
 
   /* Write NOTE contents */
-  dump_notes(f, nhdrs, csig, proc_name);
+  dump_notes(f, nhdrs, csig, proc_name, regs_ptr);
 
   /* Write segments' contents */
   dump_segments(f, phdrs, phnum);
@@ -231,7 +232,7 @@ static int get_memory_regions(Elf_Phdr phdrs[])
  *				dump_notes			             *
  *===========================================================================*/
 static void dump_notes(struct filp *f, Elf_Nhdr nhdrs[], int csig,
-			 char *proc_name)
+			 char *proc_name, vir_bytes regs_ptr)
 {
   char *note_name = ELF_NOTE_MINIX_ELFCORE_NAME "\0";
   char pad[4];
@@ -253,8 +254,15 @@ static void dump_notes(struct filp *f, Elf_Nhdr nhdrs[], int csig,
   write_buf(f, (char *) &mei, mei_len);
   write_buf(f, pad, PAD_LEN(mei_len) - mei_len);
 
-  /* Get registers */
-  if (sys_getregs(&regs, fp->fp_endpoint) != OK)
+  /* Get registers.  For a thread group dying on a fatal signal, PM passes the
+   * faulting thread's registers (it captured them before tearing that thread
+   * down); copy them in so the core reflects the thread that actually crashed.
+   * Otherwise read the dumped process's own registers from the kernel. */
+  if (regs_ptr != 0) {
+	if (sys_datacopy_wrapper(PM_PROC_NR, regs_ptr, VFS_PROC_NR,
+	    (vir_bytes) &regs, sizeof(regs)) != OK)
+		printf("VFS: Could not copy faulting thread registers\n");
+  } else if (sys_getregs(&regs, fp->fp_endpoint) != OK)
 	printf("VFS: Could not read registers\n");
 
   if (sizeof(regs) != gregs_len)

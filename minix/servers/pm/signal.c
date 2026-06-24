@@ -557,9 +557,24 @@ sig_proc_exit(
    * thread's stacktrace first, while it still exists, for diagnosis. */
   if (rmp->mp_lwp_group != NO_LWP_GROUP) {
 	if (sigismember(&core_sset, signo) && !(rmp->mp_flags & PRIV_PROC)) {
+		struct mproc *leader;
+		int group;
+
 		printf("PM: coredump signal %d for %d / %s (lwp ep %d)\n", signo,
 			rmp->mp_pid, rmp->mp_name, rmp->mp_endpoint);
 		sys_diagctl_stacktrace(rmp->mp_endpoint);
+
+		/* Capture the faulting thread's registers now, while it still
+		 * exists: terminate_lwp_group() tears it down before the
+		 * leader's core is dumped, so without this the dump would
+		 * record the surviving leader's registers instead of the
+		 * thread that actually crashed. */
+		group = (rmp->mp_flags & MP_LWP) ? rmp->mp_lwp_group :
+			(int)(rmp - mproc);
+		leader = &mproc[group];
+		if (sys_getregs(&leader->mp_lwp_coreregs,
+		    rmp->mp_endpoint) == OK)
+			leader->mp_flags |= MP_LWP_COREREGS;
 	}
 	terminate_lwp_group(rmp, signo);
 	return;

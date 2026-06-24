@@ -816,6 +816,14 @@ exit_proc(
   if (dump_core) {
 	m.VFS_PM_TERM_SIG = rmp->mp_sigstatus;
 	m.VFS_PM_PATH = rmp->mp_name;
+	/* If a thread group is dying, hand VFS the faulting thread's
+	 * registers (captured in sig_proc_exit before its teardown) so the
+	 * core records the crashing thread rather than the leader.  NULL
+	 * tells VFS to fall back to the dumped process's own registers. */
+	if (rmp->mp_flags & MP_LWP_COREREGS)
+		m.VFS_PM_CORE_REGS = (void *) &rmp->mp_lwp_coreregs;
+	else
+		m.VFS_PM_CORE_REGS = NULL;
   }
 
   tell_vfs(rmp, &m);
