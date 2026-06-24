@@ -152,10 +152,13 @@ struct inode *get_inode(
   }
   rip = TAILQ_FIRST(&unused_inodes);
 
-  /* If not free unhash it */
-  if (rip->i_num != NO_ENTRY)
+  /* If not free unhash it, and discard any directory hash it carried for the
+   * inode that previously occupied this slot. */
+  if (rip->i_num != NO_ENTRY) {
+      dirhash_free(rip);
       unhash_inode(rip);
-  
+  }
+
   /* Inode is not unused any more */
   TAILQ_REMOVE(&unused_inodes, rip, i_unused);
 
@@ -163,6 +166,7 @@ struct inode *get_inode(
   rip->i_dev = dev;
   rip->i_num = numb;
   rip->i_count = 1;
+  rip->i_dirhash = NULL;	/* no directory hash yet */
   if (dev != NO_DEV) rw_inode(rip, READING);	/* get inode from disk */
   rip->i_update = 0;		/* all the times are initially up-to-date */
   rip->i_zsearch = NO_ZONE;	/* no zones searched for yet */

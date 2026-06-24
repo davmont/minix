@@ -64,6 +64,13 @@ struct inode *advance(struct inode *dirp, const char *string);
 int search_dir(struct inode *ldir_ptr, const char *string, ino_t *numb,
 	int flag);
 
+/* dirhash.c */
+void dirhash_build(struct inode *rip);
+int dirhash_lookup(struct inode *rip, const char *name, off_t *pos);
+void dirhash_enter(struct inode *rip, const char *name, off_t pos);
+void dirhash_remove(struct inode *rip, const char *name);
+void dirhash_free(struct inode *rip);
+
 /* protect.c */
 int fs_chmod(ino_t ino, mode_t *mode);
 int fs_chflags(ino_t ino_nr, int flags, int privileged);
