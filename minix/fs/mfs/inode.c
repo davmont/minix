@@ -370,6 +370,28 @@ register struct inode *rip;	/* pointer to inode to be read/written */
 }
 
 /*===========================================================================*
+ *				update_atime				     *
+ *===========================================================================*/
+int update_atime(struct inode *rip)
+{
+/* Decide whether a read should update this inode's access time, following the
+ * "relatime" policy (the modern default): update atime only if it is no later
+ * than the file's modify or change time, or if it is more than a day old.
+ * This avoids writing the inode back on every single read while keeping atime
+ * useful (e.g. for tools that compare atime against mtime).  Returns TRUE if
+ * atime should be updated (and the inode marked dirty), FALSE otherwise.
+ */
+  time_t now;
+
+  if (rip->i_atime <= rip->i_mtime || rip->i_atime <= rip->i_ctime)
+	return(TRUE);
+  now = clock_time(NULL);
+  if (now >= rip->i_atime && now - rip->i_atime > (time_t) (24L * 60 * 60))
+	return(TRUE);
+  return(FALSE);
+}
+
+/*===========================================================================*
  *				rw_inode				     *
  *===========================================================================*/
 void rw_inode(rip, rw_flag)

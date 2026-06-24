@@ -102,9 +102,18 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
    * just don't update the inode stats for it. And dito for reading.
    */
   if (!rip->i_sp->s_rd_only) {
-	  if (call == FSC_READ) rip->i_update |= ATIME;
-	  if (call == FSC_WRITE) rip->i_update |= CTIME | MTIME;
-	  IN_MARKDIRTY(rip);		/* inode is thus now dirty */
+	  int upd = 0;
+	  /* relatime: a read only updates (and dirties) atime when warranted,
+	   * so plain reads no longer write the inode back on every call. */
+	  if (call == FSC_READ && update_atime(rip)) {
+		  rip->i_update |= ATIME;
+		  upd = 1;
+	  }
+	  if (call == FSC_WRITE) {
+		  rip->i_update |= CTIME | MTIME;
+		  upd = 1;
+	  }
+	  if (upd) IN_MARKDIRTY(rip);	/* inode is thus now dirty */
   }
   
   return cum_io;
@@ -545,7 +554,7 @@ ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 
   if (r >= 0 && (r = fsdriver_dentry_finish(&fsdentry)) >= 0) {
 	  *posp = new_pos;
-	  if(!rip->i_sp->s_rd_only) {
+	  if(!rip->i_sp->s_rd_only && update_atime(rip)) {
 		  rip->i_update |= ATIME;
 		  IN_MARKDIRTY(rip);
 	  }
