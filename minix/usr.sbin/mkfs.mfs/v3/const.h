@@ -19,6 +19,9 @@
 #define SUPER_V4      0x4d5b	/* magic # for V4 file systems */
 #define SUPER_MAGIC	SUPER_V3
 
+/* V4 feature flags (mirror servers/mfs/const.h). */
+#define MFS_INCOMPAT_WIDE_INODE	0x00000001 /* 128-byte d4_inode */
+
 /* Miscellaneous constants */
 #define SU_UID		 ((uid_t) 0)	/* super_user's uid_t */
 #define SECTOR_SIZE	512

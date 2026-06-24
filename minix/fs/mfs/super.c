@@ -317,15 +317,21 @@ int read_super(struct super_block *sp)
   }
 
   /* Calculate some other numbers that depend on the version here too, to
-   * hide some of the differences.  Phase 0 V4 uses the V3 inode layout, so the
-   * derived geometry is identical for both versions.
+   * hide some of the differences.  A V4 FS with the WIDE_INODE feature uses
+   * the 128-byte d4_inode; otherwise (V3, or a plain V4) the 64-byte d2_inode.
    */
   assert(version == V3 || version == V4);
   sp->s_block_size = (unsigned short) conv2(native,(int) sp->s_block_size);
   if (sp->s_block_size < PAGE_SIZE) {
  	return EINVAL;
   }
-  sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
+  if (version == V4 && (sp->s_feature_incompat & MFS_INCOMPAT_WIDE_INODE)) {
+	sp->s_inode_size = V4_INODE_SIZE;
+	sp->s_inodes_per_block = V4_INODES_PER_BLOCK(sp->s_block_size);
+  } else {
+	sp->s_inode_size = V2_INODE_SIZE;
+	sp->s_inodes_per_block = V2_INODES_PER_BLOCK(sp->s_block_size);
+  }
   sp->s_ndzones = V2_NR_DZONES;
   sp->s_nindirs = V2_INDIRECTS(sp->s_block_size);
 
@@ -353,7 +359,7 @@ int read_super(struct super_block *sp)
   if (SUPER_SIZE > sp->s_block_size) 
   	return(EINVAL);
   
-  if ((sp->s_block_size % V2_INODE_SIZE) != 0) {
+  if ((sp->s_block_size % sp->s_inode_size) != 0) {
   	return(EINVAL);
   }
 

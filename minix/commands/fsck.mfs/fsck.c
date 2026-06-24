@@ -583,11 +583,13 @@ void rw_super(int put)
   	fs_version = 3;
   	block_size = sb.s_block_size;
   } else if(sb.s_magic == SUPER_V4) {
-  	/* Phase 0 MFS4 uses the V3 inode layout, so fsck handles it as V3.
-  	 * Refuse if the FS uses incompat features we don't understand; later
-  	 * phases add per-feature handling.  See mfs/MFSV4_DESIGN.md. */
-  	if (sb.s_feature_incompat & ~(uint32_t)MFS_INCOMPAT_SUPPORTED)
-  		fatal("MFS4 file system uses unsupported incompat features");
+  	/* fsck handles a plain MFS4 (V3 inode layout) like V3.  It does not yet
+  	 * understand any V4 incompat feature (e.g. the WIDE_INODE 128-byte
+  	 * inode), so refuse any FS that uses one rather than misreading it.
+  	 * See mfs/MFSV4_DESIGN.md; fsck wide-inode support is a follow-up. */
+  	if (sb.s_feature_incompat != 0)
+  		fatal("fsck.mfs cannot yet check an MFS4 file system that uses "
+  			"incompat features (e.g. wide inodes)");
   	fs_version = 3;
   	block_size = sb.s_block_size;
   } else {

@@ -1,6 +1,6 @@
 # MFS version 4 — design
 
-Status: **Phase 0 (in progress)** — superblock/version substrate.
+Status: **Phase 1 done** — superblock substrate (P0) + wide 128-byte inode (P1).
 Target milestone: MINIX **4.0.0** (amd64, SMP, IPC fastpath, pthreads/LWPs,
 modern toolchain). MFS V4 is the on-disk filesystem story for that release.
 
@@ -140,9 +140,17 @@ ro_compat bit forces RO. Each later phase adds its bit to the supported set.
   machinery in the MFS server; `mkfs.mfs -4` creates a V4 superblock; `fsck.mfs`
   recognises V4. A plain V4 volume behaves exactly like V3 (V3-layout inodes;
   no incompat bits). Validates the version/flag plumbing end-to-end.
-* **Phase 1 — wide inode (`INCOMPAT_WIDE_INODE`).** `d4_inode` (128 B), 64-bit
-  timestamps (Y2038), 32-bit nlink/gid, inode flags field, `crtime`; widen the
-  in-core inode and `read_map`/`write_map` accordingly. `conv8`.
+* **Phase 1 — wide inode (`INCOMPAT_WIDE_INODE`). DONE.** `d4_inode` (128 B),
+  64-bit timestamps (Y2038), 32-bit nlink/uid/gid, inode flags field, `crtime`;
+  the in-core inode is widened (`time_t` times, `nlink_t`/`uid_t`/`gid_t`,
+  `i_flags`, `i_crtime`) and `rw_inode` dispatches to `new_icopy` (d2) or
+  `new_icopy4` (d4) by the feature; `conv8` for the 64-bit fields; geometry
+  (`s_inode_size`, inodes/block) chosen from the feature.  `mkfs.mfs -4` now
+  creates a wide-inode V4 (sets `INCOMPAT_WIDE_INODE`, 128-byte inodes) via
+  format-agnostic inode accessors.  `i_size` stays 32-bit in core (the 2 GB
+  cap still holds) — widening it is Phase 2.
+  *Follow-up:* `fsck.mfs` does not yet understand the 128-byte inode and
+  refuses a wide-inode V4 cleanly; teaching it the d4 layout is pending.
 * **Phase 2 — large files.** Lift the `INT32_MAX` cap on V4; `u64` size paths
   and the `int`-cast positions in `read.c`/`write.c`. Validate >2 GB round-trip.
 * **Phase 3 — file flags.** `chflags`/`fchflags` via `d4_flags`

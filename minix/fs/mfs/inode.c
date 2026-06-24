@@ -28,6 +28,8 @@ static void addhash_inode(struct inode *node);
 static void free_inode(dev_t dev, ino_t numb);
 static void new_icopy(struct inode *rip, d2_inode *dip, int direction,
 	int norm);
+static void new_icopy4(struct inode *rip, d4_inode *dip, int direction,
+	int norm);
 static void unhash_inode(struct inode *node);
 static void wipe_inode(struct inode *rip);
 
@@ -290,6 +292,8 @@ struct inode *alloc_inode(dev_t dev, mode_t bits, uid_t uid, gid_t gid)
 	rip->i_ndzones = sp->s_ndzones;	/* number of direct zones */
 	rip->i_nindirs = sp->s_nindirs;	/* number of indirect zones per blk*/
 	rip->i_sp = sp;			/* pointer to super block */
+	rip->i_flags = 0;		/* no inode flags yet (V4) */
+	rip->i_crtime = clock_time(NULL); /* birth time (V4; ignored on V3) */
 
 	/* Fields not cleared already are cleared in wipe_inode().  They have
 	 * been put there because truncate() needs to clear the same fields if
@@ -380,8 +384,8 @@ int rw_flag;			/* READING or WRITING */
 
   register struct buf *bp;
   register struct super_block *sp;
-  d2_inode *dip2;
   block_t b, offset;
+  unsigned int index;
 
   /* Get the block where the inode resides. */
   sp = &superblock;
@@ -389,8 +393,7 @@ int rw_flag;			/* READING or WRITING */
   offset = START_BLOCK + sp->s_imap_blocks + sp->s_zmap_blocks;
   b = (block_t) (rip->i_num - 1)/sp->s_inodes_per_block + offset;
   bp = get_block(rip->i_dev, b, NORMAL);
-  dip2 = b_v2_ino(bp) + (rip->i_num - 1) %
-  	 V2_INODES_PER_BLOCK(sp->s_block_size);
+  index = (unsigned int) ((rip->i_num - 1) % sp->s_inodes_per_block);
 
   /* Do the read or write. */
   if (rw_flag == WRITING) {
@@ -399,12 +402,16 @@ int rw_flag;			/* READING or WRITING */
   }
 
   /* Copy the inode from the disk block to the in-core table or vice versa.
-   * If the fourth parameter below is FALSE, the bytes are swapped.
+   * If the last parameter is FALSE, the bytes are swapped.  A V4 FS with the
+   * WIDE_INODE feature uses the 128-byte d4_inode; otherwise the 64-byte
+   * d2_inode (V3 and plain V4 share that layout).
    */
-  /* Phase 0 V4 reuses the V2/V3 on-disk inode layout. */
   assert(sp->s_version == V3 || sp->s_version == V4);
-  new_icopy(rip, dip2, rw_flag, sp->s_native);
-  
+  if (sp->s_inode_size == V4_INODE_SIZE)
+	new_icopy4(rip, b_v4_ino(bp) + index, rw_flag, sp->s_native);
+  else
+	new_icopy(rip, b_v2_ino(bp) + index, rw_flag, sp->s_native);
+
   put_block(bp);
   IN_MARKCLEAN(rip);
 }
@@ -430,6 +437,8 @@ int norm;			/* TRUE = do not swap bytes; FALSE = swap */
 	rip->i_atime   = (time_t) conv4(norm,dip->d2_atime);
 	rip->i_ctime   = (time_t) conv4(norm,dip->d2_ctime);
 	rip->i_mtime   = (time_t) conv4(norm,dip->d2_mtime);
+	rip->i_crtime  = 0;		/* d2 has no birth time */
+	rip->i_flags   = 0;		/* d2 has no inode flags */
 	rip->i_ndzones = V2_NR_DZONES;
 	rip->i_nindirs = V2_INDIRECTS(rip->i_sp->s_block_size);
 	for (i = 0; i < V2_NR_TZONES; i++)
@@ -446,6 +455,56 @@ int norm;			/* TRUE = do not swap bytes; FALSE = swap */
 	dip->d2_mtime  = (i32_t) conv4(norm,rip->i_mtime);
 	for (i = 0; i < V2_NR_TZONES; i++)
 		dip->d2_zone[i] = (zone_t) conv4(norm, (long) rip->i_zone[i]);
+  }
+}
+
+/*===========================================================================*
+ *				new_icopy4				     *
+ *===========================================================================*/
+static void new_icopy4(rip, dip, direction, norm)
+register struct inode *rip;	/* pointer to the in-core inode struct */
+register d4_inode *dip;		/* pointer to the d4_inode struct */
+int direction;			/* READING (from disk) or WRITING (to disk) */
+int norm;			/* TRUE = do not swap bytes; FALSE = swap */
+{
+/* Copy between the in-core inode and the 128-byte V4 (MFS4) on-disk inode,
+ * widening size and timestamps to 64 bits (Y2038-safe) and nlinks/uid/gid to
+ * 32 bits.  The zone layout is the same as V2/V3.
+ */
+  int i;
+
+  if (direction == READING) {
+	rip->i_mode    = (mode_t) conv2(norm, dip->d4_mode);
+	rip->i_nlinks  = (nlink_t) conv4(norm, (long) dip->d4_nlinks);
+	rip->i_uid     = (uid_t) conv4(norm, (long) dip->d4_uid);
+	rip->i_gid     = (gid_t) conv4(norm, (long) dip->d4_gid);
+	rip->i_flags   = (u32_t) conv4(norm, (long) dip->d4_flags);
+	rip->i_size    = (off_t) conv8(norm, dip->d4_size);
+	rip->i_atime   = (time_t) conv8(norm, (u64_t) dip->d4_atime);
+	rip->i_mtime   = (time_t) conv8(norm, (u64_t) dip->d4_mtime);
+	rip->i_ctime   = (time_t) conv8(norm, (u64_t) dip->d4_ctime);
+	rip->i_crtime  = (time_t) conv8(norm, (u64_t) dip->d4_crtime);
+	rip->i_ndzones = V2_NR_DZONES;
+	rip->i_nindirs = V2_INDIRECTS(rip->i_sp->s_block_size);
+	for (i = 0; i < V2_NR_TZONES; i++)
+		rip->i_zone[i] = (zone_t) conv4(norm, (long) dip->d4_zone[i]);
+  } else {
+	dip->d4_mode   = (u16_t) conv2(norm, rip->i_mode);
+	dip->d4_pad0   = 0;
+	dip->d4_nlinks = (u32_t) conv4(norm, (long) rip->i_nlinks);
+	dip->d4_uid    = (u32_t) conv4(norm, (long) rip->i_uid);
+	dip->d4_gid    = (u32_t) conv4(norm, (long) rip->i_gid);
+	dip->d4_flags  = (u32_t) conv4(norm, (long) rip->i_flags);
+	dip->d4_size   = (u64_t) conv8(norm, (u64_t) rip->i_size);
+	dip->d4_atime  = (i64_t) conv8(norm, (u64_t) rip->i_atime);
+	dip->d4_mtime  = (i64_t) conv8(norm, (u64_t) rip->i_mtime);
+	dip->d4_ctime  = (i64_t) conv8(norm, (u64_t) rip->i_ctime);
+	dip->d4_crtime = (i64_t) conv8(norm, (u64_t) rip->i_crtime);
+	dip->d4_xattr_zone = 0;		/* no xattrs yet (future feature) */
+	for (i = 0; i < V2_NR_TZONES; i++)
+		dip->d4_zone[i] = (zone_t) conv4(norm, (long) rip->i_zone[i]);
+	for (i = 0; i < 6; i++)
+		dip->d4_reserved[i] = 0;
   }
 }
 

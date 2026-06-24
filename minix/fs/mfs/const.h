@@ -50,7 +50,7 @@
  * this set is refused; with a ro_compat bit outside this set is forced
  * read-only.  Each later phase adds its bit here.
  */
-#define MFS_INCOMPAT_SUPPORTED	0
+#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE)
 #define MFS_RO_COMPAT_SUPPORTED	0
 
 /* Miscellaneous constants */
@@ -88,6 +88,10 @@
 #define V2_INODE_SIZE             sizeof (d2_inode)  /* bytes in V2 dsk ino */
 #define V2_INDIRECTS(b)   ((b)/V2_ZONE_NUM_SIZE)  /* # zones/indir block */
 #define V2_INODES_PER_BLOCK(b) ((b)/V2_INODE_SIZE)/* # V2 dsk inodes/blk */
+
+/* Derived sizes pertaining to the V4 (MFS4 wide-inode) file system. */
+#define V4_INODE_SIZE             sizeof (d4_inode)  /* bytes in V4 dsk ino */
+#define V4_INODES_PER_BLOCK(b) ((b)/V4_INODE_SIZE)/* # V4 dsk inodes/blk */
 
 #endif
 

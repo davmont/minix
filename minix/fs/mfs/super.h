@@ -60,6 +60,8 @@ EXTERN struct super_block {
   /*struct inode *s_isup;*/	/* inode for root dir of mounted file sys */
   /*struct inode *s_imount;*/   /* inode mounted on */
   unsigned s_inodes_per_block;	/* precalculated from magic number */
+  unsigned s_inode_size;	/* on-disk inode size: 64 (V2/V3/plain V4) or
+				 * 128 (V4 with MFS_INCOMPAT_WIDE_INODE) */
   zone_t s_firstdatazone;	/* number of first data zone (big) */
   dev_t s_dev;			/* whose super block is this? */
   int s_rd_only;		/* set to 1 iff file sys mounted read only */

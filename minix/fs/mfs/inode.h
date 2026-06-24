@@ -19,15 +19,17 @@
 
 EXTERN struct inode {
   u16_t i_mode;		/* file type, protection, etc. */
-  u16_t i_nlinks;		/* how many links to this file */
-  u16_t i_uid;			/* user id of the file's owner */
-  u16_t i_gid;			/* group number */
+  nlink_t i_nlinks;		/* how many links to this file */
+  uid_t i_uid;			/* user id of the file's owner */
+  gid_t i_gid;			/* group number */
   i32_t i_size;			/* current file size in bytes */
-  u32_t i_atime;		/* time of last access (V2 only) */
-  u32_t i_mtime;		/* when was file data last changed */
-  u32_t i_ctime;		/* when was inode itself changed (V2 only)*/
+  time_t i_atime;		/* time of last access */
+  time_t i_mtime;		/* when was file data last changed */
+  time_t i_ctime;		/* when was inode itself changed */
+  time_t i_crtime;		/* when was the file created (V4 only; 0 on V3) */
+  u32_t i_flags;		/* inode flags (V4 only; 0 on V3) */
   u32_t i_zone[V2_NR_TZONES]; /* zone numbers for direct, ind, and dbl ind */
-  
+
   /* The following items are not present on the disk. */
   dev_t i_dev;			/* which device is the inode on */
   ino_t i_num;			/* inode number on its (minor) device */

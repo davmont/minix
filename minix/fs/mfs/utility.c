@@ -27,10 +27,30 @@ long x;				/* 32-bit long to be byte swapped */
 /* Possibly swap a 32-bit long between 8086 and 68000 byte order. */
   unsigned lo, hi;
   long l;
-  
+
   if (norm) return(x);			/* byte order was already ok */
   lo = conv2(FALSE, (int) x & 0xFFFF);	/* low-order half, byte swapped */
   hi = conv2(FALSE, (int) (x>>16) & 0xFFFF);	/* high-order half, swapped */
   l = ( (long) lo <<16) | hi;
   return(l);
+}
+
+
+/*===========================================================================*
+ *				conv8					     *
+ *===========================================================================*/
+u64_t conv8(norm, x)
+int norm;			/* TRUE if no swap, FALSE for byte swap */
+u64_t x;			/* 64-bit value to be byte swapped */
+{
+/* Possibly swap a 64-bit value between little- and big-endian byte order.
+ * Used for the V4 (MFS4) on-disk inode's 64-bit size and timestamps.
+ */
+  u32_t lo, hi;
+
+  if (norm) return(x);			/* byte order was already ok */
+  /* Swap each 32-bit half, then swap the halves. */
+  lo = (u32_t) conv4(FALSE, (long) (x & 0xFFFFFFFFUL));
+  hi = (u32_t) conv4(FALSE, (long) ((x >> 32) & 0xFFFFFFFFUL));
+  return( ((u64_t) lo << 32) | (u64_t) hi );
 }
