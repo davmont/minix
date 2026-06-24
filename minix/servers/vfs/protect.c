@@ -93,6 +93,72 @@ int do_chmod(void)
 
 
 /*===========================================================================*
+ *				do_chflags				     *
+ *===========================================================================*/
+int do_chflags(void)
+{
+/* Perform the chflags(name, flags) and fchflags(fd, flags) system calls.
+ * The 32-bit file flags are carried in the message's mode field.
+ */
+  struct filp *flp;
+  struct vnode *vp;
+  struct vmnt *vmp;
+  int r, rfd;
+  char fullpath[PATH_MAX];
+  struct lookup resolve;
+  unsigned long new_flags;
+
+  flp = NULL;
+
+  lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
+  resolve.l_vmnt_lock = VMNT_READ;
+  resolve.l_vnode_lock = VNODE_WRITE;
+
+  if (job_call_nr == VFS_CHFLAGS) {
+	new_flags = (unsigned long) job_m_in.m_lc_vfs_path.mode;
+	/* Temporarily open the file */
+	if (copy_path(fullpath, sizeof(fullpath)) != OK)
+		return(err_code);
+	if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+  } else {	/* call_nr == VFS_FCHFLAGS */
+	rfd = job_m_in.m_lc_vfs_fchmod.fd;
+	new_flags = (unsigned long) job_m_in.m_lc_vfs_fchmod.mode;
+	/* File is already opened; get a pointer to vnode from filp. */
+	if ((flp = get_filp(rfd, VNODE_WRITE)) == NULL) return(err_code);
+	vp = flp->filp_vno;
+	assert(vp);
+	dup_vnode(vp);
+  }
+
+  assert(vp);
+
+  /* Only the owner or the super-user may change a file's flags, and not on a
+   * read-only file system.  Whether the caller is privileged is passed on to
+   * the file server, which enforces that the super-user-only flags (SF_*) may
+   * only be changed by the super-user (it knows the file's current flags).
+   */
+  if (vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
+	r = EPERM;
+  else
+	r = read_only(vp);
+
+  if (r == OK)
+	r = req_chflags(vp->v_fs_e, vp->v_inode_nr, (uint32_t) new_flags,
+		(fp->fp_effuid == SU_UID));
+
+  if (job_call_nr == VFS_CHFLAGS) {
+	unlock_vnode(vp);
+	unlock_vmnt(vmp);
+  } else {	/* VFS_FCHFLAGS */
+	unlock_filp(flp);
+  }
+
+  put_vnode(vp);
+  return(r);
+}
+
+
+/*===========================================================================*
  *				do_chown				     *
  *===========================================================================*/
 int do_chown(void)

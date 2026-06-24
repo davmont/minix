@@ -33,6 +33,7 @@ struct fsdriver mfs_table = {
 	.fdr_stat	= fs_stat,
 	.fdr_chown	= fs_chown,
 	.fdr_chmod	= fs_chmod,
+	.fdr_chflags	= fs_chflags,
 	.fdr_utime	= fs_utime,
 	.fdr_mountpt	= fs_mountpt,
 	.fdr_statvfs	= fs_statvfs,

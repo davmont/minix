@@ -131,6 +131,30 @@ int req_chmod(
 
 
 /*===========================================================================*
+ *				req_chflags	      			     *
+ *===========================================================================*/
+int req_chflags(
+  endpoint_t fs_e,
+  ino_t inode_nr,
+  uint32_t flags,
+  int privileged
+)
+{
+  message m;
+
+  /* Fill in request message */
+  memset(&m, 0, sizeof(m));
+  m.m_type = REQ_CHFLAGS;
+  m.m_vfs_fs_chflags.inode = inode_nr;
+  m.m_vfs_fs_chflags.flags = flags;
+  m.m_vfs_fs_chflags.privileged = privileged;
+
+  /* Send/rec request */
+  return fs_sendrec(fs_e, &m);
+}
+
+
+/*===========================================================================*
  *				req_chown          			     *
  *===========================================================================*/
 int req_chown(

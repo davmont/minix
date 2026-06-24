@@ -435,10 +435,14 @@ int fs_trunc(ino_t ino_nr, off_t start, off_t end)
 
   if(rip->i_sp->s_rd_only) {
   	r = EROFS;
+  } else if (rip->i_flags &
+	     (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)) {
+	/* Immutable and append-only files may not be truncated (V4). */
+	r = EPERM;
   } else {
     if (end == 0)
 	  r = truncate_inode(rip, start);
-    else 
+    else
 	  r = freesp_inode(rip, start, end);
   }
 

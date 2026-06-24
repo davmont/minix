@@ -66,6 +66,7 @@ int search_dir(struct inode *ldir_ptr, const char *string, ino_t *numb,
 
 /* protect.c */
 int fs_chmod(ino_t ino, mode_t *mode);
+int fs_chflags(ino_t ino_nr, int flags, int privileged);
 int fs_chown(ino_t ino, uid_t uid, gid_t gid, mode_t *mode);
 
 /* read.c */

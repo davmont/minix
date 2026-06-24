@@ -67,6 +67,7 @@ int fs_stat(ino_t ino_nr, struct stat *statbuf)
   statbuf->st_atime = rip->i_atime;
   statbuf->st_mtime = rip->i_mtime;
   statbuf->st_ctime = rip->i_ctime;
+  statbuf->st_flags = rip->i_flags;	/* V4 file flags; 0 on V1/V2/V3 */
   statbuf->st_blksize = lmfs_fs_block_size();
   statbuf->st_blocks = estimate_blocks(rip);
 

@@ -87,6 +87,7 @@ struct fsdriver {
 	int (*fdr_stat)(ino_t ino_nr, struct stat *buf);
 	int (*fdr_chown)(ino_t ino_nr, uid_t uid, gid_t gid, mode_t *mode);
 	int (*fdr_chmod)(ino_t ino_nr, mode_t *mode);
+	int (*fdr_chflags)(ino_t ino_nr, int flags, int privileged);
 	int (*fdr_utime)(ino_t ino_nr, struct timespec *atime,
 	    struct timespec *mtime);
 	int (*fdr_mountpt)(ino_t ino_nr);

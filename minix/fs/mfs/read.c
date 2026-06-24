@@ -7,6 +7,7 @@
 #include "super.h"
 #include <sys/param.h>
 #include <sys/dirent.h>
+#include <sys/stat.h>
 #include <assert.h>
 
 
@@ -46,8 +47,17 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
 
   /* If this is file i/o, check we can write */
   if (call == FSC_WRITE) {
-  	  if(rip->i_sp->s_rd_only) 
+  	  if(rip->i_sp->s_rd_only)
 		  return EROFS;
+
+	  /* Honour the immutable and append-only file flags (V4).  An immutable
+	   * file may not be written at all; an append-only file may only be
+	   * written at its current end. */
+	  if (rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE))
+		  return(EPERM);
+	  if ((rip->i_flags & (UF_APPEND | SF_APPEND)) &&
+	      position != rip->i_size)
+		  return(EPERM);
 
 	  /* Check in advance to see if file will grow too big. */
 	  if (position > rip->i_sp->s_max_filesize - (off_t) nrbytes)

@@ -1,6 +1,46 @@
 #include "fs.h"
 #include "inode.h"
 #include "super.h"
+#include <sys/stat.h>
+
+
+/*===========================================================================*
+ *				fs_chflags				     *
+ *===========================================================================*/
+int fs_chflags(ino_t ino_nr, int flags, int privileged)
+{
+/* Set a file's flags (chflags(2)).  Only the V4 wide inode has on-disk room
+ * for them (d4_flags); on V1/V2/V3 and a plain V4 the operation is reported
+ * as unsupported rather than silently dropped.  The super-user-only flags
+ * (SF_*) may only be changed by the super-user. */
+  struct inode *rip;
+  u32_t newflags = (u32_t) flags;
+
+  if ((rip = get_inode(fs_dev, ino_nr)) == NULL)
+	return(EINVAL);
+
+  if (rip->i_sp->s_rd_only) {
+	put_inode(rip);
+	return(EROFS);
+  }
+
+  if (rip->i_sp->s_inode_size != V4_INODE_SIZE) {
+	put_inode(rip);
+	return(EOPNOTSUPP);
+  }
+
+  if (!privileged && ((rip->i_flags ^ newflags) & SF_SETTABLE)) {
+	put_inode(rip);
+	return(EPERM);
+  }
+
+  rip->i_flags = newflags;
+  rip->i_update |= CTIME;
+  IN_MARKDIRTY(rip);
+
+  put_inode(rip);
+  return(OK);
+}
 
 
 /*===========================================================================*
