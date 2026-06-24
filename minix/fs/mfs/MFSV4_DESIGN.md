@@ -1,6 +1,6 @@
 # MFS version 4 — design
 
-Status: **Phase 1 done** — superblock substrate (P0) + wide 128-byte inode (P1).
+Status: **Phase 2 done** — substrate (P0) + wide inode (P1) + large files >2 GB (P2).
 Target milestone: MINIX **4.0.0** (amd64, SMP, IPC fastpath, pthreads/LWPs,
 modern toolchain). MFS V4 is the on-disk filesystem story for that release.
 
@@ -151,8 +151,15 @@ ro_compat bit forces RO. Each later phase adds its bit to the supported set.
   cap still holds) — widening it is Phase 2.
   *Follow-up:* `fsck.mfs` does not yet understand the 128-byte inode and
   refuses a wide-inode V4 cleanly; teaching it the d4 layout is pending.
-* **Phase 2 — large files.** Lift the `INT32_MAX` cap on V4; `u64` size paths
-  and the `int`-cast positions in `read.c`/`write.c`. Validate >2 GB round-trip.
+* **Phase 2 — large files. DONE.** In-core `i_size` widened to `off_t`; a new
+  in-core `s_max_filesize` is the zone-addressing capacity for a wide-inode FS
+  (~4 GB at 4 KB blocks) and `s_max_size` for V2/V3; the grow/truncate checks
+  use it.  `rw_chunk` no longer panics on / truncates a >4 GB position
+  (`read_map`/`write_map` were already 64-bit).  MFS advertises **`RES_64BIT`**
+  on a wide-inode mount so VFS does not clamp positions to `INT_MAX`
+  (`req_readwrite_actual`); V3/plain-V4 must not, keeping their 2 GB limit.
+  Validated: a 2.5 GB sparse file (write+read at offset 2.5 GB) round-trips and
+  persists across remount on V4; the same write is rejected on V3.
 * **Phase 3 — file flags.** `chflags`/`fchflags` via `d4_flags`
   (immutable/append-only first).
 * **Phase 4+ — larger feature bits**, each on its own flag: hashed directories

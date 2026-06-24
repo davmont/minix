@@ -50,7 +50,7 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
 		  return EROFS;
 
 	  /* Check in advance to see if file will grow too big. */
-	  if (position > (off_t) (rip->i_sp->s_max_size - nrbytes))
+	  if (position > rip->i_sp->s_max_filesize - (off_t) nrbytes)
 		  return(EFBIG);
 
 	  /* Clear the zone containing present EOF if hole about
@@ -138,9 +138,9 @@ int *completed;			/* number of bytes copied */
 
   *completed = 0;
 
-  if (ex64hi(position) != 0)
-	panic("rw_chunk: position too high");
-  b = read_map(rip, (off_t) ex64lo(position), 0);
+  /* A V4 wide-inode file may exceed 4 GB, so 'position' can use the full
+   * 64 bits.  read_map()/write_map() handle 64-bit positions; do not truncate. */
+  b = read_map(rip, (off_t) position, 0);
   dev = rip->i_dev;
   ino = rip->i_num;
   assert(ino != VMC_NO_INODE);
@@ -161,7 +161,7 @@ int *completed;			/* number of bytes copied */
 		/* Writing to a nonexistent block.
 		 * Create and enter in inode.
 		 */
-		if ((bp = new_block(rip, (off_t) ex64lo(position))) == NULL)
+		if ((bp = new_block(rip, (off_t) position)) == NULL)
 			return(err_code);
 	}
   } else if (call != FSC_WRITE) {
@@ -173,7 +173,7 @@ int *completed;			/* number of bytes copied */
 	 * the cache, acquire it, otherwise just acquire a free buffer.
 	 */
 	n = (chunk == block_size ? NO_READ : NORMAL);
-	if (off == 0 && (off_t) ex64lo(position) >= rip->i_size)
+	if (off == 0 && (off_t) position >= rip->i_size)
 		n = NO_READ;
 	assert(ino != VMC_NO_INODE);
 	assert(!(ino_off % block_size));
@@ -185,7 +185,7 @@ int *completed;			/* number of bytes copied */
   assert(bp != NULL);
   
   if (call == FSC_WRITE && chunk != block_size &&
-      (off_t) ex64lo(position) >= rip->i_size && off == 0) {
+      (off_t) position >= rip->i_size && off == 0) {
 	zero_block(bp);
   }
 

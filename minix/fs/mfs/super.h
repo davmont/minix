@@ -62,6 +62,9 @@ EXTERN struct super_block {
   unsigned s_inodes_per_block;	/* precalculated from magic number */
   unsigned s_inode_size;	/* on-disk inode size: 64 (V2/V3/plain V4) or
 				 * 128 (V4 with MFS_INCOMPAT_WIDE_INODE) */
+  off_t s_max_filesize;		/* effective max file size: s_max_size for
+				 * V2/V3 (32-bit), or the zone-addressing
+				 * capacity for a V4 wide-inode FS (>2 GB) */
   zone_t s_firstdatazone;	/* number of first data zone (big) */
   dev_t s_dev;			/* whose super block is this? */
   int s_rd_only;		/* set to 1 iff file sys mounted read only */

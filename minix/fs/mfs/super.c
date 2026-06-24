@@ -363,9 +363,20 @@ int read_super(struct super_block *sp)
   	return(EINVAL);
   }
 
-  /* Limit s_max_size to INT32_MAX (field is 32-bit) */
+  /* Limit s_max_size to INT32_MAX (the on-disk field is 32-bit) */
   if ((uint32_t)sp->s_max_size > INT32_MAX)
 	sp->s_max_size = INT32_MAX;
+
+  /* Effective maximum file size.  V2/V3 (and a plain V4) use the 32-bit
+   * on-disk d2_size, so the limit is s_max_size (<= 2 GB).  A V4 wide-inode
+   * FS stores a 64-bit d4_size, so the real limit is the zone-addressing
+   * capacity: direct + single-indirect + double-indirect zones.
+   */
+  if (sp->s_inode_size == V4_INODE_SIZE)
+	sp->s_max_filesize = (off_t)((off_t) sp->s_ndzones + sp->s_nindirs +
+		(off_t) sp->s_nindirs * sp->s_nindirs) * sp->s_block_size;
+  else
+	sp->s_max_filesize = (off_t) sp->s_max_size;
 
   sp->s_isearch = 0;		/* inode searches initially start at 0 */
   sp->s_zsearch = 0;		/* zone searches initially start at 0 */

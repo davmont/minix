@@ -116,6 +116,13 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
    */
   *res_flags = lmfs_vmcache_enabled() ? RES_HASPEEK : RES_NOFLAGS;
 
+  /* A V4 wide-inode FS stores 64-bit sizes and offsets, so it can handle files
+   * larger than 2 GB.  Advertise RES_64BIT so VFS does not clamp file positions
+   * to INT_MAX (see req_readwrite_actual()).  A V3 or plain-V4 FS keeps the
+   * 32-bit d2_size limit, so it must not set this flag. */
+  if (superblock.s_inode_size == V4_INODE_SIZE)
+	*res_flags |= RES_64BIT;
+
   /* Mark it dirty */
   if(!superblock.s_rd_only) {
 	  superblock.s_flags &= ~MFSFLAG_CLEAN;
