@@ -96,6 +96,7 @@ SUBDIR+= pkgconfig
 .else
 .include "${.CURDIR}/rpc/Makefile.inc"
 .endif # defined(__MINIX)
+.include "${.CURDIR}/posix1e/Makefile.inc"
 .include "${.CURDIR}/ssp/Makefile.inc"
 .include "${.CURDIR}/stdio/Makefile.inc"
 .include "${.CURDIR}/stdlib/Makefile.inc"
