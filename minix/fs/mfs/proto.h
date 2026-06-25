@@ -70,6 +70,7 @@ int journal_recover(struct super_block *sp, dev_t dev);
 int journal_init(struct super_block *sp, dev_t dev);
 void journal_stop(void);
 void journal_track(u32_t block);
+void journal_track_data(u32_t block);
 int journal_commit(void);
 void journal_crash_test(void);
 int journal_crashed(void);
@@ -120,7 +121,7 @@ u64_t conv8(int norm, u64_t x);
 /* write.c */
 void clear_zone(struct inode *rip, off_t pos, int flag);
 struct buf *new_block(struct inode *rip, off_t position);
-void zero_block(struct buf *bp);
+void zero_block(struct buf *bp, int kind);
 int write_map(struct inode *, off_t, zone_t, int);
 
 #endif

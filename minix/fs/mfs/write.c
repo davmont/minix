@@ -103,7 +103,7 @@ int op;				/* special actions */
 		b = (block_t) z << scale;
 		bp_dindir = get_block(rip->i_dev, b,
 			(new_dbl?NO_READ:NORMAL));
-		if (new_dbl) zero_block(bp_dindir);
+		if (new_dbl) zero_block(bp_dindir, ZB_META);
 		z1 = rd_indir(bp_dindir, ind_ex);
 	}
 	single = FALSE;
@@ -137,7 +137,7 @@ int op;				/* special actions */
   	ex = (int) excess;			/* we need an int here */
 	b = (block_t) z1 << scale;
 	bp = get_block(rip->i_dev, b, (new_ind ? NO_READ : NORMAL) );
-	if (new_ind) zero_block(bp);
+	if (new_ind) zero_block(bp, ZB_META);
 	if(op & WMAP_FREE) {
 		if((old_zone = rd_indir(bp, ex)) != NO_ZONE) {
 			free_zone(rip->i_dev, old_zone);
@@ -300,7 +300,7 @@ off_t position;			/* file pointer */
   	rounddown(position, rip->i_sp->s_block_size));
   if (r != OK)
 	panic("MFS: error getting block (%llu,%u): %d", (unsigned long long)rip->i_dev, b, r);
-  zero_block(bp);
+  zero_block(bp, ZB_DATA);
   return(bp);
 }
 
@@ -308,12 +308,18 @@ off_t position;			/* file pointer */
 /*===========================================================================*
  *				zero_block				     *
  *===========================================================================*/
-void zero_block(bp)
+void zero_block(bp, kind)
 register struct buf *bp;	/* pointer to buffer to zero */
+int kind;			/* ZB_META or ZB_DATA (for journalling) */
 {
-/* Zero a block. */
+/* Zero a block.  'kind' tells the journal whether this is a metadata block (a
+ * new indirect block) or a regular-file data block, so data=ordered handles it
+ * correctly. */
   ASSERT(bp->data);
   memset(b_data(bp), 0, lmfs_fs_block_size());
-  MARKDIRTY(bp);
+  if (kind == ZB_DATA)
+	MARKDIRTY_DATA(bp);
+  else
+	MARKDIRTY(bp);
 }
 

@@ -205,16 +205,18 @@ int *completed;			/* number of bytes copied */
   
   if (call == FSC_WRITE && chunk != block_size &&
       (off_t) position >= rip->i_size && off == 0) {
-	zero_block(bp);
+	zero_block(bp, ZB_DATA);
   }
 
   if (call == FSC_READ) {
 	/* Copy a chunk from the block buffer to user space. */
 	r = fsdriver_copyout(data, buf_off, b_data(bp)+off, chunk);
   } else if (call == FSC_WRITE) {
-	/* Copy a chunk from user space to the block buffer. */
+	/* Copy a chunk from user space to the block buffer.  This is regular-file
+	 * data, not metadata: under data=ordered it is written to its home
+	 * location before the metadata transaction commits, never journalled. */
 	r = fsdriver_copyin(data, buf_off, b_data(bp)+off, chunk);
-	MARKDIRTY(bp);
+	MARKDIRTY_DATA(bp);
   }
   
   put_block(bp);
