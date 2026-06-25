@@ -102,6 +102,7 @@ struct m_inode {
   off_t i_size;
   time_t i_atime, i_mtime, i_ctime, i_crtime;
   u32_t i_flags;
+  u32_t i_xattr_zone;
   zone_t i_zone[V2_NR_TZONES];
 };
 
@@ -603,7 +604,8 @@ void rw_super(int put)
   	 * read_inode()/write_inode(); refuse any other incompat feature we do
   	 * not understand rather than misreading it.  See mfs/MFSV4_DESIGN.md. */
   	if (sb.s_feature_incompat &
-  	    ~(u32_t)(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL))
+  	    ~(u32_t)(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL |
+  	    MFS_INCOMPAT_XATTR_BLOCK))
   		fatal("fsck.mfs: MFS4 file system uses unsupported incompat features");
   	fs_version = 3;
   	block_size = sb.s_block_size;
@@ -713,6 +715,7 @@ void read_inode(ino_t ino, struct m_inode *ip)
 	ip->i_ctime = (time_t) d4.d4_ctime;
 	ip->i_crtime = (time_t) d4.d4_crtime;
 	ip->i_flags = d4.d4_flags;
+	ip->i_xattr_zone = d4.d4_xattr_zone;
 	for (k = 0; k < V2_NR_TZONES; k++) ip->i_zone[k] = d4.d4_zone[k];
   } else {
 	d2_inode d2;
@@ -727,6 +730,7 @@ void read_inode(ino_t ino, struct m_inode *ip)
 	ip->i_ctime = (time_t) d2.d2_ctime;
 	ip->i_crtime = 0;
 	ip->i_flags = 0;
+	ip->i_xattr_zone = 0;
 	for (k = 0; k < V2_NR_TZONES; k++) ip->i_zone[k] = d2.d2_zone[k];
   }
 }
@@ -750,6 +754,7 @@ void write_inode(ino_t ino, struct m_inode *ip)
 	d4.d4_ctime = ip->i_ctime;
 	d4.d4_crtime = ip->i_crtime;
 	d4.d4_flags = ip->i_flags;
+	d4.d4_xattr_zone = ip->i_xattr_zone;
 	for (k = 0; k < V2_NR_TZONES; k++) d4.d4_zone[k] = ip->i_zone[k];
 	devwrite(inoblock(ino), inooff(ino), (char *) &d4, sizeof(d4));
   } else {
@@ -1493,6 +1498,11 @@ int chkspecial(ino_t ino, d_inode *ip)
 /* Check the mode and contents of an inode. */
 int chkmode(ino_t ino, d_inode *ip)
 {
+  /* Account for the inode's extended-attribute zone (V4), if any, so it is not
+   * mistaken for a free or unreferenced zone. */
+  if (ip->i_xattr_zone != NO_ZONE)
+	(void) markzone((zone_nr) ip->i_xattr_zone, 0, ip->i_size);
+
   switch (ip->i_mode & I_TYPE) {
       case I_REGULAR:
 	nregular++;

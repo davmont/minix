@@ -81,4 +81,12 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_SHUTDOWN)	= do_shutdown,		/* shutdown(2) */
 	CALL(VFS_CHFLAGS)	= do_chflags,		/* chflags(2) */
 	CALL(VFS_FCHFLAGS)	= do_chflags,		/* fchflags(2) */
+	CALL(VFS_EXTATTR_GET)	= do_extattr,		/* extattr_get_file/link(2) */
+	CALL(VFS_EXTATTR_SET)	= do_extattr,		/* extattr_set_file/link(2) */
+	CALL(VFS_EXTATTR_LIST)	= do_extattr,		/* extattr_list_file/link(2) */
+	CALL(VFS_EXTATTR_DELETE) = do_extattr,		/* extattr_delete_file/link(2) */
+	CALL(VFS_EXTATTR_GET_FD) = do_extattr,		/* extattr_get_fd(2) */
+	CALL(VFS_EXTATTR_SET_FD) = do_extattr,		/* extattr_set_fd(2) */
+	CALL(VFS_EXTATTR_LIST_FD) = do_extattr,		/* extattr_list_fd(2) */
+	CALL(VFS_EXTATTR_DELETE_FD) = do_extattr,	/* extattr_delete_fd(2) */
 };

@@ -811,6 +811,117 @@ fsdriver_chflags(const struct fsdriver * __restrict fdp,
 }
 
 /*
+ * Process a GETXATTR request from VFS.
+ */
+int
+fsdriver_getxattr(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict m_out)
+{
+	struct fsdriver_data data;
+	char name[NAME_MAX+1];
+	ssize_t r;
+
+	if (fdp->fdr_getxattr == NULL)
+		return ENOSYS;
+
+	if ((r = fsdriver_getname(m_in->m_source, m_in->m_vfs_fs_getxattr.grant_name,
+	    m_in->m_vfs_fs_getxattr.name_len, name, sizeof(name),
+	    TRUE /*not_empty*/)) != OK)
+		return r;
+
+	data.endpt = m_in->m_source;
+	data.grant = m_in->m_vfs_fs_getxattr.grant_value;
+	data.size = m_in->m_vfs_fs_getxattr.value_len;
+
+	r = fdp->fdr_getxattr(m_in->m_vfs_fs_getxattr.inode,
+	    m_in->m_vfs_fs_getxattr.namespace, name, &data, data.size);
+
+	if (r >= 0) {
+		m_out->m_fs_vfs_xattr.nbytes = r;
+		r = OK;
+	}
+	return r;
+}
+
+/*
+ * Process a SETXATTR request from VFS.
+ */
+int
+fsdriver_setxattr(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict __unused m_out)
+{
+	struct fsdriver_data data;
+	char name[NAME_MAX+1];
+	int r;
+
+	if (fdp->fdr_setxattr == NULL)
+		return ENOSYS;
+
+	if ((r = fsdriver_getname(m_in->m_source, m_in->m_vfs_fs_setxattr.grant_name,
+	    m_in->m_vfs_fs_setxattr.name_len, name, sizeof(name),
+	    TRUE /*not_empty*/)) != OK)
+		return r;
+
+	data.endpt = m_in->m_source;
+	data.grant = m_in->m_vfs_fs_setxattr.grant_value;
+	data.size = m_in->m_vfs_fs_setxattr.value_len;
+
+	return fdp->fdr_setxattr(m_in->m_vfs_fs_setxattr.inode,
+	    m_in->m_vfs_fs_setxattr.namespace, name, &data, data.size,
+	    m_in->m_vfs_fs_setxattr.flags);
+}
+
+/*
+ * Process a LISTXATTR request from VFS.
+ */
+int
+fsdriver_listxattr(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict m_out)
+{
+	struct fsdriver_data data;
+	ssize_t r;
+
+	if (fdp->fdr_listxattr == NULL)
+		return ENOSYS;
+
+	data.endpt = m_in->m_source;
+	data.grant = m_in->m_vfs_fs_listxattr.grant;
+	data.size = m_in->m_vfs_fs_listxattr.mem_size;
+
+	r = fdp->fdr_listxattr(m_in->m_vfs_fs_listxattr.inode,
+	    m_in->m_vfs_fs_listxattr.namespace, &data, data.size);
+
+	if (r >= 0) {
+		m_out->m_fs_vfs_xattr.nbytes = r;
+		r = OK;
+	}
+	return r;
+}
+
+/*
+ * Process a REMOVEXATTR request from VFS.
+ */
+int
+fsdriver_removexattr(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict __unused m_out)
+{
+	char name[NAME_MAX+1];
+	int r;
+
+	if (fdp->fdr_removexattr == NULL)
+		return ENOSYS;
+
+	if ((r = fsdriver_getname(m_in->m_source,
+	    m_in->m_vfs_fs_removexattr.grant_name,
+	    m_in->m_vfs_fs_removexattr.name_len, name, sizeof(name),
+	    TRUE /*not_empty*/)) != OK)
+		return r;
+
+	return fdp->fdr_removexattr(m_in->m_vfs_fs_removexattr.inode,
+	    m_in->m_vfs_fs_removexattr.namespace, name);
+}
+
+/*
  * Process a UTIME request from VFS.
  */
 int

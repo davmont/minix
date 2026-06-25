@@ -193,6 +193,9 @@ int do_chmod(void);
 int do_chflags(void);
 int do_chown(void);
 int do_umask(void);
+
+/* xattr.c */
+int do_extattr(void);
 int forbidden(struct fproc *rfp, struct vnode *vp, mode_t
 	access_desired);
 int read_only(struct vnode *vp);

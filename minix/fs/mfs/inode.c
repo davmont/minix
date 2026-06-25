@@ -230,7 +230,12 @@ register struct inode *rip;	/* pointer to inode to be released */
 		/* Ignore errors by truncate_inode in case inode is a block
 		 * special or character special file.
 		 */
-		(void) truncate_inode(rip, (off_t) 0); 
+		(void) truncate_inode(rip, (off_t) 0);
+		/* Release the extended-attribute block, if any (V4). */
+		if (rip->i_xattr_zone != NO_ZONE) {
+			free_zone(rip->i_dev, (zone_t) rip->i_xattr_zone);
+			rip->i_xattr_zone = NO_ZONE;
+		}
 		rip->i_mode = I_NOT_ALLOC;     /* clear I_TYPE field */
 		IN_MARKDIRTY(rip);
 		free_inode(rip->i_dev, rip->i_num);
@@ -297,6 +302,7 @@ struct inode *alloc_inode(dev_t dev, mode_t bits, uid_t uid, gid_t gid)
 	rip->i_nindirs = sp->s_nindirs;	/* number of indirect zones per blk*/
 	rip->i_sp = sp;			/* pointer to super block */
 	rip->i_flags = 0;		/* no inode flags yet (V4) */
+	rip->i_xattr_zone = NO_ZONE;	/* no extended attributes yet (V4) */
 	rip->i_crtime = clock_time(NULL); /* birth time (V4; ignored on V3) */
 
 	/* Fields not cleared already are cleared in wipe_inode().  They have
@@ -465,6 +471,7 @@ int norm;			/* TRUE = do not swap bytes; FALSE = swap */
 	rip->i_mtime   = (time_t) conv4(norm,dip->d2_mtime);
 	rip->i_crtime  = 0;		/* d2 has no birth time */
 	rip->i_flags   = 0;		/* d2 has no inode flags */
+	rip->i_xattr_zone = NO_ZONE;	/* d2 has no extended attributes */
 	rip->i_ndzones = V2_NR_DZONES;
 	rip->i_nindirs = V2_INDIRECTS(rip->i_sp->s_block_size);
 	for (i = 0; i < V2_NR_TZONES; i++)
@@ -510,6 +517,7 @@ int norm;			/* TRUE = do not swap bytes; FALSE = swap */
 	rip->i_mtime   = (time_t) conv8(norm, (u64_t) dip->d4_mtime);
 	rip->i_ctime   = (time_t) conv8(norm, (u64_t) dip->d4_ctime);
 	rip->i_crtime  = (time_t) conv8(norm, (u64_t) dip->d4_crtime);
+	rip->i_xattr_zone = (u32_t) conv4(norm, (long) dip->d4_xattr_zone);
 	rip->i_ndzones = V2_NR_DZONES;
 	rip->i_nindirs = V2_INDIRECTS(rip->i_sp->s_block_size);
 	for (i = 0; i < V2_NR_TZONES; i++)
@@ -526,7 +534,7 @@ int norm;			/* TRUE = do not swap bytes; FALSE = swap */
 	dip->d4_mtime  = (i64_t) conv8(norm, (u64_t) rip->i_mtime);
 	dip->d4_ctime  = (i64_t) conv8(norm, (u64_t) rip->i_ctime);
 	dip->d4_crtime = (i64_t) conv8(norm, (u64_t) rip->i_crtime);
-	dip->d4_xattr_zone = 0;		/* no xattrs yet (future feature) */
+	dip->d4_xattr_zone = (u32_t) conv4(norm, (long) rip->i_xattr_zone);
 	for (i = 0; i < V2_NR_TZONES; i++)
 		dip->d4_zone[i] = (zone_t) conv4(norm, (long) rip->i_zone[i]);
 	for (i = 0; i < 6; i++)

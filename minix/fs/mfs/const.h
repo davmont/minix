@@ -40,7 +40,7 @@
  */
 #define MFS_INCOMPAT_WIDE_INODE	0x00000001 /* 128-byte d4_inode (Phase 1) */
 #define MFS_INCOMPAT_JOURNAL	0x00000002 /* metadata journal (future) */
-#define MFS_INCOMPAT_XATTR_BLOCK 0x00000004 /* xattrs in a zone (future) */
+#define MFS_INCOMPAT_XATTR_BLOCK 0x00000004 /* per-inode extended-attribute zone */
 
 #define MFS_RO_COMPAT_HASHDIR	0x00000001 /* hashed directories (future) */
 
@@ -50,7 +50,8 @@
  * this set is refused; with a ro_compat bit outside this set is forced
  * read-only.  Each later phase adds its bit here.
  */
-#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL)
+#define MFS_INCOMPAT_SUPPORTED	(MFS_INCOMPAT_WIDE_INODE | MFS_INCOMPAT_JOURNAL | \
+				 MFS_INCOMPAT_XATTR_BLOCK)
 #define MFS_RO_COMPAT_SUPPORTED	0
 
 /* Miscellaneous constants */
