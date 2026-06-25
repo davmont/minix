@@ -1,4 +1,4 @@
 PROG=	setfacl
-MAN=
+MAN=	setfacl.1
 
 .include <bsd.prog.mk>

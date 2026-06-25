@@ -1,0 +1,121 @@
+.\" Copyright (c) 2026 The MINIX 3 Project.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.Dd June 25, 2026
+.Dt GETFACL 1
+.Os
+.Sh NAME
+.Nm getfacl
+.Nd display POSIX.1e access control lists
+.Sh SYNOPSIS
+.Nm
+.Op Fl ad
+.Ar
+.Sh DESCRIPTION
+The
+.Nm
+utility writes to standard output the POSIX.1e access control list (ACL)
+of each
+.Ar file
+operand.
+.Pp
+For every file, a three-line header is printed giving the file name, the
+name (or numeric id) of its owner, and the name (or numeric id) of its
+owning group, followed by the entries of the access ACL, one per line, in
+the canonical
+.Xr acl 3
+text form:
+.Bd -literal -offset indent
+# file: foo
+# owner: alice
+# group: users
+user::rw-
+user:bob:rw-
+group::r--
+mask::rw-
+other::r--
+.Ed
+.Pp
+The
+.Li user:: ,
+.Li group::
+and
+.Li other::
+entries correspond to the owner, owning-group and other permission bits of
+the file mode.
+A
+.Li user:
+or
+.Li group:
+entry that names a qualifier grants permissions to an additional user or
+group; the
+.Li mask::
+entry is the upper bound on the permissions any named entry and the owning
+group may be granted.
+A file that has no extended ACL is reported as the trivial ACL implied by
+its mode bits.
+.Pp
+For a directory, its default ACL (the ACL inherited by files and
+subdirectories created within it; see
+.Xr setfacl 1 )
+is printed after the access ACL with each line prefixed by
+.Li default: .
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl a
+Display only the access ACL.
+.It Fl d
+Display only the default ACL.
+.El
+.Pp
+The
+.Fl a
+and
+.Fl d
+options are mutually meaningful only for directories; an ordinary file has
+no default ACL.
+.Sh IMPLEMENTATION NOTES
+On MINIX 3, ACLs are stored as extended attributes (see
+.Xr extattr 3 )
+in the system namespace and are supported by the MFS file system when it is
+created with the version 4 on-disk format
+.Pq Nm mkfs.mfs Fl 4 .
+ACLs are recorded in the portable
+.Dv POSIX_ACL_XATTR
+binary representation.
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Show the ACL of the current directory:
+.Pp
+.Dl $ getfacl .
+.Pp
+Show only the default ACL of a directory:
+.Pp
+.Dl $ getfacl -d /shared
+.Sh SEE ALSO
+.Xr setfacl 1 ,
+.Xr acl 3 ,
+.Xr extattr 3
+.Sh STANDARDS
+The
+.Nm
+utility implements the access control list interface described in the
+withdrawn IEEE 1003.1e draft 17
+.Pq Dq POSIX.1e ,
+as also provided by
+.Fx
+and Linux.
+.Sh HISTORY
+A
+.Nm
+utility appeared in MINIX 3 in 2026.

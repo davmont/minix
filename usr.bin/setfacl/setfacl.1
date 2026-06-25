@@ -1,0 +1,186 @@
+.\" Copyright (c) 2026 The MINIX 3 Project.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.Dd June 25, 2026
+.Dt SETFACL 1
+.Os
+.Sh NAME
+.Nm setfacl
+.Nd set POSIX.1e access control lists
+.Sh SYNOPSIS
+.Nm
+.Op Fl bkd
+.Op Fl m Ar spec
+.Op Fl x Ar spec
+.Op Fl s Ar spec
+.Ar
+.Sh DESCRIPTION
+The
+.Nm
+utility modifies the POSIX.1e access control list (ACL) of each
+.Ar file
+operand.
+By default it operates on the access ACL; with
+.Fl d
+it operates on the default ACL of a directory.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl m Ar spec
+Modify the ACL by merging in the entries in
+.Ar spec :
+an entry that names an existing tag and qualifier replaces it, otherwise
+the entry is added.
+.It Fl x Ar spec
+Remove the entries named in
+.Ar spec
+from the ACL.
+Permission fields in the
+.Ar spec
+are ignored for removal, so
+.Li u:bob
+and
+.Li u:bob:rw-
+remove the same entry.
+.It Fl s Ar spec
+Set (replace) the ACL with exactly the entries in
+.Ar spec ,
+discarding any previous entries.
+.It Fl b
+Remove all extended entries (named user and group entries and the mask),
+leaving only the three base
+.Li user:: ,
+.Li group::
+and
+.Li other::
+entries; for a directory the default ACL is removed as well.
+.It Fl k
+Remove the default ACL of a directory.
+.It Fl d
+Operate on the default ACL rather than the access ACL.
+.El
+.Pp
+At least one of
+.Fl m ,
+.Fl x ,
+.Fl s ,
+.Fl b
+or
+.Fl k
+must be given.
+.Pp
+An ACL
+.Ar spec
+is a comma-separated list of entries, each of the form
+.Bl -tag -width "g[roup]:gid:perms" -offset indent -compact
+.It Li u[ser]::perms
+the file owner
+.It Li u[ser]:uid:perms
+a named user
+.It Li g[roup]::perms
+the owning group
+.It Li g[roup]:gid:perms
+a named group
+.It Li m[ask]::perms
+the mask
+.It Li o[ther]::perms
+others
+.El
+.Pp
+A user or group may be named by name or by numeric id.
+The
+.Ar perms
+field is either a string drawn from the letters
+.Ql r ,
+.Ql w
+and
+.Ql x
+(a hyphen in any position is ignored, so
+.Li rwx
+and
+.Li rw-
+are accepted), or an octal digit
+.Pq Li 0 No through Li 7 .
+.Pp
+Whenever an ACL contains a named user or group entry,
+.Nm
+recomputes the
+.Li mask
+entry to the union of the permissions of the named entries and the owning
+group, unless an explicit
+.Li mask
+entry was supplied.
+The file mode permission bits are kept consistent with the ACL: the owner
+and other bits track the
+.Li user::
+and
+.Li other::
+entries, and the group bits track the
+.Li mask
+entry when one is present, otherwise the
+.Li group::
+entry.
+Conversely, a
+.Xr chmod 1
+of a file that has an ACL folds the new permission bits back into the ACL.
+.Sh IMPLEMENTATION NOTES
+On MINIX 3, ACLs are stored as extended attributes (see
+.Xr extattr 3 )
+in the system namespace and are supported by the MFS file system when it is
+created with the version 4 on-disk format
+.Pq Nm mkfs.mfs Fl 4 .
+When a directory has a default ACL, a file or subdirectory created within
+it inherits that ACL as its access ACL, with the base entries masked by the
+creation mode; a new subdirectory additionally inherits the default ACL.
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Grant user
+.Ar bob
+read and write access to a file:
+.Pp
+.Dl $ setfacl -m u:bob:rw- file
+.Pp
+Remove that grant again:
+.Pp
+.Dl $ setfacl -x u:bob file
+.Pp
+Replace a file's ACL with a complete specification:
+.Pp
+.Dl $ setfacl -s u::rw-,g::r--,o::r--,u:bob:rw- file
+.Pp
+Set a default ACL on a directory so new files grant group
+.Ar staff
+read access:
+.Pp
+.Dl $ setfacl -d -m g:staff:r-- /shared
+.Pp
+Strip a file back to a trivial, mode-only ACL:
+.Pp
+.Dl $ setfacl -b file
+.Sh SEE ALSO
+.Xr chmod 1 ,
+.Xr getfacl 1 ,
+.Xr acl 3 ,
+.Xr extattr 3
+.Sh STANDARDS
+The
+.Nm
+utility implements the access control list interface described in the
+withdrawn IEEE 1003.1e draft 17
+.Pq Dq POSIX.1e ,
+as also provided by
+.Fx
+and Linux.
+.Sh HISTORY
+A
+.Nm
+utility appeared in MINIX 3 in 2026.
