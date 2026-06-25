@@ -279,6 +279,7 @@
 ./service/asr                                           minix-base
 ./service/devman                                        minix-base
 ./service/ds                                            minix-base
+./service/exfat                                         minix-base
 ./service/ext2                                          minix-base
 ./service/hello                                         minix-base
 ./service/inet                                          minix-base      obsolete
