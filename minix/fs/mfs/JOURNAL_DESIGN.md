@@ -1,9 +1,10 @@
 # MFS metadata journaling — design
 
-Status: **Phase 2b (multi-descriptor + back-pressure) complete.** Phase 0
-(substrate), Phase 1 (the write-ahead log engine + recovery), Phase 2a
-(data=ordered), and Phase 2b (multi-descriptor transactions + journal-full
-back-pressure) are implemented and validated; Phase 2c (batching) is next.
+Status: **Phase 2c (batching) complete.** Phase 0 (substrate), Phase 1 (the
+write-ahead log engine + recovery), Phase 2a (data=ordered), Phase 2b
+(multi-descriptor transactions + journal-full back-pressure), and Phase 2c
+(batching a running transaction across requests) are all implemented and
+validated.
 Feature bit: `MFS_INCOMPAT_JOURNAL` (0x0002), a V4 incompat feature.
 
 ## 1. Goal
@@ -167,9 +168,21 @@ transaction.  `fs_sync` and unmount also commit.
   atomic.  Validated with debug builds that force a tiny descriptor size
   (multi-descriptor transactions, atomic crash-recovery confirmed) and a tiny
   capacity (chunked commits, data intact and fsck-clean).
-* **Phase 2c — batching.** Accumulate a running transaction across requests and
-  commit on sync / size threshold / unmount, amortising the per-request journal
-  write and checkpoint (the JBD performance model).
+* **Phase 2c — batching (this change).** Accumulate a running transaction across
+  requests (`journal_maybe_commit` from the per-request hook) and commit it only
+  once it has gathered enough metadata or spanned enough requests; `fsync()`/
+  `sync()` and unmount still force a commit, so durability for callers that ask
+  for it is unchanged.  This amortises the journal write and the in-place
+  checkpoint over many operations (the JBD performance model).  Two properties
+  make it safe without revoke records: each batch is checkpointed and the journal
+  advanced before the next begins, so a freed metadata block is never replayed
+  over its later reuse; and the batch thresholds stay well under both the journal
+  capacity (each batch is one atomic chunk) and the block cache (the batch's
+  still-dirty metadata stays cache-resident and is never evicted to its home
+  location ahead of the commit, preserving write-ahead ordering).  Validated:
+  normal operation fsck-clean with identical checksums; a hard kill mid-batch
+  leaves the FS consistent (uncommitted work rolls back, the synced baseline
+  survives); and a committed batch is replayed after a crash.
 
 ## 7. Risks / notes
 

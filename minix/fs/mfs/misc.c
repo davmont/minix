@@ -37,8 +37,9 @@ void fs_sync(void)
  *===========================================================================*/
 void fs_postcall(void)
 {
-/* Called by libfsdriver after every request.  Commit the metadata that the
- * request dirtied as one journal transaction, so each operation is atomic with
- * respect to a crash. */
-  journal_commit();
+/* Called by libfsdriver after every request.  Let the journal accumulate a
+ * running transaction across requests and commit it when it is worth doing
+ * (enough metadata or enough requests); fsync()/sync() and unmount still force
+ * a commit, so durability is unaffected for callers that ask for it. */
+  journal_maybe_commit();
 }

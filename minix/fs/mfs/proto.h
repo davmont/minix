@@ -72,6 +72,7 @@ void journal_stop(void);
 void journal_track(u32_t block);
 void journal_track_data(u32_t block);
 int journal_commit(void);
+int journal_maybe_commit(void);
 void journal_crash_test(void);
 int journal_crashed(void);
 
