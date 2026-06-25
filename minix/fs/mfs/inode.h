@@ -28,6 +28,7 @@ EXTERN struct inode {
   time_t i_ctime;		/* when was inode itself changed */
   time_t i_crtime;		/* when was the file created (V4 only; 0 on V3) */
   u32_t i_flags;		/* inode flags (V4 only; 0 on V3) */
+  u32_t i_xattr_zone;		/* zone holding xattrs (V4 only; 0 = none) */
   u32_t i_zone[V2_NR_TZONES]; /* zone numbers for direct, ind, and dbl ind */
 
   /* The following items are not present on the disk. */

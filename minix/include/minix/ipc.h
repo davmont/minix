@@ -196,6 +196,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_fs_vfs_rdlink);
 
 typedef struct {
+	size_t nbytes;			/* bytes read / bytes the attr needs */
+
+	uint8_t data[52];
+} mess_fs_vfs_xattr;
+_ASSERT_MSG_SIZE(mess_fs_vfs_xattr);
+
+typedef struct {
 	off_t file_size;
 	dev_t device;
 	ino_t inode;
@@ -813,6 +820,32 @@ typedef struct {
 	char buf[M_PATH_STRING_MAX];
 } mess_lc_vfs_path;
 _ASSERT_MSG_SIZE(mess_lc_vfs_path);
+
+typedef struct {
+	vir_bytes path;			/* file path */
+	size_t path_len;		/* length of path (incl. NUL) */
+	vir_bytes name;			/* attribute name (NULL for list) */
+	size_t name_len;		/* length of name (incl. NUL) */
+	vir_bytes data;			/* value / list buffer */
+	size_t data_len;		/* size of value / buffer */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+	int follow;			/* 1: follow symlinks (file); 0: link */
+
+	uint8_t pad[24];
+} mess_lc_vfs_extattr;
+_ASSERT_MSG_SIZE(mess_lc_vfs_extattr);
+
+typedef struct {
+	int fd;				/* open file descriptor */
+	vir_bytes name;			/* attribute name (NULL for list) */
+	size_t name_len;		/* length of name (incl. NUL) */
+	vir_bytes data;			/* value / list buffer */
+	size_t data_len;		/* size of value / buffer */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+
+	uint8_t pad[32];
+} mess_lc_vfs_extattr_fd;
+_ASSERT_MSG_SIZE(mess_lc_vfs_extattr_fd);
 
 typedef struct {
 	/*
@@ -2011,6 +2044,51 @@ _ASSERT_MSG_SIZE(mess_vfs_fs_chflags);
 
 typedef struct {
 	ino_t inode;
+	cp_grant_id_t grant_name;	/* READ grant: attribute name */
+	size_t name_len;		/* length of the name (incl. NUL) */
+	cp_grant_id_t grant_value;	/* WRITE grant: value output buffer */
+	size_t value_len;		/* size of the output buffer */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+
+	uint8_t data[28];
+} mess_vfs_fs_getxattr;
+_ASSERT_MSG_SIZE(mess_vfs_fs_getxattr);
+
+typedef struct {
+	ino_t inode;
+	cp_grant_id_t grant_name;	/* READ grant: attribute name */
+	size_t name_len;		/* length of the name (incl. NUL) */
+	cp_grant_id_t grant_value;	/* READ grant: value to store */
+	size_t value_len;		/* length of the value */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+	int flags;			/* reserved (XATTR_CREATE/REPLACE) */
+
+	uint8_t data[24];
+} mess_vfs_fs_setxattr;
+_ASSERT_MSG_SIZE(mess_vfs_fs_setxattr);
+
+typedef struct {
+	ino_t inode;
+	cp_grant_id_t grant;		/* WRITE grant: name-list output buffer */
+	size_t mem_size;		/* size of the output buffer */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+
+	uint8_t data[36];
+} mess_vfs_fs_listxattr;
+_ASSERT_MSG_SIZE(mess_vfs_fs_listxattr);
+
+typedef struct {
+	ino_t inode;
+	cp_grant_id_t grant_name;	/* READ grant: attribute name */
+	size_t name_len;		/* length of the name (incl. NUL) */
+	int namespace;			/* EXTATTR_NAMESPACE_* */
+
+	uint8_t data[36];
+} mess_vfs_fs_removexattr;
+_ASSERT_MSG_SIZE(mess_vfs_fs_removexattr);
+
+typedef struct {
+	ino_t inode;
 
 	uid_t uid;
 	gid_t gid;
@@ -2486,6 +2564,7 @@ typedef struct noxfer_message {
 		mess_fs_vfs_lookup	m_fs_vfs_lookup;
 		mess_fs_vfs_newnode	m_fs_vfs_newnode;
 		mess_fs_vfs_rdlink	m_fs_vfs_rdlink;
+		mess_fs_vfs_xattr	m_fs_vfs_xattr;
 		mess_fs_vfs_readsuper	m_fs_vfs_readsuper;
 		mess_fs_vfs_readwrite	m_fs_vfs_readwrite;
 		mess_i2c_li2cdriver_busc_i2c_exec m_i2c_li2cdriver_busc_i2c_exec;
@@ -2540,6 +2619,8 @@ typedef struct noxfer_message {
 		mess_lc_vfs_chown	m_lc_vfs_chown;
 		mess_lc_vfs_close	m_lc_vfs_close;
 		mess_lc_vfs_creat	m_lc_vfs_creat;
+		mess_lc_vfs_extattr	m_lc_vfs_extattr;
+		mess_lc_vfs_extattr_fd	m_lc_vfs_extattr_fd;
 		mess_lc_vfs_fchdir	m_lc_vfs_fchdir;
 		mess_lc_vfs_fchmod	m_lc_vfs_fchmod;
 		mess_lc_vfs_fcntl	m_lc_vfs_fcntl;
@@ -2688,6 +2769,10 @@ typedef struct noxfer_message {
 		mess_vfs_fs_breadwrite	m_vfs_fs_breadwrite;
 		mess_vfs_fs_chmod	m_vfs_fs_chmod;
 		mess_vfs_fs_chflags	m_vfs_fs_chflags;
+		mess_vfs_fs_getxattr	m_vfs_fs_getxattr;
+		mess_vfs_fs_setxattr	m_vfs_fs_setxattr;
+		mess_vfs_fs_listxattr	m_vfs_fs_listxattr;
+		mess_vfs_fs_removexattr	m_vfs_fs_removexattr;
 		mess_vfs_fs_chown	m_vfs_fs_chown;
 		mess_vfs_fs_create	m_vfs_fs_create;
 		mess_vfs_fs_flush	m_vfs_fs_flush;

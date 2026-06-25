@@ -141,7 +141,15 @@
 #define VFS_SHUTDOWN		(VFS_BASE + 63)
 #define VFS_CHFLAGS		(VFS_BASE + 64)
 #define VFS_FCHFLAGS		(VFS_BASE + 65)
+#define VFS_EXTATTR_GET		(VFS_BASE + 66)	/* path-based (file/link) */
+#define VFS_EXTATTR_SET		(VFS_BASE + 67)
+#define VFS_EXTATTR_LIST	(VFS_BASE + 68)
+#define VFS_EXTATTR_DELETE	(VFS_BASE + 69)
+#define VFS_EXTATTR_GET_FD	(VFS_BASE + 70)	/* fd-based */
+#define VFS_EXTATTR_SET_FD	(VFS_BASE + 71)
+#define VFS_EXTATTR_LIST_FD	(VFS_BASE + 72)
+#define VFS_EXTATTR_DELETE_FD	(VFS_BASE + 73)
 
-#define NR_VFS_CALLS		66	/* highest number from base plus one */
+#define NR_VFS_CALLS		74	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */

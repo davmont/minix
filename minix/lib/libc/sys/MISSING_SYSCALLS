@@ -3,7 +3,6 @@ acct
 lchmod
 lchown
 clone
-extattr_*
 fhopen
 fhstat
 fhstatvfs

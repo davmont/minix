@@ -88,6 +88,14 @@ struct fsdriver {
 	int (*fdr_chown)(ino_t ino_nr, uid_t uid, gid_t gid, mode_t *mode);
 	int (*fdr_chmod)(ino_t ino_nr, mode_t *mode);
 	int (*fdr_chflags)(ino_t ino_nr, int flags, int privileged);
+	ssize_t (*fdr_getxattr)(ino_t ino_nr, int attrnamespace,
+	    const char *name, struct fsdriver_data *data, size_t bytes);
+	int (*fdr_setxattr)(ino_t ino_nr, int attrnamespace, const char *name,
+	    struct fsdriver_data *data, size_t bytes, int flags);
+	ssize_t (*fdr_listxattr)(ino_t ino_nr, int attrnamespace,
+	    struct fsdriver_data *data, size_t bytes);
+	int (*fdr_removexattr)(ino_t ino_nr, int attrnamespace,
+	    const char *name);
 	int (*fdr_utime)(ino_t ino_nr, struct timespec *atime,
 	    struct timespec *mtime);
 	int (*fdr_mountpt)(ino_t ino_nr);

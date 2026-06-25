@@ -83,6 +83,15 @@ void dirhash_enter(struct inode *rip, const char *name, off_t pos);
 void dirhash_remove(struct inode *rip, const char *name);
 void dirhash_free(struct inode *rip);
 
+/* xattr.c */
+ssize_t fs_getxattr(ino_t ino_nr, int attrnamespace, const char *name,
+	struct fsdriver_data *data, size_t bytes);
+ssize_t fs_listxattr(ino_t ino_nr, int attrnamespace,
+	struct fsdriver_data *data, size_t bytes);
+int fs_setxattr(ino_t ino_nr, int attrnamespace, const char *name,
+	struct fsdriver_data *data, size_t bytes, int flags);
+int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name);
+
 /* protect.c */
 int fs_chmod(ino_t ino, mode_t *mode);
 int fs_chflags(ino_t ino_nr, int flags, int privileged);

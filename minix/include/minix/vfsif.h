@@ -73,8 +73,12 @@ typedef struct {
 #define REQ_PEEK	(FS_BASE + 32)
 #define REQ_BPEEK	(FS_BASE + 33)
 #define REQ_CHFLAGS	(FS_BASE + 34)
+#define REQ_GETXATTR	(FS_BASE + 35)
+#define REQ_SETXATTR	(FS_BASE + 36)
+#define REQ_LISTXATTR	(FS_BASE + 37)
+#define REQ_REMOVEXATTR	(FS_BASE + 38)
 
-#define NREQS			    35
+#define NREQS			    39
 
 #define IS_FS_RQ(type) (((type) & ~0xff) == FS_BASE)
 
