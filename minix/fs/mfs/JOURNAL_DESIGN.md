@@ -1,6 +1,8 @@
 # MFS metadata journaling — design
 
-Status: **Phase 0 (substrate) in progress.**
+Status: **Phase 1 (log engine) complete.** Phase 0 (substrate) and Phase 1 (the
+write-ahead log engine + recovery) are implemented and validated; Phase 2
+(hardening) is next.
 Feature bit: `MFS_INCOMPAT_JOURNAL` (0x0002), a V4 incompat feature.
 
 ## 1. Goal
@@ -122,12 +124,15 @@ transaction.  `fs_sync` and unmount also commit.
   location, and at mount time runs recovery (a no-op on a clean journal).
   `fsck.mfs` understands the feature.  Validates the format and plumbing
   end to end without yet changing write behaviour.
-* **Phase 1 — the log engine.** `journal.c`: `journal_track`, `journal_commit`
-  (descriptor + data + commit via `bdev`, then checkpoint, then advance), and
-  `journal_replay` (recovery).  Hook `MARKDIRTY` and add the `fdr_postcall`
-  commit.  Validate replay with a fault-injection mode that commits to the
-  journal but skips the in-place checkpoint, then remounts and confirms the
-  change is replayed.
+* **Phase 1 — the log engine (this change).** `journal.c`: `journal_track`,
+  `journal_commit` (descriptor + data + commit via `bdev`, then checkpoint, then
+  advance), and `journal_recover` (replay).  `MARKDIRTY` is hooked to track
+  dirtied blocks, and `fdr_postcall` commits one transaction per request.
+  Validated three ways: heavy metadata churn stays `fsck`-clean; a clean remount
+  runs recovery and finds nothing pending; and a fault-injection build
+  (`-DJOURNAL_CRASH_TEST`) commits a transaction to the journal, latches off all
+  checkpointing so the home blocks stay stale, and is then hard-killed — the next
+  mount replays the journal and the change reappears, `fsck`-clean.
 * **Phase 2 — hardening.** Multi-descriptor transactions, the journal-full
   back-pressure (force a checkpoint), checksum coverage, performance (batch
   several operations per commit), and an unclean-mount path that recovers

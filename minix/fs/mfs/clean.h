@@ -8,6 +8,7 @@
 		util_stacktrace(); \
 	} else { \
 		lmfs_markdirty(b); \
+		journal_track((u32_t) (b)->lmfs_blocknr); \
 	} \
 } while(0)
 

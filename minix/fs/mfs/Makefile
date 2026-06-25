@@ -1,6 +1,6 @@
 # Makefile for Minix File System (MFS)
 PROG=	mfs
-SRCS=	cache.c dirhash.c link.c \
+SRCS=	cache.c dirhash.c journal.c link.c \
 	mount.c misc.c open.c protect.c read.c \
 	stadir.c stats.c table.c time.c utility.c \
 	write.c inode.c main.c path.c super.c

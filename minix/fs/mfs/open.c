@@ -45,7 +45,17 @@ int fs_create(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
 
   /* Drop parent dir */
   put_inode(ldirp);
-  
+
+#ifdef JOURNAL_CRASH_TEST
+  /* Deterministic crash-recovery test hook (debug builds only): creating a file
+   * with this magic name arms the journal so that the very transaction that
+   * creates it is written to the journal but NOT checkpointed in place,
+   * simulating a power loss right after commit.  A subsequent mount must replay
+   * the journal and make the file appear. */
+  if (strcmp(name, ".__jcrash__") == 0)
+	journal_crash_test();
+#endif
+
   return(OK);
 }
 
