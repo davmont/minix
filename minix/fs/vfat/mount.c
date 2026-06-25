@@ -64,8 +64,12 @@ static int parse_bpb(const char *secbuf)
 	if (!pmp->pm_BytesPerSec || !SecPerClust || pmp->pm_SecPerTrack > 63)
 		return EINVAL;
 
-	/* Phase 1: only 512-byte sectors are supported. */
-	if (pmp->pm_BytesPerSec != DEV_BSIZE)
+	/* The sector size must be a power of two in the 512..4096 range; the
+	 * libminixfs block size is set to it at mount time (see fs_mount), so a
+	 * device sector number is also an lmfs block number. */
+	if (pmp->pm_BytesPerSec & (pmp->pm_BytesPerSec - 1))
+		return EINVAL;
+	if (pmp->pm_BytesPerSec < 512 || pmp->pm_BytesPerSec > 4096)
 		return EINVAL;
 
 	if (pmp->pm_Sectors == 0) {
@@ -166,8 +170,9 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 
 	/*
 	 * Read the boot sector through the block cache at the provisional
-	 * sector size (512).  If the on-disk BytesPerSec differs we bail out
-	 * (phase 1 limitation), so the provisional size is always correct.
+	 * sector size (512).  All BPB fields and the boot signature live within
+	 * the first 512 bytes regardless of the real sector size, so this is
+	 * always enough to parse the geometry.
 	 */
 	lmfs_set_blocksize(DEV_BSIZE);
 
@@ -183,6 +188,11 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 		bdev_close(dev);
 		return r;
 	}
+
+	/* Switch the cache to the real sector size, so a device sector number
+	 * is also an lmfs block number for the rest of the geometry macros. */
+	if (pmp->pm_BytesPerSec != DEV_BSIZE)
+		lmfs_set_blocksize(pmp->pm_BytesPerSec);
 
 	pmp->pm_dev = dev;
 	pmp->pm_rdonly = readonly;
