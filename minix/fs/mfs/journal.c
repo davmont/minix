@@ -36,6 +36,9 @@ static struct {
   u32_t *txn;			/* home block numbers in the current txn */
   unsigned txn_count;
   unsigned txn_max;		/* capacity == max blocks a txn may hold */
+  u32_t *dtxn;			/* file-data home blocks to flush ordered */
+  unsigned dtxn_count;
+  unsigned dtxn_max;		/* capacity; flushed eagerly when full */
   char *iobuf;			/* one block of scratch for device I/O */
   int crash_skip;		/* test hook: commit to journal, do not checkpoint */
   int crashed;			/* test hook: latch -- suppress all checkpointing */
@@ -199,15 +202,18 @@ int journal_init(struct super_block *sp, dev_t dev)
 
   jr.txn_max = MFS_JDESC_MAX(jr.bsize);
   if (jr.txn_max > jr.jblocks - 3) jr.txn_max = jr.jblocks - 3;
+  jr.dtxn_max = 256;		/* ordered-data flush buffer (bounded) */
   jr.txn = malloc(jr.txn_max * sizeof(u32_t));
+  jr.dtxn = malloc(jr.dtxn_max * sizeof(u32_t));
   jr.iobuf = malloc(jr.bsize);
-  if (jr.txn == NULL || jr.iobuf == NULL) {
-	free(jr.txn); free(jr.iobuf);
-	jr.txn = NULL; jr.iobuf = NULL;
+  if (jr.txn == NULL || jr.dtxn == NULL || jr.iobuf == NULL) {
+	free(jr.txn); free(jr.dtxn); free(jr.iobuf);
+	jr.txn = NULL; jr.dtxn = NULL; jr.iobuf = NULL;
 	printf("MFS: cannot allocate journal buffers; journaling disabled\n");
 	return(OK);		/* degrade to the clean-flag scheme */
   }
   jr.txn_count = 0;
+  jr.dtxn_count = 0;
   jr.crash_skip = 0;
   jr.active = 1;
   return(OK);
@@ -222,8 +228,10 @@ void journal_stop(void)
   if (!jr.active) return;
   (void) journal_commit();
   free(jr.txn);
+  free(jr.dtxn);
   free(jr.iobuf);
   jr.txn = NULL;
+  jr.dtxn = NULL;
   jr.iobuf = NULL;
   jr.active = 0;
 }
@@ -246,6 +254,55 @@ void journal_track(u32_t block)
 	jr.txn[jr.txn_count++] = block;
   else
 	jr.txn_count = jr.txn_max + 1;	/* overflow marker: handled at commit */
+}
+
+/*===========================================================================*
+ *				flush_data				     *
+ *===========================================================================*/
+static void flush_data(void)
+{
+/* data=ordered: write the file-data blocks recorded for this transaction to
+ * their home locations and mark them clean, so committed metadata never points
+ * at unwritten data and the later metadata checkpoint need not rewrite them.
+ * Data is never journalled.  Called before the metadata commit, and eagerly
+ * when the data list fills (flushing early is always safe for ordering). */
+  struct buf *bp;
+  unsigned i;
+  int r;
+
+  for (i = 0; i < jr.dtxn_count; i++) {
+	if ((r = lmfs_get_block(&bp, jr.dev, jr.dtxn[i], NORMAL)) != OK) {
+		printf("MFS: journal: cannot read data block %u: %d\n",
+			jr.dtxn[i], r);
+		continue;
+	}
+	if (jdev_write(jr.dtxn[i], b_data(bp)) == OK)
+		lmfs_markclean(bp);
+	put_block(bp);
+  }
+  jr.dtxn_count = 0;
+}
+
+/*===========================================================================*
+ *				journal_track_data			     *
+ *===========================================================================*/
+void journal_track_data(u32_t block)
+{
+/* Record that a regular-file data block was dirtied as part of the current
+ * request.  Data is not journalled; it is flushed to its home location before
+ * the metadata commit (see flush_data()).  Duplicates are folded together; the
+ * buffer is flushed eagerly when it fills, to bound memory for large writes. */
+  unsigned i;
+
+  if (!jr.active) return;
+
+  for (i = 0; i < jr.dtxn_count; i++)
+	if (jr.dtxn[i] == block) return;
+
+  if (jr.dtxn_count == jr.dtxn_max)
+	flush_data();			/* full: flush early (still pre-commit) */
+
+  jr.dtxn[jr.dtxn_count++] = block;
 }
 
 /*===========================================================================*
@@ -293,6 +350,11 @@ int journal_commit(void)
    * so journal_track()s) the inode blocks. */
   for (rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
 	if (rip->i_count > 0 && IN_ISDIRTY(rip)) rw_inode(rip, WRITING);
+
+  /* data=ordered: force this transaction's file data to its home location
+   * before the metadata is committed, so committed metadata never references
+   * data that a crash left unwritten. */
+  flush_data();
 
   if (jr.txn_count == 0) return(OK);
 

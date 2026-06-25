@@ -635,7 +635,7 @@ off_t len;
 	if (bytes > (size_t) len)
 		bytes = len;
 	memset(b_data(bp) + offset, 0, bytes);
-	MARKDIRTY(bp);
+	MARKDIRTY_DATA(bp);	/* file data (truncate tail), not metadata */
 	put_block(bp);
 
 	pos += bytes;

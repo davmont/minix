@@ -1,8 +1,9 @@
 # MFS metadata journaling — design
 
-Status: **Phase 1 (log engine) complete.** Phase 0 (substrate) and Phase 1 (the
-write-ahead log engine + recovery) are implemented and validated; Phase 2
-(hardening) is next.
+Status: **Phase 2a (data=ordered) complete.** Phase 0 (substrate), Phase 1 (the
+write-ahead log engine + recovery), and Phase 2a (data=ordered) are implemented
+and validated; Phase 2b (multi-descriptor + back-pressure) is next, then Phase 2c
+(batching).
 Feature bit: `MFS_INCOMPAT_JOURNAL` (0x0002), a V4 incompat feature.
 
 ## 1. Goal
@@ -13,9 +14,15 @@ recovery automatic and fast: the filesystem is brought to a consistent state at
 mount time by replaying a log, with no full scan.
 
 Scope: **metadata journaling** (inodes, the inode/zone bitmaps, directory
-blocks, indirect blocks, and the superblock).  File *data* is not journalled
-(ext3 "writeback"/"ordered" style); a crash may lose recently written data, but
-the filesystem structure is always consistent.
+blocks, indirect blocks, and the superblock).  File *data* is not journalled:
+under **data=ordered** (ext3's default) a file's data blocks are forced to their
+home locations *before* the metadata transaction that references them commits, so
+committed metadata never points at data a crash left unwritten.  A crash may lose
+the very last unsynced writes, but the filesystem structure — and the data any
+committed metadata points to — is always consistent.  `MARKDIRTY` (metadata) and
+`MARKDIRTY_DATA` (regular-file data) split the two classes at the point a block
+is dirtied; `journal_track_data` collects the data blocks and `flush_data()`
+writes them out ahead of each commit.
 
 ## 2. Crash-consistency model
 
@@ -133,10 +140,20 @@ transaction.  `fs_sync` and unmount also commit.
   (`-DJOURNAL_CRASH_TEST`) commits a transaction to the journal, latches off all
   checkpointing so the home blocks stay stale, and is then hard-killed — the next
   mount replays the journal and the change reappears, `fsck`-clean.
-* **Phase 2 — hardening.** Multi-descriptor transactions, the journal-full
-  back-pressure (force a checkpoint), checksum coverage, performance (batch
-  several operations per commit), and an unclean-mount path that recovers
-  instead of forcing read-only.
+* **Phase 2a — data=ordered (this change).** Split metadata from regular-file
+  data at the `MARKDIRTY`/`MARKDIRTY_DATA` hooks; journal only metadata, and
+  force a transaction's file data to its home location before the metadata
+  commit.  Keeps transactions small (a large write no longer overflows the
+  journal) and halves journal write traffic, while preserving the consistency
+  guarantee.  Validated: heavy churn fsck-clean; a multi-megabyte file
+  round-trips with identical checksum across remount; crash recovery still
+  replays metadata and committed data survives, fsck-clean.
+* **Phase 2b — multi-descriptor transactions + journal-full back-pressure.**
+  Let one transaction span several descriptor blocks (so a large batched
+  transaction fits), and force a checkpoint when the journal would overflow.
+* **Phase 2c — batching.** Accumulate a running transaction across requests and
+  commit on sync / size threshold / unmount, amortising the per-request journal
+  write and checkpoint (the JBD performance model).
 
 ## 7. Risks / notes
 
