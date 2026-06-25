@@ -51,6 +51,11 @@ int fs_link(ino_t dir_nr, char *name, ino_t ino_nr)
 	  if( (rip->i_mode & I_TYPE) == I_DIRECTORY)
 		  r = EPERM;
 
+  /* Immutable and append-only files may not gain new links (V4). */
+  if(r == OK)
+	  if(rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND))
+		  r = EPERM;
+
   /* If error with 'name', return the inode. */
   if (r != OK) {
 	  put_inode(rip);
@@ -67,6 +72,13 @@ int fs_link(ino_t dir_nr, char *name, ino_t ino_nr)
   	put_inode(rip);
 	put_inode(ip);
   	return(ENOENT);
+  }
+
+  /* No new entries may be added to an immutable directory (V4). */
+  if (ip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE)) {
+	put_inode(rip);
+	put_inode(ip);
+	return(EPERM);
   }
 
   /* If 'name2' exists in full (even if no space) set 'r' to error. */
@@ -130,6 +142,11 @@ int fs_unlink(ino_t dir_nr, char *name, int call)
   
   if(rip->i_sp->s_rd_only) {
   	r = EROFS;
+  } else if ((rip->i_flags | rldirp->i_flags) &
+	     (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)) {
+	/* An immutable or append-only file may not be removed, and no entry may
+	 * be removed from such a directory (V4). */
+	r = EPERM;
   }  else if (call == FSC_UNLINK) {
 	  if( (rip->i_mode & I_TYPE) == I_DIRECTORY) r = EPERM;
 
@@ -306,6 +323,16 @@ int fs_rename(ino_t old_dir_nr, char *old_name, ino_t new_dir_nr,
   }
 
   odir = ((old_ip->i_mode & I_TYPE) == I_DIRECTORY); /* TRUE iff dir */
+
+  /* Immutable/append-only enforcement (V4): the source file may not be renamed,
+   * an existing target may not be overwritten, and entries may not be added to
+   * or removed from an immutable or append-only directory. */
+  if (r == OK &&
+      (((old_ip->i_flags | old_dirp->i_flags | new_dirp->i_flags) &
+        (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)) ||
+       (new_ip != NULL && (new_ip->i_flags &
+        (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)))))
+	r = EPERM;
 
   /* If it is ok, check for a variety of possible errors. */
   if(r == OK) {

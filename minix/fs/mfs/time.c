@@ -15,6 +15,12 @@ int fs_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime)
   if( (rip = get_inode(fs_dev, ino_nr)) == NULL)
         return(EINVAL);
 
+  /* An immutable or append-only file's timestamps may not be set (V4). */
+  if(rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)) {
+	put_inode(rip);
+	return(EPERM);
+  }
+
   rip->i_update = CTIME; /* discard any stale ATIME and MTIME flags */
 
   switch (atime->tv_nsec) {
