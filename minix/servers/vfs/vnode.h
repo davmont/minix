@@ -9,6 +9,7 @@ EXTERN struct vnode {
   mode_t v_mode;		/* file type, protection, etc. */
   uid_t v_uid;			/* uid of inode. */
   gid_t v_gid;			/* gid of inode. */
+  unsigned char v_acl;		/* access-ACL cache: VACL_{UNKNOWN,NONE,PRESENT} */
   off_t v_size;			/* current file size in bytes */
   int v_ref_count;		/* # times vnode used; 0 means slot is free */
   int v_fs_count;		/* # reference at the underlying FS */
@@ -21,6 +22,13 @@ EXTERN struct vnode {
   struct vmnt *v_vmnt;          /* vmnt object of the partition */
   tll_t v_lock;			/* three-level-lock */
 } vnode[NR_VNODES];
+
+/* v_acl: cached knowledge of whether the file has a POSIX access ACL, so the
+ * common (no-ACL) case avoids an extra file-server round-trip per access check.
+ * Reset to UNKNOWN when a vnode is (re)used or when the ACL is changed. */
+#define VACL_UNKNOWN	0
+#define VACL_NONE	1
+#define VACL_PRESENT	2
 
 /* vnode lock types mapping */
 #define VNODE_NONE TLL_NONE	/* used only for get_filp2 to avoid locking */

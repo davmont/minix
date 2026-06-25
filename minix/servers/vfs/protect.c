@@ -330,17 +330,20 @@ int forbidden(struct fproc *rfp, struct vnode *vp, mode_t access_desired)
 		perm_bits = R_BIT | W_BIT | X_BIT;
 	else
 		perm_bits = R_BIT | W_BIT;
+	r = ((perm_bits | access_desired) == perm_bits) ? OK : EACCES;
+  } else if (uid != vp->v_uid &&
+      (r = vfs_acl_check(vp, fp, uid, gid, access_desired)) != EGENERIC) {
+	/* A non-owner accessing a file that has an access ACL: the ACL is
+	 * authoritative (vfs_acl_check returned OK or EACCES).  EGENERIC means
+	 * there is no ACL, so we fall through to the classic mode-bit check. */
   } else {
 	if (uid == vp->v_uid) shift = 6;		/* owner */
 	else if (gid == vp->v_gid) shift = 3;		/* group */
 	else if (in_group(fp, vp->v_gid) == OK) shift = 3; /* suppl. groups */
 	else shift = 0;					/* other */
 	perm_bits = (bits >> shift) & (R_BIT | W_BIT | X_BIT);
+	r = ((perm_bits | access_desired) == perm_bits) ? OK : EACCES;
   }
-
-  /* If access desired is not a subset of what is allowed, it is refused. */
-  r = OK;
-  if ((perm_bits | access_desired) != perm_bits) r = EACCES;
 
   /* Check to see if someone is trying to write on a file system that is
    * mounted read-only.

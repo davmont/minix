@@ -15,12 +15,20 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/extattr.h>
+#include <sys/acl.h>
 #include <minix/callnr.h>
 #include "file.h"
 #include "path.h"
 #include <minix/vfsif.h>
 #include "vnode.h"
 #include "vmnt.h"
+
+/* A POSIX ACL with this many entries is far more than any normal file needs;
+ * a larger one is treated as absent for access checks (the mode bits, kept in
+ * sync with the ACL, then apply). */
+#define VFS_ACL_MAXENT	128
+#define VFS_ACL_BUFSZ	(sizeof(struct posix_acl_xattr_header) + \
+			 VFS_ACL_MAXENT * sizeof(struct posix_acl_xattr_entry))
 
 #define XA_GET		0
 #define XA_SET		1
@@ -177,6 +185,131 @@ static int req_removexattr(endpoint_t fs_e, ino_t inode_nr, int ns,
 }
 
 /*===========================================================================*
+ *				vfs_getacl				     *
+ *===========================================================================*/
+static int
+vfs_getacl(struct vnode *vp, char *buf, size_t size)
+{
+/* Fetch the access ACL of 'vp' into the VFS-local buffer 'buf'; return its
+ * length, or a negative error (ENOATTR if the file has no access ACL). */
+  static const char name[] = POSIX_ACL_XATTR_ACCESS;
+  message m;
+  cp_grant_id_t gname, gval;
+  int r;
+
+  gname = cpf_grant_direct(vp->v_fs_e, (vir_bytes) name, sizeof(name), CPF_READ);
+  gval = cpf_grant_direct(vp->v_fs_e, (vir_bytes) buf, size, CPF_WRITE);
+  if (gname == GRANT_INVALID || gval == GRANT_INVALID) {
+	if (gname != GRANT_INVALID) cpf_revoke(gname);
+	if (gval != GRANT_INVALID) cpf_revoke(gval);
+	return(EGENERIC);
+  }
+
+  memset(&m, 0, sizeof(m));
+  m.m_type = REQ_GETXATTR;
+  m.m_vfs_fs_getxattr.inode = vp->v_inode_nr;
+  m.m_vfs_fs_getxattr.namespace = EXTATTR_NAMESPACE_SYSTEM;
+  m.m_vfs_fs_getxattr.grant_name = gname;
+  m.m_vfs_fs_getxattr.name_len = sizeof(name);
+  m.m_vfs_fs_getxattr.grant_value = gval;
+  m.m_vfs_fs_getxattr.value_len = size;
+
+  r = fs_sendrec(vp->v_fs_e, &m);
+
+  cpf_revoke(gname);
+  cpf_revoke(gval);
+
+  if (r == OK) return((int) m.m_fs_vfs_xattr.nbytes);
+  return(r);
+}
+
+/*===========================================================================*
+ *				vfs_acl_eval				     *
+ *===========================================================================*/
+static int
+vfs_acl_eval(const char *buf, size_t len, struct fproc *fp, uid_t fowner,
+	gid_t fgroup, uid_t uid, gid_t gid, mode_t access)
+{
+/* Evaluate a POSIX.1e access ACL (POSIX_ACL_XATTR binary form) for the
+ * requester, per the standard algorithm.  Returns OK or EACCES; EGENERIC if the
+ * buffer is not a usable ACL (the caller then falls back to the mode bits). */
+  const struct posix_acl_xattr_header *h = (const struct posix_acl_xattr_header *) buf;
+  const struct posix_acl_xattr_entry *e;
+  unsigned n, i;
+  mode_t mask = ACL_PERM_BITS;		/* no MASK entry => no masking */
+  int group_match = 0, granted = 0;
+
+  if (len < sizeof(*h) || h->a_version != POSIX_ACL_XATTR_VERSION)
+	return(EGENERIC);
+  n = (len - sizeof(*h)) / sizeof(*e);
+  e = (const struct posix_acl_xattr_entry *) (h + 1);
+  access &= ACL_PERM_BITS;
+
+  for (i = 0; i < n; i++)
+	if (e[i].e_tag == ACL_MASK) mask = e[i].e_perm & ACL_PERM_BITS;
+
+  /* Owner: the USER_OBJ entry, unmasked. */
+  if (uid == fowner) {
+	for (i = 0; i < n; i++)
+		if (e[i].e_tag == ACL_USER_OBJ)
+			return ((e[i].e_perm & access) == access) ? OK : EACCES;
+	return(EACCES);
+  }
+  /* A named user matches exactly and is decisive. */
+  for (i = 0; i < n; i++)
+	if (e[i].e_tag == ACL_USER && (uid_t) e[i].e_id == uid)
+		return (((e[i].e_perm & mask) & access) == access) ?
+		    OK : EACCES;
+  /* Group class: the owning group and any matching named groups.  Access is
+   * granted if any matching entry (after the mask) allows it. */
+  for (i = 0; i < n; i++) {
+	if (e[i].e_tag == ACL_GROUP_OBJ &&
+	    (gid == fgroup || in_group(fp, fgroup) == OK)) {
+		group_match = 1;
+		if (((e[i].e_perm & mask) & access) == access) granted = 1;
+	} else if (e[i].e_tag == ACL_GROUP &&
+	    (gid == (gid_t) e[i].e_id ||
+	     in_group(fp, (gid_t) e[i].e_id) == OK)) {
+		group_match = 1;
+		if (((e[i].e_perm & mask) & access) == access) granted = 1;
+	}
+  }
+  if (group_match) return granted ? OK : EACCES;
+  /* Everyone else: the OTHER entry, unmasked. */
+  for (i = 0; i < n; i++)
+	if (e[i].e_tag == ACL_OTHER)
+		return ((e[i].e_perm & access) == access) ? OK : EACCES;
+  return(EACCES);
+}
+
+/*===========================================================================*
+ *				vfs_acl_check				     *
+ *===========================================================================*/
+int
+vfs_acl_check(struct vnode *vp, struct fproc *fp, uid_t uid, gid_t gid,
+	mode_t access)
+{
+/* If 'vp' has an access ACL, evaluate it and return OK or EACCES.  If it has
+ * none, return EGENERIC so the caller falls back to the file mode.  The has-ACL
+ * state is cached on the vnode so the common no-ACL case stays cheap. */
+  char buf[VFS_ACL_BUFSZ];
+  int r;
+
+  if (vp->v_acl == VACL_NONE)
+	return(EGENERIC);
+
+  r = vfs_getacl(vp, buf, sizeof(buf));
+  if (r < (int) sizeof(struct posix_acl_xattr_header)) {
+	/* ENOATTR, an error, or an oversized/garbage ACL: treat as absent. */
+	vp->v_acl = VACL_NONE;
+	return(EGENERIC);
+  }
+  vp->v_acl = VACL_PRESENT;
+  return vfs_acl_eval(buf, (size_t) r, fp, vp->v_uid, vp->v_gid, uid, gid,
+	access);
+}
+
+/*===========================================================================*
  *				do_extattr				     *
  *===========================================================================*/
 int do_extattr(void)
@@ -302,6 +435,11 @@ int do_extattr(void)
 		break;
 	}
   }
+
+  /* A change to the access ACL invalidates the vnode's cached has-ACL state. */
+  if ((op == XA_SET || op == XA_DELETE) && ns == EXTATTR_NAMESPACE_SYSTEM &&
+      !strcmp(name, POSIX_ACL_XATTR_ACCESS))
+	vp->v_acl = VACL_UNKNOWN;
 
   if (isfd) {
 	unlock_filp(flp);
