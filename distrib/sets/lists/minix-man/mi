@@ -130,6 +130,7 @@
 ./usr/man/man1/gencat.1                                 minix-man
 ./usr/man/man1/getcap.1                                 minix-man
 ./usr/man/man1/getent.1                                 minix-man
+./usr/man/man1/getfacl.1                                minix-man
 ./usr/man/man1/getopt.1                                 minix-man
 ./usr/man/man1/getopts.1                                minix-man       obsolete
 ./usr/man/man1/gprof.1                                  minix-man       binutils
@@ -362,6 +363,7 @@
 ./usr/man/man1/sed.1                                    minix-man
 ./usr/man/man1/seq.1                                    minix-man
 ./usr/man/man1/set.1                                    minix-man       obsolete
+./usr/man/man1/setfacl.1                                minix-man
 ./usr/man/man1/setvar.1                                 minix-man       obsolete
 ./usr/man/man1/sh.1                                     minix-man
 ./usr/man/man1/sha1.1                                   minix-man

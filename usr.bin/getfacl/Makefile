@@ -1,4 +1,4 @@
 PROG=	getfacl
-MAN=
+MAN=	getfacl.1
 
 .include <bsd.prog.mk>
