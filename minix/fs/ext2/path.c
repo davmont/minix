@@ -178,19 +178,19 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
 				dp->d_ino = NO_ENTRY;	/* erase entry */
 				lmfs_markdirty(bp);
 
-				/* If we don't support HTree (directory index),
-				 * which is fully compatible ext2 feature,
-				 * we should reset EXT2_INDEX_FL, when modify
-				 * linked directory structure.
-				 *
-				 * @TODO: actually we could just reset it for
-				 * each directory, but I added if() to not
-				 * forget about it later, when add HTree
-				 * support.
+				/* We do not maintain the HTree (directory index)
+				 * b-tree, so once we modify a directory's linear
+				 * structure its index is stale.  Clear EXT2_INDEX_FL
+				 * so fsck and other drivers treat the directory as
+				 * a plain linear one (a single-level HTree's index
+				 * lives inside a "fake" empty dir entry and its leaf
+				 * blocks are ordinary entries, so reading linearly
+				 * stays correct).  The earlier code only cleared the
+				 * flag when the feature was *absent* -- the inverse
+				 * of what is needed -- leaving real indexed
+				 * directories corrupt after a delete.
 				 */
-				if (!HAS_COMPAT_FEATURE(ldir_ptr->i_sp,
-							COMPAT_DIR_INDEX))
-					ldir_ptr->i_flags &= ~EXT2_INDEX_FL;
+				ldir_ptr->i_flags &= ~EXT2_INDEX_FL;
 				if (pos < ldir_ptr->i_last_dpos) {
 					ldir_ptr->i_last_dpos = pos;
 					ldir_ptr->i_last_dentry_size =
@@ -303,6 +303,10 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
   put_block(bp);
   ldir_ptr->i_update |= CTIME | MTIME;	/* mark mtime for update later */
   ldir_ptr->i_dirt = IN_DIRTY;
+
+  /* Adding an entry also invalidates any HTree index we do not maintain; mark
+   * the directory linear so fsck stays happy (see the DELETE path above). */
+  ldir_ptr->i_flags &= ~EXT2_INDEX_FL;
 
   if (new_slots == 1) {
 	ldir_ptr->i_size += (off_t) conv2(le_CPU, dp->d_rec_len);
