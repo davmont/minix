@@ -249,6 +249,7 @@ static struct inode *new_node(struct inode *ldirp,
 	 */
 	rip->i_nlinks++;
 	rip->i_zone[0] = z0;		/* major/minor device numbers */
+	mfs_acl_inherit(ldirp, rip);	/* apply parent's default ACL (V4) */
 	rw_inode(rip, WRITING);		/* force inode to disk now */
 
 	/* New inode acquired.  Try to make directory entry. */
