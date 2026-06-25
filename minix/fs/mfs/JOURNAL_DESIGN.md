@@ -1,9 +1,9 @@
 # MFS metadata journaling — design
 
-Status: **Phase 2a (data=ordered) complete.** Phase 0 (substrate), Phase 1 (the
-write-ahead log engine + recovery), and Phase 2a (data=ordered) are implemented
-and validated; Phase 2b (multi-descriptor + back-pressure) is next, then Phase 2c
-(batching).
+Status: **Phase 2b (multi-descriptor + back-pressure) complete.** Phase 0
+(substrate), Phase 1 (the write-ahead log engine + recovery), Phase 2a
+(data=ordered), and Phase 2b (multi-descriptor transactions + journal-full
+back-pressure) are implemented and validated; Phase 2c (batching) is next.
 Feature bit: `MFS_INCOMPAT_JOURNAL` (0x0002), a V4 incompat feature.
 
 ## 1. Goal
@@ -82,18 +82,25 @@ jsb_start       u32   block offset (within the journal) of the oldest txn
 jsb_flags       u32   (reserved)
 ```
 
-Each transaction is a run of blocks:
+Each transaction is a run of (descriptor, its data blocks) groups followed by a
+single commit block:
 
 ```
-[ descriptor ]  jd_magic="MJD1", jd_sequence, jd_count, jd_target[jd_count]
-[ data blk 1 ]  new contents of home block jd_target[0]
+[ descriptor 0 ]  jd_magic="MJD1", jd_sequence, jd_count0, jd_target[jd_count0]
+[ data blk ... ]  new contents of the jd_count0 home blocks desc 0 lists
+[ descriptor 1 ]  jd_magic="MJD1", jd_sequence, jd_count1, jd_target[jd_count1]
+[ data blk ... ]  new contents of the jd_count1 home blocks desc 1 lists
    ...
-[ data blk n ]  new contents of home block jd_target[n-1]
-[ commit     ]  jc_magic="MJC1", jc_sequence, jc_checksum
+[ commit       ]  jc_magic="MJC1", jc_sequence, jc_checksum
 ```
 
 `jd_count` is bounded so a descriptor's target list fits one block
-(block_size/4 - header).  Larger transactions use multiple descriptor groups.
+(block_size/4 - header); a transaction with more blocks than that simply uses
+several descriptor groups, all carrying the same `jd_sequence`, and the commit
+checksum covers every descriptor and data block in journal order.  Recovery
+walks the groups (reading exactly `jd_count` data blocks after each descriptor)
+until it reaches the commit block.  A transaction that would not fit the whole
+journal is split into capacity-sized chunks, each its own atomic transaction.
 
 ## 4. Recovery (mount time)
 
@@ -148,9 +155,18 @@ transaction.  `fs_sync` and unmount also commit.
   guarantee.  Validated: heavy churn fsck-clean; a multi-megabyte file
   round-trips with identical checksum across remount; crash recovery still
   replays metadata and committed data survives, fsck-clean.
-* **Phase 2b — multi-descriptor transactions + journal-full back-pressure.**
-  Let one transaction span several descriptor blocks (so a large batched
-  transaction fits), and force a checkpoint when the journal would overflow.
+* **Phase 2b — multi-descriptor transactions + journal-full back-pressure
+  (this change).** A transaction is now written as a run of (descriptor, its
+  data blocks) groups followed by one commit block, so it may span several
+  descriptors instead of being capped at one descriptor's worth of blocks; the
+  recovery walk follows the chain until the commit.  A transaction larger than
+  the whole journal is committed in journal-capacity-sized chunks (each an
+  atomic sub-transaction, earlier chunks checkpointed in place), so it never
+  overflows the log; the single-chunk case — every realistic transaction, since
+  the journal is sized well above any single request's metadata — stays fully
+  atomic.  Validated with debug builds that force a tiny descriptor size
+  (multi-descriptor transactions, atomic crash-recovery confirmed) and a tiny
+  capacity (chunked commits, data intact and fsck-clean).
 * **Phase 2c — batching.** Accumulate a running transaction across requests and
   commit on sync / size threshold / unmount, amortising the per-request journal
   write and checkpoint (the JBD performance model).

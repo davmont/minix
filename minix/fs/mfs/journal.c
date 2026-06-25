@@ -99,6 +99,138 @@ static int jdev_read(u32_t block, void *buf)
 }
 
 /*===========================================================================*
+ *				jdesc_max				     *
+ *===========================================================================*/
+static unsigned jdesc_max(void)
+{
+/* Home block numbers recordable in one descriptor block.  A small value can be
+ * forced in a debug build to exercise multi-descriptor transactions without a
+ * huge operation. */
+#ifdef JOURNAL_SMALL_DESC
+  return(JOURNAL_SMALL_DESC);
+#else
+  return(MFS_JDESC_MAX(jr.bsize));
+#endif
+}
+
+/*===========================================================================*
+ *				journal_capacity			     *
+ *===========================================================================*/
+static unsigned journal_capacity(void)
+{
+/* The largest number of metadata blocks a single transaction may hold: it needs
+ * one descriptor per jdesc_max() blocks plus a commit block, all within the
+ * journal (jblocks, the first of which is the journal superblock). */
+  unsigned jdmax = jdesc_max();
+  unsigned avail, k;
+
+  if (jr.jblocks < 4) return(1);
+  avail = jr.jblocks - 2;		/* minus the superblock and commit block */
+  k = avail;
+  while (k > 1 && k + (k + jdmax - 1) / jdmax > avail) k--;
+#ifdef JOURNAL_SMALL_CAP
+  if (k > JOURNAL_SMALL_CAP) k = JOURNAL_SMALL_CAP;
+#endif
+  return(k ? k : 1);
+}
+
+/*===========================================================================*
+ *				write_txn				     *
+ *===========================================================================*/
+static int write_txn(unsigned lo, unsigned hi, u32_t seq)
+{
+/* Write metadata blocks jr.txn[lo..hi) to the journal as one transaction:
+ * a run of (descriptor block, its data blocks) groups followed by a single
+ * commit block.  A descriptor holds up to jdesc_max() home block numbers, so a
+ * transaction with more blocks than that spans several descriptors.  The commit
+ * checksum covers every descriptor and data block, in journal order. */
+  struct mfs_journal_desc *desc;
+  struct mfs_journal_commit *commit;
+  struct buf *bp;
+  u32_t pos = jr.jstart + 1;
+  u32_t crc = 0;
+  unsigned jdmax = jdesc_max();
+  unsigned i, k, cnt;
+  int r;
+
+  for (i = lo; i < hi; i += cnt) {
+	cnt = hi - i;
+	if (cnt > jdmax) cnt = jdmax;
+
+	/* descriptor */
+	memset(jr.iobuf, 0, jr.bsize);
+	desc = (struct mfs_journal_desc *) jr.iobuf;
+	desc->jd_magic = MFS_JDESC_MAGIC;
+	desc->jd_sequence = seq;
+	desc->jd_count = cnt;
+	for (k = 0; k < cnt; k++) desc->jd_target[k] = jr.txn[i + k];
+	crc = crc32(crc, jr.iobuf, jr.bsize);
+	if ((r = jdev_write(pos++, jr.iobuf)) != OK) return(r);
+
+	/* the data blocks this descriptor refers to */
+	for (k = 0; k < cnt; k++) {
+		if ((r = lmfs_get_block(&bp, jr.dev, jr.txn[i+k], NORMAL)) != OK) {
+			printf("MFS: journal: cannot read block %u: %d\n",
+				jr.txn[i+k], r);
+			return(r);
+		}
+		crc = crc32(crc, b_data(bp), jr.bsize);
+		r = jdev_write(pos++, b_data(bp));
+		put_block(bp);
+		if (r != OK) return(r);
+	}
+  }
+
+  /* commit block -- the transaction is durable once this returns */
+  memset(jr.iobuf, 0, jr.bsize);
+  commit = (struct mfs_journal_commit *) jr.iobuf;
+  commit->jc_magic = MFS_JCOMMIT_MAGIC;
+  commit->jc_sequence = seq;
+  commit->jc_checksum = crc;
+  return(jdev_write(pos, jr.iobuf));
+}
+
+/*===========================================================================*
+ *				checkpoint_blocks			     *
+ *===========================================================================*/
+static int checkpoint_blocks(unsigned lo, unsigned hi)
+{
+/* Write metadata blocks jr.txn[lo..hi) to their home locations and mark them
+ * clean.  Used to checkpoint a chunk of an over-capacity transaction in place
+ * (the common, single-chunk case uses lmfs_flushall() instead). */
+  struct buf *bp;
+  unsigned j;
+  int r;
+
+  for (j = lo; j < hi; j++) {
+	if ((r = lmfs_get_block(&bp, jr.dev, jr.txn[j], NORMAL)) != OK) return(r);
+	r = jdev_write(jr.txn[j], b_data(bp));
+	if (r == OK) lmfs_markclean(bp);
+	put_block(bp);
+	if (r != OK) return(r);
+  }
+  return(OK);
+}
+
+/*===========================================================================*
+ *				journal_advance				     *
+ *===========================================================================*/
+static int journal_advance(u32_t newseq)
+{
+/* Rewrite the journal superblock so every transaction with a smaller sequence
+ * is now considered checkpointed. */
+  struct mfs_journal_super *jsb;
+
+  memset(jr.iobuf, 0, jr.bsize);
+  jsb = (struct mfs_journal_super *) jr.iobuf;
+  jsb->jsb_magic = MFS_JOURNAL_MAGIC;
+  jsb->jsb_blocks = jr.jblocks;
+  jsb->jsb_sequence = newseq;
+  jsb->jsb_start = 1;
+  return(jdev_write(jr.jstart, jr.iobuf));
+}
+
+/*===========================================================================*
  *				journal_recover				     *
  *===========================================================================*/
 int journal_recover(struct super_block *sp, dev_t dev)
@@ -108,8 +240,9 @@ int journal_recover(struct super_block *sp, dev_t dev)
   struct mfs_journal_super *jsb;
   struct mfs_journal_desc *desc;
   struct mfs_journal_commit *commit;
-  char *jsbuf, *dbuf, *cbuf, *blkbuf;
-  u32_t start, blocks, seq, n, i, crc;
+  char *jsbuf = NULL, *dbuf = NULL, *blkbuf = NULL;
+  u32_t *targets = NULL, *positions = NULL;
+  u32_t start, blocks, seq, n, i, crc, pos, cnt;
   unsigned bsize;
   int r = OK;
 
@@ -127,9 +260,14 @@ int journal_recover(struct super_block *sp, dev_t dev)
 
   jsbuf = malloc(bsize);
   dbuf = malloc(bsize);
-  cbuf = malloc(bsize);
   blkbuf = malloc(bsize);
-  if (!jsbuf || !dbuf || !cbuf || !blkbuf) { r = ENOMEM; goto out; }
+  /* targets[]/positions[] map each journalled data block to its home location
+   * and to the journal block holding its contents; at most 'blocks' of them. */
+  targets = malloc(blocks * sizeof(u32_t));
+  positions = malloc(blocks * sizeof(u32_t));
+  if (!jsbuf || !dbuf || !blkbuf || !targets || !positions) {
+	r = ENOMEM; goto out;
+  }
 
   if ((r = jdev_read(start, jsbuf)) != OK) goto out;
   jsb = (struct mfs_journal_super *) jsbuf;
@@ -142,36 +280,50 @@ int journal_recover(struct super_block *sp, dev_t dev)
   seq = jsb->jsb_sequence;
   jr.sequence = seq;
 
-  /* The pending transaction, if any, is the one at the first journal block
-   * whose descriptor carries the not-yet-checkpointed sequence number. */
-  if ((r = jdev_read(start + 1, dbuf)) != OK) goto out;
-  desc = (struct mfs_journal_desc *) dbuf;
-  if (desc->jd_magic != MFS_JDESC_MAGIC || desc->jd_sequence != seq)
-	goto out;		/* nothing pending */
-  n = desc->jd_count;
-  if (n < 1 || n + 2 > blocks - 1 || n > MFS_JDESC_MAX(bsize))
-	goto out;		/* implausible: ignore */
-
-  /* Verify the commit record and the checksum over descriptor + data. */
-  if ((r = jdev_read(start + 2 + n, cbuf)) != OK) goto out;
-  commit = (struct mfs_journal_commit *) cbuf;
-  crc = crc32(0, dbuf, bsize);
-  for (i = 0; i < n; i++) {
-	if ((r = jdev_read(start + 2 + i, blkbuf)) != OK) goto out;
-	crc = crc32(crc, blkbuf, bsize);
+  /* Walk the pending transaction, if any: a run of (descriptor, its data
+   * blocks) groups starting at the first journal block, all carrying the
+   * not-yet-checkpointed sequence number, terminated by a commit block.
+   * Accumulate the checksum over every descriptor and data block in order, and
+   * remember each data block's home target and journal position for replay. */
+  pos = start + 1;
+  n = 0;
+  crc = 0;
+  for (;;) {
+	if (pos >= start + blocks) goto discard;	/* ran off the end: torn */
+	if ((r = jdev_read(pos, dbuf)) != OK) goto out;
+	desc = (struct mfs_journal_desc *) dbuf;
+	if (desc->jd_magic != MFS_JDESC_MAGIC || desc->jd_sequence != seq)
+		break;			/* end of descriptors (commit or nothing) */
+	cnt = desc->jd_count;
+	if (cnt < 1 || cnt > MFS_JDESC_MAX(bsize)) goto discard;
+	crc = crc32(crc, dbuf, bsize);
+	pos++;
+	for (i = 0; i < cnt; i++) {
+		if (n >= blocks || pos >= start + blocks) goto discard;
+		if ((r = jdev_read(pos, blkbuf)) != OK) goto out;
+		crc = crc32(crc, blkbuf, bsize);
+		targets[n] = desc->jd_target[i];
+		positions[n] = pos;
+		n++;
+		pos++;
+	}
   }
+
+  if (n == 0) goto out;		/* nothing pending */
+
+  /* The block that ended the descriptor walk (still in dbuf) must be the
+   * commit block, matching the sequence and the accumulated checksum. */
+  commit = (struct mfs_journal_commit *) dbuf;
   if (commit->jc_magic != MFS_JCOMMIT_MAGIC ||
-      commit->jc_sequence != seq || commit->jc_checksum != crc) {
-	printf("MFS: incomplete journal transaction %u; discarding\n", seq);
-	goto out;		/* torn tail: discard */
-  }
+      commit->jc_sequence != seq || commit->jc_checksum != crc)
+	goto discard;		/* torn tail */
 
-  /* Replay: write each data block to its home location. */
+  /* Replay: write each journalled data block to its home location. */
   printf("MFS: recovering journal: replaying transaction %u (%u blocks)\n",
 	seq, n);
   for (i = 0; i < n; i++) {
-	if ((r = jdev_read(start + 2 + i, blkbuf)) != OK) goto out;
-	if ((r = jdev_write(desc->jd_target[i], blkbuf)) != OK) goto out;
+	if ((r = jdev_read(positions[i], blkbuf)) != OK) goto out;
+	if ((r = jdev_write(targets[i], blkbuf)) != OK) goto out;
   }
 
   /* Mark the transaction checkpointed by advancing the journal superblock. */
@@ -179,9 +331,15 @@ int journal_recover(struct super_block *sp, dev_t dev)
   jsb->jsb_start = 1;
   if ((r = jdev_write(start, jsbuf)) != OK) goto out;
   jr.sequence = seq + 1;
+  goto out;
+
+discard:
+  printf("MFS: incomplete journal transaction %u; discarding\n", seq);
+  r = OK;
 
 out:
-  free(jsbuf); free(dbuf); free(cbuf); free(blkbuf);
+  free(jsbuf); free(dbuf); free(blkbuf);
+  free(targets); free(positions);
   return(r);
 }
 
@@ -200,8 +358,11 @@ int journal_init(struct super_block *sp, dev_t dev)
   jr.jblocks = sp->s_journal_blocks;
   jr.bsize = sp->s_block_size;
 
-  jr.txn_max = MFS_JDESC_MAX(jr.bsize);
-  if (jr.txn_max > jr.jblocks - 3) jr.txn_max = jr.jblocks - 3;
+  /* The accumulation buffer holds the home block numbers of the current
+   * transaction.  It is sized well above one journal's worth so that a large
+   * transaction is chunked across commits (back-pressure) rather than hitting
+   * the unjournalled fallback, and to give later batching headroom. */
+  jr.txn_max = 8192;
   jr.dtxn_max = 256;		/* ordered-data flush buffer (bounded) */
   jr.txn = malloc(jr.txn_max * sizeof(u32_t));
   jr.dtxn = malloc(jr.dtxn_max * sizeof(u32_t));
@@ -334,14 +495,14 @@ int journal_crashed(void)
  *===========================================================================*/
 int journal_commit(void)
 {
-/* Commit the current transaction: write it to the journal (durable), then
- * write its blocks to their home locations, then advance the journal. */
+/* Commit the current transaction.  For each capacity-sized chunk of dirtied
+ * metadata: write it to the journal (a multi-descriptor transaction, durable
+ * once its commit block lands), checkpoint those blocks to their home
+ * locations, then advance the journal.  A transaction that fits the journal --
+ * the normal case -- is a single chunk and therefore atomic. */
   struct inode *rip;
-  struct buf *bp;
-  struct mfs_journal_desc *desc;
-  struct mfs_journal_commit *commit;
-  struct mfs_journal_super *jsb;
-  u32_t seq, crc, n, i, base;
+  unsigned cap, lo, hi;
+  u32_t seq;
   int r;
 
   if (!jr.active) return(OK);
@@ -358,66 +519,52 @@ int journal_commit(void)
 
   if (jr.txn_count == 0) return(OK);
 
-  /* A transaction larger than this single-descriptor journal can hold is not
-   * journalled (Phase 2 adds multi-descriptor transactions); the clean flag
-   * still guards a crash during such a rare, large operation. */
+  /* The block-number buffer overflowed (a single request dirtied more metadata
+   * than the buffer holds); we no longer have the full block list, so fall back
+   * to an unjournalled flush.  This needs a pathologically large operation and
+   * a tiny journal, and is the only path that is not crash-atomic. */
   if (jr.txn_count > jr.txn_max) {
-	printf("MFS: journal transaction too large; flushing unjournalled\n");
+	printf("MFS: journal transaction too large (%u blocks); "
+		"flushing unjournalled\n", jr.txn_count);
 	lmfs_flushall();
 	jr.txn_count = 0;
 	jr.crash_skip = 0;
 	return(OK);
   }
 
-  n = jr.txn_count;
-  seq = jr.sequence;
-  base = jr.jstart + 1;		/* descriptor block */
+  cap = journal_capacity();
 
-  /* 1. Descriptor block. */
-  memset(jr.iobuf, 0, jr.bsize);
-  desc = (struct mfs_journal_desc *) jr.iobuf;
-  desc->jd_magic = MFS_JDESC_MAGIC;
-  desc->jd_sequence = seq;
-  desc->jd_count = n;
-  for (i = 0; i < n; i++) desc->jd_target[i] = jr.txn[i];
-  crc = crc32(0, jr.iobuf, jr.bsize);
-  if ((r = jdev_write(base, jr.iobuf)) != OK) return(r);
+  for (lo = 0; lo < jr.txn_count; lo = hi) {
+	hi = lo + cap;
+	if (hi > jr.txn_count) hi = jr.txn_count;
+	seq = jr.sequence;
 
-  /* 2. Data blocks (the new contents, read from the cache). */
-  for (i = 0; i < n; i++) {
-	if ((r = lmfs_get_block(&bp, jr.dev, jr.txn[i], NORMAL)) != OK) {
-		printf("MFS: journal: cannot read block %u: %d\n", jr.txn[i], r);
-		return(r);
+	/* Write this chunk to the journal and make it durable. */
+	if ((r = write_txn(lo, hi, seq)) != OK) return(r);
+
+	if (jr.crash_skip || jr.crashed) {
+		/* Test hook: simulate a crash right after the commit -- leave the
+		 * transaction un-checkpointed and the journal un-advanced.  The
+		 * crash test always uses a single-chunk (atomic) transaction. */
+		jr.sequence = seq + 1;
+		jr.txn_count = 0;
+		jr.crash_skip = 0;
+		return(OK);
 	}
-	crc = crc32(crc, b_data(bp), jr.bsize);
-	r = jdev_write(base + 1 + i, b_data(bp));
-	put_block(bp);
-	if (r != OK) return(r);
+
+	/* Checkpoint this chunk in place.  The last (or only) chunk uses the
+	 * cache's bulk flush; earlier chunks of an over-capacity transaction
+	 * write their blocks directly so the bulk flush only handles the rest. */
+	if (hi == jr.txn_count)
+		lmfs_flushall();
+	else if ((r = checkpoint_blocks(lo, hi)) != OK)
+		return(r);
+
+	/* Advance: every transaction up to 'seq' is now checkpointed. */
+	if ((r = journal_advance(seq + 1)) != OK) return(r);
+	jr.sequence = seq + 1;
   }
 
-  /* 3. Commit block -- the journal is durable once this returns. */
-  memset(jr.iobuf, 0, jr.bsize);
-  commit = (struct mfs_journal_commit *) jr.iobuf;
-  commit->jc_magic = MFS_JCOMMIT_MAGIC;
-  commit->jc_sequence = seq;
-  commit->jc_checksum = crc;
-  if ((r = jdev_write(base + 1 + n, jr.iobuf)) != OK) return(r);
-
-  if (!jr.crash_skip && !jr.crashed) {
-	/* 4. Checkpoint: write the home blocks in place. */
-	lmfs_flushall();
-
-	/* 5. Advance: every transaction up to 'seq' is now checkpointed. */
-	memset(jr.iobuf, 0, jr.bsize);
-	jsb = (struct mfs_journal_super *) jr.iobuf;
-	jsb->jsb_magic = MFS_JOURNAL_MAGIC;
-	jsb->jsb_blocks = jr.jblocks;
-	jsb->jsb_sequence = seq + 1;
-	jsb->jsb_start = 1;
-	if ((r = jdev_write(jr.jstart, jr.iobuf)) != OK) return(r);
-  }
-
-  jr.sequence = seq + 1;
   jr.txn_count = 0;
   jr.crash_skip = 0;
   return(OK);
