@@ -12,7 +12,7 @@ SUBDIR= asa \
 	env expand \
 	false find finger flock fold fmt fpr from \
 	fsplit ftp genassym gencat getent \
-	getopt \
+	getfacl getopt setfacl \
 	head hexdump id indent infocmp ipcrm ipcs join jot \
 	lam last ldd leave \
 	locale lock logger login logname lorder m4 \

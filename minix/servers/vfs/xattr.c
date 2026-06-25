@@ -260,11 +260,21 @@ int do_extattr(void)
   }
 
   /* Enforce the namespace's access policy.  The system namespace is reserved
-   * to the super-user; the user namespace follows the file's read/write
-   * permissions (read to inspect, write to modify). */
-  if (ns == EXTATTR_NAMESPACE_SYSTEM)
-	r = (fp->fp_effuid == SU_UID) ? OK : EPERM;
-  else if (ns == EXTATTR_NAMESPACE_USER)
+   * to the super-user -- except the POSIX ACL attributes, which live there but
+   * follow file-ownership rules (like chmod): the owner (or super-user) may
+   * change them, and anyone who can reach the file may read them, just as the
+   * mode is public.  The user namespace follows the file's read/write bits. */
+  if (ns == EXTATTR_NAMESPACE_SYSTEM) {
+	int is_acl = (op != XA_LIST && (!strcmp(name, "posix_acl_access") ||
+	    !strcmp(name, "posix_acl_default")));
+	if (is_acl && !writing)
+		r = OK;
+	else if (is_acl)
+		r = (vp->v_uid == fp->fp_effuid || fp->fp_effuid == SU_UID) ?
+		    OK : EPERM;
+	else
+		r = (fp->fp_effuid == SU_UID) ? OK : EPERM;
+  } else if (ns == EXTATTR_NAMESPACE_USER)
 	r = forbidden(fp, vp, writing ? W_BIT : R_BIT);
   else
 	r = EINVAL;
