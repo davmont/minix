@@ -36,8 +36,22 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	return(r);
   }
 
-  /* clean check: if rw and not clean, switch to readonly */
-  if(!(superblock.s_flags & MFSFLAG_CLEAN) && !readonly) {
+  /* Journalled filesystem: replay any committed-but-uncheckpointed transaction
+   * before the filesystem is used, so an unclean journalled FS is made
+   * consistent here rather than forced read-only and left to fsck. */
+  if(!readonly && (superblock.s_feature_incompat & MFS_INCOMPAT_JOURNAL)) {
+	if((r = journal_recover(&superblock, fs_dev)) != OK) {
+		printf("MFS: journal recovery failed: %d\n", r);
+		superblock.s_dev = NO_DEV;
+		bdev_close(fs_dev);
+		return(r);
+	}
+  }
+
+  /* clean check: if rw and not clean, switch to readonly.  A journalled FS was
+   * just recovered above, so it is consistent and need not be downgraded. */
+  if(!(superblock.s_flags & MFSFLAG_CLEAN) && !readonly &&
+     !(superblock.s_feature_incompat & MFS_INCOMPAT_JOURNAL)) {
 	if(bdev_close(fs_dev) != OK)
 		panic("couldn't bdev_close after found unclean FS");
 	readonly = 1;
@@ -91,7 +105,10 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   }
 
   superblock.s_rd_only = readonly;
-  
+
+  /* Activate journaling for a read/write journalled mount. */
+  journal_init(&superblock, fs_dev);
+
   /* Root inode properties */
   root_node->fn_ino_nr = root_ip->i_num;
   root_node->fn_mode = root_ip->i_mode;
@@ -190,6 +207,9 @@ void fs_unmount(void)
 
   /* force any cached blocks out of memory */
   fs_sync();
+
+  /* Commit any final transaction and release journal resources. */
+  journal_stop();
 
   /* Mark it clean if we're allowed to write _and_ it was clean originally. */
   if (!superblock.s_rd_only) {

@@ -40,6 +40,7 @@ int truncate_inode(struct inode *rip, off_t len);
 
 /* misc.c */
 void fs_sync(void);
+void fs_postcall(void);
 
 /* mount.c */
 int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
@@ -63,6 +64,15 @@ int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
 struct inode *advance(struct inode *dirp, const char *string);
 int search_dir(struct inode *ldir_ptr, const char *string, ino_t *numb,
 	int flag);
+
+/* journal.c */
+int journal_recover(struct super_block *sp, dev_t dev);
+int journal_init(struct super_block *sp, dev_t dev);
+void journal_stop(void);
+void journal_track(u32_t block);
+int journal_commit(void);
+void journal_crash_test(void);
+int journal_crashed(void);
 
 /* dirhash.c */
 void dirhash_build(struct inode *rip);

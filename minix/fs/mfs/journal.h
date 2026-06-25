@@ -16,9 +16,31 @@
 struct mfs_journal_super {
   u32_t jsb_magic;		/* MFS_JOURNAL_MAGIC */
   u32_t jsb_blocks;		/* total journal blocks, including this one */
-  u32_t jsb_sequence;		/* sequence number of the oldest valid txn */
-  u32_t jsb_start;		/* block offset within the journal of that txn */
+  u32_t jsb_sequence;		/* sequence to assign to the next transaction;
+				 * every transaction with a smaller sequence is
+				 * already checkpointed in place */
+  u32_t jsb_start;		/* journal-relative block of the next txn (1) */
   u32_t jsb_flags;		/* reserved, must be zero */
 };
+
+/* Transaction descriptor block: the home block numbers of the data blocks that
+ * immediately follow it in the journal. */
+struct mfs_journal_desc {
+  u32_t jd_magic;		/* MFS_JDESC_MAGIC */
+  u32_t jd_sequence;		/* this transaction's sequence number */
+  u32_t jd_count;		/* number of data blocks in the transaction */
+  u32_t jd_target[1];		/* jd_count home block numbers (flexible) */
+};
+
+/* Commit block: written last, marks the transaction durable. */
+struct mfs_journal_commit {
+  u32_t jc_magic;		/* MFS_JCOMMIT_MAGIC */
+  u32_t jc_sequence;		/* must equal the descriptor's jd_sequence */
+  u32_t jc_checksum;		/* CRC32 of the descriptor + all data blocks */
+};
+
+/* Maximum home blocks recordable in one descriptor block of 'bs' bytes. */
+#define MFS_JDESC_MAX(bs) \
+	(((bs) - (unsigned)(3 * sizeof(u32_t))) / (unsigned)sizeof(u32_t))
 
 #endif /* __MFS_JOURNAL_H__ */
