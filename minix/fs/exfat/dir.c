@@ -90,13 +90,14 @@ static int read_fileset(struct inode *dir, uint64_t off,
 }
 
 /*===========================================================================*
- *				set_entries				     *
+ *				set_entries_of				     *
  *===========================================================================*/
-static unsigned set_entries(const struct exfat_file_entry *fe)
+unsigned set_entries_of(const struct exfat_file_entry *fe)
 {
 /* Number of 32-byte entries in the set headed by File entry fe. */
 	return 1u + fe->secondary_count;
 }
+#define set_entries(fe)	set_entries_of(fe)
 
 /*===========================================================================*
  *				scan_root_meta				     *
@@ -340,4 +341,63 @@ ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 out:
 	*pos = cookie;
 	return fsdriver_dentry_finish(&fdd);
+}
+
+/*===========================================================================*
+ *				dir_find				     *
+ *===========================================================================*/
+int dir_find(struct inode *dir, const char *name, uint64_t *offp,
+	struct exfat_file_entry *fe, struct exfat_stream_entry *se)
+{
+/* Find the entry set named 'name' in directory 'dir'.  On success returns OK
+ * with *offp set to the byte offset of the File entry and fe/se filled in;
+ * returns ENOENT if not found. */
+	uint16_t target[EXFAT_NAME_MAX], dname[EXFAT_NAME_MAX];
+	struct exfat_dentry de;
+	uint64_t off;
+	int tlen, dlen, r;
+
+	if ((tlen = utf8_to_utf16(name, target, EXFAT_NAME_MAX)) < 0)
+		return ENAMETOOLONG;
+
+	for (off = 0; ; ) {
+		if ((r = read_dentry(dir, off, &de)) != OK)
+			return (r == ENOENT) ? ENOENT : r;
+		if (de.type == EXFAT_TYPE_END)
+			return ENOENT;
+		if (!(de.type & EXFAT_TYPE_INUSE) ||
+		    de.type != EXFAT_ENTRY_FILE) {
+			off += EXFAT_DENTRY_SIZE;
+			continue;
+		}
+		if ((r = read_fileset(dir, off, fe, se, dname, &dlen)) != OK)
+			return r;
+		if (name_match(target, tlen, dname, dlen)) {
+			*offp = off;
+			return OK;
+		}
+		off += (uint64_t) set_entries(fe) * EXFAT_DENTRY_SIZE;
+	}
+}
+
+/*===========================================================================*
+ *				dir_is_empty				     *
+ *===========================================================================*/
+int dir_is_empty(struct inode *dir)
+{
+/* Return TRUE if directory 'dir' contains no (in-use) file entries.  exFAT has
+ * no "." or ".." entries, so an empty directory has only free/deleted slots. */
+	struct exfat_dentry de;
+	uint64_t off;
+	int r;
+
+	for (off = 0; ; off += EXFAT_DENTRY_SIZE) {
+		if ((r = read_dentry(dir, off, &de)) != OK)
+			return (r == ENOENT) ? TRUE : FALSE;
+		if (de.type == EXFAT_TYPE_END)
+			return TRUE;
+		if ((de.type & EXFAT_TYPE_INUSE) &&
+		    de.type == EXFAT_ENTRY_FILE)
+			return FALSE;
+	}
 }

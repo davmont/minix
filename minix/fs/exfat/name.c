@@ -253,3 +253,53 @@ void exfat_to_timespec(uint32_t stamp, uint8_t inc10ms, uint8_t tzoff,
 	tsp->tv_sec = secs;
 	tsp->tv_nsec = (long) inc10ms * 10000000L;
 }
+
+/*===========================================================================*
+ *				civil_from_days				     *
+ *===========================================================================*/
+static void civil_from_days(long z, int *yp, unsigned *mp, unsigned *dp)
+{
+/* Inverse of days_from_civil (Hinnant). */
+	unsigned doe, yoe, mp_, d, m;
+	long era;
+	int y;
+
+	z += 719468;
+	era = (z >= 0 ? z : z - 146096) / 146097;
+	doe = (unsigned)(z - era * 146097);
+	yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+	y = (int)(yoe + era * 400);
+	doe -= (365 * yoe + yoe / 4 - yoe / 100);
+	mp_ = (5 * doe + 2) / 153;
+	d = doe - (153 * mp_ + 2) / 5 + 1;
+	m = mp_ + (mp_ < 10 ? 3 : -9);
+	*yp = y + (m <= 2);
+	*mp = m;
+	*dp = d;
+}
+
+/*===========================================================================*
+ *				timespec_to_exfat			     *
+ *===========================================================================*/
+void timespec_to_exfat(time_t sec, uint32_t *stamp, uint8_t *inc10ms,
+	uint8_t *tzoff)
+{
+/* Convert a UTC time_t to an exFAT timestamp.  We store the time as local time
+ * with an invalid UTC-offset byte (bit 7 clear), so a reader treats the packed
+ * value as-is, round-tripping with exfat_to_timespec(). */
+	long days = (long)(sec / 86400);
+	int rem = (int)(sec % 86400);
+	int year;
+	unsigned mon, day;
+
+	if (rem < 0) { rem += 86400; days -= 1; }
+
+	civil_from_days(days, &year, &mon, &day);
+	if (year < 1980) { year = 1980; mon = 1; day = 1; rem = 0; }
+
+	*stamp = ((uint32_t)(year - 1980) << 25) | ((uint32_t) mon << 21) |
+	    ((uint32_t) day << 16) | ((uint32_t)(rem / 3600) << 11) |
+	    ((uint32_t)((rem % 3600) / 60) << 5) | (uint32_t)((rem % 60) / 2);
+	*inc10ms = 0;
+	*tzoff = 0;
+}

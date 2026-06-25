@@ -1,8 +1,4 @@
-/* The dispatch table mapping fsdriver requests onto exFAT handlers.
- *
- * exFAT is currently read-only: write/create/modify hooks are omitted, so VFS
- * returns EROFS (or ENOSYS) for them automatically.
- */
+/* The dispatch table mapping fsdriver requests onto exFAT handlers. */
 #define _TABLE
 
 #include "fs.h"
@@ -13,8 +9,17 @@ struct fsdriver exfat_table = {
 	.fdr_lookup	= fs_lookup,
 	.fdr_putnode	= fs_putnode,
 	.fdr_read	= fs_readwrite,
+	.fdr_write	= fs_readwrite,
+	.fdr_trunc	= fs_trunc,
+	.fdr_create	= fs_create,
+	.fdr_mkdir	= fs_mkdir,
+	.fdr_unlink	= fs_unlink,
+	.fdr_rmdir	= fs_unlink,
+	.fdr_rename	= fs_rename,
 	.fdr_getdents	= fs_getdents,
 	.fdr_stat	= fs_stat,
+	.fdr_chmod	= fs_chmod,
+	.fdr_utime	= fs_utime,
 	.fdr_mountpt	= fs_mountpt,
 	.fdr_statvfs	= fs_statvfs,
 	.fdr_sync	= fs_sync,
