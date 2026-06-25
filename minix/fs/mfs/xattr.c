@@ -179,6 +179,68 @@ void mfs_acl_inherit(struct inode *parent, struct inode *child)
 }
 
 /*===========================================================================*
+ *				mfs_acl_chmod				     *
+ *===========================================================================*/
+void mfs_acl_chmod(struct inode *rip)
+{
+/* After a chmod has set rip->i_mode, fold the new permission bits back into the
+ * file's POSIX access ACL (if it has one) so the ACL and the mode stay
+ * consistent (POSIX.1e equivalent of acl_calc_mask on chmod):
+ *	- USER_OBJ gets the mode's owner bits;
+ *	- OTHER gets the mode's other bits;
+ *	- if the ACL has a MASK entry, the MASK gets the mode's group bits and
+ *	  GROUP_OBJ is left untouched (with a mask, the mode's group bits stand
+ *	  for the mask, which is also what ls/stat report);
+ *	- otherwise GROUP_OBJ gets the mode's group bits.
+ * Named user/group entries are never changed by a chmod.  The on-disk mode is
+ * left exactly as chmod set it: when a mask is present its group bits already
+ * equal the new mask, so mode and ACL agree. */
+  char abuf[MFS_ACL_BUFSZ];
+  struct fsdriver_data data;
+  struct posix_acl_xattr_header *h;
+  struct posix_acl_xattr_entry *e;
+  ssize_t alen;
+  unsigned n, i;
+  u16_t mo, mg, mob;
+  int have_mask = 0;
+
+  if (rip->i_xattr_zone == NO_ZONE) return;
+
+  data.endpt = SELF;
+  data.ptr = abuf;
+  data.size = sizeof(abuf);
+  alen = fs_getxattr(rip->i_num, EXTATTR_NAMESPACE_SYSTEM,
+	POSIX_ACL_XATTR_ACCESS, &data, sizeof(abuf));
+  if (alen < (ssize_t) sizeof(struct posix_acl_xattr_header)) return;
+  h = (struct posix_acl_xattr_header *) abuf;
+  if (h->a_version != POSIX_ACL_XATTR_VERSION) return;
+  n = (unsigned) (((size_t) alen - sizeof(*h)) /
+	sizeof(struct posix_acl_xattr_entry));
+
+  mo  = (u16_t) ((rip->i_mode >> 6) & 7);
+  mg  = (u16_t) ((rip->i_mode >> 3) & 7);
+  mob = (u16_t) (rip->i_mode & 7);
+
+  e = (struct posix_acl_xattr_entry *) (h + 1);
+  for (i = 0; i < n; i++)
+	if (e[i].e_tag == ACL_MASK) have_mask = 1;
+  for (i = 0; i < n; i++) {
+	switch (e[i].e_tag) {
+	case ACL_USER_OBJ:  e[i].e_perm = mo;  break;
+	case ACL_OTHER:     e[i].e_perm = mob; break;
+	case ACL_MASK:      e[i].e_perm = mg;  break;
+	case ACL_GROUP_OBJ: if (!have_mask) e[i].e_perm = mg; break;
+	}
+  }
+
+  data.endpt = SELF;
+  data.ptr = abuf;
+  data.size = (size_t) alen;
+  (void) fs_setxattr(rip->i_num, EXTATTR_NAMESPACE_SYSTEM,
+	POSIX_ACL_XATTR_ACCESS, &data, (size_t) alen, 0);
+}
+
+/*===========================================================================*
  *				fs_getxattr				     *
  *===========================================================================*/
 ssize_t fs_getxattr(ino_t ino_nr, int attrnamespace, const char *name,
