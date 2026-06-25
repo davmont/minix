@@ -39,6 +39,9 @@ static struct {
   u32_t *dtxn;			/* file-data home blocks to flush ordered */
   unsigned dtxn_count;
   unsigned dtxn_max;		/* capacity; flushed eagerly when full */
+  unsigned batch_ops;		/* requests accumulated since the last commit */
+  unsigned commit_blocks;	/* commit once the running txn reaches this many */
+  unsigned commit_ops;		/* ... or this many requests (durability bound) */
   char *iobuf;			/* one block of scratch for device I/O */
   int crash_skip;		/* test hook: commit to journal, do not checkpoint */
   int crashed;			/* test hook: latch -- suppress all checkpointing */
@@ -350,6 +353,8 @@ int journal_init(struct super_block *sp, dev_t dev)
 {
 /* Activate journaling for a read/write journalled mount.  journal_recover()
  * must already have run (it set jr.sequence). */
+  unsigned cap;
+
   if (!(sp->s_feature_incompat & MFS_INCOMPAT_JOURNAL) || sp->s_rd_only)
 	return(OK);
 
@@ -375,6 +380,27 @@ int journal_init(struct super_block *sp, dev_t dev)
   }
   jr.txn_count = 0;
   jr.dtxn_count = 0;
+  jr.batch_ops = 0;
+
+  /* Batching thresholds.  Commit the running transaction once it has gathered
+   * roughly a quarter of the journal's atomic capacity in metadata blocks, or
+   * after a bounded number of requests -- whichever comes first.
+   *
+   * Two ceilings matter.  Staying well under the journal capacity keeps each
+   * committed batch a single (atomic) chunk.  Staying well under the block
+   * cache (DEFAULT_NR_BUFS) keeps the batch's uncommitted, still-dirty metadata
+   * resident in the cache as recently-used buffers, so the cache never has to
+   * evict one to its home location ahead of the commit -- which would break
+   * write-ahead ordering.  The request bound also limits how much recently
+   * written (un-synced) work a crash can roll back. */
+  cap = journal_capacity();
+  jr.commit_blocks = cap / 4;
+  if (jr.commit_blocks > DEFAULT_NR_BUFS / 4) jr.commit_blocks = DEFAULT_NR_BUFS / 4;
+  if (jr.commit_blocks < 1) jr.commit_blocks = 1;
+  jr.commit_ops = cap / 4;
+  if (jr.commit_ops < 8) jr.commit_ops = 8;
+  if (jr.commit_ops > 64) jr.commit_ops = 64;
+
   jr.crash_skip = 0;
   jr.active = 1;
   return(OK);
@@ -507,6 +533,8 @@ int journal_commit(void)
 
   if (!jr.active) return(OK);
 
+  jr.batch_ops = 0;		/* a new batch starts after this commit */
+
   /* Flush dirty in-core inodes into their cache blocks; this MARKDIRTYs (and
    * so journal_track()s) the inode blocks. */
   for (rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
@@ -567,5 +595,32 @@ int journal_commit(void)
 
   jr.txn_count = 0;
   jr.crash_skip = 0;
+  return(OK);
+}
+
+/*===========================================================================*
+ *				journal_maybe_commit			     *
+ *===========================================================================*/
+int journal_maybe_commit(void)
+{
+/* Called after every request.  Rather than commit each request on its own,
+ * accumulate a running transaction and commit it only once it has gathered
+ * enough metadata or spanned enough requests -- batching that amortises the
+ * journal write and the in-place checkpoint over many operations (the JBD
+ * model).  Durability still arrives promptly: fsync()/sync() force a commit (via
+ * fs_sync), unmount commits, and the request bound caps how much a crash rolls
+ * back.  Because each batch is checkpointed and the journal advanced before the
+ * next begins, a freed metadata block can never be replayed over its later
+ * reuse, so no revoke records are needed. */
+  if (!jr.active) return(OK);
+
+  /* The crash-test hook forces an immediate commit so the armed transaction is
+   * actually written to the journal. */
+  if (jr.crash_skip || jr.crashed) return(journal_commit());
+
+  jr.batch_ops++;
+  if (jr.txn_count >= jr.commit_blocks || jr.batch_ops >= jr.commit_ops)
+	return(journal_commit());
+
   return(OK);
 }
