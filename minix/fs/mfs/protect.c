@@ -71,6 +71,10 @@ int fs_chmod(ino_t ino_nr, mode_t *mode)
   rip->i_update |= CTIME;
   IN_MARKDIRTY(rip);
 
+  /* Keep a POSIX access ACL consistent with the new mode (V4): fold the new
+   * permission bits into USER_OBJ / mask-or-GROUP_OBJ / OTHER. */
+  mfs_acl_chmod(rip);
+
   /* Return full new mode to caller. */
   *mode = rip->i_mode;
 

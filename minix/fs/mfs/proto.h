@@ -92,6 +92,7 @@ int fs_setxattr(ino_t ino_nr, int attrnamespace, const char *name,
 	struct fsdriver_data *data, size_t bytes, int flags);
 int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name);
 void mfs_acl_inherit(struct inode *parent, struct inode *child);
+void mfs_acl_chmod(struct inode *rip);
 
 /* protect.c */
 int fs_chmod(ino_t ino, mode_t *mode);
