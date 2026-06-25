@@ -7,6 +7,7 @@ SUBDIR+=	pfs
 SUBDIR+=	ext2
 SUBDIR+=	isofs
 SUBDIR+=	vfat
+SUBDIR+=	exfat
 SUBDIR+=	procfs
 SUBDIR+=	ptyfs
 
