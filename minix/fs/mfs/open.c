@@ -220,6 +220,13 @@ static struct inode *new_node(struct inode *ldirp,
   	return(NULL);
   }
 
+  /* No new entries may be added to an immutable directory (V4).  An append-only
+   * directory still accepts new entries, as that is an append. */
+  if (ldirp->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE)) {
+	err_code = EPERM;
+	return(NULL);
+  }
+
   if (S_ISDIR(bits) && (ldirp->i_nlinks >= LINK_MAX)) {
         /* New entry is a directory, alas we can't give it a ".." */
         err_code = EMLINK;

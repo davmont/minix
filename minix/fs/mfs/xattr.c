@@ -1,5 +1,6 @@
 #include "fs.h"
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/extattr.h>
 #include "buf.h"
 #include "inode.h"
@@ -215,6 +216,9 @@ int fs_setxattr(ino_t ino_nr, int attrnamespace, const char *name,
   if (!xattr_ns_ok(attrnamespace)) return(EINVAL);
   if ((rip = find_inode(fs_dev, ino_nr)) == NULL) return(EINVAL);
   if (rip->i_sp->s_rd_only) return(EROFS);
+  /* An immutable or append-only file's attributes may not be changed (V4). */
+  if (rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND))
+	return(EPERM);
   namelen = strlen(name);
   if (namelen == 0 || namelen > MFS_XATTR_NAME_MAX) return(EINVAL);
   if (bytes > MFS_XATTR_VAL_MAX) return(E2BIG);
@@ -317,6 +321,9 @@ int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name)
   if (!xattr_ns_ok(attrnamespace)) return(EINVAL);
   if ((rip = find_inode(fs_dev, ino_nr)) == NULL) return(EINVAL);
   if (rip->i_sp->s_rd_only) return(EROFS);
+  /* An immutable or append-only file's attributes may not be removed (V4). */
+  if (rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND))
+	return(EPERM);
   namelen = strlen(name);
   if (namelen == 0 || namelen > MFS_XATTR_NAME_MAX) return(EINVAL);
 
