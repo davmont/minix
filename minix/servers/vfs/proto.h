@@ -196,6 +196,8 @@ int do_umask(void);
 
 /* xattr.c */
 int do_extattr(void);
+int vfs_acl_check(struct vnode *vp, struct fproc *fp, uid_t uid, gid_t gid,
+	mode_t access);
 int forbidden(struct fproc *rfp, struct vnode *vp, mode_t
 	access_desired);
 int read_only(struct vnode *vp);

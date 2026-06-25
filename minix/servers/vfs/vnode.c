@@ -91,6 +91,7 @@ get_free_vnode(void)
 	if (vp->v_ref_count == 0 && !is_vnode_locked(vp)) {
 		vp->v_uid  = -1;
 		vp->v_gid  = -1;
+		vp->v_acl  = VACL_UNKNOWN;
 		vp->v_sdev = NO_DEV;
 		vp->v_mapfs_e = NONE;
 		vp->v_mapfs_count = 0;
