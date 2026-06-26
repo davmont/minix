@@ -10,6 +10,11 @@
 /* A directory entry is 32 bytes. */
 #define DIR_ENTRY_SIZE	((unsigned) sizeof(struct direntry))
 
+/* Maximum length of a name as UTF-8: a long name is up to WIN_MAXLEN UTF-16
+ * code units, each at most three UTF-8 bytes (surrogate pairs encode to four
+ * bytes for two code units, i.e. fewer), plus the terminating NUL. */
+#define VFAT_NAME_MAX	(WIN_MAXLEN * 3 + 1)
+
 /* Default permission masks when none are supplied as mount options. */
 #define DEFAULT_DMASK	0755
 #define DEFAULT_FMASK	0755

@@ -12,11 +12,12 @@
 struct de_iter {
 	struct inode *dirp;
 	unsigned long off;		/* byte offset of next raw slot */
-	/* LFN accumulation state. */
+	/* LFN accumulation state.  The name is assembled as UTF-16 (each slot
+	 * carries up to 13 code units) and converted to UTF-8 at the end. */
 	int have_lfn;
-	int lfn_len;
+	int lfn_len;			/* in UTF-16 code units */
 	int lfn_chksum;
-	unsigned char lfn[WIN_MAXLEN + 1];
+	uint16_t lfn16[WIN_MAXLEN + 1];
 };
 
 /*===========================================================================*
@@ -112,14 +113,14 @@ static int de_next(struct de_iter *it, char *name, size_t namesz,
 				it->have_lfn = TRUE;
 				it->lfn_chksum = wep->weChksum;
 				it->lfn_len = 0;
-				memset(it->lfn, 0, sizeof(it->lfn));
+				memset(it->lfn16, 0, sizeof(it->lfn16));
 			}
 			if (!it->have_lfn)
 				continue;
 
 			pos = (seq - 1) * WIN_CHARS;
-			got = win2unixfn(wep, &it->lfn[pos],
-			    sizeof(it->lfn) - 1 - pos, it->lfn_chksum);
+			got = win2wchar(wep, &it->lfn16[pos],
+			    WIN_MAXLEN - pos, it->lfn_chksum);
 			if (got < 0) {
 				it->have_lfn = FALSE;	/* checksum mismatch */
 				continue;
@@ -137,9 +138,9 @@ static int de_next(struct de_iter *it, char *name, size_t namesz,
 		/* A real 8.3 entry. */
 		if (it->have_lfn &&
 		    winchksum(de.deName) == (uint8_t) it->lfn_chksum &&
-		    it->lfn_len > 0) {
-			it->lfn[it->lfn_len] = '\0';
-			(void) strlcpy(name, (char *) it->lfn, namesz);
+		    it->lfn_len > 0 &&
+		    utf16_to_utf8(it->lfn16, it->lfn_len, name, namesz) >= 0) {
+			/* name now holds the UTF-8 long name. */
 		} else {
 			cnt = dos2unixfn(de.deName, (unsigned char *) name, 1);
 			(void) cnt;
@@ -181,7 +182,7 @@ int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
 	struct inode *dirp, *rip;
 	struct de_iter it;
 	struct direntry de;
-	char entname[WIN_MAXLEN + 1];
+	char entname[VFAT_NAME_MAX];
 	unsigned long short_off;
 	int r;
 
@@ -243,7 +244,7 @@ ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	struct inode *dirp;
 	struct de_iter it;
 	struct direntry de;
-	char entname[WIN_MAXLEN + 1];
+	char entname[VFAT_NAME_MAX];
 	struct fsdriver_dentry fdd;
 	unsigned long short_off;
 	off_t cookie;
@@ -324,7 +325,7 @@ static int find_entry(struct inode *dirp, const char *name,
  */
 	struct de_iter it;
 	struct direntry de;
-	char entname[WIN_MAXLEN + 1];
+	char entname[VFAT_NAME_MAX];
 	int r;
 
 	de_iter_init(&it, dirp, 0);
@@ -455,8 +456,8 @@ static void put_wchar(struct winentry *wep, int k, unsigned int wc)
 /*===========================================================================*
  *				fill_winentry				     *
  *===========================================================================*/
-static void fill_winentry(struct winentry *wep, const char *name, int chunklen,
-	int seq, int last, int chksum)
+static void fill_winentry(struct winentry *wep, const uint16_t *wname,
+	int chunklen, int seq, int last, int chksum)
 {
 	int k;
 
@@ -469,7 +470,7 @@ static void fill_winentry(struct winentry *wep, const char *name, int chunklen,
 		unsigned int wc;
 
 		if (k < chunklen)
-			wc = (unsigned char) name[k];
+			wc = wname[k];
 		else if (k == chunklen)
 			wc = 0x0000;	/* terminator */
 		else
@@ -524,15 +525,18 @@ static int createde(struct inode *dirp, const char *name, uint8_t attrs,
 {
 /* Create a directory entry (long-name slots + 8.3 entry) for 'name'. */
 	unsigned char name11[11];
+	uint16_t wname[WIN_MAXLEN + 1];
 	struct direntry de;
 	struct winentry we;
 	uint16_t dosdate, dostime;
 	unsigned long off;
 	int namelen, nslots, p, chksum, r;
 
-	namelen = (int) strlen(name);
-	if (namelen == 0 || namelen > WIN_MAXLEN)
+	if (strlen(name) == 0)
 		return EINVAL;
+	/* The long name is measured and stored in UTF-16 code units. */
+	if ((namelen = utf8_to_utf16(name, wname, WIN_MAXLEN)) <= 0)
+		return ENAMETOOLONG;
 
 	make_short_name(dirp, name, name11);
 	chksum = winchksum(name11);
@@ -548,7 +552,7 @@ static int createde(struct inode *dirp, const char *name, uint8_t attrs,
 
 		if (clen > WIN_CHARS)
 			clen = WIN_CHARS;
-		fill_winentry(&we, name + cstart, clen, seq, p == 0, chksum);
+		fill_winentry(&we, wname + cstart, clen, seq, p == 0, chksum);
 		if ((r = write_dir_slot(dirp, off + p * DIR_ENTRY_SIZE,
 		    &we)) != OK)
 			return r;
@@ -766,7 +770,7 @@ static int dir_is_empty(unsigned long start)
 	struct inode tmp;
 	struct de_iter it;
 	struct direntry de;
-	char entname[WIN_MAXLEN + 1];
+	char entname[VFAT_NAME_MAX];
 	unsigned long soff;
 	int r;
 

@@ -59,8 +59,9 @@ int fs_rename(ino_t old_dir_nr, char *old_name, ino_t new_dir_nr,
 /* name.c */
 void unix2dostime(time_t t, uint16_t *ddp, uint16_t *dtp);
 int dos2unixfn(const unsigned char dn[11], unsigned char *un, int lower);
-int win2unixfn(const struct winentry *wep, unsigned char *un, size_t unsize,
-	int chksum);
+int win2wchar(const struct winentry *wep, uint16_t *dst, int dstmax, int chksum);
+int utf16_to_utf8(const uint16_t *in, int inlen, char *out, size_t outsize);
+int utf8_to_utf16(const char *in, uint16_t *out, int outmax);
 uint8_t winchksum(const unsigned char *name);
 void dos2unixtime(unsigned int dd, unsigned int dt, struct timespec *tsp);
 
