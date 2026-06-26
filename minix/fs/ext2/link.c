@@ -569,9 +569,19 @@ off_t start, end;		/* range of bytes to free (end uninclusive) */
 	e = end / block_size;
 	if (end == rip->i_size && (end % block_size))
 		e++;
-	for (p = nextblock(start, block_size)/block_size; p < e; p++) {
-		if ((r = write_map(rip, p*block_size, NO_BLOCK, WMAP_FREE)) != OK)
+	p = nextblock(start, block_size)/block_size;
+	if (rip->i_flags & EXT4_EXTENTS_FL) {
+		/* Extent-mapped (ext4) inode: free the whole [p, e) logical
+		 * range from the extent tree in one pass. */
+		if ((r = ext4_extent_remove_range(rip, (u32_t) p,
+		    (u32_t) e)) != OK)
 			return(r);
+	} else {
+		for (; p < e; p++) {
+			if ((r = write_map(rip, p*block_size, NO_BLOCK,
+			    WMAP_FREE)) != OK)
+				return(r);
+		}
 	}
   }
 
