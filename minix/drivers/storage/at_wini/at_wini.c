@@ -865,14 +865,18 @@ static int w_specify(void)
  *				do_transfer				     *
  *===========================================================================*/
 static int do_transfer(const struct wini *wn, unsigned int count,
-	unsigned int sector, unsigned int do_write, int do_dma)
+	u64_t sector, unsigned int do_write, int do_dma)
 {
   	struct command cmd;
 	unsigned int sector_high;
 	unsigned secspcyl = wn->heads * wn->sectors;
 	int do_lba48;
 
-	sector_high= 0;	/* For future extensions */
+	/* LBA48 addresses 48-bit sectors; the high 16 bits (sector 32..47) go
+	 * into the "previous" task-file registers.  Filling them in lets
+	 * transfers reach past 2 TiB (2^32 sectors); they used to be hard-wired
+	 * to zero, silently wrapping a large sector to a low one. */
+	sector_high= (unsigned int)((sector >> 32) & 0xFFFF);
 
 	do_lba48= 0;
 	if (sector >= LBA48_CHECK_SIZE || sector_high != 0)
