@@ -27,9 +27,8 @@ static u32_t ext2_count_dirs(struct super_block *sp);
 
 static void super_copy(register struct super_block *dest, register
 	struct super_block *source);
-static void copy_group_descriptors(register struct group_desc
-	*dest_array, register struct group_desc *source_array, unsigned int
-	ngroups);
+static void copy_group_descriptors(struct super_block *sp, void *dest,
+	void *source, unsigned int ngroups);
 
 static off_t super_block_offset;
 
@@ -73,7 +72,7 @@ register struct super_block *sp; /* pointer to a superblock */
   int r;
   /* group descriptors, sp->s_group_desc points to this. */
   static struct group_desc *group_descs;
-  block_t gd_size; /* group descriptors table size in blocks */
+  block64_t gd_size; /* group descriptors table size in blocks */
   u64_t gdt_position;
   size_t off, chunk;
 
@@ -140,9 +139,31 @@ register struct super_block *sp; /* pointer to a superblock */
   }
 
   sp->s_itb_per_group = sp->s_inodes_per_group / sp->s_inodes_per_block;
-  sp->s_desc_per_block = sp->s_block_size / sizeof(struct group_desc);
 
-  sp->s_groups_count = ((sp->s_blocks_count - sp->s_first_data_block - 1)
+  /* Group descriptors are 32 bytes, or 64 (s_desc_size in the on-disk
+   * superblock) when the 64bit feature is present.  s_gd_size is the on-disk
+   * descriptor size and the stride of the in-core descriptor array. */
+  if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_64BIT)) {
+	u16_t ds;
+	memcpy(&ds, (u8_t *) sp + 0xFE, sizeof(ds));	/* s_desc_size @ 0xFE */
+	sp->s_gd_size = (ds >= 32) ? ds : 32;
+  } else {
+	sp->s_gd_size = 32;
+  }
+  sp->s_desc_per_block = sp->s_block_size / sp->s_gd_size;
+
+  /* On a 64bit volume the total block count exceeds 32 bits; assemble the full
+   * value from s_blocks_count (low) and s_blocks_count_hi (@0x150). */
+  if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_64BIT)) {
+	u32_t hi;
+	memcpy(&hi, (u8_t *) sp + 0x150, sizeof(hi));	/* s_blocks_count_hi */
+	sp->s_blocks_count_full = (block64_t) sp->s_blocks_count |
+	    ((block64_t) hi << 32);
+  } else {
+	sp->s_blocks_count_full = sp->s_blocks_count;
+  }
+
+  sp->s_groups_count = ((sp->s_blocks_count_full - sp->s_first_data_block - 1)
 				/ sp->s_blocks_per_group) + 1;
 
   /* ceil(groups_count/desc_per_block) */
@@ -151,9 +172,11 @@ register struct super_block *sp; /* pointer to a superblock */
 
   gd_size = sp->s_gdb_count * sp->s_block_size;
 
-  if(!(group_descs = malloc(gd_size * sizeof(struct group_desc))))
+  /* The in-core array holds the descriptors at s_gd_size stride; gd_size (the
+   * whole on-disk GDT) is always large enough to hold them. */
+  if(!(group_descs = malloc(gd_size)))
 	panic("can't allocate group desc array");
-  ondisk_group_descs = mmap(NULL, gd_size * sizeof(struct group_desc),
+  ondisk_group_descs = mmap(NULL, gd_size,
 	PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   if (ondisk_group_descs == MAP_FAILED)
 	panic("can't allocate group desc array");
@@ -189,7 +212,8 @@ register struct super_block *sp; /* pointer to a superblock */
 
   /* TODO: check descriptors we just read */
 
-  copy_group_descriptors(group_descs, ondisk_group_descs, sp->s_groups_count);
+  copy_group_descriptors(sp, group_descs, ondisk_group_descs,
+	sp->s_groups_count);
   sp->s_group_desc = group_descs;
 
   /* Make a few basic checks to see if super block looks reasonable. */
@@ -222,7 +246,7 @@ struct super_block *sp; /* pointer to a superblock */
 {
 /* Write a superblock and gdt. */
   int r;
-  block_t gd_size; /* group descriptors table size in blocks */
+  block64_t gd_size; /* group descriptors table size in blocks */
   u64_t gdt_position;
   size_t off, chunk;
 
@@ -238,7 +262,7 @@ struct super_block *sp; /* pointer to a superblock */
   if (ext2_has_csum(sp)) {
 	unsigned int g;
 	for (g = 0; g < sp->s_groups_count; g++)
-		ext2_group_desc_csum_set(sp, g, &sp->s_group_desc[g]);
+		ext2_group_desc_csum_set(sp, g, get_group_desc(g));
   }
   ext2_super_csum_set(sp);
 
@@ -259,7 +283,7 @@ struct super_block *sp; /* pointer to a superblock */
 		gdt_position = (opt.block_with_super + 1) * 1024;
 	}
 
-        copy_group_descriptors(ondisk_group_descs, sp->s_group_desc,
+        copy_group_descriptors(sp, ondisk_group_descs, sp->s_group_desc,
 			       sp->s_groups_count);
 
 	/* As above. Yes, lame. */
@@ -289,7 +313,55 @@ struct group_desc* get_group_desc(unsigned int bnum)
 	printf("ext2, get_group_desc: wrong bnum (%d) requested\n", bnum);
 	return NULL;
   }
-  return &superblock->s_group_desc[bnum];
+  /* The in-core array is strided by s_gd_size (32 or 64), not sizeof. */
+  return (struct group_desc *)((char *)superblock->s_group_desc +
+	(size_t) bnum * superblock->s_gd_size);
+}
+
+
+/*===========================================================================*
+ *		group-descriptor 48-bit block pointer accessors	     *
+ *===========================================================================*/
+/* On a 64bit volume the bitmap/inode-table block numbers are split into a low
+ * 32-bit field and a high field; assemble the full value (the high half exists
+ * only when s_gd_size is 64). */
+block64_t ext2_gd_block_bitmap(struct super_block *sp, struct group_desc *gd)
+{
+  block64_t v = gd->block_bitmap;
+  if (sp->s_gd_size >= 64)
+	v |= (block64_t) gd->block_bitmap_hi << 32;
+  return v;
+}
+
+block64_t ext2_gd_inode_bitmap(struct super_block *sp, struct group_desc *gd)
+{
+  block64_t v = gd->inode_bitmap;
+  if (sp->s_gd_size >= 64)
+	v |= (block64_t) gd->inode_bitmap_hi << 32;
+  return v;
+}
+
+block64_t ext2_gd_inode_table(struct super_block *sp, struct group_desc *gd)
+{
+  block64_t v = gd->inode_table;
+  if (sp->s_gd_size >= 64)
+	v |= (block64_t) gd->inode_table_hi << 32;
+  return v;
+}
+
+/* Full 64-bit free-block count: the on-disk s_free_blocks_count holds the low
+ * 32 bits; the high half (s_free_blocks_count_hi @0x158) is preserved across
+ * writes, so combine them.  (We maintain only the low half, which is correct as
+ * long as the count does not cross a 2^32 boundary in a single session.) */
+block64_t ext2_free_blocks_count(struct super_block *sp)
+{
+  block64_t v = sp->s_free_blocks_count;
+  if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_64BIT)) {
+	u32_t hi;
+	memcpy(&hi, (u8_t *) sp + 0x158, sizeof(hi));
+	v |= (block64_t) hi << 32;
+  }
+  return v;
 }
 
 
@@ -434,22 +506,28 @@ static void super_copy(
  *				gd_copy 				     *
  *===========================================================================*/
 static void gd_copy(
-  register struct group_desc *dest,
-  register struct group_desc *source
+  struct super_block *sp,
+  void *dest,
+  void *source
 )
 {
-  /* Copy super_block to the in-core table, swapping bytes if need be. */
-  if (le_CPU) {
-	/* Just use memcpy */
-	memcpy(dest, source, sizeof(struct group_desc));
-	return;
+/* Copy one group descriptor (s_gd_size bytes), swapping bytes if need be. */
+  memcpy(dest, source, sp->s_gd_size);
+  if (!le_CPU) {
+	/* Big-endian host: byte-swap the fields in place. */
+	struct group_desc *d = dest;
+	d->block_bitmap = conv4(le_CPU, d->block_bitmap);
+	d->inode_bitmap = conv4(le_CPU, d->inode_bitmap);
+	d->inode_table = conv4(le_CPU, d->inode_table);
+	d->free_blocks_count = conv2(le_CPU, d->free_blocks_count);
+	d->free_inodes_count = conv2(le_CPU, d->free_inodes_count);
+	d->used_dirs_count = conv2(le_CPU, d->used_dirs_count);
+	if (sp->s_gd_size >= 64) {
+		d->block_bitmap_hi = conv4(le_CPU, d->block_bitmap_hi);
+		d->inode_bitmap_hi = conv4(le_CPU, d->inode_bitmap_hi);
+		d->inode_table_hi = conv4(le_CPU, d->inode_table_hi);
+	}
   }
-  dest->block_bitmap = conv4(le_CPU, source->block_bitmap);
-  dest->inode_bitmap = conv4(le_CPU, source->inode_bitmap);
-  dest->inode_table = conv4(le_CPU, source->inode_table);
-  dest->free_blocks_count = conv2(le_CPU, source->free_blocks_count);
-  dest->free_inodes_count = conv2(le_CPU, source->free_inodes_count);
-  dest->used_dirs_count = conv2(le_CPU, source->used_dirs_count);
 }
 
 
@@ -457,12 +535,14 @@ static void gd_copy(
  *			copy_group_descriptors  			     *
  *===========================================================================*/
 static void copy_group_descriptors(
-  register struct group_desc *dest_array,
-  register struct group_desc *source_array,
+  struct super_block *sp,
+  void *dest,
+  void *source,
   unsigned int ngroups
 )
 {
   unsigned int i;
   for (i = 0; i < ngroups; i++)
-	gd_copy(&dest_array[i], &source_array[i]);
+	gd_copy(sp, (char *)dest + (size_t)i * sp->s_gd_size,
+	    (char *)source + (size_t)i * sp->s_gd_size);
 }

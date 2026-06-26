@@ -160,7 +160,10 @@ int is_dir;			/* inode will be a directory if it is TRUE */
    */
   ASSERT(gd->free_inodes_count);
 
-  bp = get_block(sp->s_dev, gd->inode_bitmap, NORMAL);
+  bp = get_block(sp->s_dev, ext2_gd_inode_bitmap(sp, gd), NORMAL);
+  /* If this group was lazily uninitialised, lay down the bitmap padding before
+   * touching it (and before ext2_group_inode_alloc() clears the flag below). */
+  ext2_inode_bitmap_init(sp, gd, b_bitmap(bp));
   bit = setbit(b_bitmap(bp), sp->s_inodes_per_group, 0);
   ASSERT(bit != -1); /* group definitly contains free inode */
 
@@ -231,7 +234,7 @@ static void free_inode_bit(struct super_block *sp, bit_t bit_returned,
   if (gd == NULL)
 	panic("can't get group_desc to alloc block");
 
-  bp = get_block(sp->s_dev, gd->inode_bitmap, NORMAL);
+  bp = get_block(sp->s_dev, ext2_gd_inode_bitmap(sp, gd), NORMAL);
 
   if (unsetbit(b_bitmap(bp), bit))
 	panic("Tried to free unused inode %d", bit_returned);

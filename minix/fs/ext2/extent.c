@@ -116,12 +116,12 @@ static u32_t idx_block(const u8_t *n, int i)
 {
 	return ext_le32(n + EXT_HDR_SIZE + i * EXT_ENT_SIZE);
 }
-static block_t idx_leaf(const u8_t *n, int i)
+static block64_t idx_leaf(const u8_t *n, int i)
 {
 	const u8_t *e = n + EXT_HDR_SIZE + i * EXT_ENT_SIZE;
-	return (block_t)(((u64_t) ext_le16(e + 8) << 32) | ext_le32(e + 4));
+	return (block64_t)(((u64_t) ext_le16(e + 8) << 32) | ext_le32(e + 4));
 }
-static void put_index(u8_t *n, int i, u32_t block, block_t leaf)
+static void put_index(u8_t *n, int i, u32_t block, block64_t leaf)
 {
 	u8_t *e = n + EXT_HDR_SIZE + i * EXT_ENT_SIZE;
 	ext_put32(e + 0, block);
@@ -156,7 +156,7 @@ void ext4_extent_init_inode(struct inode *rip)
 /*===========================================================================*
  *				leaf_insert				     *
  *===========================================================================*/
-static int leaf_insert(u8_t *node, int maxent, u32_t lblock, block_t phys)
+static int leaf_insert(u8_t *node, int maxent, u32_t lblock, block64_t phys)
 {
 /* Insert a single mapping (lblock -> phys, length 1) into a leaf node, keeping
  * its extents sorted by logical block.  Merge with the adjacent extent when
@@ -224,13 +224,13 @@ static int leaf_insert(u8_t *node, int maxent, u32_t lblock, block_t phys)
  *				grow_to_depth1				     *
  *===========================================================================*/
 static int grow_to_depth1(struct inode *rip, u8_t *root, u32_t lblock,
-	block_t phys, int sectors)
+	block64_t phys, int sectors)
 {
 /* The depth-0 root is full.  Move its extents into a freshly allocated leaf
  * block, insert the new mapping there, and turn the root into a depth-1 node
  * with a single index entry pointing at that leaf. */
 	int blockmax = block_leaf_max(rip);
-	block_t leafblk;
+	block64_t leafblk;
 	struct buf *bp;
 	u8_t *leaf;
 	u32_t first_block;
@@ -273,7 +273,7 @@ static int grow_to_depth1(struct inode *rip, u8_t *root, u32_t lblock,
  *				insert_depth1				     *
  *===========================================================================*/
 static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
-	block_t phys, int sectors)
+	block64_t phys, int sectors)
 {
 /* Insert a mapping into a depth-1 tree: descend to the leaf covering lblock
  * and add the mapping there; if that leaf is full, allocate a new leaf for the
@@ -281,7 +281,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 	int entries = eh_entries(root);
 	int blockmax = block_leaf_max(rip);
 	int i, idx, at, r;
-	block_t leafblk;
+	block64_t leafblk;
 	struct buf *bp;
 	u8_t *leaf;
 
@@ -362,7 +362,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 /*===========================================================================*
  *				ext4_extent_insert			     *
  *===========================================================================*/
-int ext4_extent_insert(struct inode *rip, u32_t lblock, block_t phys)
+int ext4_extent_insert(struct inode *rip, u32_t lblock, block64_t phys)
 {
 /* Map logical block 'lblock' of 'rip' to the just-allocated physical block
  * 'phys' in the inode's extent tree, updating i_blocks for the data block (and
@@ -506,13 +506,13 @@ int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last)
 		rip->i_dirt = IN_DIRTY;
 		return(OK);
 	} else if (depth == 1) {
-		struct { u32_t block; block_t leaf; } keep[EXT_ROOT_MAX];
+		struct { u32_t block; block64_t leaf; } keep[EXT_ROOT_MAX];
 		int entries = eh_entries(root);
 		int nkeep = 0;
 		int i;
 
 		for (i = 0; i < entries; i++) {
-			block_t leafblk = idx_leaf(root, i);
+			block64_t leafblk = idx_leaf(root, i);
 			struct buf *bp;
 			u8_t *leaf;
 			u32_t fb;
@@ -555,7 +555,7 @@ int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last)
 			 * inode root, pull them up and drop to a depth-0 tree,
 			 * freeing the leaf block, so the tree is kept no deeper
 			 * than necessary (what e2fsck's -D pass would do). */
-			block_t leafblk = keep[0].leaf;
+			block64_t leafblk = keep[0].leaf;
 			struct buf *bp;
 			u8_t *leaf;
 			int lent;

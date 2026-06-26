@@ -145,8 +145,8 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   if (!readonly)
 	ext2_process_orphans(superblock);
 
-  lmfs_set_blockusage(superblock->s_blocks_count,
-	superblock->s_blocks_count - superblock->s_free_blocks_count);
+  lmfs_set_blockusage(superblock->s_blocks_count_full,
+	superblock->s_blocks_count_full - ext2_free_blocks_count(superblock));
 
   /* Get the root inode of the mounted file system. */
   if ( (root_ip = get_inode(fs_dev, ROOT_INODE)) == NULL)  {

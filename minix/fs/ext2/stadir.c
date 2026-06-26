@@ -61,9 +61,9 @@ int fs_statvfs(struct statvfs *st)
   st->f_bsize =  sp->s_block_size;
   st->f_frsize = sp->s_block_size;
   st->f_iosize = sp->s_block_size;
-  st->f_blocks = sp->s_blocks_count;
-  st->f_bfree = sp->s_free_blocks_count;
-  st->f_bavail = sp->s_free_blocks_count - sp->s_r_blocks_count;
+  st->f_blocks = sp->s_blocks_count_full;
+  st->f_bfree = ext2_free_blocks_count(sp);
+  st->f_bavail = ext2_free_blocks_count(sp) - sp->s_r_blocks_count;
   st->f_files = sp->s_inodes_count;
   st->f_ffree = sp->s_free_inodes_count;
   st->f_favail = sp->s_free_inodes_count;
