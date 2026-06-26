@@ -246,6 +246,14 @@ static struct inode *new_node(struct inode *ldirp,
 	 */
 	rip->i_links_count++;
 	rip->i_block[0] = b0;		/* major/minor device numbers */
+	/* On an ext4 (extents) volume, give new regular files and
+	 * directories an extent tree, matching what Linux produces.
+	 * Symlinks may store their target in i_block[] (fast symlink)
+	 * and special files have no data blocks, so leave those alone. */
+	if (HAS_INCOMPAT_FEATURE(rip->i_sp, INCOMPAT_EXTENTS) &&
+	    ((rip->i_mode & I_TYPE) == I_REGULAR ||
+	     (rip->i_mode & I_TYPE) == I_DIRECTORY))
+		ext4_extent_init_inode(rip);
 	rw_inode(rip, WRITING);		/* force inode to disk now */
 
 	/* New inode acquired.  Try to make directory entry. */

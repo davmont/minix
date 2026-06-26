@@ -119,6 +119,10 @@
 #define RO_COMPAT_SPARSE_SUPER     0x0001
 #define RO_COMPAT_LARGE_FILE       0x0002
 #define RO_COMPAT_BTREE_DIR        0x0004
+#define RO_COMPAT_HUGE_FILE        0x0008	/* i_blocks may count fs blocks */
+#define RO_COMPAT_GDT_CSUM         0x0010	/* group-descriptor checksums */
+#define RO_COMPAT_DIR_NLINK        0x0020	/* >65000 subdirs (nlink==1) */
+#define RO_COMPAT_EXTRA_ISIZE      0x0040	/* inodes record i_extra_isize */
 #define RO_COMPAT_ANY              0xffffffff
 
 #define INCOMPAT_COMPRESSION       0x0001
@@ -131,14 +135,28 @@
 #define INCOMPAT_FLEX_BG           0x0200	/* flexible block groups */
 #define INCOMPAT_ANY               0xffffffff
 
-/* What do we support?  Extent-mapped (ext4) inodes are read but not yet
- * written, so a volume with the extents feature is mounted read-only.  Flexible
- * block groups need no special handling: the group descriptors already point at
- * the (relocated) bitmaps and inode tables. */
+/* What do we support?  Extent-mapped (ext4) inodes are read and written (see
+ * read.c and extent.c).  Flexible block groups need no special handling: the
+ * group descriptors already point at the (relocated) bitmaps and inode
+ * tables. */
 #define SUPPORTED_INCOMPAT_FEATURES	(INCOMPAT_FILETYPE | INCOMPAT_EXTENTS | \
 					 INCOMPAT_FLEX_BG)
+/* These RO_COMPAT features are safe to mount read-write because they need no
+ * special handling on our side: huge_file is only relevant to inodes with the
+ * EXT4_HUGE_FILE_FL flag (we never set it and never create >2 TiB files, so our
+ * i_blocks stays in 512-byte sectors); dir_nlink only changes link counting
+ * past 65000 subdirectories (we never reach that); and extra_isize merely
+ * records i_extra_isize in inodes larger than 128 bytes -- we preserve the
+ * extra area of existing inodes untouched and new inodes simply record no extra
+ * fields (i_extra_isize 0), both of which e2fsck accepts.  These three are set
+ * by default on every Linux-created ext4 volume, so supporting them is what
+ * makes a real ext4 file system writable here.  gdt_csum is deliberately left
+ * out: it would require recomputing group-descriptor checksums on every write. */
 #define SUPPORTED_RO_COMPAT_FEATURES	(RO_COMPAT_SPARSE_SUPER | \
-					 RO_COMPAT_LARGE_FILE)
+					 RO_COMPAT_LARGE_FILE | \
+					 RO_COMPAT_HUGE_FILE | \
+					 RO_COMPAT_DIR_NLINK | \
+					 RO_COMPAT_EXTRA_ISIZE)
 
 /* Ext2 directory file types. Only the low 3 bits are used.
  * The other bits are reserved for now.

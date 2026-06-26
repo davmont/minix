@@ -340,7 +340,14 @@ off_t position;			/* file pointer */
 		err_code = ENOSPC;
 		return(NULL);
 	}
-	if ( (r = write_map(rip, position, b, 0)) != OK) {
+	/* Map the new block.  Extent-mapped (ext4) inodes maintain an
+	 * extent tree; everyone else uses the indirect-block map. */
+	if (rip->i_flags & EXT4_EXTENTS_FL)
+		r = ext4_extent_insert(rip,
+		    (u32_t)(position / rip->i_sp->s_block_size), b);
+	else
+		r = write_map(rip, position, b, 0);
+	if (r != OK) {
 		free_block(rip->i_sp, b);
 		err_code = r;
 		ext2_debug("write_map failed\n");

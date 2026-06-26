@@ -105,14 +105,6 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 				"mounting read-only\n");
 		readonly = 1;
 	}
-
-	/* ext4 extent-mapped inodes can be read but not yet written, so a
-	 * volume with the extents feature is mounted read-only. */
-	if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_EXTENTS) && !readonly) {
-		printf("ext2: extent-mapped (ext4) inodes are read-only; "
-			"mounting read-only\n");
-		readonly = 1;
-	}
   }
 
   /*

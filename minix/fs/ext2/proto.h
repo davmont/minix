@@ -97,6 +97,11 @@ void ext2_process_orphans(struct super_block *sp);
 /* journal.c */
 int ext2_journal_recover(struct super_block *sp);
 
+/* extent.c */
+void ext4_extent_init_inode(struct inode *rip);
+int ext4_extent_insert(struct inode *rip, u32_t lblock, block_t phys);
+int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last);
+
 /* time.c */
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);
 
