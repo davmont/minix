@@ -114,11 +114,16 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
   int extended = 0;
   int required_space = 0;
   int string_len = 0;
+  size_t dir_limit;
 
   /* If 'ldir_ptr' is not a pointer to a dir inode, error. */
   if ( (ldir_ptr->i_mode & I_TYPE) != I_DIRECTORY)  {
 	return(ENOTDIR);
   }
+
+  /* On a metadata_csum volume the last bytes of every directory block hold a
+   * checksum "tail"; treat them as off-limits to directory entries. */
+  dir_limit = ext2_dir_block_limit(ldir_ptr->i_sp);
 
   new_slots = 0;
   e_hit = FALSE;
@@ -150,7 +155,7 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
 	 * Note, we set prev_dp at the end of the loop.
 	 */
 	for (dp = (struct ext2_disk_dir_desc*) &b_data(bp);
-	     CUR_DISC_DIR_POS(dp, &b_data(bp)) < ldir_ptr->i_sp->s_block_size;
+	     CUR_DISC_DIR_POS(dp, &b_data(bp)) < dir_limit;
 	     dp = NEXT_DISC_DIR_DESC(dp) ) {
 		/* Match occurs if string found. */
 		if (flag != ENTER && dp->d_ino != NO_ENTRY) {
@@ -211,6 +216,8 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
 					prev_dp->d_rec_len = conv2(le_CPU,
 							temp);
 				}
+				/* Refresh the checksum tail after the edit. */
+				ext2_dir_block_csum_set(ldir_ptr, b_data(bp));
 			} else {
 				/* 'flag' is LOOK_UP */
 				*numb = (ino_t) conv4(le_CPU, dp->d_ino);
@@ -272,7 +279,7 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
 	if ( (bp = new_block(ldir_ptr, ldir_ptr->i_size)) == NULL)
 		return(err_code);
 	dp = (struct ext2_disk_dir_desc*) &b_data(bp);
-	dp->d_rec_len = conv2(le_CPU, ldir_ptr->i_sp->s_block_size);
+	dp->d_rec_len = conv2(le_CPU, (u16_t) dir_limit);
 	dp->d_name_len = DIR_ENTRY_MAX_NAME_LEN(dp); /* for failure */
 	extended = 1;
   }
@@ -299,6 +306,8 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
 	else
 		dp->d_file_type = EXT2_FT_UNKNOWN;
   }
+  /* Refresh the checksum tail now the entry has been written. */
+  ext2_dir_block_csum_set(ldir_ptr, b_data(bp));
   lmfs_markdirty(bp);
   put_block(bp);
   ldir_ptr->i_update |= CTIME | MTIME;	/* mark mtime for update later */
@@ -309,7 +318,9 @@ int ftype;			 /* used when ENTER and INCOMPAT_FILETYPE */
   ldir_ptr->i_flags &= ~EXT2_INDEX_FL;
 
   if (new_slots == 1) {
-	ldir_ptr->i_size += (off_t) conv2(le_CPU, dp->d_rec_len);
+	/* The directory grew by one whole block (its last entry spans only up
+	 * to the checksum tail, so add the full block size, not d_rec_len). */
+	ldir_ptr->i_size += (off_t) ldir_ptr->i_sp->s_block_size;
 	/* Send the change to disk if the directory is extended. */
 	if (extended) rw_inode(ldir_ptr, WRITING);
   }

@@ -123,6 +123,7 @@
 #define RO_COMPAT_GDT_CSUM         0x0010	/* group-descriptor checksums */
 #define RO_COMPAT_DIR_NLINK        0x0020	/* >65000 subdirs (nlink==1) */
 #define RO_COMPAT_EXTRA_ISIZE      0x0040	/* inodes record i_extra_isize */
+#define RO_COMPAT_METADATA_CSUM    0x0400	/* crc32c checksums on metadata */
 #define RO_COMPAT_ANY              0xffffffff
 
 #define INCOMPAT_COMPRESSION       0x0001
@@ -133,6 +134,7 @@
 #define INCOMPAT_EXTENTS           0x0040	/* ext4 extent-mapped inodes */
 #define INCOMPAT_64BIT             0x0080	/* 64-bit block numbers */
 #define INCOMPAT_FLEX_BG           0x0200	/* flexible block groups */
+#define INCOMPAT_CSUM_SEED         0x2000	/* csum seed stored in superblock */
 #define INCOMPAT_ANY               0xffffffff
 
 /* What do we support?  Extent-mapped (ext4) inodes are read and written (see
@@ -140,7 +142,7 @@
  * group descriptors already point at the (relocated) bitmaps and inode
  * tables. */
 #define SUPPORTED_INCOMPAT_FEATURES	(INCOMPAT_FILETYPE | INCOMPAT_EXTENTS | \
-					 INCOMPAT_FLEX_BG)
+					 INCOMPAT_FLEX_BG | INCOMPAT_CSUM_SEED)
 /* These RO_COMPAT features are safe to mount read-write because they need no
  * special handling on our side: huge_file is only relevant to inodes with the
  * EXT4_HUGE_FILE_FL flag (we never set it and never create >2 TiB files, so our
@@ -156,7 +158,8 @@
 					 RO_COMPAT_LARGE_FILE | \
 					 RO_COMPAT_HUGE_FILE | \
 					 RO_COMPAT_DIR_NLINK | \
-					 RO_COMPAT_EXTRA_ISIZE)
+					 RO_COMPAT_EXTRA_ISIZE | \
+					 RO_COMPAT_METADATA_CSUM)
 
 /* Ext2 directory file types. Only the low 3 bits are used.
  * The other bits are reserved for now.

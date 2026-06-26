@@ -227,6 +227,8 @@ struct inode *rip;		/* used for preallocation */
 			rip->i_prealloc_index = 0;
 			rip->i_prealloc_count = EXT2_PREALLOC_BLOCKS - 1;
 
+			ext2_block_bitmap_csum_set(sp, gd, b_bitmap(bp));
+			ext2_group_block_alloc(sp, gd);
 			lmfs_markdirty(bp);
 			put_block(bp);
 
@@ -252,6 +254,8 @@ struct inode *rip;		/* used for preallocation */
 	block = sp->s_first_data_block + group * sp->s_blocks_per_group + bit;
 	check_block_number(block, sp, gd);
 
+	ext2_block_bitmap_csum_set(sp, gd, b_bitmap(bp));
+	ext2_group_block_alloc(sp, gd);
 	lmfs_markdirty(bp);
 	put_block(bp);
 
@@ -318,6 +322,7 @@ void free_block(struct super_block *sp, bit_t bit_returned)
   if (unsetbit(b_bitmap(bp), bit))
 	panic("Tried to free unused block %d", bit_returned);
 
+  ext2_block_bitmap_csum_set(sp, gd, b_bitmap(bp));
   lmfs_markdirty(bp);
   put_block(bp);
 

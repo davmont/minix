@@ -254,6 +254,7 @@ static int grow_to_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 		return(EFBIG);
 	}
 	first_block = ext_le32(leaf + EXT_HDR_SIZE);
+	ext2_extent_block_csum_set(rip, leaf);
 	lmfs_markdirty(bp);
 	put_block(bp);
 
@@ -303,6 +304,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 
 	r = leaf_insert(leaf, blockmax, lblock, phys);
 	if (r == INS_DONE) {
+		ext2_extent_block_csum_set(rip, leaf);
 		lmfs_markdirty(bp);
 		put_block(bp);
 		/* Keep the index key in sync if we became the first extent. */
@@ -332,6 +334,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 	memset(leaf, 0, rip->i_sp->s_block_size);
 	set_header(leaf, 0, blockmax, 0);
 	(void) leaf_insert(leaf, blockmax, lblock, phys);	/* always fits */
+	ext2_extent_block_csum_set(rip, leaf);
 	lmfs_markdirty(bp);
 	put_block(bp);
 
@@ -534,6 +537,7 @@ int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last)
 				rip->i_blocks -= sectors;
 			} else {
 				fb = ext_le32(leaf + EXT_HDR_SIZE);
+				ext2_extent_block_csum_set(rip, leaf);
 				lmfs_markdirty(bp);
 				put_block(bp);
 				keep[nkeep].block = fb;
