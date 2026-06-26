@@ -90,6 +90,8 @@ int read_super(struct super_block *sp);
 void write_super(struct super_block *sp);
 struct group_desc* get_group_desc(unsigned int bnum);
 
+off_t ext2_max_size(int block_size);
+
 /* journal.c */
 int ext2_journal_recover(struct super_block *sp);
 

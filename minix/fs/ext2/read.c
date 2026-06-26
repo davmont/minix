@@ -49,8 +49,10 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
   if (f_size < 0) f_size = MAX_FILE_POS;
 
   if (call == FSC_WRITE) {
-	/* Check in advance to see if file will grow too big. */
-	if (position > (off_t) (rip->i_sp->s_max_size - nrbytes))
+	/* Check in advance to see if file will grow too big.  Use the real
+	 * 64-bit addressing limit, not the (32-bit) s_max_size field, so files
+	 * past 4 GiB are permitted on RO_COMPAT_LARGE_FILE volumes. */
+	if (position > ext2_max_size(rip->i_sp->s_block_size) - (off_t) nrbytes)
 		return(EFBIG);
   }
 
@@ -69,7 +71,7 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
 	}
 
 	/* Read or write 'chunk' bytes. */
-	r = rw_chunk(rip, ((u64_t)((unsigned long)position)), off, chunk,
+	r = rw_chunk(rip, (u64_t) position, off, chunk,
 		nrbytes, call, data, cum_io, block_size, &completed);
 
 	if (r != OK) break;
@@ -128,9 +130,7 @@ int *completed;                 /* number of bytes copied */
 
   *completed = 0;
 
-  if (ex64hi(position) != 0)
-	panic("rw_chunk: position too high");
-  b = read_map(rip, (off_t) ex64lo(position), 0);
+  b = read_map(rip, (off_t) position, 0);
   dev = rip->i_dev;
   ino = rip->i_num;
   assert(ino != VMC_NO_INODE);
@@ -151,7 +151,7 @@ int *completed;                 /* number of bytes copied */
                /* Writing to a nonexistent block.
                 * Create and enter in inode.
                 */
-		if ((bp = new_block(rip, (off_t) ex64lo(position))) == NULL)
+		if ((bp = new_block(rip, (off_t) position)) == NULL)
 			return(err_code);
         }
   } else if (call != FSC_WRITE) {
@@ -163,7 +163,7 @@ int *completed;                 /* number of bytes copied */
 	 * the cache, acquire it, otherwise just acquire a free buffer.
          */
 	n = (chunk == block_size ? NO_READ : NORMAL);
-	if (off == 0 && (off_t) ex64lo(position) >= rip->i_size)
+	if (off == 0 && (off_t) position >= rip->i_size)
 		n = NO_READ;
 	assert(ino != VMC_NO_INODE);
 	assert(!(ino_off % block_size));
@@ -176,7 +176,7 @@ int *completed;                 /* number of bytes copied */
 	panic("bp not valid in rw_chunk, this can't happen");
 
   if (call == FSC_WRITE && chunk != block_size &&
-      (off_t) ex64lo(position) >= rip->i_size && off == 0) {
+      (off_t) position >= rip->i_size && off == 0) {
 	zero_block(bp);
   }
 
@@ -374,12 +374,12 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
    * indirect blocks (but don't call read_map!).
    */
 
-  blocks_left = (block_t) (rip->i_size-ex64lo(position)+(block_size-1)) /
+  blocks_left = (block_t) (rip->i_size-(off_t)position+(block_size-1)) /
                                                                 block_size;
 
   /* Go for the first indirect block if we are in its neighborhood. */
   ind1_pos = (EXT2_NDIR_BLOCKS) * block_size;
-  if ((off_t) ex64lo(position) <= ind1_pos && rip->i_size > ind1_pos) {
+  if ((off_t) position <= ind1_pos && rip->i_size > ind1_pos) {
 	blocks_ahead++;
 	blocks_left++;
   }

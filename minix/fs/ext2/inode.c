@@ -362,7 +362,7 @@ static void icopy(
 	/* Copy inode to the in-core table, swapping bytes if need be. */
 	rip->i_mode    = conv2(norm,dip->i_mode);
 	rip->i_uid     = conv2(norm,dip->i_uid);
-	rip->i_size    = conv4(norm,dip->i_size);
+	rip->i_size    = (off_t)(u32_t) conv4(norm,dip->i_size);
 	rip->i_atime   = conv4(norm,dip->i_atime);
 	rip->i_ctime   = conv4(norm,dip->i_ctime);
 	rip->i_mtime   = conv4(norm,dip->i_mtime);
@@ -380,11 +380,28 @@ static void icopy(
 	rip->i_dir_acl  = conv4(norm,dip->i_dir_acl);
 	rip->i_faddr	= conv4(norm,dip->i_faddr);
 	memcpy(&rip->osd2, &dip->osd2, sizeof(rip->osd2));
+	/* For a regular file, i_dir_acl is really i_size_high: fold the high 32
+	 * bits into the 64-bit in-core size (RO_COMPAT_LARGE_FILE volumes). */
+	if ((rip->i_mode & I_TYPE) == I_REGULAR)
+		rip->i_size |= (off_t)(u32_t) rip->i_dir_acl << 32;
   } else {
 	/* Copying inode to disk from the in-core table. */
 	dip->i_mode    = conv2(norm,rip->i_mode);
 	dip->i_uid     = conv2(norm,rip->i_uid);
-	dip->i_size    = conv4(norm,rip->i_size);
+	dip->i_size    = conv4(norm,(u32_t)(rip->i_size & 0xffffffff));
+	/* Store the high 32 bits of a regular file's size in i_size_high
+	 * (i_dir_acl) and advertise RO_COMPAT_LARGE_FILE once any regular file
+	 * passes 2 GiB, as Linux requires. */
+	if ((rip->i_mode & I_TYPE) == I_REGULAR) {
+		dip->i_dir_acl = conv4(norm,(u32_t)(rip->i_size >> 32));
+		if (rip->i_size > 0x7fffffffLL && rip->i_sp != NULL &&
+		    !HAS_RO_COMPAT_FEATURE(rip->i_sp, RO_COMPAT_LARGE_FILE)) {
+			rip->i_sp->s_feature_ro_compat |= RO_COMPAT_LARGE_FILE;
+			write_super(rip->i_sp);
+		}
+	} else {
+		dip->i_dir_acl	= conv4(norm,rip->i_dir_acl);
+	}
 	dip->i_atime   = conv4(norm,rip->i_atime);
 	dip->i_ctime   = conv4(norm,rip->i_ctime);
 	dip->i_mtime   = conv4(norm,rip->i_mtime);
@@ -399,7 +416,7 @@ static void icopy(
 		dip->i_block[i] = conv4(norm, rip->i_block[i]);
 	dip->i_generation  = conv4(norm,rip->i_generation);
 	dip->i_file_acl = conv4(norm,rip->i_file_acl);
-	dip->i_dir_acl	= conv4(norm,rip->i_dir_acl);
+	/* i_dir_acl / i_size_high was already written above. */
 	dip->i_faddr	= conv4(norm,rip->i_faddr);
 	memcpy(&dip->osd2, &rip->osd2, sizeof(dip->osd2));
   }

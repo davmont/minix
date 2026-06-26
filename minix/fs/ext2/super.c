@@ -23,7 +23,6 @@
 #include "super.h"
 #include "const.h"
 
-static off_t ext2_max_size(int block_size);
 static u32_t ext2_count_dirs(struct super_block *sp);
 
 static void super_copy(register struct super_block *dest, register
@@ -315,7 +314,7 @@ static u32_t ext2_count_dirs(struct super_block *sp)
  * Anyway this function is safe for any change.
  * Note: there is also limitation from VFS (to LONG_MAX, i.e. 2GB).
  */
-static off_t ext2_max_size(int block_size)
+off_t ext2_max_size(int block_size)
 {
   /* 12 is EXT2_NDIR_BLOCKS used in calculations. */
   if (EXT2_NDIR_BLOCKS != 12)
