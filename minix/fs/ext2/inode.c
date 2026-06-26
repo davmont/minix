@@ -435,3 +435,52 @@ void dup_inode(
  */
   ip->i_count++;
 }
+
+/*===========================================================================*
+ *				ext2_process_orphans			     *
+ *===========================================================================*/
+void ext2_process_orphans(struct super_block *sp)
+{
+/* Process the on-disk orphan-inode list, as e2fsck does on recovery.  The
+ * superblock's s_last_orphan heads a list, singly linked through each inode's
+ * i_dtime field, of inodes that were unlinked while still open (links == 0) or
+ * orphaned during a truncate (links > 0) when the system stopped.  Free the
+ * former (inode and its blocks) and release the tail blocks of the latter, so
+ * the file system is left consistent for a read-write mount.
+ */
+  ino_t ino = (ino_t) sp->s_last_orphan;
+  unsigned guard = 0;
+
+  if (ino == NO_ENTRY)
+	return;
+
+  while (ino > NO_ENTRY && (u32_t) ino <= sp->s_inodes_count &&
+	 guard++ < sp->s_inodes_count) {
+	struct inode *rip;
+	ino_t next;
+
+	if ((rip = get_inode(sp->s_dev, ino)) == NULL)
+		break;
+	next = (ino_t) rip->i_dtime;	/* link to the next orphan */
+
+	if (rip->i_links_count == NO_LINK) {
+		/* Unlinked while open: put_inode() frees the inode and its
+		 * blocks once the last reference goes away (links == NO_LINK).
+		 * Record a real deletion time first. */
+		rip->i_dtime = clock_time(NULL);
+		rip->i_dirt = IN_DIRTY;
+		put_inode(rip);
+	} else {
+		/* Orphaned mid-truncate: release any blocks past i_size. */
+		(void) truncate_inode(rip, rip->i_size);
+		rip->i_dtime = 0;
+		rip->i_dirt = IN_DIRTY;
+		put_inode(rip);
+	}
+
+	ino = next;
+  }
+
+  sp->s_last_orphan = 0;
+  write_super(sp);
+}

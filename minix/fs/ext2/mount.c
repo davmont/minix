@@ -139,6 +139,12 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	}
   }
 
+  /* Process the orphan-inode list of a writable mount: inodes left unlinked or
+   * mid-truncate by a crash are freed/trimmed here, as e2fsck would, so the
+   * file system is consistent (complements the journal replay above). */
+  if (!readonly)
+	ext2_process_orphans(superblock);
+
   lmfs_set_blockusage(superblock->s_blocks_count,
 	superblock->s_blocks_count - superblock->s_free_blocks_count);
 
