@@ -126,10 +126,17 @@
 #define INCOMPAT_RECOVER           0x0004
 #define INCOMPAT_JOURNAL_DEV       0x0008
 #define INCOMPAT_META_BG           0x0010
+#define INCOMPAT_EXTENTS           0x0040	/* ext4 extent-mapped inodes */
+#define INCOMPAT_64BIT             0x0080	/* 64-bit block numbers */
+#define INCOMPAT_FLEX_BG           0x0200	/* flexible block groups */
 #define INCOMPAT_ANY               0xffffffff
 
-/* What do we support? */
-#define SUPPORTED_INCOMPAT_FEATURES	(INCOMPAT_FILETYPE)
+/* What do we support?  Extent-mapped (ext4) inodes are read but not yet
+ * written, so a volume with the extents feature is mounted read-only.  Flexible
+ * block groups need no special handling: the group descriptors already point at
+ * the (relocated) bitmaps and inode tables. */
+#define SUPPORTED_INCOMPAT_FEATURES	(INCOMPAT_FILETYPE | INCOMPAT_EXTENTS | \
+					 INCOMPAT_FLEX_BG)
 #define SUPPORTED_RO_COMPAT_FEATURES	(RO_COMPAT_SPARSE_SUPER | \
 					 RO_COMPAT_LARGE_FILE)
 
@@ -157,6 +164,10 @@
 
 /* hash-indexed directory */
 #define EXT2_INDEX_FL			0x00001000
+/* inode uses an ext4 extent tree instead of indirect blocks */
+#define EXT4_EXTENTS_FL			0x00080000
+/* magic in an ext4 extent-tree node header (little-endian on disk) */
+#define EXT4_EXT_MAGIC			0xf30a
 /* Top of directory hierarchies*/
 #define EXT2_TOPDIR_FL                  0x00020000
 
