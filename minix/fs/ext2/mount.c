@@ -22,6 +22,7 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
  */
   struct inode *root_ip;
   int r, readonly;
+  int need_recovery = 0;
   u32_t mask;
 
   fs_dev = dev;
@@ -73,9 +74,17 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 		return(EINVAL);
 	}
 	if (HAS_INCOMPAT_FEATURE(sp, INCOMPAT_RECOVER)) {
-		printf("ext2: fs has an unrecovered journal; "
-			"mounting read-only and ignoring it\n");
-		readonly = 1;
+		if (readonly) {
+			/* Read-only mount requested: cannot write home blocks,
+			 * so leave the journal alone and read the last
+			 * checkpoint (Linux "ro,noload"). */
+			printf("ext2: fs has an unrecovered journal; "
+				"mounting read-only and ignoring it\n");
+		} else {
+			/* Replay the journal below, once the cache block size
+			 * is set up, then mount read-write. */
+			need_recovery = 1;
+		}
 	}
 
 	/*
@@ -111,6 +120,25 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   }
 
   lmfs_set_blocksize(superblock->s_block_size);
+
+  /* Replay the ext3 journal if one needs recovering (the block cache size is
+   * now known, which the recovery code relies on).  On success the file system
+   * is consistent and the journal is reset; clear INCOMPAT_RECOVER, mark the
+   * state clean and write the superblock back, then mount read-write.  On
+   * failure, fall back to a read-only mount leaving the journal for fsck. */
+  if (need_recovery) {
+	if (ext2_journal_recover(superblock) == OK) {
+		superblock->s_feature_incompat &= ~INCOMPAT_RECOVER;
+		superblock->s_state = EXT2_VALID_FS;
+		write_super(superblock);
+		printf("ext2: journal recovered; mounting read-write\n");
+	} else {
+		printf("ext2: journal recovery failed; "
+			"mounting read-only (fsck recommended)\n");
+		readonly = 1;
+	}
+  }
+
   lmfs_set_blockusage(superblock->s_blocks_count,
 	superblock->s_blocks_count - superblock->s_free_blocks_count);
 
