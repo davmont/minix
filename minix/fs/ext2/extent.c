@@ -254,6 +254,7 @@ static int grow_to_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 		return(EFBIG);
 	}
 	first_block = ext_le32(leaf + EXT_HDR_SIZE);
+	ext2_extent_block_csum_set(rip, leaf);
 	lmfs_markdirty(bp);
 	put_block(bp);
 
@@ -303,6 +304,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 
 	r = leaf_insert(leaf, blockmax, lblock, phys);
 	if (r == INS_DONE) {
+		ext2_extent_block_csum_set(rip, leaf);
 		lmfs_markdirty(bp);
 		put_block(bp);
 		/* Keep the index key in sync if we became the first extent. */
@@ -332,6 +334,7 @@ static int insert_depth1(struct inode *rip, u8_t *root, u32_t lblock,
 	memset(leaf, 0, rip->i_sp->s_block_size);
 	set_header(leaf, 0, blockmax, 0);
 	(void) leaf_insert(leaf, blockmax, lblock, phys);	/* always fits */
+	ext2_extent_block_csum_set(rip, leaf);
 	lmfs_markdirty(bp);
 	put_block(bp);
 
@@ -534,6 +537,7 @@ int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last)
 				rip->i_blocks -= sectors;
 			} else {
 				fb = ext_le32(leaf + EXT_HDR_SIZE);
+				ext2_extent_block_csum_set(rip, leaf);
 				lmfs_markdirty(bp);
 				put_block(bp);
 				keep[nkeep].block = fb;
@@ -546,6 +550,34 @@ int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last)
 			/* Whole tree gone: collapse to an empty depth-0 root. */
 			memset(root, 0, sizeof(root));
 			set_header(root, 0, EXT_ROOT_MAX, 0);
+		} else if (nkeep == 1) {
+			/* A single leaf survives.  If its extents now fit in the
+			 * inode root, pull them up and drop to a depth-0 tree,
+			 * freeing the leaf block, so the tree is kept no deeper
+			 * than necessary (what e2fsck's -D pass would do). */
+			block_t leafblk = keep[0].leaf;
+			struct buf *bp;
+			u8_t *leaf;
+			int lent;
+
+			if ((bp = get_block(rip->i_dev, leafblk, NORMAL)) == NULL)
+				return(EIO);
+			leaf = (u8_t *) b_data(bp);
+			lent = eh_entries(leaf);
+			if (eh_valid(leaf) && lent <= EXT_ROOT_MAX) {
+				memset(root, 0, sizeof(root));
+				set_header(root, (u16_t) lent, EXT_ROOT_MAX, 0);
+				memcpy(root + EXT_HDR_SIZE, leaf + EXT_HDR_SIZE,
+				    lent * EXT_ENT_SIZE);
+				put_block(bp);
+				free_block(rip->i_sp, leafblk);
+				rip->i_blocks -= sectors;
+			} else {
+				/* Too many extents to inline: keep depth 1. */
+				put_block(bp);
+				set_header(root, 1, EXT_ROOT_MAX, 1);
+				put_index(root, 0, keep[0].block, keep[0].leaf);
+			}
 		} else {
 			set_header(root, nkeep, EXT_ROOT_MAX, 1);
 			for (i = 0; i < nkeep; i++)

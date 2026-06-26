@@ -425,6 +425,11 @@ void rw_inode(
 
   icopy(rip, dip, rw_flag, TRUE);
 
+  /* On a metadata_csum volume the on-disk inode carries a crc32c checksum that
+   * must be refreshed whenever the inode is written back. */
+  if (rw_flag == WRITING && sp->s_rd_only == FALSE)
+	ext2_inode_csum_set(sp, rip->i_num, dip);
+
   put_block(bp);
   rip->i_dirt = IN_CLEAN;
 }

@@ -180,6 +180,10 @@ int is_dir;			/* inode will be a directory if it is TRUE */
 	panic("ext2: allocator tryed to use reserved inode.\n");
   }
 
+  ext2_inode_bitmap_csum_set(sp, gd, b_bitmap(bp));
+  /* Keep the lazy-init bookkeeping (bg_itable_unused, INODE_UNINIT) in step on
+   * metadata_csum volumes so e2fsck does not treat the new inode as unused. */
+  ext2_group_inode_alloc(sp, gd, (unsigned int) bit);
   lmfs_markdirty(bp);
   put_block(bp);
 
@@ -232,6 +236,7 @@ static void free_inode_bit(struct super_block *sp, bit_t bit_returned,
   if (unsetbit(b_bitmap(bp), bit))
 	panic("Tried to free unused inode %d", bit_returned);
 
+  ext2_inode_bitmap_csum_set(sp, gd, b_bitmap(bp));
   lmfs_markdirty(bp);
   put_block(bp);
 

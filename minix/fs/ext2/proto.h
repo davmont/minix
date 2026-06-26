@@ -102,6 +102,26 @@ void ext4_extent_init_inode(struct inode *rip);
 int ext4_extent_insert(struct inode *rip, u32_t lblock, block_t phys);
 int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last);
 
+/* crc32c.c */
+u32_t ext2_crc32c(u32_t crc, const void *buf, size_t len);
+
+/* csum.c */
+int ext2_has_csum(struct super_block *sp);
+void ext2_super_csum_set(struct super_block *sp);
+void ext2_group_desc_csum_set(struct super_block *sp, u32_t group,
+	struct group_desc *gd);
+void ext2_block_bitmap_csum_set(struct super_block *sp, struct group_desc *gd,
+	const void *bitmap);
+void ext2_inode_bitmap_csum_set(struct super_block *sp, struct group_desc *gd,
+	const void *bitmap);
+void ext2_inode_csum_set(struct super_block *sp, ino_t ino, void *dinode);
+void ext2_group_inode_alloc(struct super_block *sp, struct group_desc *gd,
+	unsigned int rel_ino);
+void ext2_group_block_alloc(struct super_block *sp, struct group_desc *gd);
+void ext2_dir_block_csum_set(struct inode *dirp, void *block);
+size_t ext2_dir_block_limit(struct super_block *sp);
+void ext2_extent_block_csum_set(struct inode *rip, void *block);
+
 /* time.c */
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);
 

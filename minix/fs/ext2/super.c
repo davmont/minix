@@ -232,6 +232,16 @@ struct super_block *sp; /* pointer to a superblock */
   if (sp->s_dev == NO_DEV)
 	panic("request to write super_block, but NO_DEV");
 
+  /* On a metadata_csum volume, refresh the group-descriptor checksums (the
+   * bitmap checksums and counts they cover have just been updated) before the
+   * descriptors are written, and the superblock checksum last of all. */
+  if (ext2_has_csum(sp)) {
+	unsigned int g;
+	for (g = 0; g < sp->s_groups_count; g++)
+		ext2_group_desc_csum_set(sp, g, &sp->s_group_desc[g]);
+  }
+  ext2_super_csum_set(sp);
+
   super_copy(ondisk_superblock, sp);
 
   r = bdev_write(sp->s_dev, super_block_offset, (char *) sp, SUPER_SIZE_D,
