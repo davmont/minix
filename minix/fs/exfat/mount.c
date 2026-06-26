@@ -69,11 +69,10 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	struct inode *root;
 	int r, readonly;
 
-	/* exFAT support is read-only; ignore any read-write request. */
-	readonly = 1;
-	(void) flags;
+	readonly = (flags & REQ_RDONLY) ? 1 : 0;
 
-	if (bdev_open(dev, BDEV_R_BIT) != OK)
+	if (bdev_open(dev, readonly ? BDEV_R_BIT : (BDEV_R_BIT | BDEV_W_BIT))
+	    != OK)
 		return EINVAL;
 
 	pmp = &exfat_mount;
@@ -133,6 +132,10 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	lmfs_set_blockusage(pmp->pm_cluster_count,
 	    pmp->pm_cluster_count - pmp->pm_free_clusters);
 
+	/* Mark the volume dirty for the duration of a writable mount. */
+	if (!readonly)
+		set_volume_dirty(1);
+
 	mounted = TRUE;
 
 	root_node->fn_ino_nr = root->i_num;
@@ -142,9 +145,10 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	root_node->fn_gid = pmp->pm_gid;
 	root_node->fn_dev = NO_DEV;
 
-	/* Read-only, and we implement fdr_peek (page-assembling file peek), so
-	 * advertise RES_HASPEEK for mmap()/demand-paged exec(). */
-	*res_flags = RES_RDONLY | RES_HASPEEK;
+	/* We implement fdr_peek (page-assembling file peek), so advertise
+	 * RES_HASPEEK for mmap()/demand-paged exec(); add RES_RDONLY when the
+	 * mount is read-only. */
+	*res_flags = (readonly ? RES_RDONLY : RES_NOFLAGS) | RES_HASPEEK;
 
 	return OK;
 }
@@ -160,6 +164,10 @@ void fs_unmount(void)
 		put_inode(root);
 
 	upcase_free();
+
+	/* Clear the volume-dirty flag: all changes are about to be flushed. */
+	if (!pmp->pm_rdonly)
+		set_volume_dirty(0);
 
 	lmfs_flushall();
 	bdev_close(pmp->pm_dev);

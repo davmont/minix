@@ -25,13 +25,74 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	ssize_t total;
 	int r;
 
-	if (call != FSC_READ)
+	if (call != FSC_READ && call != FSC_WRITE)
 		return EINVAL;
 	if ((rip = find_inode(ino_nr)) == NULL)
 		return EINVAL;
 	if (rip->i_attrs & EXFAT_ATTR_DIRECTORY)
 		return EISDIR;
 
+	/* ----- write path ----- */
+	if (call == FSC_WRITE) {
+		off_t fend = pos + (off_t) bytes;
+
+		if (pmp->pm_rdonly)
+			return EROFS;
+		if (pos < 0)
+			return EINVAL;
+		if (bytes == 0)
+			return 0;
+
+		if (fend > (off_t) rip->i_size) {
+			if ((r = extend_file(rip, (uint64_t) fend)) != OK)
+				return r;
+			rip->i_size = (uint64_t) fend;
+		}
+
+		left = bytes;
+		off = 0;
+		total = 0;
+		while (left > 0) {
+			uint64_t wfrcn = (uint64_t) pos >> pmp->pm_clus_byte_shift;
+			uint64_t wcloff = (uint64_t) pos &
+			    (pmp->pm_bytes_per_clus - 1);
+			uint64_t wsec;
+
+			if ((r = bmap(rip, wfrcn, &wsec)) != OK)
+				return (total > 0) ? total : r;
+			wsec += wcloff >> pmp->pm_sec_shift;
+			secoff = (unsigned)(wcloff & (pmp->pm_bytes_per_sec - 1));
+			chunk = pmp->pm_bytes_per_sec - secoff;
+			if (chunk > left)
+				chunk = left;
+
+			if ((bp = get_block(pmp->pm_dev, wsec, NORMAL)) == NULL)
+				return (total > 0) ? total : EIO;
+			r = fsdriver_copyin(data, off, b_data(bp) + secoff,
+			    chunk);
+			if (r == OK)
+				lmfs_markdirty(bp);
+			put_block(bp);
+			if (r != OK)
+				return (total > 0) ? total : r;
+
+			pos += chunk;
+			off += chunk;
+			left -= chunk;
+			total += chunk;
+		}
+
+		/* Everything written is now valid data. */
+		if ((uint64_t) pos > rip->i_valid)
+			rip->i_valid = (uint64_t) pos;
+		rip->i_mtime = exfat_now();
+		if ((r = update_direntry(rip)) != OK)
+			return (total > 0) ? total : r;
+
+		return total;
+	}
+
+	/* ----- read path ----- */
 	fsize = (off_t) rip->i_size;
 	if (pos < 0)
 		return EINVAL;

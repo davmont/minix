@@ -28,11 +28,36 @@ int fs_putnode(ino_t ino_nr, unsigned int count);
 
 /* cluster.c */
 int fat_get(uint32_t cn, uint32_t *nextp);
+int fat_set(uint32_t cn, uint32_t val);
 int chain_nth(uint32_t start, int contig, uint64_t frcn, uint32_t *cnp);
 int chain_read(uint32_t start, int contig, uint64_t off, void *buf, size_t len);
+int chain_write(uint32_t start, int contig, uint64_t off, const void *buf,
+	size_t len);
 int bmap(struct inode *rip, uint64_t frcn, uint64_t *secp);
 uint64_t cluster_to_sector(uint32_t cn);
 int bitmap_count_free(void);
+int bitmap_set(uint32_t cn);
+int bitmap_clear(uint32_t cn);
+int cluster_alloc(uint32_t prev, uint32_t *newcn);
+int free_chain(uint32_t startcn, int contig, uint64_t nclusters);
+int convert_to_chained(struct inode *rip);
+uint64_t chain_clusters(uint32_t start, int contig, uint64_t bytes);
+
+/* write.c */
+time_t exfat_now(void);
+int update_direntry(struct inode *rip);
+int extend_file(struct inode *rip, uint64_t newsize);
+int zero_cluster(uint32_t cn);
+int fs_create(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
+	struct fsdriver_node *node);
+int fs_mkdir(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid);
+int fs_unlink(ino_t dir_nr, char *name, int call);
+int fs_rename(ino_t old_dir_nr, char *old_name, ino_t new_dir_nr,
+	char *new_name);
+int fs_trunc(ino_t ino_nr, off_t start, off_t end);
+int fs_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime);
+int fs_chmod(ino_t ino_nr, mode_t *mode);
+void set_volume_dirty(int dirty);
 
 /* dir.c */
 int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
@@ -40,6 +65,10 @@ int fs_lookup(ino_t dir_nr, char *name, struct fsdriver_node *node,
 ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t *pos);
 int scan_root_meta(void);
+int dir_find(struct inode *dir, const char *name, uint64_t *offp,
+	struct exfat_file_entry *fe, struct exfat_stream_entry *se);
+int dir_is_empty(struct inode *dir);
+unsigned set_entries_of(const struct exfat_file_entry *fe);
 
 /* name.c */
 int upcase_init(void);
@@ -50,6 +79,8 @@ int utf16_to_utf8(const uint16_t *in, int inlen, char *out, size_t outsize);
 int utf8_to_utf16(const char *in, uint16_t *out, int outmax);
 void exfat_to_timespec(uint32_t stamp, uint8_t inc10ms, uint8_t tzoff,
 	struct timespec *tsp);
+void timespec_to_exfat(time_t sec, uint32_t *stamp, uint8_t *inc10ms,
+	uint8_t *tzoff);
 
 /* read.c */
 ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
