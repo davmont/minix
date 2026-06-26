@@ -195,6 +195,99 @@ int *completed;                 /* number of bytes copied */
 }
 
 
+/* Little-endian readers for the on-disk ext4 extent tree (its 16/32-bit fields
+ * do not line up with the inode's u32 i_block[] framing). */
+static u16_t ext_le16(const u8_t *p)
+{
+	return (u16_t)(p[0] | (p[1] << 8));
+}
+static u32_t ext_le32(const u8_t *p)
+{
+	return (u32_t) p[0] | ((u32_t) p[1] << 8) | ((u32_t) p[2] << 16) |
+	    ((u32_t) p[3] << 24);
+}
+
+/*===========================================================================*
+ *				ext4_extent_lookup			     *
+ *===========================================================================*/
+static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
+{
+/* Map file logical block 'lblock' to its physical block through the inode's
+ * ext4 extent tree, returning NO_BLOCK for a hole (sparse or uninitialized).
+ * The tree root lives in the 60-byte i_block[] area; interior nodes are read
+ * from disk.  Each node is a 12-byte header (magic, entries, max, depth, gen)
+ * followed by 12-byte entries: extents at depth 0, indices above. */
+	u8_t root[EXT2_N_BLOCKS * sizeof(u32_t)];
+	const u8_t *node;
+	struct buf *bp = NULL;
+	block_t result = NO_BLOCK;
+	int guard = 0;
+
+	memcpy(root, rip->i_block, sizeof(root));
+	node = root;
+
+	while (guard++ < 8) {		/* the extent tree is at most 5 levels */
+		u16_t magic = ext_le16(node);
+		u16_t entries = ext_le16(node + 2);
+		u16_t depth = ext_le16(node + 6);
+		int i;
+
+		if (magic != EXT4_EXT_MAGIC)
+			break;			/* not a valid extent node */
+
+		if (depth == 0) {
+			/* Leaf: find the extent covering lblock. */
+			for (i = 0; i < entries; i++) {
+				const u8_t *e = node + 12 + i * 12;
+				u32_t ee_block = ext_le32(e);
+				u16_t ee_len = ext_le16(e + 4);
+				u16_t init = (ee_len > 32768) ? ee_len - 32768 :
+				    ee_len;
+				u64_t phys = ((u64_t) ext_le16(e + 6) << 32) |
+				    ext_le32(e + 8);
+
+				if (lblock >= ee_block &&
+				    lblock < (u64_t) ee_block + init) {
+					/* An uninitialized extent (ee_len >
+					 * 32768) reads back as zeros: leave it
+					 * a hole. */
+					if (ee_len <= 32768)
+						result = (block_t)(phys +
+						    (lblock - ee_block));
+					break;
+				}
+			}
+			break;
+		} else {
+			/* Interior: descend to the child covering lblock. */
+			u64_t child = 0;
+
+			for (i = 0; i < entries; i++) {
+				const u8_t *e = node + 12 + i * 12;
+				u32_t ei_block = ext_le32(e);
+
+				if (ei_block <= lblock)
+					child = ((u64_t) ext_le16(e + 8) << 32) |
+					    ext_le32(e + 4);
+				else
+					break;
+			}
+			if (child == 0)
+				break;
+			if (bp != NULL)
+				put_block(bp);
+			if ((bp = get_block(rip->i_dev, (block_t) child,
+			    NORMAL)) == NULL)
+				break;
+			node = (const u8_t *) b_data(bp);
+		}
+	}
+
+	if (bp != NULL)
+		put_block(bp);
+	return result;
+}
+
 /*===========================================================================*
  *				read_map				     *
  *===========================================================================*/
@@ -231,6 +324,10 @@ int opportunistic;
   }
 
   block_pos = position / rip->i_sp->s_block_size; /* relative blk # in file */
+
+  /* ext4 extent-mapped inodes use a tree instead of indirect blocks. */
+  if (rip->i_flags & EXT4_EXTENTS_FL)
+	return ext4_extent_lookup(rip, (u32_t) block_pos);
 
   /* Is 'position' to be found in the inode itself? */
   if (block_pos < EXT2_NDIR_BLOCKS)
