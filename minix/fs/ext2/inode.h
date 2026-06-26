@@ -19,7 +19,9 @@
 EXTERN struct inode {
     u16_t  i_mode;         /* File mode */
     u16_t  i_uid;          /* Low 16 bits of Owner Uid */
-    u32_t  i_size;         /* Size in bytes */
+    off_t  i_size;         /* Size in bytes (64-bit in core; on disk the high
+			    * 32 bits live in i_size_high, overlaid on i_dir_acl
+			    * for regular files when RO_COMPAT_LARGE_FILE) */
     u32_t  i_atime;        /* Access time */
     u32_t  i_ctime;        /* Creation time */
     u32_t  i_mtime;        /* Modification time */

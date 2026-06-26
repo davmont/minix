@@ -194,6 +194,11 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
    */
   *res_flags = lmfs_vmcache_enabled() ? RES_HASPEEK : RES_NOFLAGS;
 
+  /* We handle 64-bit file sizes and offsets (i_size_high and the cluster
+   * addressing in read_map/write_map are 64-bit), so tell VFS not to clamp
+   * file positions to 2 GiB -- needed to read/write large_file volumes. */
+  *res_flags |= RES_64BIT;
+
   /*
    * Tell VFS if we downgraded the mount to read-only (unclean fs, journal to
    * recover, or an unsupported RO_COMPAT feature) so it rejects writes up
