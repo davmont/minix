@@ -3,7 +3,7 @@
 
 union fsdata_u {
     char b__data[1];		/* ordinary user data */
-    block_t b__ind[1];		/* indirect block */
+    block64_t b__ind[1];		/* indirect block */
     bitchunk_t b__bitmap[1];	/* bit map block */
 };
 

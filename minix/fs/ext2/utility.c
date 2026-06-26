@@ -11,7 +11,7 @@
 /*===========================================================================*
  *				get_block				     *
  *===========================================================================*/
-struct buf *get_block(dev_t dev, block_t block, int how)
+struct buf *get_block(dev_t dev, block64_t block, int how)
 {
 /* Wrapper routine for lmfs_get_block(). This ext2 implementation does not deal
  * well with block read errors pretty much anywhere. To prevent corruption due
@@ -21,7 +21,7 @@ struct buf *get_block(dev_t dev, block_t block, int how)
   int r;
 
   if ((r = lmfs_get_block(&bp, dev, block, how)) != OK && r != ENOENT)
-	panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)dev, block, r);
+	panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)dev, (unsigned long long)block, r);
 
   assert(r == OK || how == PEEK);
 

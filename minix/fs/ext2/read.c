@@ -14,7 +14,7 @@
 #include <assert.h>
 
 
-static struct buf *rahead(struct inode *rip, block_t baseblock, u64_t
+static struct buf *rahead(struct inode *rip, block64_t baseblock, u64_t
 	position, unsigned bytes_ahead);
 static int rw_chunk(struct inode *rip, u64_t position, unsigned off,
 	size_t chunk, unsigned left, int call, struct fsdriver_data *data,
@@ -123,7 +123,7 @@ int *completed;                 /* number of bytes copied */
   struct buf *bp = NULL;
   register int r = OK;
   int n;
-  block_t b;
+  block64_t b;
   dev_t dev;
   ino_t ino = VMC_NO_INODE;
   u64_t ino_off = rounddown(position, block_size);
@@ -168,7 +168,7 @@ int *completed;                 /* number of bytes copied */
 	assert(ino != VMC_NO_INODE);
 	assert(!(ino_off % block_size));
 	if ((r = lmfs_get_block_ino(&bp, dev, b, n, ino, ino_off)) != OK)
-		panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)dev, b, r);
+		panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)dev, (unsigned long long)b, r);
   }
 
   /* In all cases, bp now points to a valid buffer. */
@@ -210,7 +210,7 @@ static u32_t ext_le32(const u8_t *p)
 /*===========================================================================*
  *				ext4_extent_lookup			     *
  *===========================================================================*/
-static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
+static block64_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
 {
 /* Map file logical block 'lblock' to its physical block through the inode's
  * ext4 extent tree, returning NO_BLOCK for a hole (sparse or uninitialized).
@@ -220,7 +220,7 @@ static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
 	u8_t root[EXT2_N_BLOCKS * sizeof(u32_t)];
 	const u8_t *node;
 	struct buf *bp = NULL;
-	block_t result = NO_BLOCK;
+	block64_t result = NO_BLOCK;
 	int guard = 0;
 
 	memcpy(root, rip->i_block, sizeof(root));
@@ -252,7 +252,7 @@ static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
 					 * 32768) reads back as zeros: leave it
 					 * a hole. */
 					if (ee_len <= 32768)
-						result = (block_t)(phys +
+						result = (block64_t)(phys +
 						    (lblock - ee_block));
 					break;
 				}
@@ -276,7 +276,7 @@ static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
 				break;
 			if (bp != NULL)
 				put_block(bp);
-			if ((bp = get_block(rip->i_dev, (block_t) child,
+			if ((bp = get_block(rip->i_dev, (block64_t) child,
 			    NORMAL)) == NULL)
 				break;
 			node = (const u8_t *) b_data(bp);
@@ -291,7 +291,7 @@ static block_t ext4_extent_lookup(struct inode *rip, u32_t lblock)
 /*===========================================================================*
  *				read_map				     *
  *===========================================================================*/
-block_t read_map(rip, position, opportunistic)
+block64_t read_map(rip, position, opportunistic)
 register struct inode *rip;     /* ptr to inode to map from */
 off_t position;                 /* position in file whose blk wanted */
 int opportunistic;
@@ -302,7 +302,7 @@ int opportunistic;
 
   struct buf *bp;
   int mindex;
-  block_t b;
+  block64_t b;
   unsigned long excess, block_pos;
   static char first_time = TRUE;
   static long addr_in_block;
@@ -379,7 +379,7 @@ struct buf *get_block_map(register struct inode *rip, u64_t position)
 {
 	struct buf *bp;
 	int r, block_size;
-	block_t b = read_map(rip, position, 0);	/* get block number */
+	block64_t b = read_map(rip, position, 0);	/* get block number */
 	if(b == NO_BLOCK)
 		return NULL;
 	block_size = get_block_size(rip->i_dev);
@@ -387,15 +387,15 @@ struct buf *get_block_map(register struct inode *rip, u64_t position)
 	assert(rip->i_num != VMC_NO_INODE);
 	if ((r = lmfs_get_block_ino(&bp, rip->i_dev, b, NORMAL, rip->i_num,
 	    position)) != OK)
-		panic("ext2: error getting block (%llu,%u): %d",
-		    (unsigned long long)rip->i_dev, b, r);
+		panic("ext2: error getting block (%llu,%llu): %d",
+		    (unsigned long long)rip->i_dev, (unsigned long long)b, r);
 	return bp;
 }
 
 /*===========================================================================*
  *				rd_indir				     *
  *===========================================================================*/
-block_t rd_indir(bp, mindex)
+block64_t rd_indir(bp, mindex)
 struct buf *bp;                 /* pointer to indirect block */
 int mindex;                      /* index into *bp */
 {
@@ -411,7 +411,7 @@ int mindex;                      /* index into *bp */
  *===========================================================================*/
 static struct buf *rahead(rip, baseblock, position, bytes_ahead)
 register struct inode *rip;     /* pointer to inode for file to be read */
-block_t baseblock;              /* block at current position */
+block64_t baseblock;              /* block at current position */
 u64_t position;                 /* position within file */
 unsigned bytes_ahead;           /* bytes beyond position for immediate use */
 {
@@ -426,7 +426,7 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
 # define BLOCKS_MINIMUM		32
   int r, read_q_size;
   unsigned int blocks_ahead, fragment, block_size;
-  block_t block, blocks_left;
+  block64_t block, blocks_left;
   off_t ind1_pos;
   dev_t dev;
   struct buf *bp = NULL;
@@ -449,7 +449,7 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
   if (r == OK)
 	return(bp);
   if (r != ENOENT)
-	panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)dev, block, r);
+	panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)dev, (unsigned long long)block, r);
 
   /* The best guess for the number of blocks to prefetch:  A lot.
    * It is impossible to tell what the device looks like, so we don't even
@@ -471,7 +471,7 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
    * indirect blocks (but don't call read_map!).
    */
 
-  blocks_left = (block_t) (rip->i_size-(off_t)position+(block_size-1)) /
+  blocks_left = (block64_t) (rip->i_size-(off_t)position+(block_size-1)) /
                                                                 block_size;
 
   /* Go for the first indirect block if we are in its neighborhood. */
@@ -495,7 +495,7 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
 
   /* Acquire block buffers. */
   for (;;) {
-  	block_t thisblock;
+  	block64_t thisblock;
 	read_q[read_q_size++] = block;
 
 	if (--blocks_ahead == 0) break;
@@ -517,14 +517,13 @@ unsigned bytes_ahead;           /* bytes beyond position for immediate use */
 		break;
 	}
 	if (r != ENOENT)
-		panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)dev, block,
-		    r);
+		panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)dev, (unsigned long long)block, r);
   }
   lmfs_prefetch(dev, read_q, read_q_size);
 
   r = lmfs_get_block_ino(&bp, dev, baseblock, NORMAL, rip->i_num, position);
   if (r != OK)
-	panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)dev, baseblock, r);
+	panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)dev, (unsigned long long)baseblock, r);
   return bp;
 }
 

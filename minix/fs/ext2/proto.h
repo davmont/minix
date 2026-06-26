@@ -13,8 +13,8 @@ struct super_block;
 
 /* balloc.c */
 void discard_preallocated_blocks(struct inode *rip);
-block_t alloc_block(struct inode *rip, block_t goal);
-void free_block(struct super_block *sp, bit_t bit);
+block64_t alloc_block(struct inode *rip, block64_t goal);
+void free_block(struct super_block *sp, block64_t bit);
 
 /* ialloc.c */
 struct inode *alloc_inode(struct inode *parent, mode_t bits, uid_t uid,
@@ -73,8 +73,8 @@ int fs_chown(ino_t ino_nr, uid_t uid, gid_t gid, mode_t *mode);
 /* read.c */
 ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t pos, int call);
-block_t rd_indir(struct buf *bp, int index);
-block_t read_map(struct inode *rip, off_t pos, int opportunistic);
+block64_t rd_indir(struct buf *bp, int index);
+block64_t read_map(struct inode *rip, off_t pos, int opportunistic);
 struct buf *get_block_map(register struct inode *rip, u64_t position);
 ssize_t fs_getdents(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t *posp);
@@ -89,6 +89,10 @@ struct super_block *get_super(dev_t dev);
 int read_super(struct super_block *sp);
 void write_super(struct super_block *sp);
 struct group_desc* get_group_desc(unsigned int bnum);
+block64_t ext2_gd_block_bitmap(struct super_block *sp, struct group_desc *gd);
+block64_t ext2_gd_inode_bitmap(struct super_block *sp, struct group_desc *gd);
+block64_t ext2_gd_inode_table(struct super_block *sp, struct group_desc *gd);
+block64_t ext2_free_blocks_count(struct super_block *sp);
 
 off_t ext2_max_size(int block_size);
 
@@ -99,7 +103,7 @@ int ext2_journal_recover(struct super_block *sp);
 
 /* extent.c */
 void ext4_extent_init_inode(struct inode *rip);
-int ext4_extent_insert(struct inode *rip, u32_t lblock, block_t phys);
+int ext4_extent_insert(struct inode *rip, u32_t lblock, block64_t phys);
 int ext4_extent_remove_range(struct inode *rip, u32_t first, u32_t last);
 
 /* crc32c.c */
@@ -118,6 +122,8 @@ void ext2_inode_csum_set(struct super_block *sp, ino_t ino, void *dinode);
 void ext2_group_inode_alloc(struct super_block *sp, struct group_desc *gd,
 	unsigned int rel_ino);
 void ext2_group_block_alloc(struct super_block *sp, struct group_desc *gd);
+void ext2_inode_bitmap_init(struct super_block *sp, struct group_desc *gd,
+	void *bitmap);
 void ext2_dir_block_csum_set(struct inode *dirp, void *block);
 size_t ext2_dir_block_limit(struct super_block *sp);
 void ext2_extent_block_csum_set(struct inode *rip, void *block);
@@ -126,7 +132,7 @@ void ext2_extent_block_csum_set(struct inode *rip, void *block);
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);
 
 /* utility.c */
-struct buf *get_block(dev_t dev, block_t block, int how);
+struct buf *get_block(dev_t dev, block64_t block, int how);
 unsigned conv2(int norm, int w);
 long conv4(int norm, long x);
 int ansi_strcmp(register const char* ansi_s, register const char *s2,
@@ -138,6 +144,6 @@ int unsetbit(bitchunk_t *bitmap, bit_t bit);
 /* write.c */
 struct buf *new_block(struct inode *rip, off_t position);
 void zero_block(struct buf *bp);
-int write_map(struct inode *, off_t, block_t, int);
+int write_map(struct inode *, off_t, block64_t, int);
 
 #endif /* EXT2_PROTO_H */

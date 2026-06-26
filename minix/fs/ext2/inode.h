@@ -77,7 +77,7 @@ EXTERN struct inode {
     int i_count;                /* # times inode used; 0 means slot is free */
     struct super_block *i_sp;   /* pointer to super block for inode's device */
     char i_dirt;                /* CLEAN or DIRTY */
-    block_t i_bsearch;          /* where to start search for new blocks,
+    block64_t i_bsearch;          /* where to start search for new blocks,
                                  * also this is last allocated block.
 				 */
     off_t i_last_pos_bl_alloc;  /* last write position for which we allocated
@@ -92,7 +92,7 @@ EXTERN struct inode {
     char i_seek;                /* set on LSEEK, cleared on READ/WRITE */
     char i_update;              /* the ATIME, CTIME, and MTIME bits are here */
 
-    block_t i_prealloc_blocks[EXT2_PREALLOC_BLOCKS];	/* preallocated blocks */
+    block64_t i_prealloc_blocks[EXT2_PREALLOC_BLOCKS];	/* preallocated blocks */
     int i_prealloc_count;	/* number of preallocated blocks */
     int i_prealloc_index;	/* index into i_prealloc_blocks */
     int i_preallocation;	/* use preallocation for this inode, normally

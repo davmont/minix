@@ -18,7 +18,7 @@
 #include "inode.h"
 #include "super.h"
 
-static void wr_indir(struct buf *bp, int index, block_t block);
+static void wr_indir(struct buf *bp, int index, block64_t block);
 static int empty_indir(struct buf *, struct super_block *);
 
 /*===========================================================================*
@@ -27,7 +27,7 @@ static int empty_indir(struct buf *, struct super_block *);
 int write_map(rip, position, new_wblock, op)
 struct inode *rip;		/* pointer to inode to be changed */
 off_t position;			/* file address to be mapped */
-block_t new_wblock;		/* block # to be inserted */
+block64_t new_wblock;		/* block # to be inserted */
 int op;				/* special actions */
 {
 /* Write a new block into an inode.
@@ -43,7 +43,7 @@ int op;				/* special actions */
   long excess, block_pos;
   char new_ind = 0, new_dbl = 0, new_triple = 0;
   int single = 0, triple = 0;
-  block_t old_block = NO_BLOCK, b1 = NO_BLOCK, b2 = NO_BLOCK, b3 = NO_BLOCK;
+  block64_t old_block = NO_BLOCK, b1 = NO_BLOCK, b2 = NO_BLOCK, b3 = NO_BLOCK;
   struct buf *bp = NULL,
              *bp_dindir = NULL,
              *bp_tindir = NULL;
@@ -269,7 +269,7 @@ int op;				/* special actions */
 static void wr_indir(bp, wrindex, block)
 struct buf *bp;			/* pointer to indirect block */
 int wrindex;			/* index into *bp */
-block_t block;			/* block to write */
+block64_t block;			/* block to write */
 {
 /* Given a pointer to an indirect block, write one entry. */
 
@@ -309,14 +309,14 @@ off_t position;			/* file pointer */
 /* Acquire a new block and return a pointer to it. */
   struct buf *bp;
   int r;
-  block_t b;
+  block64_t b;
 
   /* Is another block available? */
   if ( (b = read_map(rip, position, 0)) == NO_BLOCK) {
 	/* Check if this position follows last allocated
 	 * block.
 	 */
-	block_t goal = NO_BLOCK;
+	block64_t goal = NO_BLOCK;
 	if (rip->i_last_pos_bl_alloc != 0) {
 		off_t position_diff = position - rip->i_last_pos_bl_alloc;
 		if (rip->i_bsearch == 0) {
@@ -365,7 +365,7 @@ off_t position;			/* file pointer */
   r = lmfs_get_block_ino(&bp, rip->i_dev, b, NO_READ, rip->i_num,
 	rounddown(position, rip->i_sp->s_block_size));
   if (r != OK)
-	panic("ext2: error getting block (%llu,%u): %d", (unsigned long long)rip->i_dev, b, r);
+	panic("ext2: error getting block (%llu,%llu): %d", (unsigned long long)rip->i_dev, (unsigned long long)b, r);
   zero_block(bp);
   return(bp);
 }

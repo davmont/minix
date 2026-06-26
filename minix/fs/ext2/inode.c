@@ -392,7 +392,7 @@ void rw_inode(
   register struct group_desc *gd;
   register d_inode *dip;
   u32_t block_group_number;
-  block_t b, offset;
+  block64_t b, offset;
 
   /* Get the block where the inode resides. */
   sp = get_super(rip->i_dev);     /* get pointer to super block */
@@ -409,7 +409,7 @@ void rw_inode(
   /* offset requires shifting, since each block contains several inodes,
    * e.g. inode 2 is stored in bklock 0.
    */
-  b = (block_t) gd->inode_table + (offset >> sp->s_blocksize_bits);
+  b = ext2_gd_inode_table(sp, gd) + (offset >> sp->s_blocksize_bits);
   bp = get_block(rip->i_dev, b, NORMAL);
 
   offset &= (sp->s_block_size - 1);

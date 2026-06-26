@@ -11,7 +11,7 @@
 #include "super.h"
 
 static struct inode *new_node(struct inode *ldirp, char *string, mode_t
-	bits, uid_t uid, gid_t gid, block_t z0);
+	bits, uid_t uid, gid_t gid, block64_t z0);
 
 
 /*===========================================================================*
@@ -69,7 +69,7 @@ int fs_mknod(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid,
 	  return(ENOENT);
 
   /* Try to create the new node */
-  ip = new_node(ldirp, name, mode, uid, gid, (block_t) dev);
+  ip = new_node(ldirp, name, mode, uid, gid, (block64_t) dev);
 
   put_inode(ip);
   put_inode(ldirp);
@@ -91,7 +91,7 @@ int fs_mkdir(ino_t dir_nr, char *name, mode_t mode, uid_t uid, gid_t gid)
       return(ENOENT);
 
   /* Next make the inode. If that fails, return error code. */
-  rip = new_node(ldirp, name, mode, uid, gid, (block_t) 0);
+  rip = new_node(ldirp, name, mode, uid, gid, (block64_t) 0);
 
   if(rip == NULL || err_code == EEXIST) {
 	  put_inode(rip);		/* can't make dir: it already exists */
@@ -205,7 +205,7 @@ int fs_slink(ino_t dir_nr, char *name, uid_t uid, gid_t gid,
  *				new_node				     *
  *===========================================================================*/
 static struct inode *new_node(struct inode *ldirp,
-	char *string, mode_t bits, uid_t uid, gid_t gid, block_t b0)
+	char *string, mode_t bits, uid_t uid, gid_t gid, block64_t b0)
 {
 /* New_node() is called by fs_open(), fs_mknod(), and fs_mkdir().
  * In all cases it allocates a new inode, makes a directory entry for it in

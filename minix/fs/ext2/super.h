@@ -98,26 +98,47 @@ EXTERN struct super_block {
     u32_t   s_max_size;         /* maximum file size on this device */
     dev_t   s_dev;              /* whose super block is this? */
     int     s_rd_only;          /* set to 1 if file sys mounted read only */
-    block_t s_bsearch;	/* all data blocks  below this block are in use*/
+    block64_t s_bsearch;	/* all data blocks  below this block are in use*/
     int     s_igsearch; /* all groups below this one have no free inodes */
     u32_t   s_dirs_counter;
+    unsigned int s_gd_size;     /* on-disk size of a group descriptor (32 or
+                                 * 64).  64 with the 64bit feature; also the
+                                 * stride of the in-core descriptor array. */
+    block64_t s_blocks_count_full; /* total blocks, full 64 bits (on-disk
+                                 * s_blocks_count is only the low 32; the high
+                                 * half is s_blocks_count_hi under 64bit). */
 
 } *superblock, *ondisk_superblock;
 
 
 /* Structure of a blocks group descriptor.
- * On disk stored in little endian format.
+ * On disk stored in little endian format.  The low half (first 32 bytes) is
+ * always present; the _hi fields exist only when the 64bit feature is set and
+ * s_gd_size is 64, and must not be touched otherwise (they would alias the next
+ * descriptor).
  */
 struct group_desc
 {
-    u32_t  block_bitmap;        /* Blocks bitmap block */
-    u32_t  inode_bitmap;        /* Inodes bitmap block */
-    u32_t  inode_table;         /* Inodes table block */
+    u32_t  block_bitmap;        /* Blocks bitmap block (low 32 bits) */
+    u32_t  inode_bitmap;        /* Inodes bitmap block (low 32 bits) */
+    u32_t  inode_table;         /* Inodes table block (low 32 bits) */
     u16_t  free_blocks_count;   /* Free blocks count */
     u16_t  free_inodes_count;   /* Free inodes count */
     u16_t  used_dirs_count;     /* Directories count */
     u16_t  pad;
     u32_t  reserved[3];
+    /* --- 64bit feature: high halves (offset 32..63) --- */
+    u32_t  block_bitmap_hi;     /* Blocks bitmap block (high 32 bits) */
+    u32_t  inode_bitmap_hi;     /* Inodes bitmap block (high 32 bits) */
+    u32_t  inode_table_hi;      /* Inodes table block (high 32 bits) */
+    u16_t  free_blocks_count_hi;
+    u16_t  free_inodes_count_hi;
+    u16_t  used_dirs_count_hi;
+    u16_t  itable_unused_hi;
+    u32_t  exclude_bitmap_hi;
+    u16_t  block_bitmap_csum_hi;
+    u16_t  inode_bitmap_csum_hi;
+    u32_t  reserved2;
 };
 
 #define IMAP	0           /* operating on the inode bit map */

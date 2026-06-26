@@ -163,7 +163,7 @@ static int do_one_pass(struct super_block *sp, struct inode *jp, u32_t maxlen,
 
 					if ((db = jread(jp, dblock)) == NULL)
 						continue;
-					hb = get_block(sp->s_dev, (block_t) tblock,
+					hb = get_block(sp->s_dev, (block64_t) tblock,
 					    NO_READ);
 					if (hb != NULL) {
 						memcpy(b_data(hb), b_data(db), bs);

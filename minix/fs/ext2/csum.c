@@ -43,6 +43,9 @@
 #define GD_IBITMAP_CSUM_OFF	26	/* bg_inode_bitmap_csum_lo */
 #define GD_ITABLE_UNUSED_OFF	28	/* bg_itable_unused_lo */
 #define GD_CHECKSUM_OFF		30	/* bg_checksum */
+/* High halves of the bitmap checksums, present only in 64-byte descriptors. */
+#define GD_BBITMAP_CSUM_HI_OFF	56	/* bg_block_bitmap_csum_hi */
+#define GD_IBITMAP_CSUM_HI_OFF	58	/* bg_inode_bitmap_csum_hi */
 
 /* bg_flags bits (uninit_bg / metadata_csum lazy-init bookkeeping). */
 #define EXT2_BG_INODE_UNINIT	0x0001	/* inode table/bitmap not initialised */
@@ -117,7 +120,7 @@ void ext2_group_desc_csum_set(struct super_block *sp, u32_t group,
 		return;
 	memcpy(raw + GD_CHECKSUM_OFF, &zero, sizeof(zero));
 	c = ext2_crc32c(ext2_csum_seed(sp), &le_group, sizeof(le_group));
-	c = ext2_crc32c(c, raw, sizeof(struct group_desc));
+	c = ext2_crc32c(c, raw, sp->s_gd_size);
 	csum = (u16_t)(c & 0xFFFF);
 	memcpy(raw + GD_CHECKSUM_OFF, &csum, sizeof(csum));
 }
@@ -126,29 +129,35 @@ void ext2_group_desc_csum_set(struct super_block *sp, u32_t group,
  *				ext2_bitmap_csum_set			     *
  *===========================================================================*/
 static void bitmap_csum_set(struct super_block *sp, struct group_desc *gd,
-	const void *bitmap, unsigned int nbits, int field_off)
+	const void *bitmap, unsigned int nbits, int lo_off, int hi_off)
 {
-	u16_t csum;
+	u32_t full;
+	u16_t lo, hi;
 
 	if (!ext2_has_csum(sp))
 		return;
-	csum = (u16_t)(ext2_crc32c(ext2_csum_seed(sp), bitmap, nbits / 8) &
-	    0xFFFF);
-	memcpy((u8_t *) gd + field_off, &csum, sizeof(csum));
+	full = ext2_crc32c(ext2_csum_seed(sp), bitmap, nbits / 8);
+	lo = (u16_t)(full & 0xFFFF);
+	memcpy((u8_t *) gd + lo_off, &lo, sizeof(lo));
+	/* The high 16 bits of the checksum live in the 64-byte descriptor. */
+	if (sp->s_gd_size >= 64) {
+		hi = (u16_t)((full >> 16) & 0xFFFF);
+		memcpy((u8_t *) gd + hi_off, &hi, sizeof(hi));
+	}
 }
 
 void ext2_block_bitmap_csum_set(struct super_block *sp, struct group_desc *gd,
 	const void *bitmap)
 {
 	bitmap_csum_set(sp, gd, bitmap, sp->s_blocks_per_group,
-	    GD_BBITMAP_CSUM_OFF);
+	    GD_BBITMAP_CSUM_OFF, GD_BBITMAP_CSUM_HI_OFF);
 }
 
 void ext2_inode_bitmap_csum_set(struct super_block *sp, struct group_desc *gd,
 	const void *bitmap)
 {
 	bitmap_csum_set(sp, gd, bitmap, sp->s_inodes_per_group,
-	    GD_IBITMAP_CSUM_OFF);
+	    GD_IBITMAP_CSUM_OFF, GD_IBITMAP_CSUM_HI_OFF);
 }
 
 /*===========================================================================*
@@ -177,6 +186,35 @@ void ext2_group_inode_alloc(struct super_block *sp, struct group_desc *gd,
 	want = (u16_t)(sp->s_inodes_per_group - (rel_ino + 1));
 	if (want < unused)
 		memcpy(raw + GD_ITABLE_UNUSED_OFF, &want, sizeof(want));
+}
+
+/*===========================================================================*
+ *				ext2_inode_bitmap_init			     *
+ *===========================================================================*/
+void ext2_inode_bitmap_init(struct super_block *sp, struct group_desc *gd,
+	void *bitmap)
+{
+/* A lazily-initialised group (INODE_UNINIT) has an all-zero on-disk inode
+ * bitmap.  When the first inode is allocated there the bitmap becomes live, so
+ * the padding bits beyond s_inodes_per_group must be set to 1 (as mke2fs and
+ * the kernel do) or e2fsck reports "padding at end of inode bitmap is not set".
+ * Call this before setting the new inode's bit and before clearing the flag. */
+	u8_t *bm = (u8_t *) bitmap;
+	u16_t flags;
+	unsigned int ipg, ceil;
+
+	if (!ext2_has_csum(sp))
+		return;
+	memcpy(&flags, (u8_t *) gd + GD_FLAGS_OFF, sizeof(flags));
+	if (!(flags & EXT2_BG_INODE_UNINIT))
+		return;				/* already initialised */
+
+	ipg = sp->s_inodes_per_group;
+	ceil = (ipg + 7) / 8;			/* bytes holding valid inode bits */
+	if (ipg % 8)				/* partial byte: pad its high bits */
+		bm[ipg / 8] |= (u8_t)(0xFF << (ipg % 8));
+	if (ceil < sp->s_block_size)
+		memset(bm + ceil, 0xFF, sp->s_block_size - ceil);
 }
 
 /*===========================================================================*

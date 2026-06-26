@@ -42,8 +42,8 @@
 #define SUPER_BLOCK_BYTES       (1024)         /* bytes offset */
 
 #define ROOT_INODE      ((ino_t) 2)   /* inode number for root directory */
-#define BOOT_BLOCK      ((block_t) 0) /* block number of boot block */
-#define START_BLOCK     ((block_t) 2) /* first block of FS (not counting SB) */
+#define BOOT_BLOCK      ((block64_t) 0) /* block number of boot block */
+#define START_BLOCK     ((block64_t) 2) /* first block of FS (not counting SB) */
 #define BLOCK_ADDRESS_BYTES	4     /* bytes per address */
 
 #define SUPER_SIZE      sizeof (struct super_block) /* sb size in RAM */
@@ -142,7 +142,8 @@
  * group descriptors already point at the (relocated) bitmaps and inode
  * tables. */
 #define SUPPORTED_INCOMPAT_FEATURES	(INCOMPAT_FILETYPE | INCOMPAT_EXTENTS | \
-					 INCOMPAT_FLEX_BG | INCOMPAT_CSUM_SEED)
+					 INCOMPAT_FLEX_BG | INCOMPAT_CSUM_SEED | \
+					 INCOMPAT_64BIT)
 /* These RO_COMPAT features are safe to mount read-write because they need no
  * special handling on our side: huge_file is only relevant to inodes with the
  * EXT4_HUGE_FILE_FL flag (we never set it and never create >2 TiB files, so our
