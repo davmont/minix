@@ -162,5 +162,8 @@
 
 #define EXT2_PREALLOC_BLOCKS		8
 
+/* Magic at the start of an extended-attribute block (little-endian on disk). */
+#define EXT2_EXT_ATTR_MAGIC		0xEA020000
+
 
 #endif /* EXT2_CONST_H */

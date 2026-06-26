@@ -26,6 +26,19 @@ static void icopy(struct inode *rip, d_inode *dip, int direction, int
 	norm);
 static void addhash_inode(struct inode *node);
 static void unhash_inode(struct inode *node);
+static void free_xattr_block(struct inode *rip);
+
+/* On-disk header of an extended-attribute block (little-endian).  Such a block
+ * may be shared between inodes with identical attributes, tracked by h_refcount.
+ */
+struct ext2_xattr_header {
+  u32_t h_magic;	/* EXT2_EXT_ATTR_MAGIC */
+  u32_t h_refcount;	/* number of inodes referencing this block */
+  u32_t h_blocks;	/* number of disk blocks used (always 1) */
+  u32_t h_hash;		/* hash of all attribute entries */
+  u32_t h_checksum;	/* crc32c (only with metadata_csum) */
+  u32_t h_reserved[3];
+};
 
 
 /*===========================================================================*
@@ -213,6 +226,73 @@ struct inode *find_inode(
 
 
 /*===========================================================================*
+ *                free_xattr_block                                           *
+ *===========================================================================*/
+static void free_xattr_block(struct inode *rip)
+{
+/* Release the extended-attribute block referenced by rip->i_file_acl when the
+ * inode is deleted.  ext2/3/4 xattr blocks can be shared between inodes that
+ * have identical attributes, with a reference count in the block header: drop
+ * that count and only return the block to the free pool when the last reference
+ * is gone, exactly as Linux does.  i_blocks is adjusted because each referencing
+ * inode accounts for the shared block.
+ */
+  struct super_block *sp = rip->i_sp;
+  struct ext2_xattr_header *xh;
+  struct buf *bp;
+  block_t b = rip->i_file_acl;
+  u32_t refcount;
+
+  if (b == NO_BLOCK)
+	return;				/* no xattr block to release */
+
+  /* This inode no longer references the block, whatever happens to it. */
+  rip->i_file_acl = 0;
+  rip->i_dirt = IN_DIRTY;
+
+  if (sp->s_rd_only)			/* can't happen: no deletes when RO */
+	return;
+
+  /* Refuse to touch an out-of-range block number. */
+  if (b < sp->s_first_data_block || b >= sp->s_blocks_count) {
+	ext2_debug("ext2: inode %d has bad i_file_acl %u\n",
+	    (int) rip->i_num, b);
+	return;
+  }
+
+  bp = get_block(rip->i_dev, b, NORMAL);
+  if (bp == NULL)
+	return;
+
+  xh = (struct ext2_xattr_header *) b_data(bp);
+  if ((u32_t) conv4(le_CPU, xh->h_magic) != EXT2_EXT_ATTR_MAGIC) {
+	/* Not a recognizable xattr block: leave it untouched rather than risk
+	 * corrupting an unrelated block. */
+	ext2_debug("ext2: inode %d i_file_acl %u missing xattr magic\n",
+	    (int) rip->i_num, b);
+	put_block(bp);
+	return;
+  }
+
+  /* Drop this inode's share of the block from its block count. */
+  if (rip->i_blocks >= sp->s_sectors_in_block)
+	rip->i_blocks -= sp->s_sectors_in_block;
+
+  refcount = (u32_t) conv4(le_CPU, xh->h_refcount);
+  if (refcount > 1) {
+	/* Still referenced by other inodes: just decrement the count. */
+	xh->h_refcount = conv4(le_CPU, (long)(refcount - 1));
+	lmfs_markdirty(bp);
+	put_block(bp);
+  } else {
+	/* Last (or only) reference: free the block. */
+	put_block(bp);
+	free_block(sp, b);
+  }
+}
+
+
+/*===========================================================================*
  *                put_inode                                                  *
  *===========================================================================*/
 void put_inode(
@@ -239,6 +319,10 @@ void put_inode(
 		 * special or character special file.
 		 */
 		(void) truncate_inode(rip, (off_t) 0);
+		/* Release the extended-attribute block, if any, before the
+		 * inode itself goes away (truncate_inode only frees the data
+		 * blocks reachable through the block map). */
+		free_xattr_block(rip);
 		/* free inode clears I_TYPE field, since it's used there */
 		rip->i_dirt = IN_DIRTY;
 		free_inode(rip);
