@@ -128,6 +128,12 @@ void ext2_dir_block_csum_set(struct inode *dirp, void *block);
 size_t ext2_dir_block_limit(struct super_block *sp);
 void ext2_extent_block_csum_set(struct inode *rip, void *block);
 
+/* xattr.c */
+ssize_t fs_getxattr(ino_t ino_nr, int attrnamespace, const char *name,
+	struct fsdriver_data *data, size_t bytes);
+ssize_t fs_listxattr(ino_t ino_nr, int attrnamespace,
+	struct fsdriver_data *data, size_t bytes);
+
 /* time.c */
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);
 
