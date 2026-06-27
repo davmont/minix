@@ -28,12 +28,17 @@
 
 #include "fs.h"
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/extattr.h>
 #include <sys/acl.h>
 #include <sys/xattr.h>
 #include "buf.h"
 #include "inode.h"
 #include "super.h"
+
+/* Largest POSIX_ACL_XATTR value handled during inheritance / chmod sync. */
+#define E2_ACL_BUFSZ	(sizeof(struct posix_acl_xattr_header) + \
+			 128 * sizeof(struct posix_acl_xattr_entry))
 
 /* On-disk magic shared by the in-inode and in-block attribute regions. */
 #define EXT2_XATTR_MAGIC	0xEA020000
@@ -944,4 +949,155 @@ int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name)
 	if (r == OK)
 		rw_inode(rip, WRITING);
 	return(r);
+}
+
+/* ===================== ACL inheritance & chmod sync ===================== */
+
+/*===========================================================================*
+ *				ext2_acl_inherit			     *
+ *===========================================================================*/
+void ext2_acl_inherit(struct inode *parent, struct inode *child)
+{
+/* If 'parent' has a POSIX default ACL, apply it to the freshly created 'child'
+ * (open.c new_node()): the child's access ACL is the default ACL with its
+ * USER_OBJ/group-class/OTHER permissions masked by the child's create mode, the
+ * mode is updated to match, and a new directory also inherits the default ACL
+ * as its own.  Symbolic links never get ACLs.  (VFS has already applied the
+ * umask to the create mode, so the inherited permissions are bounded by it.) */
+	char dbuf[E2_ACL_BUFSZ], abuf[E2_ACL_BUFSZ];
+	struct fsdriver_data data;
+	struct posix_acl_xattr_header *h;
+	struct posix_acl_xattr_entry *e;
+	ssize_t dlen;
+	unsigned int n, i;
+	mode_t mo, mg, mob;
+	int have_mask = 0, has_ext = 0;
+	u16_t uobj = 0, gobj = 0, other = 0, mask = 0;
+
+	if (S_ISLNK(child->i_mode))
+		return;
+
+	/* Read the parent's default ACL into a local buffer. */
+	data.endpt = SELF;
+	data.ptr = dbuf;
+	data.size = sizeof(dbuf);
+	dlen = fs_getxattr(parent->i_num, EXTATTR_NAMESPACE_SYSTEM,
+	    POSIX_ACL_XATTR_DEFAULT, &data, sizeof(dbuf));
+	if (dlen < (ssize_t) sizeof(struct posix_acl_xattr_header))
+		return;
+	h = (struct posix_acl_xattr_header *) dbuf;
+	if (h->a_version != POSIX_ACL_XATTR_VERSION)
+		return;
+	n = (unsigned int)(((size_t) dlen - sizeof(*h)) /
+	    sizeof(struct posix_acl_xattr_entry));
+
+	mo  = (child->i_mode >> 6) & 7;
+	mg  = (child->i_mode >> 3) & 7;
+	mob = child->i_mode & 7;
+
+	/* The access ACL is the default ACL with the base entries masked by the
+	 * create mode; named user/group entries are carried over unchanged. */
+	memcpy(abuf, dbuf, (size_t) dlen);
+	h = (struct posix_acl_xattr_header *) abuf;
+	e = (struct posix_acl_xattr_entry *) (h + 1);
+	for (i = 0; i < n; i++)
+		if (e[i].e_tag == ACL_MASK)
+			have_mask = 1;
+	for (i = 0; i < n; i++) {
+		switch (e[i].e_tag) {
+		case ACL_USER_OBJ:  e[i].e_perm &= mo;  uobj  = e[i].e_perm; break;
+		case ACL_OTHER:     e[i].e_perm &= mob; other = e[i].e_perm; break;
+		case ACL_MASK:      e[i].e_perm &= mg;  mask  = e[i].e_perm; break;
+		case ACL_GROUP_OBJ:
+			if (!have_mask)
+				e[i].e_perm &= mg;
+			gobj = e[i].e_perm;
+			break;
+		case ACL_USER:
+		case ACL_GROUP:     has_ext = 1; break;
+		}
+	}
+	if (have_mask)
+		has_ext = 1;
+
+	/* Fold the masked owner/group-class/other permissions into the mode. */
+	child->i_mode = (child->i_mode & ~(mode_t) 0777) |
+	    ((mode_t) uobj << 6) |
+	    ((mode_t)(have_mask ? mask : gobj) << 3) | (mode_t) other;
+	child->i_dirt = IN_DIRTY;
+
+	/* Only a non-trivial ACL (named entries or a mask) needs storing; a
+	 * trivial one is captured entirely by the mode bits set above. */
+	if (has_ext) {
+		data.endpt = SELF;
+		data.ptr = abuf;
+		data.size = (size_t) dlen;
+		(void) fs_setxattr(child->i_num, EXTATTR_NAMESPACE_SYSTEM,
+		    POSIX_ACL_XATTR_ACCESS, &data, (size_t) dlen, 0);
+	}
+	/* A new directory also inherits the default ACL as its own. */
+	if (S_ISDIR(child->i_mode)) {
+		data.endpt = SELF;
+		data.ptr = dbuf;
+		data.size = (size_t) dlen;
+		(void) fs_setxattr(child->i_num, EXTATTR_NAMESPACE_SYSTEM,
+		    POSIX_ACL_XATTR_DEFAULT, &data, (size_t) dlen, 0);
+	}
+}
+
+/*===========================================================================*
+ *				ext2_acl_chmod				     *
+ *===========================================================================*/
+void ext2_acl_chmod(struct inode *rip)
+{
+/* After a chmod has set rip->i_mode, fold the new permission bits back into the
+ * file's POSIX access ACL (if it has one) so the ACL and the mode stay
+ * consistent:  USER_OBJ gets the owner bits, OTHER the other bits; with a MASK
+ * entry the MASK gets the group bits (and GROUP_OBJ is left alone, since the
+ * mode's group bits then stand for the mask, which is what stat reports),
+ * otherwise GROUP_OBJ gets the group bits.  Named entries are never changed. */
+	char abuf[E2_ACL_BUFSZ];
+	struct fsdriver_data data;
+	struct posix_acl_xattr_header *h;
+	struct posix_acl_xattr_entry *e;
+	ssize_t alen;
+	unsigned int n, i;
+	u16_t mo, mg, mob;
+	int have_mask = 0;
+
+	data.endpt = SELF;
+	data.ptr = abuf;
+	data.size = sizeof(abuf);
+	alen = fs_getxattr(rip->i_num, EXTATTR_NAMESPACE_SYSTEM,
+	    POSIX_ACL_XATTR_ACCESS, &data, sizeof(abuf));
+	if (alen < (ssize_t) sizeof(struct posix_acl_xattr_header))
+		return;
+	h = (struct posix_acl_xattr_header *) abuf;
+	if (h->a_version != POSIX_ACL_XATTR_VERSION)
+		return;
+	n = (unsigned int)(((size_t) alen - sizeof(*h)) /
+	    sizeof(struct posix_acl_xattr_entry));
+
+	mo  = (u16_t)((rip->i_mode >> 6) & 7);
+	mg  = (u16_t)((rip->i_mode >> 3) & 7);
+	mob = (u16_t)(rip->i_mode & 7);
+
+	e = (struct posix_acl_xattr_entry *) (h + 1);
+	for (i = 0; i < n; i++)
+		if (e[i].e_tag == ACL_MASK)
+			have_mask = 1;
+	for (i = 0; i < n; i++) {
+		switch (e[i].e_tag) {
+		case ACL_USER_OBJ:  e[i].e_perm = mo;  break;
+		case ACL_OTHER:     e[i].e_perm = mob; break;
+		case ACL_MASK:      e[i].e_perm = mg;  break;
+		case ACL_GROUP_OBJ: if (!have_mask) e[i].e_perm = mg; break;
+		}
+	}
+
+	data.endpt = SELF;
+	data.ptr = abuf;
+	data.size = (size_t) alen;
+	(void) fs_setxattr(rip->i_num, EXTATTR_NAMESPACE_SYSTEM,
+	    POSIX_ACL_XATTR_ACCESS, &data, (size_t) alen, 0);
 }

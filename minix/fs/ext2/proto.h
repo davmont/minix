@@ -141,6 +141,8 @@ ssize_t fs_listxattr(ino_t ino_nr, int attrnamespace,
 int fs_setxattr(ino_t ino_nr, int attrnamespace, const char *name,
 	struct fsdriver_data *data, size_t bytes, int flags);
 int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name);
+void ext2_acl_inherit(struct inode *parent, struct inode *child);
+void ext2_acl_chmod(struct inode *rip);
 
 /* time.c */
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);

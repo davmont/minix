@@ -254,6 +254,10 @@ static struct inode *new_node(struct inode *ldirp,
 	    ((rip->i_mode & I_TYPE) == I_REGULAR ||
 	     (rip->i_mode & I_TYPE) == I_DIRECTORY))
 		ext4_extent_init_inode(rip);
+	/* Inherit the parent's POSIX default ACL, if any: this adjusts
+	 * rip->i_mode and may store the access and (for a directory)
+	 * default ACLs before the inode is committed below. */
+	ext2_acl_inherit(ldirp, rip);
 	rw_inode(rip, WRITING);		/* force inode to disk now */
 
 	/* New inode acquired.  Try to make directory entry. */
