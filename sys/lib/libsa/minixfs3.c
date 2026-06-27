@@ -203,9 +203,30 @@ read_inode(ino32_t inumber, struct open_file *f)
 	if (rsize != fs->mfs_block_size)
 		return EIO;
 
-	dip = (struct mfs_dinode *)(buf +
-	    INODE_SIZE * ino_to_fsbo(fs, inumber));
-	mfs_iload(dip, &fp->f_di);
+	if (fs->mfs_inode_size == V4_INODE_SIZE) {
+		/* MFS4 wide inode: translate the fields the boot loader uses
+		 * (size, mode and the zone block map) into the V3-style in-core
+		 * inode that the rest of this driver works with.  The zone map
+		 * has the same direct/indirect layout, just at a wider offset.
+		 * Boot files (kernel and modules) are well under 4 GB, so the
+		 * 32-bit in-core mdi_size is sufficient.
+		 */
+		struct mfs_dinode4 *dip4;
+		int z;
+
+		dip4 = (struct mfs_dinode4 *)(buf +
+		    V4_INODE_SIZE * ino_to_fsbo(fs, inumber));
+		memset(&fp->f_di, 0, sizeof(fp->f_di));
+		fp->f_di.mdi_mode = fs2h16(dip4->mdi4_mode);
+		fp->f_di.mdi_nlinks = (uint16_t) fs2h32(dip4->mdi4_nlinks);
+		fp->f_di.mdi_size = (uint32_t) fs2h64(dip4->mdi4_size);
+		for (z = 0; z < NR_TZONES; z++)
+			fp->f_di.mdi_zone[z] = fs2h32(dip4->mdi4_zone[z]);
+	} else {
+		dip = (struct mfs_dinode *)(buf +
+		    INODE_SIZE * ino_to_fsbo(fs, inumber));
+		mfs_iload(dip, &fp->f_di);
+	}
 
 	/*
 	 * Clear out the old buffers
@@ -464,15 +485,29 @@ read_sblock(struct open_file *f, struct mfs_sblock *fs)
 
 	mfs_sbload((void *)sbbuf, fs);
 
-	if (fs->mfs_magic != SUPER_MAGIC)
+	if (fs->mfs_magic != SUPER_MAGIC && fs->mfs_magic != SUPER_V4)
 		return EINVAL;
+
+	/* A V4 file system with the wide-inode feature uses 128-byte on-disk
+	 * inodes; everything else (V2/V3, or a plain V4 without the feature)
+	 * uses the 64-byte inode.  The journal and xattr features do not affect
+	 * how a regular file is read, so they are ignored here.  For a non-V4
+	 * file system the feature words hold undefined bytes and must not be
+	 * consulted.
+	 */
+	if (fs->mfs_magic == SUPER_V4 &&
+	    (fs->mfs_feature_incompat & MFS_INCOMPAT_WIDE_INODE))
+		fs->mfs_inode_size = V4_INODE_SIZE;
+	else
+		fs->mfs_inode_size = INODE_SIZE;
+
 	if (fs->mfs_block_size < MINBSIZE)
 		return EINVAL;
 	if ((fs->mfs_block_size % 512) != 0)
 		return EINVAL;
 	if (SBSIZE > fs->mfs_block_size)
 		return EINVAL;
-	if ((fs->mfs_block_size % INODE_SIZE) != 0)
+	if ((fs->mfs_block_size % fs->mfs_inode_size) != 0)
 		return EINVAL;
 
 	/* For even larger disks, a similar problem occurs with s_firstdatazone.
@@ -500,7 +535,7 @@ read_sblock(struct open_file *f, struct mfs_sblock *fs)
 		return EINVAL;
 
 	/* compute in-memory mfs_sblock values */
-	fs->mfs_inodes_per_block = fs->mfs_block_size / INODE_SIZE;
+	fs->mfs_inodes_per_block = fs->mfs_block_size / fs->mfs_inode_size;
 
 
 	{

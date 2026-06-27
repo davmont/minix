@@ -56,6 +56,31 @@ struct mfs_dinode {
 						dbl ind */
 };
 
+/* The MFS4 (V4) wide inode as it is on disk: 128 bytes, used when the file
+ * system has the MFS_INCOMPAT_WIDE_INODE feature.  See minix/fs/mfs/type.h
+ * (d4_inode).  Only the fields the boot loader needs to read a file (size,
+ * mode and the zone block map) are given names; the rest is layout padding.
+ * The zone map has the same direct/indirect/double-indirect structure as the
+ * V2/V3 inode, just at a different offset.
+ */
+struct mfs_dinode4 {
+	uint64_t  mdi4_size;	/* current file size in bytes */
+	int64_t   mdi4_atime;	/* time of last access */
+	int64_t   mdi4_mtime;	/* when was file data last changed */
+	int64_t   mdi4_ctime;	/* when was inode itself changed */
+	int64_t   mdi4_crtime;	/* when was the file created */
+	uint16_t  mdi4_mode;	/* file type, protection, etc. */
+	uint16_t  mdi4_pad0;	/* padding; must be zero */
+	uint32_t  mdi4_nlinks;	/* how many links to this file */
+	uint32_t  mdi4_uid;	/* user id of the file's owner */
+	uint32_t  mdi4_gid;	/* group number */
+	uint32_t  mdi4_flags;	/* inode flags (chflags) */
+	uint32_t  mdi4_xattr_zone; /* zone holding xattrs, 0 = none */
+	zone_t    mdi4_zone[NR_TZONES]; /* zone numbers for direct, ind, and
+						dbl ind */
+	uint32_t  mdi4_reserved[6]; /* reserved; must be zero */
+};
+
 /* Maximum Minix MFS on-disk directory filename.
  * MFS uses 'struct direct' to write and parse
  * directory entries, so this can't be changed
@@ -83,10 +108,24 @@ struct mfs_sblock {
 	uint16_t  mfs_block_size;	/* block size in bytes. */
 	char      mfs_disk_version;	/* filesystem format sub-version */
 
+  /* The following items are valid on disk only for V4 (magic SUPER_V4); the
+   * explicit padding matches struct super_block in minix/fs/mfs/super.h so
+   * that mfs_feature_incompat lands at the same on-disk offset (verified: 40
+   * bytes into the superblock).  For V3 they hold undefined bytes and must be
+   * ignored (see read_sblock()).
+   */
+	uint8_t   mfs_v4_pad8;		/* deterministic-layout padding */
+	uint16_t  mfs_v4_pad16;
+	uint32_t  mfs_feature_compat;	/* unknown bit: ignore */
+	uint32_t  mfs_feature_incompat;	/* unknown bit: do not mount (WIDE_INODE) */
+	uint32_t  mfs_feature_ro_compat;/* unknown bit: mount read-only */
+
   /* The following items are only used when the super_block is in memory,
    * mfs_inodes_per_block must be the firs one (see SBSIZE)
    */
 	unsigned mfs_inodes_per_block;	/* precalculated from magic number */
+	unsigned mfs_inode_size;	/* on-disk inode size: 64 (V2/V3/plain V4)
+					 * or 128 (V4 with WIDE_INODE) */
 	zone_t   mfs_firstdatazone;	/* number of first data zone (big) */
 	int32_t  mfs_bshift;		/* ``lblkno'' calc of logical blkno */
 	int32_t  mfs_bmask;		/* ``blkoff'' calc of blk offsets */
@@ -98,6 +137,13 @@ struct mfs_sblock {
 #define MINBSIZE	(1 << LOG_MINBSIZE)
 
 #define SUPER_MAGIC	0x4d5a	/* magic # for MFSv3 file systems */
+#define SUPER_V4	0x4d5b	/* magic # for MFS4 (V4) file systems */
+
+/* MFS4 incompatible-feature bits (see minix/fs/mfs/const.h).  The boot loader
+ * only needs to know whether the inodes are the 128-byte wide format; the
+ * journal and xattr features do not change how a regular file is read.
+ */
+#define MFS_INCOMPAT_WIDE_INODE	0x00000001 /* 128-byte d4 inode */
 
 #define ROOT_INODE	((uint32_t) 1)	/* inode number for root directory */
 #define SUPER_BLOCK_OFF (1024)		/* bytes offset */
@@ -111,7 +157,8 @@ struct mfs_sblock {
 #define SBSIZE			offsetof(struct mfs_sblock, mfs_inodes_per_block)
 
 #define ZONE_NUM_SIZE		sizeof(zone_t) /* # bytes in zone  */
-#define INODE_SIZE		sizeof(struct mfs_dinode) /* bytes in dsk ino */
+#define INODE_SIZE		sizeof(struct mfs_dinode) /* V2/V3 dsk ino */
+#define V4_INODE_SIZE		sizeof(struct mfs_dinode4) /* V4 wide dsk ino */
 /* # zones/indir block */
 #define MFS_NINDIR(fs)		((fs)->mfs_block_size/ZONE_NUM_SIZE)
 
@@ -133,6 +180,7 @@ struct mfs_sblock {
 #if BYTE_ORDER == LITTLE_ENDIAN
 #	define fs2h16(x) (x)
 #	define fs2h32(x) (x)
+#	define fs2h64(x) (x)
 #	define mfs_sbload(old, new)	\
 		memcpy((new), (old), SBSIZE);
 #	define mfs_iload(old, new)	\
@@ -142,6 +190,7 @@ void minixfs3_sb_bswap(struct mfs_sblock *, struct mfs_sblock *);
 void minixfs3_i_bswap(struct mfs_dinode *, struct mfs_dinode *);
 #	define fs2h16(x) bswap16(x)
 #	define fs2h32(x) bswap32(x)
+#	define fs2h64(x) bswap64(x)
 #	define mfs_sbload(old, new) minixfs3_sb_bswap((old), (new))
 #	define mfs_iload(old, new) minixfs3_i_bswap((old), (new))
 #endif /* BYTE_ORDER == LITTLE_ENDIAN */
