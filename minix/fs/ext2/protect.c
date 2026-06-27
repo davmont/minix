@@ -24,6 +24,10 @@ int fs_chmod(ino_t ino_nr, mode_t *mode)
   rip->i_update |= CTIME;
   rip->i_dirt = IN_DIRTY;
 
+  /* If the file carries a POSIX access ACL, fold the new permission bits
+   * into it (USER_OBJ/OTHER/MASK), keeping mode and ACL consistent. */
+  ext2_acl_chmod(rip);
+
   /* Return full new mode to caller. */
   *mode = rip->i_mode;
 
