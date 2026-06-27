@@ -128,9 +128,12 @@ static void mt_io_wake(void)
  * Enable multithreaded operation of the block cache.  Called once at startup by
  * a file system that uses worker threads.  'unlock'/'lock' release and
  * re-acquire that file system's global request lock; the cache uses them to let
- * data-block transfers overlap (NULL leaves transfers serialized).
+ * data-block transfers overlap (NULL leaves transfers serialized).  'readonly'
+ * reports whether the request being served only reads, so that its metadata
+ * transfers may overlap too.
  */
-void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void))
+void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void),
+	int (*readonly)(void))
 {
 	if (mthread_event_init(&mt_read_event) != 0)
 		panic("libminixfs: cannot initialize mt read event");
@@ -138,6 +141,7 @@ void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void))
 	lmfs_set_io_hook(mt_io_hook);
 	lmfs_set_io_wait_hooks(mt_io_wait, mt_io_wake);
 	lmfs_set_lock_hooks(unlock, lock);
+	lmfs_set_readonly_hook(readonly);
 }
 
 /*

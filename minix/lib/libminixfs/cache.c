@@ -106,6 +106,18 @@ void lmfs_set_lock_hooks(void (*unlock_fn)(void), void (*lock_fn)(void))
 	lmfs_lock_fn = lock_fn;
 }
 
+/* Hook telling the cache whether the request currently being served only reads
+ * file-system state.  For such a request the global lock may also be dropped
+ * around *metadata* transfers (inode, indirect blocks), not just data ones,
+ * since the request writes no metadata and starts no journal transaction.  NULL
+ * (the default) keeps metadata transfers serialized. */
+static int (*lmfs_readonly_fn)(void) = NULL;
+
+void lmfs_set_readonly_hook(int (*readonly_fn)(void))
+{
+	lmfs_readonly_fn = readonly_fn;
+}
+
 static struct buf *buf;
 static struct buf **buf_hash;   /* the buffer hash table */
 static unsigned int nr_bufs;
@@ -800,8 +812,12 @@ static int read_block(struct buf *bp, size_t block_size)
    * file-system metadata (bitmaps, inodes, indirect blocks).  In multithreaded
    * mode we drop the file system's global lock around a data transfer so other
    * workers can run, but keep it for metadata so their read-modify-write stays
-   * serialized. */
+   * serialized -- except when the current request only reads (it writes no
+   * metadata and starts no journal transaction), in which case dropping it
+   * around its metadata reads too is safe. */
   int is_data = (bp->lmfs_inode != VMC_NO_INODE);
+  int release_lock = is_data ||
+	(lmfs_readonly_fn != NULL && lmfs_readonly_fn());
   int idx = (int)(bp - buf);
 
   assert(dev != NO_DEV);
@@ -813,7 +829,7 @@ static int read_block(struct buf *bp, size_t block_size)
    * the same block waits for us instead of using the unfilled buffer. */
   if (lmfs_io_wait_fn != NULL)
 	block_reading[idx] = 1;
-  if (is_data && lmfs_unlock_fn != NULL)
+  if (release_lock && lmfs_unlock_fn != NULL)
 	lmfs_unlock_fn();
 
   pos = (off_t)bp->lmfs_blocknr * fs_block_size;
@@ -852,7 +868,7 @@ static int read_block(struct buf *bp, size_t block_size)
 	if (lmfs_io_wake_fn != NULL)
 		lmfs_io_wake_fn();
   }
-  if (is_data && lmfs_lock_fn != NULL)
+  if (release_lock && lmfs_lock_fn != NULL)
 	lmfs_lock_fn();
 
   if (r != (ssize_t)block_size) {

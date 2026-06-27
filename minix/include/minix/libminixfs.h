@@ -71,8 +71,10 @@ void lmfs_bflush(dev_t dev);
  * lmfs_mt_reply(), which routes the reply to the worker waiting for it.
  * 'unlock'/'lock' release and re-acquire the file system's global request lock;
  * the cache drops it around data-block transfers so concurrent file reads
- * overlap their disk I/O. */
-void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void));
+ * overlap their disk I/O.  'readonly' reports whether the request being served
+ * only reads, so its metadata transfers may overlap too. */
+void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void),
+	int (*readonly)(void));
 void lmfs_mt_reply(message *m);
 
 #endif /* _MINIX_FSLIB_H */

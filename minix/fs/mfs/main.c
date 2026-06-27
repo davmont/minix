@@ -95,7 +95,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
    * asynchronous so that one worker's I/O does not block the others, and the
    * global request lock is dropped around data-block transfers so concurrent
    * file reads overlap their I/O. */
-  lmfs_enable_mt(fsdriver_mt_unlock, fsdriver_mt_lock);
+  lmfs_enable_mt(fsdriver_mt_unlock, fsdriver_mt_lock, fsdriver_mt_readonly);
 
   return(OK);
 }

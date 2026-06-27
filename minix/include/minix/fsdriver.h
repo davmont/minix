@@ -121,6 +121,7 @@ void fsdriver_task(struct fsdriver *fdp);
 void fsdriver_mt_task(struct fsdriver *fdp, unsigned int nworkers);
 void fsdriver_mt_unlock(void);
 void fsdriver_mt_lock(void);
+int fsdriver_mt_readonly(void);
 
 int fsdriver_copyin(const struct fsdriver_data *data, size_t off, void *ptr,
 	size_t len);

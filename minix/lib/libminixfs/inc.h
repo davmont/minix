@@ -13,5 +13,6 @@ void lmfs_set_io_hook(ssize_t (*hook)(int, dev_t, u64_t, char *, iovec_t *,
 	int, size_t));
 void lmfs_set_io_wait_hooks(void (*wait_fn)(void), void (*wake_fn)(void));
 void lmfs_set_lock_hooks(void (*unlock_fn)(void), void (*lock_fn)(void));
+void lmfs_set_readonly_hook(int (*readonly_fn)(void));
 
 #endif /* !_LIBMINIXFS_INC_H */

@@ -42,6 +42,53 @@ static struct {
 } mt_queue[MT_QUEUE_SIZE];
 static unsigned int mt_q_head, mt_q_tail, mt_q_count;
 
+/* Per-worker flag: is the request this worker is currently handling read-only
+ * (it modifies no file-system metadata and starts no journal transaction)?
+ * Stored in thread-specific data so it survives the I/O yields, and queried by
+ * the block cache (fsdriver_mt_readonly) to decide whether it may also drop the
+ * global lock around the request's *metadata* reads -- safe only because such a
+ * request neither writes metadata nor allocates. */
+static mthread_key_t mt_readonly_key;
+
+/*
+ * Return whether the given VFS request only reads file-system state.  These
+ * requests perform no metadata write and start no journal transaction, so the
+ * cache may overlap their metadata I/O with other work.  Conservative: anything
+ * not listed here is treated as a writer and stays fully serialized.
+ */
+static int mt_request_is_readonly(const message *m_ptr)
+{
+	switch (TRNS_DEL_ID(m_ptr->m_type)) {
+	case REQ_STAT:
+	case REQ_STATVFS:
+	case REQ_GETDENTS:
+	case REQ_RDLINK:
+	case REQ_READ:		/* only updates atime, after all its reads */
+	case REQ_PEEK:
+		/* These all operate on an inode that already has a VFS vnode, so
+		 * it is pinned in the in-core inode table and no cold inode load
+		 * happens while the lock is dropped.  REQ_LOOKUP is deliberately
+		 * excluded: it loads cold inodes during path resolution, and the
+		 * in-core inode table does not yet serialize concurrent loads of
+		 * the same inode (get_inode() hashes an inode only after reading
+		 * it), so two lookups could otherwise build duplicate in-core
+		 * copies.  Lifting that needs an inode-load guard -- future work.
+		 */
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+/*
+ * Report whether the calling worker thread is currently serving a read-only
+ * request.  Returns FALSE on the main thread or before any request is assigned.
+ */
+int fsdriver_mt_readonly(void)
+{
+	return (mthread_getspecific(mt_readonly_key) != NULL);
+}
+
 /*
  * Remove the oldest pending request from the queue.  Returns TRUE if one was
  * dequeued, FALSE if the queue was empty.
@@ -93,11 +140,17 @@ static void *mt_worker(void *arg __unused)
 			continue;
 		}
 
+		/* Record whether this is a read-only request, for the cache. */
+		(void)mthread_setspecific(mt_readonly_key,
+		    mt_request_is_readonly(&m) ? (void *) 1 : NULL);
+
 		mthread_mutex_lock(&mt_fs_lock);
 
 		fsdriver_process(mt_fdp, &m, ipc_status, TRUE /*asyn_reply*/);
 
 		mthread_mutex_unlock(&mt_fs_lock);
+
+		(void)mthread_setspecific(mt_readonly_key, NULL);
 	}
 
 	return NULL;
@@ -162,6 +215,8 @@ void fsdriver_mt_task(struct fsdriver *fdp, unsigned int nworkers)
 		panic("fsdriver_mt: cannot initialize work event");
 	if (mthread_mutex_init(&mt_fs_lock, NULL) != 0)
 		panic("fsdriver_mt: cannot initialize file-system lock");
+	if (mthread_key_create(&mt_readonly_key, NULL) != 0)
+		panic("fsdriver_mt: cannot create read-only key");
 
 	fsdriver_running = TRUE;
 
