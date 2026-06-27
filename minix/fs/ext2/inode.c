@@ -26,7 +26,7 @@ static void icopy(struct inode *rip, d_inode *dip, int direction, int
 	norm);
 static void addhash_inode(struct inode *node);
 static void unhash_inode(struct inode *node);
-static void free_xattr_block(struct inode *rip);
+/* free_xattr_block is now public: see proto.h */
 
 /* On-disk header of an extended-attribute block (little-endian).  Such a block
  * may be shared between inodes with identical attributes, tracked by h_refcount.
@@ -228,7 +228,7 @@ struct inode *find_inode(
 /*===========================================================================*
  *                free_xattr_block                                           *
  *===========================================================================*/
-static void free_xattr_block(struct inode *rip)
+void ext2_free_xattr_block(struct inode *rip)
 {
 /* Release the extended-attribute block referenced by rip->i_file_acl when the
  * inode is deleted.  ext2/3/4 xattr blocks can be shared between inodes that
@@ -280,8 +280,10 @@ static void free_xattr_block(struct inode *rip)
 
   refcount = (u32_t) conv4(le_CPU, xh->h_refcount);
   if (refcount > 1) {
-	/* Still referenced by other inodes: just decrement the count. */
+	/* Still referenced by other inodes: just decrement the count (and
+	 * refresh the block's checksum, which covers the header). */
 	xh->h_refcount = conv4(le_CPU, (long)(refcount - 1));
+	ext2_xattr_block_csum_set(sp, b, b_data(bp));
 	lmfs_markdirty(bp);
 	put_block(bp);
   } else {
@@ -322,7 +324,7 @@ void put_inode(
 		/* Release the extended-attribute block, if any, before the
 		 * inode itself goes away (truncate_inode only frees the data
 		 * blocks reachable through the block map). */
-		free_xattr_block(rip);
+		ext2_free_xattr_block(rip);
 		/* free inode clears I_TYPE field, since it's used there */
 		rip->i_dirt = IN_DIRTY;
 		free_inode(rip);

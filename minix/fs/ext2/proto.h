@@ -127,12 +127,20 @@ void ext2_inode_bitmap_init(struct super_block *sp, struct group_desc *gd,
 void ext2_dir_block_csum_set(struct inode *dirp, void *block);
 size_t ext2_dir_block_limit(struct super_block *sp);
 void ext2_extent_block_csum_set(struct inode *rip, void *block);
+void ext2_xattr_block_csum_set(struct super_block *sp, block64_t blocknr,
+	void *block);
+
+/* inode.c */
+void ext2_free_xattr_block(struct inode *rip);
 
 /* xattr.c */
 ssize_t fs_getxattr(ino_t ino_nr, int attrnamespace, const char *name,
 	struct fsdriver_data *data, size_t bytes);
 ssize_t fs_listxattr(ino_t ino_nr, int attrnamespace,
 	struct fsdriver_data *data, size_t bytes);
+int fs_setxattr(ino_t ino_nr, int attrnamespace, const char *name,
+	struct fsdriver_data *data, size_t bytes, int flags);
+int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name);
 
 /* time.c */
 int fs_utime(ino_t ino, struct timespec *atime, struct timespec *mtime);
