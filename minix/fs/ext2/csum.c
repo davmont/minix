@@ -312,6 +312,26 @@ size_t ext2_dir_block_limit(struct super_block *sp)
 }
 
 /*===========================================================================*
+ *				ext2_xattr_block_csum_set		     *
+ *===========================================================================*/
+void ext2_xattr_block_csum_set(struct super_block *sp, block64_t blocknr,
+	void *block)
+{
+/* Checksum an extended-attribute block: crc32c of the 64-bit block number then
+ * the whole block with the h_checksum field (offset 16) zeroed. */
+	u8_t *raw = (u8_t *) block;
+	u64_t bnr = blocknr;		/* little-endian on amd64 */
+	u32_t zero = 0, c;
+
+	if (!ext2_has_csum(sp))
+		return;
+	memcpy(raw + 16, &zero, sizeof(zero));
+	c = ext2_crc32c(ext2_csum_seed(sp), &bnr, sizeof(bnr));
+	c = ext2_crc32c(c, raw, sp->s_block_size);
+	memcpy(raw + 16, &c, sizeof(c));
+}
+
+/*===========================================================================*
  *				ext2_extent_block_csum_set		     *
  *===========================================================================*/
 void ext2_extent_block_csum_set(struct inode *rip, void *block)
