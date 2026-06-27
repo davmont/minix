@@ -47,5 +47,6 @@ struct fsdriver mfs_table = {
 	.fdr_bwrite	= lmfs_bio,
 	.fdr_bpeek	= lmfs_bio,
 	.fdr_bflush	= lmfs_bflush,
-	.fdr_postcall	= fs_postcall
+	.fdr_postcall	= fs_postcall,
+	.fdr_other	= mfs_other
 };

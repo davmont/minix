@@ -63,4 +63,18 @@ ssize_t lmfs_bio(dev_t dev, struct fsdriver_data *data, size_t bytes,
 	off_t pos, int call);
 void lmfs_bflush(dev_t dev);
 
+/* Multithreading support (see cache_mt.c).  A file system that runs multiple
+ * worker threads calls lmfs_enable_mt() once at startup so that the block cache
+ * performs its disk transfers asynchronously, yielding the calling worker while
+ * the disk driver is busy.  The file system's main thread must then pass every
+ * reply it receives from the disk driver (BDEV_REPLY messages) to
+ * lmfs_mt_reply(), which routes the reply to the worker waiting for it.
+ * 'unlock'/'lock' release and re-acquire the file system's global request lock;
+ * the cache drops it around data-block transfers so concurrent file reads
+ * overlap their disk I/O.  'readonly' reports whether the request being served
+ * only reads, so its metadata transfers may overlap too. */
+void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void),
+	int (*readonly)(void));
+void lmfs_mt_reply(message *m);
+
 #endif /* _MINIX_FSLIB_H */

@@ -5,6 +5,6 @@ CPPFLAGS+= -D_MINIX_SYSTEM
 
 LIB=		minixfs
 
-SRCS=  	cache.c bio.c
+SRCS=  	cache.c cache_mt.c bio.c
 
 .include <bsd.lib.mk>

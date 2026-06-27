@@ -6,7 +6,9 @@ dev_t fsdriver_device;
 ino_t fsdriver_root;
 int fsdriver_mounted = FALSE;
 
-static int fsdriver_running;
+/* Set to TRUE while the file system should keep serving requests; cleared by
+ * fsdriver_terminate().  Shared with the multithreaded loop (fsdriver_mt.c). */
+int fsdriver_running;
 
 /*
  * Process an incoming VFS request, and send a reply.  If the message is not
