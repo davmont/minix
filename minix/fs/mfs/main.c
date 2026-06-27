@@ -92,8 +92,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   lmfs_buf_pool(DEFAULT_NR_BUFS);
 
   /* Run the block cache in multithreaded mode: disk transfers become
-   * asynchronous so that one worker's I/O does not block the others. */
-  lmfs_enable_mt();
+   * asynchronous so that one worker's I/O does not block the others, and the
+   * global request lock is dropped around data-block transfers so concurrent
+   * file reads overlap their I/O. */
+  lmfs_enable_mt(fsdriver_mt_unlock, fsdriver_mt_lock);
 
   return(OK);
 }

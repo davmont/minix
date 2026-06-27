@@ -74,6 +74,38 @@ void lmfs_set_io_hook(ssize_t (*hook)(int, dev_t, u64_t, char *, iovec_t *,
 	lmfs_io_hook = hook;
 }
 
+/* When a multithreaded file system performs an asynchronous read (see above),
+ * the buffer is already on the hash chain but its contents have not arrived
+ * yet, and the worker thread doing the read yields.  Another worker that looks
+ * up the very same block in the meantime must wait for the read to finish
+ * rather than use the unfilled buffer.  'block_reading[i]' marks buffer 'i' as
+ * having a read in progress; lmfs_io_wait_fn() suspends the caller until some
+ * read completes (it then re-checks), and lmfs_io_wake_fn() is called by the
+ * reader once the data is in.  Both hooks are NULL for single-threaded file
+ * systems, in which case no read is ever in progress at look-up time. */
+static char *block_reading;
+static void (*lmfs_io_wait_fn)(void) = NULL;
+static void (*lmfs_io_wake_fn)(void) = NULL;
+
+/* Hooks to release and re-acquire the file system's global lock around a data
+ * block transfer, so that concurrent file reads overlap their disk I/O while
+ * metadata access stays serialized.  NULL (the default) means the cache never
+ * drops a lock around I/O.  See cache_mt.c / fsdriver_mt.c. */
+static void (*lmfs_unlock_fn)(void) = NULL;
+static void (*lmfs_lock_fn)(void) = NULL;
+
+void lmfs_set_io_wait_hooks(void (*wait_fn)(void), void (*wake_fn)(void))
+{
+	lmfs_io_wait_fn = wait_fn;
+	lmfs_io_wake_fn = wake_fn;
+}
+
+void lmfs_set_lock_hooks(void (*unlock_fn)(void), void (*lock_fn)(void))
+{
+	lmfs_unlock_fn = unlock_fn;
+	lmfs_lock_fn = lock_fn;
+}
+
 static struct buf *buf;
 static struct buf **buf_hash;   /* the buffer hash table */
 static unsigned int nr_bufs;
@@ -360,10 +392,21 @@ static int get_block_ino(struct buf **bpp, dev_t dev, block64_t block, int how,
   }
 
   /* See if the block is in the cache. If so, we can return it right away. */
+restart:
   bp = find_block(dev, block);
   if (bp != NULL && !(bp->lmfs_flags & VMMC_EVICTED)) {
 	ASSERT(bp->lmfs_dev == dev);
 	ASSERT(bp->lmfs_dev != NO_DEV);
+
+	/* In multithreaded mode another worker may be reading this very block
+	 * from disk right now (its buffer is hashed but not yet filled).  Wait
+	 * for that read to complete, then look the block up again -- it may
+	 * have become ready, or been invalidated by a failed read.
+	 */
+	if (lmfs_io_wait_fn != NULL && block_reading[bp - buf]) {
+		lmfs_io_wait_fn();
+		goto restart;
+	}
 
 	/* The block must have exactly the requested number of bytes. */
 	if (bp->lmfs_bytes != block_size)
@@ -753,18 +796,32 @@ static int read_block(struct buf *bp, size_t block_size)
   ssize_t r;
   off_t pos;
   dev_t dev = bp->lmfs_dev;
+  /* A block tied to an inode holds file data; one without (VMC_NO_INODE) holds
+   * file-system metadata (bitmaps, inodes, indirect blocks).  In multithreaded
+   * mode we drop the file system's global lock around a data transfer so other
+   * workers can run, but keep it for metadata so their read-modify-write stays
+   * serialized. */
+  int is_data = (bp->lmfs_inode != VMC_NO_INODE);
+  int idx = (int)(bp - buf);
 
   assert(dev != NO_DEV);
 
   ASSERT(bp->lmfs_bytes == block_size);
   ASSERT(fs_block_size > 0);
 
+  /* Mark the buffer as having a read in progress, so a concurrent look-up of
+   * the same block waits for us instead of using the unfilled buffer. */
+  if (lmfs_io_wait_fn != NULL)
+	block_reading[idx] = 1;
+  if (is_data && lmfs_unlock_fn != NULL)
+	lmfs_unlock_fn();
+
   pos = (off_t)bp->lmfs_blocknr * fs_block_size;
   if (block_size > PAGE_SIZE) {
 #define MAXPAGES 20
 	vir_bytes blockrem, vaddr = (vir_bytes) bp->data;
 	int p = 0;
-  	static iovec_t iovec[MAXPAGES];
+	iovec_t iovec[MAXPAGES];
 	blockrem = block_size;
 	while(blockrem > 0) {
 		vir_bytes chunk = blockrem >= PAGE_SIZE ? PAGE_SIZE : blockrem;
@@ -786,6 +843,18 @@ static int read_block(struct buf *bp, size_t block_size)
 	else
 		r = bdev_read(dev, pos, bp->data, block_size, BDEV_NOFLAGS);
   }
+
+  /* Clear the read-in-progress marker and wake anyone waiting for this block
+   * *before* re-acquiring the global lock: a waiter may be holding that lock,
+   * and would otherwise deadlock against our re-acquire. */
+  if (lmfs_io_wait_fn != NULL) {
+	block_reading[idx] = 0;
+	if (lmfs_io_wake_fn != NULL)
+		lmfs_io_wake_fn();
+  }
+  if (is_data && lmfs_lock_fn != NULL)
+	lmfs_lock_fn();
+
   if (r != (ssize_t)block_size) {
 	/* Aesthetics: do not report EOF errors on superblock reads, because
 	 * this is a fairly common occurrence, e.g. during system installation.
@@ -1299,6 +1368,12 @@ void lmfs_buf_pool(int new_nr_bufs)
 	free(buf_hash);
   if(!(buf_hash = calloc(sizeof(buf_hash[0]), new_nr_bufs)))
 	panic("couldn't allocate buf hash list (%d)", new_nr_bufs);
+
+  /* Per-buffer "read in progress" markers, used only in multithreaded mode. */
+  if(block_reading)
+	free(block_reading);
+  if(!(block_reading = calloc(sizeof(block_reading[0]), new_nr_bufs)))
+	panic("couldn't allocate block_reading list (%d)", new_nr_bufs);
 
   nr_bufs = new_nr_bufs;
 

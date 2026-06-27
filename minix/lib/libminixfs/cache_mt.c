@@ -100,13 +100,44 @@ static ssize_t mt_io_hook(int req, dev_t dev, u64_t pos, char *buf,
 	return io.result;
 }
 
+/* A single event on which workers wait for any in-progress block read to
+ * finish; on wakeup they re-check the specific block they wanted.  With the
+ * cooperative scheduler and a modest worker count this shared event is simpler
+ * than one per buffer and just as correct. */
+static mthread_event_t mt_read_event;
+
+/*
+ * Suspend the calling worker until some block read completes.  Called by the
+ * cache (lmfs_io_wait_fn) when it finds a block whose read is still in flight.
+ */
+static void mt_io_wait(void)
+{
+	mthread_event_wait(&mt_read_event);
+}
+
+/*
+ * Wake every worker waiting for a block read to finish.  Called by the reader
+ * (lmfs_io_wake_fn) once a block's data has arrived.
+ */
+static void mt_io_wake(void)
+{
+	mthread_event_fire_all(&mt_read_event);
+}
+
 /*
  * Enable multithreaded operation of the block cache.  Called once at startup by
- * a file system that uses worker threads.
+ * a file system that uses worker threads.  'unlock'/'lock' release and
+ * re-acquire that file system's global request lock; the cache uses them to let
+ * data-block transfers overlap (NULL leaves transfers serialized).
  */
-void lmfs_enable_mt(void)
+void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void))
 {
+	if (mthread_event_init(&mt_read_event) != 0)
+		panic("libminixfs: cannot initialize mt read event");
+
 	lmfs_set_io_hook(mt_io_hook);
+	lmfs_set_io_wait_hooks(mt_io_wait, mt_io_wake);
+	lmfs_set_lock_hooks(unlock, lock);
 }
 
 /*

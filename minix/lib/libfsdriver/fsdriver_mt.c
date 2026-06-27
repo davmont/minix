@@ -104,6 +104,22 @@ static void *mt_worker(void *arg __unused)
 }
 
 /*
+ * Release and re-acquire the global file-system lock.  Exposed so that the
+ * block cache can drop the lock around a data-block transfer (letting other
+ * workers run) and take it again afterwards; see lmfs_enable_mt().  Only ever
+ * called by a worker thread that currently holds the lock.
+ */
+void fsdriver_mt_unlock(void)
+{
+	mthread_mutex_unlock(&mt_fs_lock);
+}
+
+void fsdriver_mt_lock(void)
+{
+	mthread_mutex_lock(&mt_fs_lock);
+}
+
+/*
  * Handle one message received by the main thread.  Requests from VFS are queued
  * for a worker thread; everything else -- notifications and, in particular, the
  * asynchronous replies from the disk driver -- is passed to the file system's

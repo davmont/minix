@@ -68,8 +68,11 @@ void lmfs_bflush(dev_t dev);
  * performs its disk transfers asynchronously, yielding the calling worker while
  * the disk driver is busy.  The file system's main thread must then pass every
  * reply it receives from the disk driver (BDEV_REPLY messages) to
- * lmfs_mt_reply(), which routes the reply to the worker waiting for it. */
-void lmfs_enable_mt(void);
+ * lmfs_mt_reply(), which routes the reply to the worker waiting for it.
+ * 'unlock'/'lock' release and re-acquire the file system's global request lock;
+ * the cache drops it around data-block transfers so concurrent file reads
+ * overlap their disk I/O. */
+void lmfs_enable_mt(void (*unlock)(void), void (*lock)(void));
 void lmfs_mt_reply(message *m);
 
 #endif /* _MINIX_FSLIB_H */
