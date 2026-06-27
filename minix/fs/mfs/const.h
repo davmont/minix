@@ -5,12 +5,14 @@
 #define V2_NR_DZONES       7	/* # direct zone numbers in a V2 inode */
 #define V2_NR_TZONES      10	/* total # zone numbers in a V2 inode */
 
-#define NR_INODES        512	/* # slots in "in core" inode table,
-				 * should be more or less the same as
-				 * NR_VNODES in vfs
+#define NR_INODES       1024	/* # slots in "in core" inode table; kept equal
+				 * to NR_VNODES in vfs so that MFS can back every
+				 * vnode VFS may hold open at once.  With fewer
+				 * slots, get_inode() returns ENFILE once all are
+				 * referenced even though VFS still has room.
 				 */
 
-#define INODE_HASH_LOG2   7     /* 2 based logarithm of the inode hash size */
+#define INODE_HASH_LOG2   8     /* 2 based logarithm of the inode hash size */
 #define INODE_HASH_SIZE   ((unsigned long)1<<INODE_HASH_LOG2)
 #define INODE_HASH_MASK   (((unsigned long)1<<INODE_HASH_LOG2)-1)
 
