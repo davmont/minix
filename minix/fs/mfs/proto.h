@@ -94,6 +94,9 @@ int fs_removexattr(ino_t ino_nr, int attrnamespace, const char *name);
 void mfs_acl_inherit(struct inode *parent, struct inode *child);
 void mfs_acl_chmod(struct inode *rip);
 
+/* main.c */
+void mfs_other(const message *m_ptr, int ipc_status);
+
 /* protect.c */
 int fs_chmod(ino_t ino, mode_t *mode);
 int fs_chflags(ino_t ino_nr, int flags, int privileged);

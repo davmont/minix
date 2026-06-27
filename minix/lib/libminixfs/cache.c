@@ -55,6 +55,25 @@ static void put_block(struct buf *bp, int put_flags);
 
 static int vmcache = 0; /* are we using vm's secondary cache? (initially not) */
 
+/* Hook for multithreaded file systems to perform a blocking disk transfer
+ * through their own thread-aware mechanism (an asynchronous bdev request plus
+ * an mthread wait), so that one worker thread's disk I/O does not block the
+ * others.  When NULL (the default), the cache uses the ordinary synchronous
+ * bdev calls and the file system behaves exactly as before.  The hook performs
+ * the equivalent of bdev_read() ('req' == BDEV_READ, single buffer 'buf') or
+ * bdev_gather() ('req' == BDEV_GATHER, vector 'vec'/'cnt'), and returns the
+ * same value those calls would.  Registered via lmfs_set_io_hook(); the MT
+ * implementation lives in cache_mt.c so that only multithreaded file systems
+ * pull in the mthread dependency. */
+static ssize_t (*lmfs_io_hook)(int req, dev_t dev, u64_t pos, char *buf,
+	iovec_t *vec, int cnt, size_t count) = NULL;
+
+void lmfs_set_io_hook(ssize_t (*hook)(int, dev_t, u64_t, char *, iovec_t *,
+	int, size_t))
+{
+	lmfs_io_hook = hook;
+}
+
 static struct buf *buf;
 static struct buf **buf_hash;   /* the buffer hash table */
 static unsigned int nr_bufs;
@@ -755,9 +774,17 @@ static int read_block(struct buf *bp, size_t block_size)
 		blockrem -= chunk;
 		p++;
 	}
-  	r = bdev_gather(dev, pos, iovec, p, BDEV_NOFLAGS);
+	if (lmfs_io_hook != NULL)
+		r = lmfs_io_hook(BDEV_GATHER, dev, pos, NULL, iovec, p,
+		    block_size);
+	else
+		r = bdev_gather(dev, pos, iovec, p, BDEV_NOFLAGS);
   } else {
-	r = bdev_read(dev, pos, bp->data, block_size, BDEV_NOFLAGS);
+	if (lmfs_io_hook != NULL)
+		r = lmfs_io_hook(BDEV_READ, dev, pos, bp->data, NULL, 0,
+		    block_size);
+	else
+		r = bdev_read(dev, pos, bp->data, block_size, BDEV_NOFLAGS);
   }
   if (r != (ssize_t)block_size) {
 	/* Aesthetics: do not report EOF errors on superblock reads, because

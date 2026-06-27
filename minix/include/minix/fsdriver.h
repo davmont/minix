@@ -118,6 +118,7 @@ void fsdriver_process(const struct fsdriver * __restrict fdp,
 	const message * __restrict m_ptr, int ipc_status, int asyn_reply);
 void fsdriver_terminate(void);
 void fsdriver_task(struct fsdriver *fdp);
+void fsdriver_mt_task(struct fsdriver *fdp, unsigned int nworkers);
 
 int fsdriver_copyin(const struct fsdriver_data *data, size_t off, void *ptr,
 	size_t len);

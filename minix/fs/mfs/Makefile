@@ -5,8 +5,8 @@ SRCS=	cache.c dirhash.c journal.c link.c \
 	stadir.c stats.c table.c time.c utility.c \
 	write.c inode.c main.c path.c super.c xattr.c
 
-DPADD+=	${LIBMINIXFS} ${LIBFSDRIVER} ${LIBBDEV} ${LIBSYS}
-LDADD+= -lminixfs -lfsdriver -lbdev -lsys
+DPADD+=	${LIBMINIXFS} ${LIBFSDRIVER} ${LIBBDEV} ${LIBSYS} ${LIBMTHREAD}
+LDADD+= -lminixfs -lfsdriver -lbdev -lsys -lmthread
 
 CPPFLAGS+= -DDEFAULT_NR_BUFS=1024
 
