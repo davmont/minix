@@ -6,7 +6,7 @@
 .Nd make a file system
 .Sh SYNOPSIS
 .Nm
-.Op Fl ldtv
+.Op Fl 34jldtv
 .Op Fl B Ar blocksize
 .Op Fl i Ar inodes
 .Op Fl b Ar blocks
@@ -19,6 +19,25 @@
 .Sh OPTIONS
 The following options are available:
 .Bl -tag -width indent
+.It Fl 3
+Create a legacy MFS version 3 file system instead of the default MFS4.
+Use this for media that must be read by an older
+.Nm
+or system that does not understand MFS4.
+.It Fl 4
+Create an MFS version 4 (MFS4) file system.
+This is the default.
+MFS4 uses a 128-byte wide inode, lifting the version 3 limits of 2 GB
+file size, 2038 timestamps and 65535 links/group ids.
+.It Fl j
+Reserve a metadata journal, so that an unclean shutdown is recovered
+automatically at mount time instead of requiring a full
+.Xr fsck.mfs 1 .
+This implies
+.Fl 4
+and is on by default; it is automatically omitted on file systems too
+small to hold a journal (unless requested explicitly, which is then an
+error).
 .It Fl l
 Make a listing on standard output
 .It Fl d

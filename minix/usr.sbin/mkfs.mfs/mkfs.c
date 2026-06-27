@@ -76,8 +76,9 @@ unsigned int zone_size;
 ino_t nrinodes, inode_offset, next_inode;
 int lct = 0, fd, print = 0;
 int simple = 0, dflag = 0, verbose = 0;
-int v4flag = 0;			/* -4: create a V4 (MFS4) file system */
-int jflag = 0;			/* -j: create a metadata journal (implies -4) */
+int v4flag = 1;			/* create a V4 (MFS4) file system (default; -3 = V3) */
+int jflag = 1;			/* create a metadata journal (default; implies V4) */
+int jexplicit = 0;		/* -j was given explicitly (vs. defaulted on) */
 zone_t journal_zone = 0;	/* first block of the journal (0 = none) */
 uint32_t journal_nblk = 0;	/* journal length in blocks */
 
@@ -177,10 +178,11 @@ main(int argc, char *argv[])
 #endif
   zone_shift = 0;
   extra_space_percent = 0;
-  while ((ch = getopt(argc, argv, "4jB:b:di:ltvx:z:I:T:")) != EOF)
+  while ((ch = getopt(argc, argv, "34jB:b:di:ltvx:z:I:T:")) != EOF)
 	switch (ch) {
+	    case '3':	v4flag = 0; jflag = 0;	break;	/* force legacy V3 */
 	    case '4':	v4flag = 1;	break;
-	    case 'j':	jflag = 1; v4flag = 1;	break;	/* journal implies V4 */
+	    case 'j':	jflag = 1; jexplicit = 1; v4flag = 1; break; /* implies V4 */
 #ifndef MFS_STATIC_BLOCK_SIZE
 	    case 'B':
 		block_size = strtoul(optarg, &sfx, 0);
@@ -721,12 +723,22 @@ super(zone_t zones, ino_t inodes)
 		journal_nblk = (uint32_t) (zones / 64);
 		if(journal_nblk < 64) journal_nblk = 64;
 		if(journal_nblk > 8192) journal_nblk = 8192;
-		if(journal_nblk >= zones - sup->s_firstdatazone)
-			errx(1, "file system too small for a journal");
-		journal_zone = (zone_t) (zones - journal_nblk);
-		sup->s_feature_incompat |= MFS_INCOMPAT_JOURNAL;
-		sup->s_v4_reserved[0] = (uint32_t) journal_zone;
-		sup->s_v4_reserved[1] = journal_nblk;
+		if(journal_nblk >= zones - sup->s_firstdatazone) {
+			/* The journal does not fit.  If the journal was asked
+			 * for explicitly, that is an error; if it is only on by
+			 * default, fall back to a journal-less (but still V4)
+			 * file system so that tiny images keep working. */
+			if(jexplicit)
+				errx(1, "file system too small for a journal");
+			warnx("file system too small for a journal; "
+			    "creating without one");
+			jflag = 0;
+		} else {
+			journal_zone = (zone_t) (zones - journal_nblk);
+			sup->s_feature_incompat |= MFS_INCOMPAT_JOURNAL;
+			sup->s_v4_reserved[0] = (uint32_t) journal_zone;
+			sup->s_v4_reserved[1] = journal_nblk;
+		}
 	}
 #endif
   }
@@ -1588,10 +1600,13 @@ read_and_set(block_t n)
 __dead void
 usage(void)
 {
-  fprintf(stderr, "Usage: %s [-4jdltv] [-b blocks] [-i inodes]\n"
+  fprintf(stderr, "Usage: %s [-34jdltv] [-b blocks] [-i inodes]\n"
 	"\t[-z zone_shift] [-I offset] [-x extra] [-B blocksize] special [proto]\n"
-	"\t-4 creates an MFS version 4 (MFS4) file system\n"
-	"\t-j adds a metadata journal (implies -4)\n",
+	"\tBy default an MFS version 4 (MFS4) file system with a metadata\n"
+	"\tjournal is created.\n"
+	"\t-3 creates a legacy MFS version 3 file system instead\n"
+	"\t-4 creates an MFS4 file system (default)\n"
+	"\t-j adds a metadata journal (implies -4; on by default)\n",
       progname);
   exit(4);
 }
