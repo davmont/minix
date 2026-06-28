@@ -23,13 +23,19 @@ int main(int argc, char *argv[])
   env_setargs(argc, argv);
   sef_local_startup();
 
-  /* The fsdriver library does the actual work here.  Run multithreaded: the
-   * block cache performs its disk I/O asynchronously (lmfs_enable_mt(), done in
-   * sef_cb_init_fresh) so that a worker blocked on the disk does not stall the
-   * others, and replies from the disk driver are routed to the waiting workers
-   * by mfs_other() below.
+  /* The fsdriver library does the actual work here.
+   *
+   * NOTE: the multithreaded path (fsdriver_mt_task + lmfs_enable_mt, from the
+   * mfs-mt-async-io work) is intentionally NOT used by default.  On the storage
+   * MINIX amd64 actually uses today (PIO ATA, which is device-bound) it provides
+   * no measurable throughput benefit -- the disk, not the file system, is the
+   * bottleneck -- while its lock-drop-during-I/O path intermittently hangs the
+   * boot of the (multithreaded) root file system.  Until that hang is
+   * root-caused and fast multi-queue storage (e.g. NVMe) makes the concurrency
+   * pay off, the root file system runs single-threaded, which boots reliably.
+   * The MT code remains in the tree for that future.
    */
-  fsdriver_mt_task(&mfs_table, MFS_NR_WORKERS);
+  fsdriver_task(&mfs_table);
 
   return(0);
 }
@@ -91,11 +97,8 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 
   lmfs_buf_pool(DEFAULT_NR_BUFS);
 
-  /* Run the block cache in multithreaded mode: disk transfers become
-   * asynchronous so that one worker's I/O does not block the others, and the
-   * global request lock is dropped around data-block transfers so concurrent
-   * file reads overlap their I/O. */
-  lmfs_enable_mt(fsdriver_mt_unlock, fsdriver_mt_lock, fsdriver_mt_readonly);
+  /* The block cache runs in plain synchronous mode; see the note in main()
+   * about why the multithreaded path (lmfs_enable_mt) is not enabled. */
 
   return(OK);
 }
