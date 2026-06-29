@@ -29,6 +29,7 @@ config/config.status: ${LLVM_SRCDIR}/configure
 	    tools/clang/include/clang/Config/config.h && \
 	cp ${LLVM_TOPLEVEL}/config/llvm/Config/TargetMCAs.def \
 	   ${LLVM_TOPLEVEL}/config/llvm/Config/TargetExegesis.def \
+	   ${LLVM_TOPLEVEL}/config/llvm/Config/abi-breaking.h \
 	    include/llvm/Config/
 
 support-modules: module-test.cpp Makefile
