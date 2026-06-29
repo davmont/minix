@@ -120,7 +120,7 @@ void irq_handle(int irq)
   {
     static unsigned irq_call_count = 0;
     if (irq_call_count < 30)
-      printf("irq_handle#%u irq=%d\n", ++irq_call_count, irq);
+      DEBUGMAX(("irq_handle#%u irq=%d\n", ++irq_call_count, irq));
   }
 
   /* here we need not to get this IRQ until all the handlers had a say */
