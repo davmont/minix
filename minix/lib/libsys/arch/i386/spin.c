@@ -45,8 +45,8 @@ int spin_check(spin_t *s)
 	 * implementation assumes that it is okay to spin a little bit too long
 	 * (up to a full clock tick extra).
 	 */
-	u64_t cur_tsc, tsc_delta;
-	clock_t now, micro_delta;
+	u64_t cur_tsc;
+	clock_t micro_delta;
 
 	switch (s->s_state) {
 	case STATE_INIT:
@@ -61,29 +61,39 @@ int spin_check(spin_t *s)
 	case STATE_TS:
 		read_tsc_64(&cur_tsc);
 
-		tsc_delta = cur_tsc - s->s_base_tsc;
-
-		micro_delta = tsc_64_to_micros(tsc_delta);
+		micro_delta = tsc_64_to_micros(cur_tsc - s->s_base_tsc);
 
 		if (micro_delta >= s->s_usecs) {
 			s->s_timeout = TRUE;
 			return FALSE;
 		}
 
-		if (micro_delta >= TSC_SPIN) {
-			s->s_usecs -= micro_delta;
-			s->s_base_uptime = getticks();
+		/* After the initial pure-spin window, start giving up the CPU
+		 * between checks (see STATE_UPTIME).  We keep timing with the
+		 * TSC, so s_base_tsc and s_usecs are left untouched. */
+		if (micro_delta >= TSC_SPIN)
 			s->s_state = STATE_UPTIME;
-		}
 
 		break;
 
 	case STATE_UPTIME:
-		now = getticks();
+		/*
+		 * Continue timing the spin with the TSC, which always advances,
+		 * rather than the clock tick reported by getticks().  The tick
+		 * can stall -- most importantly, a driver busy-spinning right
+		 * here keeps the clock interrupt from being serviced, so a
+		 * getticks()-based timeout would never expire and the spin (and
+		 * thus the whole system) would hang.  This manifested as a
+		 * deterministic APIC-mode boot wedge: at_wini's w_waitfor() spun
+		 * forever on a frozen tick.  We still call getticks() for its
+		 * scheduling side effect (a kernel call that yields the CPU, so
+		 * a long spin is not penalised), but ignore its value here.
+		 */
+		(void) getticks();
 
-		/* We assume that sys_hz() caches its return value. */
-		micro_delta = ((now - s->s_base_uptime) * 1000 / sys_hz()) *
-			1000;
+		read_tsc_64(&cur_tsc);
+
+		micro_delta = tsc_64_to_micros(cur_tsc - s->s_base_tsc);
 
 		if (micro_delta >= s->s_usecs) {
 			s->s_timeout = TRUE;

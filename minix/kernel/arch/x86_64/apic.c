@@ -264,6 +264,13 @@ static inline void lapic_write(vir_bytes what, u32_t data)
 static int use_tsc_deadline = 0;
 int lapic_tsc_deadline_available = 0;
 
+/* The absolute TSC value of the deadline we last armed (0 = none).  Used by
+ * lapic_restart_timer() to avoid re-arming a still-pending deadline on every
+ * context switch, which would push it forward forever and starve the clock.
+ * (Single BSP timer source today; would need to be per-CPU for SMP LAPIC
+ * timers.) */
+static u64_t lapic_tsc_deadline = 0;
+
 void arch_eoi(void)
 {
 	{
@@ -684,6 +691,11 @@ void lapic_set_timer_tsc_deadline(u64_t deadline)
 
 	ia32_msr_write(IA32_TSC_DEADLINE_MSR,
 	    (u32_t)(deadline >> 32), (u32_t)(deadline & 0xFFFFFFFFU));
+
+	/* Remember what we armed, so lapic_restart_timer() can tell a still-
+	 * pending deadline from one that has already fired without relying on
+	 * reading the MSR back (which KVM does not always emulate). */
+	lapic_tsc_deadline = deadline;
 }
 
 void lapic_set_timer_one_shot(const u32_t usec)
@@ -760,8 +772,30 @@ void lapic_stop_timer(void)
 void lapic_restart_timer(void)
 {
 	if (use_tsc_deadline) {
-		/* TSC deadline: always rearm — no CCR to check. */
-		lapic_set_timer_one_shot(1000000 / system_hz);
+		u64_t now;
+
+		/*
+		 * restart_local_timer() runs on EVERY context switch.  The old
+		 * code re-armed unconditionally, setting the deadline to ~one
+		 * tick (1/system_hz) in the future each time.  Under a high
+		 * context-switch rate -- e.g. the IPC/devio storm during heavy
+		 * at_wini PIO at boot -- switches arrive faster than one tick,
+		 * so the deadline got perpetually pushed forward and the timer
+		 * NEVER fired: the clock tick froze, preemption stopped, and the
+		 * system livelocked.  (Confirmed via KVM kvm_msr/kvm_inj_virq
+		 * tracing: ~16k TSC_DEADLINE writes/s, zero timer-vector
+		 * injections.)  The free-running 8253 PIT used in PIC mode is
+		 * immune, which is why this only wedged APIC-mode boots.
+		 *
+		 * Re-arm only once the previously-armed deadline has elapsed
+		 * (the timer fired, or none was armed); otherwise leave the
+		 * pending deadline alone.  We compare against the TSC rather
+		 * than reading the IA32_TSC_DEADLINE MSR back, which KVM does
+		 * not reliably emulate.
+		 */
+		read_tsc_64(&now);
+		if (now >= lapic_tsc_deadline)
+			lapic_set_timer_one_shot(1000000 / system_hz);
 		return;
 	}
 	/* ICR-based one-shot: restart only if the counter reached zero. */
