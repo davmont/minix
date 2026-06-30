@@ -449,8 +449,8 @@ int vm_memset(struct proc* caller, endpoint_t who, phys_bytes ph, int c,
 	pattern = c | (c << 8) | (c << 16) | (c << 24);
 
 	assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
-	assert(!catch_pagefaults);
-	catch_pagefaults = 1;
+	assert(!get_cpulocal_var(catch_pagefaults));
+	get_cpulocal_var(catch_pagefaults) = 1;
 
 	/* We can memset as many bytes as we have remaining,
 	 * or as many as remain in the 1MB chunk we mapped in.
@@ -470,8 +470,8 @@ int vm_memset(struct proc* caller, endpoint_t who, phys_bytes ph, int c,
 			if (whoptr) {
 				vm_suspend(caller, whoptr, ph, count,
 						   VMSTYPE_KERNELCALL, 1);
-				assert(catch_pagefaults);
-				catch_pagefaults = 0;
+				assert(get_cpulocal_var(catch_pagefaults));
+				get_cpulocal_var(catch_pagefaults) = 0;
 				return VMSUSPEND;
 			}
 
@@ -485,8 +485,8 @@ int vm_memset(struct proc* caller, endpoint_t who, phys_bytes ph, int c,
 	}
 
 	assert(get_cpulocal_var(ptproc)->p_seg.p_ttbr_v);
-	assert(catch_pagefaults);
-	catch_pagefaults = 0;
+	assert(get_cpulocal_var(catch_pagefaults));
+	get_cpulocal_var(catch_pagefaults) = 0;
 
 	return OK;
 }

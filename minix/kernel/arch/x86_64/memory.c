@@ -380,8 +380,8 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
 	pattern |= pattern << 32;
 
 	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
-	assert(!catch_pagefaults);
-	catch_pagefaults = 1;
+	assert(!get_cpulocal_var(catch_pagefaults));
+	get_cpulocal_var(catch_pagefaults) = 1;
 
 	while (left > 0) {
 		new_cr3 = 0;
@@ -404,8 +404,8 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
 			if (whoptr) {
 				vm_suspend(caller, whoptr, ph, count,
 				           VMSTYPE_KERNELCALL, 1);
-				assert(catch_pagefaults);
-				catch_pagefaults = 0;
+				assert(get_cpulocal_var(catch_pagefaults));
+				get_cpulocal_var(catch_pagefaults) = 0;
 				return VMSUSPEND;
 			}
 			panic("vm_memset: pf %lx addr=%lx len=%lu\n",
@@ -417,8 +417,8 @@ int vm_memset(struct proc *caller, endpoint_t who, phys_bytes ph, int c,
 	}
 
 	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
-	assert(catch_pagefaults);
-	catch_pagefaults = 0;
+	assert(get_cpulocal_var(catch_pagefaults));
+	get_cpulocal_var(catch_pagefaults) = 0;
 
 	return OK;
 }
