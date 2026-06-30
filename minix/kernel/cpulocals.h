@@ -41,11 +41,20 @@ extern struct __cpu_local_vars {
 	struct proc *bill_ptr;/* process to bill for clock ticks */
 	struct proc idle_proc;/* stub for an idle process */
 
-/* 
+/*
  * signal whether pagefault is already being handled to detect recursive
  * pagefaults
  */
 	int pagefault_handled;
+
+/*
+ * nonzero while this CPU is executing a phys_copy()/phys_memset() whose faults
+ * should be caught (set by PHYS_COPY_CATCH and vm_memset()).  Per-CPU because
+ * it describes what *this* CPU is doing: a single global let one CPU's
+ * in-progress catch trip another CPU's vm_memset() entry assert -- an SMP-only
+ * panic ("assert !catch_pagefaults failed").
+ */
+	int catch_pagefaults;
 
 /*
  * which processpage tables are loaded right now. We need to know this because

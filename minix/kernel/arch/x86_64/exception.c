@@ -46,7 +46,6 @@ static struct ex_s ex_data[] = {
     { "SIMD exception",             SIGFPE  },  /* 19 */
 };
 
-extern int catch_pagefaults;
 
 static void proc_stacktrace_execute(struct proc *whichproc, reg_t v_rbp,
                                     reg_t pc);
@@ -71,7 +70,7 @@ static void pagefault(struct proc *pr, struct exception_frame *frame,
                   (frame->rip < (vir_bytes)memset_fault);
 
     if ((is_nested || iskernelp(pr)) &&
-            catch_pagefaults && (in_physcopy || in_memset)) {
+            get_cpulocal_var(catch_pagefaults) && (in_physcopy || in_memset)) {
         if (is_nested) {
             if (in_physcopy) {
                 assert(!in_memset);
