@@ -142,23 +142,77 @@ then	rdrcv "RDRC: amd64 branch entered"
 	else	nvme_primary="$nvme_opt"
 	fi
 
-	if [ X"$nvme_primary" = Xyes ] && [ -x /service/nvme ]
-	then
-		minix-service -c up /service/nvme -dev /dev/c0d0 -label nvme_0 -args instance=0
-	elif [ X"$ahci_opt" = Xyes ] && [ -x /service/ahci ]
-	then
-		minix-service -c up /service/ahci -dev /dev/c0d0 -label ahci_0 -args instance=0
-	elif [ X"$virtio_blk" = Xyes ] && [ -x /service/virtio_blk ]
-	then	minix-service -c up /service/virtio_blk -dev /dev/c0d0 -label virtio_blk_0 -args instance=0
-	elif [ -x /service/at_wini ]
+	# The disk that holds the root is not necessarily the highest-priority
+	# controller present: a system may have an IDE/AHCI root alongside a
+	# blank or foreign NVMe data disk.  When rootdevname names a partition on
+	# c0d0, verify that the controller we bring up as c0d0 actually carries
+	# that root before committing to it; if it does not, tear it down and try
+	# the next candidate.  This keeps the modern-first preference while
+	# avoiding an unbootable system when a higher-priority controller is
+	# present but is not the boot disk.  The check reads the super block with
+	# fsck_mfs -- the same MFS assumption the root fsck below already makes;
+	# it fails fast on a blank/foreign disk and passes on a valid root whether
+	# clean or dirty.  (Identifying the root by content/UUID rather than by
+	# device number would also disambiguate a foreign-but-valid MFS data disk;
+	# that is left as future work.)
+	root_probe=
+	case "`sysenv rootdevname 2>/dev/null || true`" in
+	c0d0*)	root_probe="/dev/`sysenv rootdevname`" ;;
+	esac
+
+	# Does the disk currently at c0d0 carry the configured root?  Succeeds
+	# when there is nothing to verify against (CD/ramdisk boot, or a root not
+	# on c0d0), so those paths keep their existing behaviour.
+	c0d0_has_root() {
+		[ -n "$root_probe" ] || return 0
+		$FSCK -p "$root_probe" >/dev/null 2>&1
+	}
+
+	# Bring a controller up as the primary disk c0d0; if it does not carry
+	# the root, tear it back down and fail so the caller can try the next.
+	try_primary() {	# service label [extra args...]
+		_svc="$1"; _lbl="$2"; shift 2
+		[ -x "$_svc" ] || return 1
+		minix-service -c up "$_svc" -dev /dev/c0d0 -label "$_lbl" "$@" \
+			2>/dev/null || return 1
+		if c0d0_has_root
+		then	return 0
+		fi
+		minix-service down "$_lbl" >/dev/null 2>&1 || :
+		return 1
+	}
+
+	# Choose the primary disk (c0d0), preferring modern controllers (NVMe,
+	# AHCI, virtio) over legacy IDE, falling through when the chosen disk does
+	# not hold the root.  Legacy IDE is the last resort: bring it up
+	# unconditionally and let the root fsck/mount below be authoritative,
+	# since there is no further fallback to probe for.
+	primary_up=no
+	nvme_is_primary=no
+
+	if [ X"$primary_up" = Xno ] && [ X"$nvme_primary" = Xyes ] && \
+	   try_primary /service/nvme nvme_0 -args instance=0
+	then	primary_up=yes; nvme_is_primary=yes
+	fi
+	if [ X"$primary_up" = Xno ] && [ X"$ahci_opt" = Xyes ] && \
+	   try_primary /service/ahci ahci_0 -args instance=0
+	then	primary_up=yes
+	fi
+	if [ X"$primary_up" = Xno ] && [ X"$virtio_blk" = Xyes ] && \
+	   try_primary /service/virtio_blk virtio_blk_0 -args instance=0
+	then	primary_up=yes
+	fi
+	if [ X"$primary_up" = Xno ] && [ -x /service/at_wini ]
 	then
 		minix-service -c up /service/at_wini -dev /dev/c0d0 -label at_wini_0
 		minix-service -cr up /service/at_wini -dev /dev/c1d0 -label at_wini_1 -args instance=1 2>/dev/null || :
+		primary_up=yes
 	fi
 
-	# If NVMe is present but did not become the primary disk (CD boot, or
-	# another controller won c0d0), expose it as a secondary disk.
-	if [ X"$nvme_opt" = Xyes ] && [ X"$nvme_primary" != Xyes ] && [ -x /service/nvme ]
+	# If NVMe is present but did not become the primary disk (CD boot,
+	# demoted in favour of the real root disk, or another controller won
+	# c0d0), expose it as a secondary disk.
+	if [ X"$nvme_opt" = Xyes ] && [ X"$nvme_is_primary" = Xno ] && [ -x /service/nvme ]
 	then	minix-service -cr up /service/nvme -dev /dev/c1d0 -label nvme_0 -args instance=0 2>/dev/null || :
 	fi
 	umount /proc >/dev/null
