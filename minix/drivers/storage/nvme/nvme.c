@@ -35,6 +35,8 @@
 #define NVME_MAX_PAGES	64			/* max pages (== PRP entries) per cmd */
 #define NVME_MAX_XFER	(NVME_MAX_PAGES * NVME_PAGE_SIZE)  /* 256 KB per command */
 #define NVME_RDY_TIMEOUT  5000			/* ms to wait for CSTS.RDY */
+#define NVME_POLL_TRIES	  2000			/* inline CQ polls before sleeping */
+#define NVME_POLL_DELAY_US 10			/* delay between inline CQ polls */
 
 /* A submission/completion queue pair.  In the multithreaded I/O model each
  * queue carries at most one in-flight command, owned by the worker thread that
@@ -434,6 +436,26 @@ static int nvme_submit_io(struct nvme_queue *q, nvme_sqe_t *sqe)
 		(int)(q - io_q));
 
 	reg_write32(sq_tail_dbl(q->qid), q->sq_tail);	/* ring after SQE write */
+
+	/*
+	 * Poll the completion queue inline for a short window before sleeping.
+	 * On real hardware the MSI-X completion interrupt (or, if that is lost,
+	 * the backstop timer) wakes us; but some emulated controllers do not
+	 * reliably deliver the MSI-X completion, so catch the CQE directly here
+	 * -- the controller posts it within microseconds.  If it is not ready
+	 * within the window we fall through to sleep and let the interrupt or
+	 * the backstop timer complete it.
+	 */
+	{
+		int i;
+
+		for (i = 0; i < NVME_POLL_TRIES && q->pending; i++) {
+			nvme_drain_cq(q);
+			if (!q->pending)
+				break;
+			micro_delay(NVME_POLL_DELAY_US);
+		}
+	}
 
 	while (!q->done)
 		blockdriver_mt_sleep();
