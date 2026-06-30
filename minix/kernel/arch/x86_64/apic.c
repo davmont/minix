@@ -267,9 +267,13 @@ int lapic_tsc_deadline_available = 0;
 /* The absolute TSC value of the deadline we last armed (0 = none).  Used by
  * lapic_restart_timer() to avoid re-arming a still-pending deadline on every
  * context switch, which would push it forward forever and starve the clock.
- * (Single BSP timer source today; would need to be per-CPU for SMP LAPIC
- * timers.) */
-static u64_t lapic_tsc_deadline = 0;
+ * Per-CPU: every CPU arms and re-arms its own LAPIC timer, so each must
+ * track its own armed deadline.  A single shared value let the APs and BSP
+ * clobber each other's deadline -- e.g. an AP re-arming would overwrite this
+ * with its own future deadline, after which the BSP saw "deadline not yet
+ * reached", declined to re-arm its own already-fired timer, and stopped
+ * ticking: both CPUs then halted forever (an intermittent SMP boot wedge). */
+static u64_t lapic_tsc_deadline[CONFIG_MAX_CPUS];
 
 void arch_eoi(void)
 {
@@ -695,7 +699,7 @@ void lapic_set_timer_tsc_deadline(u64_t deadline)
 	/* Remember what we armed, so lapic_restart_timer() can tell a still-
 	 * pending deadline from one that has already fired without relying on
 	 * reading the MSR back (which KVM does not always emulate). */
-	lapic_tsc_deadline = deadline;
+	lapic_tsc_deadline[cpuid] = deadline;
 }
 
 void lapic_set_timer_one_shot(const u32_t usec)
@@ -794,7 +798,7 @@ void lapic_restart_timer(void)
 		 * not reliably emulate.
 		 */
 		read_tsc_64(&now);
-		if (now >= lapic_tsc_deadline)
+		if (now >= lapic_tsc_deadline[cpuid])
 			lapic_set_timer_one_shot(1000000 / system_hz);
 		return;
 	}
