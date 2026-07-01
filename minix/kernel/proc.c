@@ -64,6 +64,50 @@ static void enqueue_head(struct proc *rp);
 static struct priv idle_priv;
 
 #ifdef CONFIG_SMP
+/*
+ * Run-queue lock.  The per-CPU run queues (run_q_head/run_q_tail linked lists)
+ * are normally serialized by the BKL, but on amd64 SMP some cross-CPU enqueue
+ * paths reach enqueue() WITHOUT the BKL held — notably mini_notify() from an
+ * interrupt/notify context can wake and enqueue a process pinned to another
+ * CPU while that other CPU is concurrently manipulating the very same queue
+ * under the BKL.  Two CPUs then splice the same singly-linked list at once,
+ * corrupting it: a process is silently dropped from its run queue, becomes
+ * runnable-but-unschedulable, and (if it is a boot-critical server such as tty,
+ * vfs or sched) the whole system livelocks with no login prompt (~15% of -smp
+ * boots).  This dedicated leaf spinlock makes every run-queue splice atomic
+ * regardless of BKL state.  It is only ever held around pure pointer surgery
+ * (no nested locking, no blocking, interrupts already disabled), so it can
+ * never deadlock against the BKL.
+ */
+static spinlock_t runqueue_lock;
+/*
+ * The lock is also taken from interrupt context (a hardware IRQ or a kernel
+ * NOTIFY runs generic_handler()/cause_sig() -> mini_notify() -> enqueue()).
+ * It must therefore be an IRQ-safe lock: whoever holds it must have interrupts
+ * disabled, otherwise an interrupt taken on the same CPU could re-enter a
+ * run-queue operation and spin forever on the lock we already hold.  Save and
+ * disable interrupts on lock, restore on unlock (spin_lock_irqsave-style).
+ */
+static inline reg_t rq_lock(void)
+{
+	reg_t flags;
+	__asm__ __volatile__("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+	spinlock_lock(&runqueue_lock);
+	return flags;
+}
+static inline void rq_unlock(reg_t flags)
+{
+	spinlock_unlock(&runqueue_lock);
+	__asm__ __volatile__("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+#define RUNQ_LOCK(f)	do { (f) = rq_lock(); } while (0)
+#define RUNQ_UNLOCK(f)	do { rq_unlock(f); } while (0)
+#else
+#define RUNQ_LOCK(f)	do { (void)(f); } while (0)
+#define RUNQ_UNLOCK(f)	do { (void)(f); } while (0)
+#endif
+
+#ifdef CONFIG_SMP
 /* Tier 1 colocation: per-proc-slot IPC-traffic histogram, indexed by
  * sender's CPU.  Stored outside struct proc so the proc-struct binary
  * ABI stays stable for the userspace consumers (MIB, IS, VM) that read
@@ -2047,10 +2091,17 @@ void enqueue(
  */
   int q = rp->p_priority;	 		/* scheduling queue to use */
   struct proc **rdy_head, **rdy_tail;
-  
+  reg_t _rqf = 0;			/* saved interrupt flags for RUNQ_LOCK */
+
   assert(proc_is_runnable(rp));
 
   assert(q >= 0);
+
+  /* Serialize the linked-list splice: another CPU may enqueue/dequeue on this
+   * same (possibly remote) run queue concurrently — see runqueue_lock. Held
+   * only around the pointer surgery below; released before the preemption
+   * block, whose RTS_SET()->dequeue() re-acquires it (no self-nesting). */
+  RUNQ_LOCK(_rqf);
 
   rdy_head = get_cpu_var(rp->p_cpu, run_q_head);
   rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
@@ -2059,12 +2110,14 @@ void enqueue(
   if (!rdy_head[q]) {		/* add to empty queue */
       rdy_head[q] = rdy_tail[q] = rp; 		/* create a new queue */
       rp->p_nextready = NULL;		/* mark new end */
-  } 
+  }
   else {					/* add to tail of queue */
-      rdy_tail[q]->p_nextready = rp;		/* chain tail of queue */	
+      rdy_tail[q]->p_nextready = rp;		/* chain tail of queue */
       rdy_tail[q] = rp;				/* set new queue tail */
       rp->p_nextready = NULL;		/* mark new end */
   }
+
+  RUNQ_UNLOCK(_rqf);
 
   if (cpuid == rp->p_cpu) {
 	  /*
@@ -2144,6 +2197,7 @@ static void enqueue_head(struct proc *rp)
   const int q = rp->p_priority;	 		/* scheduling queue to use */
 
   struct proc **rdy_head, **rdy_tail;
+  reg_t _rqf = 0;			/* saved interrupt flags for RUNQ_LOCK */
 
   assert(proc_ptr_ok(rp));
   assert(proc_is_runnable(rp));
@@ -2157,6 +2211,8 @@ static void enqueue_head(struct proc *rp)
   assert(q >= 0);
 
 
+  RUNQ_LOCK(_rqf);		/* serialize the splice — see runqueue_lock */
+
   rdy_head = get_cpu_var(rp->p_cpu, run_q_head);
   rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
 
@@ -2168,6 +2224,8 @@ static void enqueue_head(struct proc *rp)
 	rp->p_nextready = rdy_head[q];		/* chain head of queue */
 	rdy_head[q] = rp;			/* set new queue head */
   }
+
+  RUNQ_UNLOCK(_rqf);
 
   /* Make note of when this process was added to queue */
   read_tsc_64(&(get_cpulocal_var(proc_ptr->p_accounting.enter_queue)));
@@ -2199,6 +2257,7 @@ void dequeue(struct proc *rp)
   struct proc **xpp;			/* iterate over queue */
   struct proc *prev_xp;
   u64_t tsc, tsc_delta;
+  reg_t _rqf = 0;			/* saved interrupt flags for RUNQ_LOCK */
 
   struct proc **rdy_tail;
 
@@ -2207,6 +2266,10 @@ void dequeue(struct proc *rp)
 
   /* Side-effect for kernel: check if the task's stack still is ok? */
   assert (!iskernelp(rp) || *priv(rp)->s_stack_guard == STACK_GUARD);
+
+  /* Serialize the linked-list splice against concurrent (possibly BKL-less,
+   * cross-CPU) enqueue/dequeue on this run queue — see runqueue_lock. */
+  RUNQ_LOCK(_rqf);
 
   rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
 
@@ -2227,6 +2290,8 @@ void dequeue(struct proc *rp)
       }
       prev_xp = *xpp;				/* save previous in chain */
   }
+
+  RUNQ_UNLOCK(_rqf);
 
   /* Process accounting for scheduling */
   rp->p_accounting.dequeues++;
@@ -2264,22 +2329,32 @@ static struct proc * pick_proc(void)
   register struct proc *rp;			/* process to run */
   struct proc **rdy_head;
   int q;				/* iterate over queues */
+  reg_t _rqf = 0;			/* saved interrupt flags for RUNQ_LOCK */
 
   /* Check each of the scheduling queues for ready processes. The number of
    * queues is defined in proc.h, and priorities are set in the task table.
    * If there are no processes ready to run, return NULL.
+   *
+   * Hold runqueue_lock across the read+validate: without it a concurrent
+   * cross-CPU dequeue can clear the head's runnable state between our read and
+   * the assert below (the same race that corrupts the list — see
+   * runqueue_lock).  The winner may still be dequeued after we drop the lock,
+   * but switch_to_user rechecks runnability, so that is harmless.
    */
   rdy_head = get_cpulocal_var(run_q_head);
-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
+  RUNQ_LOCK(_rqf);
+  for (q=0; q < NR_SCHED_QUEUES; q++) {
 	if(!(rp = rdy_head[q])) {
 		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
 		continue;
 	}
 	assert(proc_is_runnable(rp));
-	if (priv(rp)->s_flags & BILLABLE)	 	
+	if (priv(rp)->s_flags & BILLABLE)
 		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+	RUNQ_UNLOCK(_rqf);
 	return rp;
   }
+  RUNQ_UNLOCK(_rqf);
   return NULL;
 }
 
