@@ -1,7 +1,9 @@
 # VM page reclaim — Phase A: clean-page reclaim
 
-Status: **A0 (instrumentation) implemented and measured** — see "A0
-results" below. A1/A2 not yet implemented; A0's data reorders them.
+Status: **A0 (instrumentation) and A2 (proactive batched reclaim)
+implemented** — see "A0 results" and "A2 results" below. A1 (eviction
+of mapped clean file pages) not yet implemented; A0's data reordered
+the phases to A2 -> A1 -> A3.
 Track: memory management (swap/paging). Phase A of three:
   A. clean-page reclaim (this doc)
   B. compressed anonymous memory (zram-style)
@@ -238,3 +240,26 @@ allocation failures; one low-watermark episode.
 
 Revised order: **A2 → A1 → A3**, with A1 validated against a
 self-hosting build (native clang) rather than a shell workload.
+
+## A2 results (2026-07-02, same phased run as A0, QEMU -m 512 -smp 2)
+
+A2 batches both reclaim paths: one proactive `cache_freepages()` sweep
+toward the high watermark at the low-watermark crossing (one batch per
+episode, hysteresis re-arms at the high mark, 16 MB/batch cap), and the
+hard-failure retry in `alloc_mem()` now also frees a batch instead of
+exactly the request size.
+
+| phase   | free (A0 -> A2)   | reclaim calls (A0 -> A2) | freed pages (A0 -> A2) | alloc fails |
+|---------|-------------------|--------------------------|------------------------|-------------|
+| idle    | 416 MB -> 416 MB  |      0 ->  0             |      0 ->      0       | 0 |
+| FS load | 0.3 MB -> 6 MB    | 18,188 -> 15             | 18,188 -> 19,650       | 0 |
+| +procs  | 0.7 MB -> 9 MB    | 18,844 -> 16             | 18,844 -> 20,960       | 0 |
+| hog done|  77 MB -> 82 MB   | 37,982 -> 30             | 37,982 -> 39,300       | 0 |
+
+Reclaim invocations collapse ~1,266x (37,982 -> 30), each batch freeing
+~1,310 pages (exactly the low->high span), and free memory now hovers
+inside the watermark band (5-10 MB) under sustained pressure instead of
+~0 -- so allocations stop paying failed full-bitmap scans, and headroom
+exists for bursts and multi-page requests.  Zero allocation failures,
+no asserts.  Episode accounting: 30 low-watermark episodes, one batch
+each.
