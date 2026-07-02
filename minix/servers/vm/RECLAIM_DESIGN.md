@@ -320,3 +320,32 @@ Note on pool size: on MINIX's statically linked userland the evictable
 text pool is small (~2 MB in these tests, 112 pages evicted = all of
 it).  The realistic large-pool workload is a native-clang build
 (~167 MB mapped text) - the planned A3 validation vehicle.
+## A3 results (2026-07-02): native clang under reclaim
+
+The realistic big-text workload: three consecutive native-clang compiles
+(`/usr/bin/clang`, a 167 MB mapped binary; compile + link + run the
+produced program) with concurrent FS load, a 30 MB anonymous hog, and
+checksum workers, at decreasing RAM sizes on current devel (A0+A2+A1):
+
+| RAM    | compiles | output OK | min free | reclaim activity        | evicted |
+|--------|----------|-----------|----------|-------------------------|---------|
+| 512 MB | 3/3      | yes       | 330 MB   | none                    | 0 |
+| 256 MB | 3/3      | yes       |  71 MB   | none                    | 0 |
+| 160 MB | 3/3      | yes       |   2 MB   | 18 calls, 9,234 pages (36 MB) | 0 |
+
+Checksums byte-identical and system fully functional in every run; no
+panics.  At 160 MB the proactive batched reclaim (A2) actively fed the
+compile from the cache while the last-resort eviction (A1) correctly
+remained unused - there was always cheaper cache to take first.
+
+For perspective: before the reclaim work, the working guidance for
+native clang was `-m 2048` ("tight" at 512 MB).  With phase A in place
+the same compile pipeline completes comfortably at 256 MB and under
+active memory pressure at 160 MB.  A1's eviction mechanism itself is
+exercised deterministically by the MAP_CONTIG test above (112 pages,
+byte-identical re-fetch, -smp 2/4); under organic workloads it is the
+designed backstop between "cache empty" and "out of memory".
+
+Phase A (A0 #290, A2 #291, A1 #292, A3 this section) is COMPLETE.
+Next: Phase B (compressed anonymous memory), which also addresses the
+A/B-confirmed total-OOM service-death gap (no OOM killer).
