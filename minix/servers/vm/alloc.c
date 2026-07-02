@@ -333,7 +333,8 @@ phys_clicks alloc_mem(phys_clicks clicks, u32_t memflags)
    */
   do {
 	mem = alloc_pages(clicks, memflags);
-  } while(mem == NO_MEM && cache_freepages(reclaim_batch_size(clicks)) > 0);
+  } while(mem == NO_MEM &&
+	cache_freepages(reclaim_batch_size(clicks), 1 /*evict*/) > 0);
 
   if(mem == NO_MEM) {
 	stat_alloc_fails++;
@@ -595,7 +596,7 @@ static phys_bytes alloc_pages(int pages, int memflags)
 				free_page_count, RECLAIM_WATER_LOW,
 				total_pages);
 		}
-		cache_freepages(reclaim_batch_size(0));
+		cache_freepages(reclaim_batch_size(0), 0 /*no evict*/);
 	}
 
 	if(memflags & PAF_CLEAR) {

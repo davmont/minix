@@ -1571,3 +1571,84 @@ unsigned int physregions(struct vir_region *vr)
 	}
 	return n;
 }
+
+/*===========================================================================*
+ *				map_evict_clean_page			     *
+ *===========================================================================*/
+/*
+ * Evict a clean file-mapped page (RECLAIM_DESIGN.md, phase A1): detach
+ * every process mapping of the given phys_block and clear the mappers'
+ * page-table entries, so that the block's only remaining reference is
+ * the VM cache's own (refcount 1) and the caller can free it through
+ * the regular cache reclaim path.  The next access by any evicted
+ * process page-faults; map_pf() recreates the phys_region and
+ * mappedfile_pagefault() re-fetches the page contents (from the VM
+ * cache if it survived, else via a VFS round-trip to the file system).
+ *
+ * Eviction is refused (EBUSY) unless every mapper satisfies all of:
+ *  - the mapping is mem_type_mappedfile: never writable (writes COW to
+ *    anon first), hence clean by construction and re-fetchable;
+ *  - the mapping process is a regular user process: evicting from a
+ *    system service (VFS, a file server, a disk driver) could deadlock,
+ *    as re-faulting the page needs those very services;
+ *  - the process is not a thread-group leader: threads share the
+ *    leader's page tables but are separate kernel processes, and the
+ *    VMINHIBIT/MF_FLUSH_TLB machinery in pt_writemap() only covers the
+ *    process being modified - a sibling thread on another CPU could
+ *    retain a stale TLB entry to the freed page;
+ *  - the process is not exiting (leave teardown to map_free()).
+ */
+int map_evict_clean_page(struct phys_block *pb)
+{
+	struct phys_region *pr, *next_pr;
+
+	assert(pb->refcount > 1);	/* cache ref + at least one mapper */
+
+	for(pr = pb->firstregion; pr; pr = pr->next_ph_list) {
+		struct vmproc *vmp;
+
+		if(pr->memtype != &mem_type_mappedfile)
+			return EBUSY;
+
+		assert(pr->parent);
+		vmp = pr->parent->parent;
+		assert(vmp);
+
+		if(!acl_is_user_proc(vmp))
+			return EBUSY;
+		if(vmp->vm_lwp_refcount > 0)
+			return EBUSY;
+		if(vmp->vm_flags & VMF_EXITING)
+			return EBUSY;
+	}
+
+	for(pr = pb->firstregion; pr; pr = next_pr) {
+		struct vir_region *region = pr->parent;
+		struct vmproc *vmp = region->parent;
+		vir_bytes vaddr = region->vaddr + pr->offset;
+
+		next_pr = pr->next_ph_list;
+
+		/* Clear the PTE.  pt_writemap() stops the target process and
+		 * marks it for a TLB flush on its next dispatch (VMINHIBIT +
+		 * MF_FLUSH_TLB), so this is safe for a process currently
+		 * running on another CPU.
+		 */
+		if(pt_writemap(vmp, &vmp->vm_pt, vaddr, MAP_NONE,
+			VM_PAGE_SIZE, 0, WMF_OVERWRITE) != OK) {
+			/* Mappings already detached below simply re-fault;
+			 * this one stays intact.  The page is not freed
+			 * (refcount still > 1), so no inconsistency.
+			 */
+			printf("VM: map_evict_clean_page: pt_writemap failed\n");
+			return ENOMEM;
+		}
+
+		pb_unreferenced(region, pr, 1);
+		SLABFREE(pr);
+	}
+
+	assert(pb->refcount == 1);	/* only the cache reference is left */
+
+	return OK;
+}

@@ -101,6 +101,21 @@ acl_set(struct vmproc *vmp, bitchunk_t *mask, int sys_proc)
 }
 
 /*
+ * Return whether the given process is a regular user process (it has the
+ * shared user-process ACL).  System services get their own ACL slot, and
+ * processes never assigned one (e.g. boot-image processes) have NO_ACL;
+ * both must return false here.  Used by the page-reclaim code to decide
+ * whose clean file mappings may be evicted: evicting a page from a system
+ * service (VFS, a file server, a disk driver) could deadlock, since
+ * re-faulting it needs those very services (RECLAIM_DESIGN.md, phase A1).
+ */
+int
+acl_is_user_proc(struct vmproc *vmp)
+{
+	return vmp->vm_acl == USER_ACL;
+}
+
+/*
  * A process has forked.  User processes inherit their parent's ACL by default,
  * although they may be turned into system processes later.  System processes
  * do not inherit an ACL, and will have to be assigned one before getting to

@@ -263,3 +263,60 @@ inside the watermark band (5-10 MB) under sustained pressure instead of
 exists for bursts and multi-page requests.  Zero allocation failures,
 no asserts.  Episode accounting: 30 low-watermark episodes, one batch
 each.
+## A1 results (2026-07-02)
+
+A1 adds `map_evict_clean_page()` (region.c) and a second, last-resort
+pass in `cache_freepages()`: when freeing unmapped cache pages did not
+satisfy the request AND the caller allows it (only the hard
+allocation-failure retry in `alloc_mem()` does; proactive watermark
+batches do not), clean file-mapped pages are evicted - every mapper's
+PTE is cleared (`pt_writemap(MAP_NONE)`, which stops the target process
+and marks it for a TLB flush via the kernel's VMINHIBIT/MF_FLUSH_TLB
+machinery) and the phys_regions are detached; the next access re-faults
+through the pre-existing `mappedfile_pagefault()` re-fetch path.
+
+Safety predicates (any failure disqualifies the page, EBUSY):
+- every mapper is `mem_type_mappedfile` (never writable => clean);
+- every mapping process is a regular user process
+  (`acl_is_user_proc()`): evicting from a system service could deadlock,
+  as re-faulting needs VFS/FS/driver;
+- no mapper is a thread-group leader (`vm_lwp_refcount > 0`): sibling
+  threads on other CPUs could retain stale TLB entries, since the
+  VMINHIBIT machinery only stops the process being modified;
+- no mapper is exiting.
+
+### Validation
+
+**Deterministic trigger** (v11): a 400 MB `MAP_ANON|MAP_CONTIG|
+MAP_PREALLOC` mmap (single whole-region `alloc_mem()`) on a 512 MB
+machine. At fresh boot it succeeds (a contiguous run exists); after an
+FS load fragments memory it cannot succeed, so the hard-failure retry
+drains the cache (pass 1), **evicts 112 mapped clean text pages
+(pass 2, `vsi_evicted` 0 -> 112)**, and fails with a clean ENOMEM
+(`vsi_alloc_fails` 0 -> 1) - no SIGSEGV, no service damage.  Checksum
+workers re-executing the evicted binaries throughout the run verify
+**byte-identical re-fetch after eviction** (CK match), and the system
+remains fully functional.  Same result at `-smp 2` and `-smp 4`
+(cross-CPU VMINHIBIT/TLB path exercised).
+
+**Sustained-pressure runs** (v5/v6/v8/v10, 96-112 MB, hours of
+combined hog+worker load with the A1 code live): checksums always
+matched, no panics, and eviction correctly did NOT engage while
+cheaper reclaimable cache remained - confirming last-resort semantics.
+Bounded single-process hogs cannot reach the eviction band because
+per-process limits bind first; the deterministic contig trigger (or a
+big-text workload, see A3) is needed to reach it.
+
+**Pre-existing OOM behavior (A/B-confirmed, NOT an A1 regression):**
+unbounded geometric anon demand (parallel awk string-doubling, 4x
+~150 MB at 96 MB RAM) kills the system on BOTH the A1 image and the
+no-A1 baseline with an identical chain: `anon_pagefault: out of
+memory` -> VFS (anon fault, a pool reclaim never touches) SIGSEGV ->
+core service died -> RS aborts -> kernel panic.  MINIX has no OOM
+killer and no service memory reservation; that is a candidate follow-up
+(fits Phase B/C).
+
+Note on pool size: on MINIX's statically linked userland the evictable
+text pool is small (~2 MB in these tests, 112 pages evicted = all of
+it).  The realistic large-pool workload is a native-clang build
+(~167 MB mapped text) - the planned A3 validation vehicle.
