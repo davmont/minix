@@ -28,6 +28,7 @@
 
 #define _MAIN 1
 #include "glo.h"
+#include "lz4.h"
 #include "proto.h"
 #include "util.h"
 #include "vm.h"
@@ -100,6 +101,13 @@ int main(void)
   if (is_first_time()) {
 	init_vm();
 	__vm_init_fresh=1;
+
+	/* Compressed-memory codec self-test (RECLAIM_DESIGN.md, phase B).
+	 * Round-trips a few characteristic pages; must never fail.
+	 */
+	if (vm_lz4_selftest() != 0)
+		panic("VM: lz4 self-test failed");
+	printf("VM: lz4 self-test passed\n");
   }
 
   /* SEF local startup. */
