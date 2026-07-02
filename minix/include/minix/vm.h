@@ -43,6 +43,15 @@ struct vm_stats_info {
   unsigned long vsi_free;	/* number of free pages */
   unsigned long vsi_largest;	/* largest number of consecutive free pages */
   unsigned long vsi_cached;	/* number of pages cached for file systems */
+  /* Page-reclaim statistics (see servers/vm/RECLAIM_DESIGN.md). */
+  unsigned long vsi_cache_pinned;    /* cached pages also mapped into procs */
+  unsigned long vsi_cache_evictable; /* pinned pages that are clean file maps */
+  unsigned long vsi_reclaim_calls;   /* cache reclaim invocations */
+  unsigned long vsi_reclaim_freed;   /* pages freed by cache reclaim */
+  unsigned long vsi_alloc_fails;     /* allocations failed even after reclaim */
+  unsigned long vsi_lowwater_hits;   /* free pages dipped below low watermark */
+  unsigned long vsi_water_low;	     /* low watermark (pages) */
+  unsigned long vsi_water_high;	     /* high watermark (pages) */
 };
 
 struct vm_usage_info {

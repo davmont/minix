@@ -53,6 +53,27 @@ static int number_physical_pages = 0;
 static int free_page_cache[PAGE_CACHE_MAX];
 static int free_page_cache_size = 0;
 
+/*
+ * Page-reclaim instrumentation and watermarks (A0; RECLAIM_DESIGN.md).
+ *
+ * free_page_count is a running count of set bits in free_pages_bitmap,
+ * maintained at the two single choke points that flip bits
+ * (alloc_pages/free_pages), so the allocator can compare against the
+ * watermarks in O(1) instead of walking the bitmap (memstats).
+ *
+ * The low watermark is where proactive reclaim will kick in (phase A2);
+ * the high watermark is where it will stop (hysteresis).  In A0 the
+ * crossing is only counted and reported, not acted upon.
+ */
+static unsigned long free_page_count = 0;
+static unsigned long stat_alloc_fails = 0;	/* NO_MEM after reclaim */
+static unsigned long stat_lowwater_hits = 0;	/* low-watermark crossings */
+static int below_low_watermark = 0;		/* hysteresis state */
+
+#define RECLAIM_WATER_LOW \
+	((unsigned long)(total_pages / 100 > 512 ? total_pages / 100 : 512))
+#define RECLAIM_WATER_HIGH	(2 * RECLAIM_WATER_LOW)
+
 /* Used for sanity check. */
 static phys_bytes mem_low, mem_high;
 
@@ -277,8 +298,10 @@ phys_clicks alloc_mem(phys_clicks clicks, u32_t memflags)
 	mem = alloc_pages(clicks, memflags);
   } while(mem == NO_MEM && cache_freepages(clicks) > 0);
 
-  if(mem == NO_MEM)
+  if(mem == NO_MEM) {
+	stat_alloc_fails++;
   	return mem;
+  }
 
   if(align_clicks) {
   	phys_clicks o;
@@ -511,6 +534,20 @@ static phys_bytes alloc_pages(int pages, int memflags)
 		UNSET_BIT(free_pages_bitmap, i);
 	}
 
+	assert(free_page_count >= (unsigned long)pages);
+	free_page_count -= pages;
+
+	/* Low-watermark crossing?  Count it (and report once per episode);
+	 * phase A2 will trigger reclaim here instead.
+	 */
+	if(!below_low_watermark && free_page_count < RECLAIM_WATER_LOW) {
+		below_low_watermark = 1;
+		stat_lowwater_hits++;
+		printf("VM: free pages %lu below low watermark %lu "
+			"(total %d); reclaim not implemented yet (A0)\n",
+			free_page_count, RECLAIM_WATER_LOW, total_pages);
+	}
+
 	if(memflags & PAF_CLEAR) {
 		int s;
 		if ((s= sys_memset(NONE, 0, CLICK_SIZE*mem,
@@ -540,6 +577,23 @@ static void free_pages(phys_bytes pageno, int npages)
 			free_page_cache[free_page_cache_size++] = i;
 		}
 	}
+
+	free_page_count += npages;
+
+	/* Enough recovered?  Re-arm the low-watermark episode. */
+	if(below_low_watermark && free_page_count >= RECLAIM_WATER_HIGH)
+		below_low_watermark = 0;
+}
+
+/*===========================================================================*
+ *				get_reclaim_stats_info			     *
+ *===========================================================================*/
+void get_reclaim_stats_info(struct vm_stats_info *vsi)
+{
+	vsi->vsi_alloc_fails = stat_alloc_fails;
+	vsi->vsi_lowwater_hits = stat_lowwater_hits;
+	vsi->vsi_water_low = RECLAIM_WATER_LOW;
+	vsi->vsi_water_high = RECLAIM_WATER_HIGH;
 }
 
 /*===========================================================================*
