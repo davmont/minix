@@ -48,6 +48,7 @@ struct vm_stats_info {
   unsigned long vsi_cache_evictable; /* pinned pages that are clean file maps */
   unsigned long vsi_reclaim_calls;   /* cache reclaim invocations */
   unsigned long vsi_reclaim_freed;   /* pages freed by cache reclaim */
+  unsigned long vsi_evicted;	     /* pages freed by evicting clean maps */
   unsigned long vsi_alloc_fails;     /* allocations failed even after reclaim */
   unsigned long vsi_lowwater_hits;   /* free pages dipped below low watermark */
   unsigned long vsi_water_low;	     /* low watermark (pages) */

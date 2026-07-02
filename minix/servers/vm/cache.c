@@ -29,6 +29,8 @@ static u32_t cached_pages = 0;
 /* Reclaim statistics (A0 instrumentation; see RECLAIM_DESIGN.md). */
 static unsigned long stat_reclaim_calls = 0;	/* cache_freepages() calls */
 static unsigned long stat_reclaim_freed = 0;	/* pages it freed */
+static unsigned long stat_evicted = 0;		/* pages freed by evicting
+						 * clean file mappings (A1) */
 
 static void lru_rm(struct cached_page *hb)
 {
@@ -289,7 +291,7 @@ void rmcache(struct cached_page *cp)
 	SLABFREE(cp);
 }
 
-int cache_freepages(int pages)
+int cache_freepages(int pages, int evict)
 {
 	struct cached_page *cp, *newercp;
 	int freed = 0;
@@ -307,6 +309,32 @@ int cache_freepages(int pages)
 			skips = 0;
 		} else skips++;
 		oldsteps++;
+	}
+
+	/* Last-resort pass (A1, RECLAIM_DESIGN.md): if freeing unmapped
+	 * cache pages did not satisfy the request and the caller allows
+	 * it (the hard allocation-failure path does; the proactive
+	 * watermark batches do not), evict clean file-mapped pages:
+	 * detach their process mappings (they will re-fault and be
+	 * re-fetched on next use) and free the page.  LRU-oldest first.
+	 */
+	if(evict && freed < pages) {
+		for(cp = lru_oldest; cp && freed < pages; cp = newercp) {
+			newercp = cp->newer;
+			assert(cp->page->refcount >= 1);
+			if(cp->page->refcount == 1) {
+				/* freed since (or missed by) pass one */
+				rmcache(cp);
+				freed++;
+				continue;
+			}
+			if(map_evict_clean_page(cp->page) != OK)
+				continue;	/* not evictable; skip */
+			assert(cp->page->refcount == 1);
+			rmcache(cp);
+			freed++;
+			stat_evicted++;
+		}
 	}
 
 	stat_reclaim_freed += freed;
@@ -374,6 +402,7 @@ void get_stats_info(struct vm_stats_info *vsi)
 	vsi->vsi_cache_evictable = evictable;
 	vsi->vsi_reclaim_calls = stat_reclaim_calls;
 	vsi->vsi_reclaim_freed = stat_reclaim_freed;
+	vsi->vsi_evicted = stat_evicted;
 	/* vsi_alloc_fails, vsi_lowwater_hits, vsi_water_* are filled by
 	 * the allocator (alloc.c get_reclaim_stats_info()). */
 }
