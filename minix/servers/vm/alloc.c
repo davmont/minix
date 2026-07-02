@@ -54,16 +54,26 @@ static int free_page_cache[PAGE_CACHE_MAX];
 static int free_page_cache_size = 0;
 
 /*
- * Page-reclaim instrumentation and watermarks (A0; RECLAIM_DESIGN.md).
+ * Page-reclaim watermarks and instrumentation (A0/A2; RECLAIM_DESIGN.md).
  *
  * free_page_count is a running count of set bits in free_pages_bitmap,
  * maintained at the two single choke points that flip bits
  * (alloc_pages/free_pages), so the allocator can compare against the
  * watermarks in O(1) instead of walking the bitmap (memstats).
  *
- * The low watermark is where proactive reclaim will kick in (phase A2);
- * the high watermark is where it will stop (hysteresis).  In A0 the
- * crossing is only counted and reported, not acted upon.
+ * A2, proactive batched reclaim: when an allocation takes the free-page
+ * count below the low watermark, reclaim a batch of clean cache pages
+ * up to the high watermark right away, instead of letting every
+ * subsequent allocation fail (a full-bitmap findbit scan) and then
+ * reclaim exactly one request's worth via the NO_MEM retry in
+ * alloc_mem().  A0 measured that reactive-only mode at ~38k
+ * fail+reclaim+retry rounds for a single 60 MB workload, with free
+ * memory pinned at ~0 the whole time.  Hysteresis: one batch per
+ * below-low episode; free_pages() re-arms once free rises to the high
+ * watermark.  The batch is capped so a single VM message never does
+ * unbounded reclaim work; the (also batched) hard-failure path in
+ * alloc_mem() remains as the backstop when the cap or an empty cache
+ * leaves the episode unresolved.
  */
 static unsigned long free_page_count = 0;
 static unsigned long stat_alloc_fails = 0;	/* NO_MEM after reclaim */
@@ -73,6 +83,27 @@ static int below_low_watermark = 0;		/* hysteresis state */
 #define RECLAIM_WATER_LOW \
 	((unsigned long)(total_pages / 100 > 512 ? total_pages / 100 : 512))
 #define RECLAIM_WATER_HIGH	(2 * RECLAIM_WATER_LOW)
+#define RECLAIM_BATCH_MAX	4096	/* pages (16 MB) per reclaim batch */
+
+/* How many pages to ask cache_freepages() for in order to restore the
+ * free-page headroom to the high watermark, bounded by the batch cap;
+ * at least 'minimum' (the current request) so the hard-failure path
+ * always asks for enough to make its retry succeed.
+ */
+static int reclaim_batch_size(unsigned long minimum)
+{
+	unsigned long want = minimum;
+
+	if(free_page_count < RECLAIM_WATER_HIGH) {
+		unsigned long batch = RECLAIM_WATER_HIGH - free_page_count;
+		if(batch > RECLAIM_BATCH_MAX)
+			batch = RECLAIM_BATCH_MAX;
+		if(batch > want)
+			want = batch;
+	}
+
+	return (int)want;
+}
 
 /* Used for sanity check. */
 static phys_bytes mem_low, mem_high;
@@ -294,9 +325,15 @@ phys_clicks alloc_mem(phys_clicks clicks, u32_t memflags)
 	clicks += align_clicks;
   }
 
+  /* On hard failure, reclaim a batch toward the high watermark (at
+   * least the request size) rather than exactly the request: under
+   * sustained pressure this amortizes one LRU sweep over many future
+   * allocations instead of paying a failed full-bitmap scan plus a
+   * one-request reclaim for each of them (A2; RECLAIM_DESIGN.md).
+   */
   do {
 	mem = alloc_pages(clicks, memflags);
-  } while(mem == NO_MEM && cache_freepages(clicks) > 0);
+  } while(mem == NO_MEM && cache_freepages(reclaim_batch_size(clicks)) > 0);
 
   if(mem == NO_MEM) {
 	stat_alloc_fails++;
@@ -537,15 +574,28 @@ static phys_bytes alloc_pages(int pages, int memflags)
 	assert(free_page_count >= (unsigned long)pages);
 	free_page_count -= pages;
 
-	/* Low-watermark crossing?  Count it (and report once per episode);
-	 * phase A2 will trigger reclaim here instead.
+	/* Low-watermark crossing?  Proactively reclaim a batch of clean
+	 * cache pages toward the high watermark (A2), so allocations keep
+	 * finding free pages instead of each one failing into the NO_MEM
+	 * retry path.  One batch per episode: cache_freepages() frees via
+	 * free_pages(), which re-arms the episode once the high watermark
+	 * is reached.  Safe here: the reclaim path only frees (rmcache ->
+	 * free_mem), it never allocates, so it cannot recurse into us.
 	 */
 	if(!below_low_watermark && free_page_count < RECLAIM_WATER_LOW) {
+		static int reported;
+
 		below_low_watermark = 1;
 		stat_lowwater_hits++;
-		printf("VM: free pages %lu below low watermark %lu "
-			"(total %d); reclaim not implemented yet (A0)\n",
-			free_page_count, RECLAIM_WATER_LOW, total_pages);
+		if(!reported) {
+			reported = 1;
+			printf("VM: free pages %lu below low watermark %lu "
+				"(total %d); reclaiming (first episode; "
+				"further ones counted only)\n",
+				free_page_count, RECLAIM_WATER_LOW,
+				total_pages);
+		}
+		cache_freepages(reclaim_batch_size(0));
 	}
 
 	if(memflags & PAF_CLEAR) {
