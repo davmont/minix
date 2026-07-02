@@ -26,6 +26,10 @@ static struct cached_page *lru_oldest = NULL, *lru_newest = NULL;
 
 static u32_t cached_pages = 0;
 
+/* Reclaim statistics (A0 instrumentation; see RECLAIM_DESIGN.md). */
+static unsigned long stat_reclaim_calls = 0;	/* cache_freepages() calls */
+static unsigned long stat_reclaim_freed = 0;	/* pages it freed */
+
 static void lru_rm(struct cached_page *hb)
 {
 	struct cached_page *newer = hb->newer, *older = hb->older;
@@ -292,6 +296,8 @@ int cache_freepages(int pages)
 	int oldsteps = 0;
 	int skips = 0;
 
+	stat_reclaim_calls++;
+
 	for(cp = lru_oldest; cp && freed < pages; cp = newercp) {
 		newercp = cp->newer;
 		assert(cp->page->refcount >= 1);
@@ -302,6 +308,8 @@ int cache_freepages(int pages)
 		} else skips++;
 		oldsteps++;
 	}
+
+	stat_reclaim_freed += freed;
 
 	return freed;
 }
@@ -327,6 +335,46 @@ clear_cache_bydev(dev_t dev)
 
 void get_stats_info(struct vm_stats_info *vsi)
 {
+	struct cached_page *cp;
+	unsigned long pinned = 0, evictable = 0;
+
         vsi->vsi_cached = cached_pages;
+
+	/* Classify the cache for the reclaim work (RECLAIM_DESIGN.md):
+	 * 'pinned' pages are cached pages also referenced by process
+	 * mappings (refcount > 1), which cache_freepages() cannot free
+	 * today.  Of those, pages whose every mapper is a clean
+	 * file-mapped region (mem_type_mappedfile: never writable, so
+	 * clean by construction and re-fetchable on fault) will become
+	 * evictable in phase A1.  Anything referenced by an FS server's
+	 * own cache mapping (mem_type_cache, possibly dirty) is not.
+	 * On-demand walk; only run for stats queries, not on hot paths.
+	 */
+	for(cp = lru_oldest; cp; cp = cp->newer) {
+		struct phys_region *pr;
+		int allfile = 1;
+
+		assert(cp->page->refcount >= 1);
+		if(cp->page->refcount == 1)
+			continue;
+
+		pinned++;
+
+		for(pr = cp->page->firstregion; pr; pr = pr->next_ph_list) {
+			if(pr->memtype != &mem_type_mappedfile) {
+				allfile = 0;
+				break;
+			}
+		}
+		if(allfile)
+			evictable++;
+	}
+
+	vsi->vsi_cache_pinned = pinned;
+	vsi->vsi_cache_evictable = evictable;
+	vsi->vsi_reclaim_calls = stat_reclaim_calls;
+	vsi->vsi_reclaim_freed = stat_reclaim_freed;
+	/* vsi_alloc_fails, vsi_lowwater_hits, vsi_water_* are filled by
+	 * the allocator (alloc.c get_reclaim_stats_info()). */
 }
 

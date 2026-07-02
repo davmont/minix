@@ -121,6 +121,7 @@ int do_info(message *m)
 		vsi.vsi_largest = largest_contig;
 
 		get_stats_info(&vsi);
+		get_reclaim_stats_info(&vsi);
 
 		addr = (vir_bytes) &vsi;
 		size = sizeof(vsi);

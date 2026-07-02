@@ -1,0 +1,240 @@
+# VM page reclaim — Phase A: clean-page reclaim
+
+Status: **A0 (instrumentation) implemented and measured** — see "A0
+results" below. A1/A2 not yet implemented; A0's data reorders them.
+Track: memory management (swap/paging). Phase A of three:
+  A. clean-page reclaim (this doc)
+  B. compressed anonymous memory (zram-style)
+  C. disk swap
+
+## Problem
+
+MINIX has no page replacement. Memory is demand-*allocated* but never
+*evicted*: when free memory runs out, allocations fail (`ENOMEM`, or
+`SIGSEGV` on a page fault that cannot be satisfied). Consequences:
+
+- Nothing larger than RAM can run; no graceful degradation under pressure.
+- The FS buffer cache cannot grow into free memory safely, because there
+  is no way to shrink it *or* anything else when a process needs pages.
+- Program text of running processes is pinned for the process lifetime,
+  even though it is clean and trivially re-fetchable.
+
+## What already exists (survey, 2026-07-02)
+
+The current tree is much closer to reclaim than expected. Inventory:
+
+### 1. VM block cache with LRU and a working reclaimer
+`servers/vm/cache.c`:
+- Hash by `(dev, dev_offset)` and `(dev, ino, ino_offset)`;
+  `struct cached_page` entries, global LRU list, `cached_pages` counter.
+- **`cache_freepages(int pages)` (cache.c:288)** walks the LRU from the
+  oldest end and frees pages — but *only* those with
+  `pb->refcount == 1`, i.e. pages referenced by the cache alone.
+- Trigger (`alloc.c:276-278`): `alloc_mem()` retries after
+  `cache_freepages(clicks)` **only on hard allocation failure**
+  (`NO_MEM`). There are no watermarks and no proactive reclaim.
+
+### 2. FS buffer cache (lmfs) is VM-backed
+`lib/libminixfs/cache.c`: an FS server's buffers are VM cache pages:
+- `vm_map_cacheblock()` (cache.c:518) maps an existing VM-cached block
+  into the FS's address space; `vm_set_cacheblock()` (cache.c:641)
+  publishes a block into the VM cache; `vm_forget_cacheblock()` /
+  `vm_clear_cache()` remove entries.
+- While mapped by the FS these pages are `mem_type_cache` regions
+  (`mem_cache.c`) — **writable, possibly dirty**. When lmfs evicts a
+  buffer it `munmap`s it (cache.c:331, 910, 1372); the page then remains
+  in the VM cache with `refcount == 1` — i.e. today's reclaimable pool.
+
+### 3. File-mapped pages are clean by construction and re-fetchable
+`servers/vm/mem_file.c` (`mem_type_mappedfile` — user `mmap()` of files
+*and* program text, since exec maps executables via the FS peek
+protocol):
+- `mappedfile_writable()` returns 0 — these mappings are **never
+  writable**. A write fault COWs the page to `mem_type_anon`
+  (`cow_block()`), so a mappedfile page can never hold dirty data.
+- `mappedfile_pagefault()` (mem_file.c:84) already re-fetches a missing
+  page (`ph->ph->phys == MAP_NONE`): first from the VM cache
+  (`find_cached_page_bydev/byino`), else via a VFS round-trip
+  (`vfs_request(VMVFSREQ_FDIO, ...)` → FS reads the block →
+  `vm_set_cacheblock` → fault retried).
+- `map_pf()` (region.c:664) regenerates a missing `phys_region` on
+  fault (`pb_new(MAP_NONE)` + `pb_reference`), so a page eviction that
+  removes the `phys_region` entirely is transparently undone by the
+  next access.
+
+### 4. Reverse mapping exists
+`servers/vm/pb.c` / `region.h`: every `phys_block` keeps
+`pb->firstregion`, a chain of all `phys_region`s (via `next_ph_list`)
+that map it; each `phys_region` knows its `vir_region` (`->parent`) and
+thereby the owning `vmproc`. Finding all mappers of a page is O(mappers).
+
+## The gap
+
+`cache_freepages()` skips every page with `refcount > 1`. On a running
+system, most file pages are *mapped* (text of running programs, shared
+libs would be too if dynamic linking mattered, mmap'ed files), so under
+real pressure the reclaimable pool is nearly empty exactly when it is
+needed. **Phase A = make clean *mapped* file pages evictable, and
+reclaim them proactively.**
+
+## Design
+
+### A1. Page eviction for mapped clean file pages (the core)
+
+New function in `vm/cache.c` (or `region.c`), roughly:
+
+```
+int evict_mapped_clean(struct cached_page *cp)
+```
+
+Preconditions checked:
+- Every `phys_region` on `cp->page->firstregion` has
+  `memtype == &mem_type_mappedfile`. If **any** referent is
+  `mem_type_cache` (the FS holds it — possibly dirty) or anything else
+  (anon after COW never shares this pb, but be defensive): **skip**.
+
+Action, per referencing `phys_region pr`:
+1. Clear the PTE in the owner's page table (same `pt_writemap` path
+   used by existing unmap/shrink code; kernel handles cross-CPU TLB
+   shootdown — see Risks).
+2. `pb_unreferenced(region, pr, 1)` — drop the mapping and remove the
+   phys_region from the region's physblock tree, exactly the inverse of
+   what `map_pf()` recreates on the next fault.
+
+After all mappers are detached, `refcount == 1` (cache only) and the
+existing `rmcache()`/`cache_freepages()` machinery frees the page.
+
+Next access by any evicted process → page fault → `map_pf()` →
+`mappedfile_pagefault()` → VM-cache hit (if only some mappers were
+evicted) or FS round-trip. **No new fault-side code is needed.**
+
+### A2. Extend the LRU sweep
+
+`cache_freepages()` grows a second pass (or a sibling
+`reclaim_pages()`): walk LRU-oldest first; for entries with
+`refcount > 1` whose extra references are all mappedfile mappers, call
+`evict_mapped_clean()` and free. Bounded per call (see A3).
+
+Coverage note: `VMSF_ONCE` pages (isofs/vfat exec paths) are removed
+from the cache immediately after mapping, so they are invisible to an
+LRU walk. Phase A accepts this (the root FS, MFS, does not use ONCE);
+a later refinement can walk process regions as a fallback.
+
+### A3. Proactive watermark trigger
+
+Today reclaim runs only inside `alloc_mem()` on hard failure. Add:
+- Low/high watermarks on free pages (e.g. low = max(1% of RAM, 2 MB),
+  high = 2×low; tunable).
+- Check on the allocation path and in `alloc_cycle()` (already invoked
+  from the main loop when the allocator wants attention — main.c:119):
+  when below low, reclaim up to high.
+- **Bounded work per invocation** (e.g. ≤64 pages per cycle): VM is a
+  single-threaded event loop; long sweeps inside one message would add
+  latency to every VM client.
+- Keep the existing hard-failure retry as the backstop.
+
+### A4. Observability
+
+- Counters: pages evicted (unmapped-clean vs cache-only), refaults
+  served from cache vs from FS, reclaim invocations, watermark hits.
+- Expose via `get_stats_info()` (`vsi_cached` already exists) so
+  `vmstat`/`top` can show them.
+
+## What Phase A explicitly does NOT do
+
+- **No anonymous-memory eviction** — needs compression/swap (Phases B/C).
+- **No dirty-page writeback from VM** — dirty data only ever lives in
+  `mem_type_cache` pages held by FS servers, which manage their own
+  writeback (lmfs flush). VM never initiates I/O for reclaim in Phase A.
+- **No FS-side (lmfs primary cache) shrinking** — lmfs already returns
+  pages to the reclaimable pool when it evicts buffers; tuning lmfs
+  sizing under pressure is a possible A follow-up, not core.
+- No thrash control beyond LRU order + bounded sweeps.
+
+## Risks
+
+1. **Cross-process PTE removal on SMP** (the #1 risk). Eviction clears
+   PTEs of processes that may be running on another CPU. The kernel
+   already has the machinery VM uses when modifying live page tables
+   (`smp_schedule_vminhibit` / `RTS_VMINHIBIT`, `MF_FLUSH_TLB`), and
+   `pt_writemap` is the existing entry point — but this path has not
+   been exercised by *unsolicited* (not process-initiated) unmaps at
+   scale. Must validate under `-smp 4/8` with the stress harness; watch
+   for stale-TLB reads of freed pages.
+2. **VM cache/lmfs protocol assumptions**: verify lmfs never assumes a
+   published block stays in the VM cache (it must already tolerate loss
+   — `cache_freepages` frees refcount==1 pages today — but the *mapped*
+   eviction changes timing).
+3. **Fault storms / livelock under extreme pressure**: evicting a page
+   the process immediately refaults burns FS round-trips. LRU order
+   mitigates; watermark hysteresis (low→high) prevents oscillation.
+   Accepted for Phase A; measure.
+4. **exec/peek dependence**: text eviction only helps for FSes with
+   working mmap/peek (MFS, isofs, vfat have it). Static fallback exec
+   (copy-in) pages are anon → untouched. Fine.
+
+## Validation plan
+
+QEMU harnesses (reuse the SMP A/B + stress patterns from the
+runqueue-lock work):
+1. **Pressure progression**: `-m 64/96/128`, run a growing memory hog +
+   parallel workload. BASE devel: record where ENOMEM/OOM kills start.
+   FIX: must progress strictly further / complete workloads BASE cannot.
+2. **Correctness under eviction**: low RAM, many processes re-executing
+   binaries and reading mmap'ed files in a loop; checksum outputs
+   (catches text/data corruption from bad evictions). Run at `-smp 4`.
+3. **Regression**: full boot + build workload at `-m 2048` — counters
+   should show ~0 evictions; no performance change.
+4. **Counters sanity**: evictions > 0 under pressure; refault-from-cache
+   vs refault-from-FS ratio sane.
+
+## Deliverables / phasing
+
+- **A0 (small)**: counters + watermark plumbing only, no behavior
+  change; quantify the pinned-vs-free pool under pressure. (1 build)
+- **A1 (core)**: `evict_mapped_clean()` + LRU-sweep extension +
+  hard-failure path uses it. (main work)
+- **A2**: proactive watermark trigger, bounded per-cycle reclaim.
+- **A3**: validation harness runs + fixes; PR with A/B numbers.
+
+Estimated size: ~300-500 lines in `servers/vm/` (cache.c, alloc.c,
+region.c/pb.c helper), no kernel changes expected (existing pt_writemap/
+TLB machinery), no FS changes expected.
+
+## A0 results (2026-07-02, QEMU -m 512 -smp 2, phased pressure run)
+
+Phases: idle after boot → FS load (`cat` every file in /usr/bin,
+/usr/lib, /bin, /sbin) → +30 background processes → 60 MB anonymous hog
+(`yes | head -c 60M | sort`). `/proc/meminfo` sampled after each:
+
+| phase   | free   | cached | pinned | evictable | reclaim calls | freed pages | alloc fails |
+|---------|--------|--------|--------|-----------|---------------|-------------|-------------|
+| idle    | 416 MB |  54 MB |  45 MB |     0 MB  |             0 |           0 | 0 |
+| FS load |   0.3 MB| 459 MB|  48 MB |    2.1 MB |        18,188 |      18,188 | 0 |
+| +procs  |   0.7 MB| 457 MB|  48 MB |    2.3 MB |        18,844 |      18,844 | 0 |
+| hog done|  77 MB | 382 MB |  38 MB |    2.3 MB |        37,982 |      37,982 | 0 |
+
+No panics, no asserts (the `free_page_count` cross-check held), zero
+allocation failures; one low-watermark episode.
+
+**Findings — these reorder A1 vs A2:**
+
+1. **The reactive valve works but is pathological.** After the cache
+   fills RAM, *every* allocation takes the NO_MEM → `cache_freepages()`
+   → retry path: ~38k reclaim invocations for one workload, each a
+   just-enough LRU walk, with free memory pinned at ~0 the whole time
+   (no headroom for bursts or multi-page contiguous requests).
+   **A2 (proactive watermark reclaim, batched) is the immediate win**
+   and is cheap: the watermark plumbing already exists from A0; A2 is
+   essentially calling `cache_freepages(high - free)` at the crossing.
+2. **The A1 evictable pool is small in typical MINIX workloads**
+   (~2 MB): userland is statically linked (no shared libraries), so the
+   mapped-clean-text pool is just the unique text of running binaries.
+   The `pinned` 38-48 MB is almost entirely `mem_type_cache` — the FS's
+   own mapped lmfs buffers — which reclaim must not touch.
+   **A1 remains worthwhile for the big-binary case** (a native clang
+   process maps ~167 MB of text/rodata; self-hosting builds are the
+   flagship pressure workload), but it is no longer the first priority.
+
+Revised order: **A2 → A1 → A3**, with A1 validated against a
+self-hosting build (native clang) rather than a shell workload.

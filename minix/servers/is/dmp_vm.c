@@ -74,6 +74,14 @@ vm_dmp(void)
 		vsi.vsi_largest * (vsi.vsi_pagesize / 1024),
 		vsi.vsi_cached * (vsi.vsi_pagesize / 1024));
 	n++;
+	printf("Reclaim: pinned %lu kB (evictable %lu kB), freed %lu pages"
+		"/%lu calls, %lu alloc fails, %lu low-water hits (lo/hi %lu/%lu pg)\n",
+		vsi.vsi_cache_pinned * (vsi.vsi_pagesize / 1024),
+		vsi.vsi_cache_evictable * (vsi.vsi_pagesize / 1024),
+		vsi.vsi_reclaim_freed, vsi.vsi_reclaim_calls,
+		vsi.vsi_alloc_fails, vsi.vsi_lowwater_hits,
+		vsi.vsi_water_low, vsi.vsi_water_high);
+	n++;
 	printf("\n");
 	n++;
 

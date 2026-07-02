@@ -31,6 +31,7 @@ void alloc_cycle(void);
 void mem_sanitycheck(const char *file, int line);
 phys_clicks alloc_mem(phys_clicks clicks, u32_t flags);
 void memstats(int *nodes, int *pages, int *largest);
+void get_reclaim_stats_info(struct vm_stats_info *vsi);
 void printmemstats(void);
 void usedpages_reset(void);
 int usedpages_add_f(phys_bytes phys, phys_bytes len, const char *file, int

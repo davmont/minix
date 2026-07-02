@@ -106,8 +106,21 @@ root_meminfo(void)
 	if (vm_info_stats(&vsi) != OK)
 		return;
 
-	buf_printf("%u %lu %lu %lu %lu\n", vsi.vsi_pagesize, vsi.vsi_total,
-	    vsi.vsi_free, vsi.vsi_largest, vsi.vsi_cached);
+	/* The first five fields are the traditional format; existing
+	 * consumers (mtop, tests/common.c getmem) fscanf exactly those and
+	 * ignore the rest of the line.  The trailing fields are the page-
+	 * reclaim statistics (servers/vm/RECLAIM_DESIGN.md): cache pages
+	 * pinned by process mappings, the clean-file-map (evictable)
+	 * subset, reclaim calls/pages-freed, failed allocations,
+	 * low-watermark hits, and the low/high watermarks.
+	 */
+	buf_printf("%u %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu\n",
+	    vsi.vsi_pagesize, vsi.vsi_total,
+	    vsi.vsi_free, vsi.vsi_largest, vsi.vsi_cached,
+	    vsi.vsi_cache_pinned, vsi.vsi_cache_evictable,
+	    vsi.vsi_reclaim_calls, vsi.vsi_reclaim_freed,
+	    vsi.vsi_alloc_fails, vsi.vsi_lowwater_hits,
+	    vsi.vsi_water_low, vsi.vsi_water_high);
 }
 
 #if defined(__i386__) || defined(__x86_64__)
