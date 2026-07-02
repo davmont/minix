@@ -349,3 +349,90 @@ designed backstop between "cache empty" and "out of memory".
 Phase A (A0 #290, A2 #291, A1 #292, A3 this section) is COMPLETE.
 Next: Phase B (compressed anonymous memory), which also addresses the
 A/B-confirmed total-OOM service-death gap (no OOM killer).
+
+
+# Phase B: compressed anonymous memory (zram-style)
+
+Status: **B0 (codec + self-test) in progress.** Design below.
+
+## Problem
+
+Phase A made file-backed memory reclaimable, but anonymous memory
+(heap/stack) remains pinned: when anon demand exceeds RAM, faults fail
+(`anon_pagefault: out of memory`) and - as A/B-demonstrated in the A1
+work - a core service losing an anon fault takes the whole system down
+(no OOM killer).  Phase B adds the modern first line of defense:
+compress cold anonymous pages into a RAM pool (Linux zram/zswap, macOS
+and Windows compressed memory), trading CPU for effective capacity
+with no disk plumbing.
+
+## Where it lives
+
+Inside the VM server (not a separate service): VM owns all page state,
+the compression is pure CPU work on pages VM can already map, and an
+external server would add IPC latency to the fault path plus a
+VM<->server memory-dependency cycle.  All work is bounded per
+invocation (VM is a single-threaded event loop).
+
+## Design
+
+### Codec (B0)
+Minimal LZ4 block-format codec (`servers/vm/lz4.c`), written for this
+use: `vm_lz4_compress()` gives up early (returns 0) if output would
+exceed a caller budget - incompressible pages are simply not stored -
+and `vm_lz4_decompress()` is a bounds-checked safe decoder.  A boot
+self-test round-trips zero/pattern/text-like/incompressible pages once
+and prints the result; behavior is otherwise unchanged.
+
+### Compressed store (B1)
+- Pool pages come from `vm_allocpage()` (VM-mapped, so blobs are
+  directly addressable); the pool grows on demand and is capped
+  (tunable, default ~25% of total RAM).
+- Blobs live in size-class slots (512/1024/2048 B) carved from pool
+  pages, with per-class freelists.  A page is stored ONLY if it
+  compresses to <= 2048 B, guaranteeing >= 2x net win per stored page
+  (worst-case internal fragmentation still >= ~1.3x).  slaballoc()
+  cannot serve blobs (max object 519 B).
+- `struct phys_block` gains `PBF_COMPRESSED` + a blob reference
+  (pointer + size).  Lifecycle: compress-out frees the physical page
+  and stores the blob; `anon_pagefault` on a `PBF_COMPRESSED` block
+  allocates a fresh page (no PAF_CLEAR) and decompresses into it;
+  `anon_unreference` frees the blob if the process exits first.
+  The `phys == MAP_NONE` + !PBF_COMPRESSED case remains zero-fill,
+  exactly as today.
+
+### Compress-out path (B1)
+`cache_freepages()` gains a third, last-resort pass (after unmapped
+cache and clean-file eviction): walk eligible anon pages and compress
+them out until the request is satisfied or candidates run out.
+Eligibility mirrors A1's safety predicates: `mem_type_anon`,
+`refcount == 1` (no COW sharing), sole mapper is a regular user
+process (`acl_is_user_proc`), not a thread-group leader, not exiting.
+The mapper's PTE is cleared via the same `pt_writemap(MAP_NONE)` path
+(VMINHIBIT + MF_FLUSH_TLB, cross-CPU safe).  Selection in B1 is a
+bounded round-robin walk over process slots (no coldness tracking);
+B2 can add accessed-bit scanning.
+
+### Faults and kernel access
+Every consumer of user memory reaches non-present pages through
+`map_pf()`/`handle_memory()` (page faults, kernel delivermsg, grants,
+sys_datacopy targets), which is exactly the path that today handles
+never-materialized anon pages; decompress-in slots into
+`anon_pagefault` with no new fault-side plumbing elsewhere.
+
+### Observability
+`vsi_zpages` (pages currently compressed), `vsi_zpool` (pool pages),
+`vsi_zin/zout` (compress/decompress ops) appended to vm_stats_info +
+/proc/meminfo (prefix-safe as before).
+
+## Phasing
+- **B0**: LZ4 codec + boot self-test; no behavior change.
+- **B1**: store + compress-out pass + decompress-in fault + stats.
+  Validation: anon-data integrity workload (write patterns, force
+  compression, read back and verify); the A1 awk total-OOM workload
+  must now push notably further before the (still pre-existing) OOM
+  endgame; A2/A1 regression re-run.
+- **B2**: coldness via accessed-bit scan; proactive compression below
+  a deeper watermark; possibly blob packing (zsmalloc-style).
+- **Beyond**: OOM-policy hardening (service memory reservation /
+  userland OOM killer) and Phase C (disk swap behind the same store).
