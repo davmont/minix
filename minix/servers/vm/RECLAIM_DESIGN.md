@@ -498,3 +498,38 @@ in `region.c`, gated as `cache_freepages()` pass three), decompress-in
   *idle* anon pages; process B applies pressure (MAP_CONTIG) to
   compress A's pages out; A then verifies byte-for-byte. Confirm
   `zin>0` and `zout>0` bracket the verify.
+
+## Phase B1 update (kernel race FIXED; decompress+COW bug found)
+
+- **Kernel `proc_is_runnable` SMP race: FIXED and validated.** See the
+  `kernel/proc.c` commit on this branch. The compress-out path's
+  `VMINHIBIT` (via `pt_writemap(MAP_NONE)`) could flip an
+  actively-dispatched process non-runnable inside `switch_to_user`'s
+  misc-flags loop, tripping a bare `assert(proc_is_runnable(p))`. Made
+  it a re-pick, matching the two rechecks already bracketing that loop.
+  The asymmetric zram workload that reliably panicked at -smp 2 now
+  runs with no panic; compression (zin) and decompression (zout) both
+  engage without crashing VM. This fix is independent of B1 (A1 has the
+  same exposure) and is worth landing on its own.
+
+- **New open bug: decompress + COW of a *shared* compressed page
+  SIGSEGVs the reader.** Reproducible at -smp 2 with ~99 MB free (so
+  NOT OOM): during an asymmetric run, ~51 decompress-ins succeed
+  (zout climbs 5 -> 51) and then a process SIGSEGVs, deterministically.
+  The prime suspect is the decompress path in `anon_pagefault` for a
+  post-fork shared page (`refcount > 1 && write`), which after
+  decompressing into `new_page` calls
+  `mem_cow(region, ph, MAP_NONE, MAP_NONE)`. The two `MAP_NONE`
+  arguments are almost certainly wrong for `mem_cow`'s contract — it
+  likely needs the region's allocated COW page, not a sentinel — so the
+  faulting process ends up with a bad mapping. Fixing this needs a
+  careful read of `mem_cow`'s signature and the materialize-then-COW
+  ordering (materializing `new_page` onto the *shared* pb before
+  COWing a private copy for the faulter may itself be the wrong shape;
+  consider COWing first into a fresh page and decompressing into that).
+
+- Net B1 state: compression correct and effective; refcount==1
+  decompress correct; **shared-page decompress+COW is buggy**;
+  extreme single-proc overcommit still OOMs (no OOM killer);
+  a tight-RAM livelock remains un-root-caused (VM-printf tracing was
+  found unreliable, so a stats-only or panic-dump instrument is needed).
