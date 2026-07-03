@@ -514,7 +514,16 @@ check_misc_flags:
 		(MF_KCALL_RESUME | MF_DELIVERMSG |
 		 MF_SC_DEFER | MF_SC_TRACE | MF_SC_ACTIVE)) {
 
-		assert(proc_is_runnable(p));
+		/*
+		 * Another CPU can RTS_SET(p, RTS_VMINHIBIT) between the
+		 * while-test above and here — e.g. VM clearing a PTE while
+		 * reclaiming/compressing one of p's pages — flipping p
+		 * non-runnable mid-loop.  Re-pick instead of asserting,
+		 * exactly as the top-of-loop and end-of-loop rechecks in
+		 * this same function already do.
+		 */
+		if (!proc_is_runnable(p))
+			goto not_runnable_pick_new;
 		if (p->p_misc_flags & MF_KCALL_RESUME) {
 			kernel_call_resume(p);
 		}
