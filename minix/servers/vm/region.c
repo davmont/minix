@@ -1684,15 +1684,36 @@ int map_evict_clean_page(struct phys_block *pb)
  * process, regions and pages are taken in address order.  No coldness
  * tracking yet (phase B2).
  */
-int map_compress_anon_pages(int target)
+int map_compress_anon_pages(int target, int cold_only)
 {
 	static int nextproc = 0;	/* round-robin cursor */
 	int freed = 0, visited = 0;
-	int p, i;
+	int p, i, pass;
 	const int maxvisit = target * 8 + 256;	/* bound the walk */
 
 	if (target <= 0)
 		return 0;
+
+	/*
+	 * Phase-B2 coldness (clock / second-chance): pass 0 compresses only
+	 * pages whose hardware accessed bit is clear, clearing (aging) the
+	 * bit on pages that were accessed so they become candidates later.
+	 * cold_only (the proactive path, which has slack) stops there.  The
+	 * hard-failure path must make progress, so pass 1 then takes any
+	 * remaining eligible page regardless of the accessed bit.
+	 */
+	for (pass = 0; pass < 2 && freed < target; pass++) {
+		int require_cold = (pass == 0);
+
+		if (pass == 1 && cold_only)
+			break;
+
+		/* Per-pass visit budget: pass 1 (the forced pass on the
+		 * hard-failure path) must get its own budget so that a pass 0
+		 * which spent maxvisit aging hot pages still makes progress -
+		 * otherwise cache_freepages() would return 0 and break the
+		 * allocator's reclaim retry loop. */
+		visited = 0;
 
 	for (p = 0; p < VMP_NR && freed < target; p++) {
 		struct vmproc *vmp = &vmproc[(nextproc + p) % VMP_NR];
@@ -1741,6 +1762,15 @@ int map_compress_anon_pages(int target)
 				if (pb->flags & (PBF_INCACHE|PBF_COMPRESSED))
 					continue;
 
+				vaddr = region->vaddr + pr->offset;
+
+				/* Coldness: on the cold pass skip a page that
+				 * was accessed recently, aging its accessed
+				 * bit so it can be taken on a later call. */
+				if (require_cold &&
+				    pt_test_and_clear_accessed(vmp, vaddr))
+					continue;
+
 				/* Fence FIRST: clear the mapper's PTE
 				 * (pt_writemap stops the process and
 				 * schedules a TLB flush).  Anon pages
@@ -1750,7 +1780,6 @@ int map_compress_anon_pages(int target)
 				 * If we bail out below, the PTE is
 				 * restored via map_ph_writept().
 				 */
-				vaddr = region->vaddr + pr->offset;
 				if (pt_writemap(vmp, &vmp->vm_pt, vaddr,
 				    MAP_NONE, VM_PAGE_SIZE, 0,
 				    WMF_OVERWRITE) != OK)
@@ -1785,6 +1814,7 @@ int map_compress_anon_pages(int target)
 			}
 		}
 	}
+	}	/* pass */
 
 	nextproc = (nextproc + 1) % VMP_NR;
 

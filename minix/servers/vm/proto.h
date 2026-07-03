@@ -118,6 +118,7 @@ void *vm_allocpages(phys_bytes *p, int cat, int pages);
 void *vm_allocpagedir(phys_bytes *p);
 int pt_mapkernel(pt_t *pt);
 void vm_pagelock(void *vir, int lockflag);
+int pt_test_and_clear_accessed(struct vmproc *vmp, vir_bytes v);
 int vm_addrok(void *vir, int write);
 int get_vm_self_pages(void);
 int pt_writable(struct vmproc *vmp, vir_bytes v);
@@ -183,7 +184,7 @@ int map_get_phys(struct vmproc *vmp, vir_bytes addr, phys_bytes *r);
 int map_get_ref(struct vmproc *vmp, vir_bytes addr, u8_t *cnt);
 unsigned int physregions(struct vir_region *vr);
 int map_evict_clean_page(struct phys_block *pb);
-int map_compress_anon_pages(int target);
+int map_compress_anon_pages(int target, int cold_only);
 
 void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui);
 void get_usage_info_kernel(struct vm_usage_info *vui);

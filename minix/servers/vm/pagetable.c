@@ -454,6 +454,41 @@ void vm_pagelock(void *vir, int lockflag)
 }
 
 /*===========================================================================*
+ *			pt_test_and_clear_accessed	     		     *
+ *===========================================================================*/
+/* Return 1 if the page mapped at virtual address v in process vmp has its
+ * hardware "accessed" (A) bit set, else 0, and clear the bit so that a
+ * later access re-sets it (clock-style aging for phase-B2 coldness
+ * selection).  Returns 0 if the page is not currently present.
+ *
+ * The A bit is a pure usage hint: clearing it changes no mapping, so this
+ * needs no VMINHIBIT/TLB-flush handshake.  A stale TLB entry may briefly
+ * keep the bit clear in memory for a hot page (the MMU only re-sets A on a
+ * TLB refill), which at worst makes a warm page look cold and get
+ * compressed -- a performance miss, never a correctness problem.
+ */
+int pt_test_and_clear_accessed(struct vmproc *vmp, vir_bytes v)
+{
+	pt_t *pt = &vmp->vm_pt;
+	int pde = ARCH_VM_PDE(v), pte = ARCH_VM_PTE(v);
+
+	/* Operate on the page-table entry in its native width (pte_t is
+	 * 64-bit on amd64); a u32_t temporary would clobber the high bits
+	 * (NX, high physical address) on write-back. */
+	if(!(pt->pt_dir[pde] & ARCH_VM_PDE_PRESENT))
+		return 0;
+	if(!pt->pt_pt[pde])
+		return 0;
+	if(!(pt->pt_pt[pde][pte] & ARCH_VM_PTE_PRESENT))
+		return 0;
+	if(pt->pt_pt[pde][pte] & I386_VM_ACC) {
+		pt->pt_pt[pde][pte] &= ~(I386_VM_ACC);
+		return 1;
+	}
+	return 0;
+}
+
+/*===========================================================================*
  *				vm_addrok		     		     *
  *===========================================================================*/
 int vm_addrok(void *vir, int writeflag)

@@ -590,3 +590,51 @@ performance bug**, not defects in the compress/decompress/COW logic:
   *other* processes, which is the intended win.
 - B2 can add coldness tracking (accessed-bit scan) and proactive
   compression below a deeper watermark.
+
+## Phase B2: coldness selection + proactive compression
+
+Two refinements to the B1 compressor, both validated byte-exact at
+-smp 2 and -smp 4 (fork+COW with/without a 400 MB MAP_CONTIG spike, and
+110 MB single-process self-overcommit), system responsive throughout.
+
+### B2a - accessed-bit coldness (clock / second chance)
+`map_compress_anon_pages(target, cold_only)` no longer takes pages in
+plain round-robin order.  It runs a two-pass clock:
+- **Pass 0 (cold):** for each eligible anon page, consult the hardware
+  accessed bit via `pt_test_and_clear_accessed(vmp, vaddr)`.  A page
+  that was accessed since it was last aged is *skipped* and its accessed
+  bit is *cleared*, so a genuinely hot page keeps getting a second
+  chance while its bit is re-set on the next access; only pages that are
+  still cold are compressed.
+- **Pass 1 (any):** the hard-failure path must free memory, so if pass 0
+  did not reach `target`, a second pass compresses any eligible page
+  regardless of the accessed bit.  Each pass gets its own `visited`
+  budget so a pass 0 that spent its budget aging hot pages cannot starve
+  pass 1 (which would otherwise return 0 and break the allocator's
+  reclaim retry loop).
+
+`pt_test_and_clear_accessed()` reads/clears the A bit directly in the
+page-table entry (native `pte_t` width - a u32_t temporary would clobber
+the high bits of an amd64 PTE).  It is a pure usage hint: clearing it
+changes no mapping and needs no VMINHIBIT/TLB handshake; a stale TLB
+entry can at worst make a warm page look cold and get compressed, which
+is a performance miss, never a correctness problem.
+
+### B2b - proactive compression at the watermark
+`cache_freepages()`'s second argument is now a mode: 0 = free unmapped
+cache only (A2 proactive), 1 = hard failure (cache + evict clean files +
+compress cold-then-any), 2 = proactive compress-cold.  When an
+allocation drives the free count below the low watermark and freeing
+clean cache pages does not restore headroom, VM now proactively
+compresses a bounded batch (`RECLAIM_COMPRESS_MAX` = 512) of *cold*
+anonymous pages (mode 2) instead of waiting for a hard allocation
+failure.  The `below_low_watermark` latch (re-armed at the high
+watermark) keeps the pool-page allocations made during that compression
+from re-triggering it, and the batch cap bounds the per-allocation stall.
+
+### Future work (B3+)
+- Shrink empty zstore pool pages back to the allocator (the pool
+  currently only grows, capped at total/4).
+- OOM-policy hardening: a process whose own live working set exceeds RAM
+  still SIGSEGVs (no OOM killer).
+- Optionally back the zstore with a disk swap device (phase C).
