@@ -638,3 +638,48 @@ from re-triggering it, and the batch cap bounds the per-allocation stall.
 - OOM-policy hardening: a process whose own live working set exceeds RAM
   still SIGSEGVs (no OOM killer).
 - Optionally back the zstore with a disk swap device (phase C).
+
+## Phase B3: shrink empty zstore pool pages
+
+The pool now shrinks as well as grows.  Each pool page carries an
+off-page descriptor with its own free-slot list and a used count; when
+a page's last blob is released the page is unmapped and its frame
+returned to the allocator (zstore.c: zs_grow / zs_slot_alloc /
+zs_slot_free).  Previously the pool only ever grew, wasting up to
+total/4 after a compression burst.
+
+### Descriptors must not use slaballoc()
+The descriptors deliberately come from a small SELF-CONTAINED allocator
+(zs_desc_alloc / zs_desc_release), NOT the shared slaballoc().  zstore
+grows from inside compress-out, and compress-out is itself reachable
+from within a slaballoc() call:
+
+    slaballoc -> vm_allocpage -> alloc_mem -> cache_freepages
+              -> compress-out -> zs_grow
+
+slaballoc() is not re-entrant, so allocating a descriptor with it there
+corrupts the slab allocator.  The self-contained allocator carves
+descriptors out of dedicated pages obtained with alloc_mem()+
+vm_mappages() (the same compress-out-safe primitives the pool itself
+uses); those descriptor pages are never returned (one per ~85 pool
+pages, ~1% overhead).
+
+### Validation
+- fork+COW (zfork) at -smp 2 and -smp 4, with and without a 400 MB
+  MAP_CONTIG pressure spike: byte-exact.  This drives the whole pool
+  lifecycle -- compress-out, decompress-in, COW, and thousands of blob
+  frees that empty and free pool pages -- so the page-reclaim path is
+  heavily exercised; a defect there would corrupt the byte-exact result.
+- A note on measuring the shrink numerically: capturing /proc/meminfo
+  while compression is in flight is unreliable (VM is single-threaded
+  and busy), and the compression threshold vs. the FS-cache reclaim
+  passes is narrow, so a clean "zpool rises then falls" trace was hard
+  to grab; the correctness of the free path is established by the
+  byte-exact tests above instead.
+
+### A false alarm worth recording
+The b1_val harness (a 400 MB MAP_CONTIG hog plus a concurrent mimon)
+SIGSEGVs its mimon child under this build -- but it does so IDENTICALLY
+on plain devel (no B3): the mimon SIGSEGV is that test's own OOM
+flakiness under extreme contiguous pressure, not a B3 regression.  Use
+fork+COW / self-overcommit, not b1_val, to gauge the compressor.
