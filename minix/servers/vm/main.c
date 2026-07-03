@@ -108,6 +108,11 @@ int main(void)
 	if (vm_lz4_selftest() != 0)
 		panic("VM: lz4 self-test failed");
 	printf("VM: lz4 self-test passed\n");
+
+	/* Swap-store substrate self-test (RECLAIM_DESIGN.md, phase C0). */
+	if (swapstore_selftest() != 0)
+		panic("VM: swapstore self-test failed");
+	printf("VM: swapstore self-test passed\n");
   }
 
   /* SEF local startup. */

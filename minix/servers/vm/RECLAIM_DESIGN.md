@@ -683,3 +683,86 @@ SIGSEGVs its mimon child under this build -- but it does so IDENTICALLY
 on plain devel (no B3): the mimon SIGSEGV is that test's own OOM
 flakiness under extreme contiguous pressure, not a B3 regression.  Use
 fork+COW / self-overcommit, not b1_val, to gauge the compressor.
+
+# Phase C: disk-backed swap (compressed-blob writeback)
+
+Status: **C0 (swap-store substrate + self-test) in progress.** Design below.
+
+## Goal
+
+Phases A/B reclaim into RAM: clean file pages are dropped and cold
+anonymous pages are LZ4-compressed into a RAM pool (`zstore`, capped at
+total/4).  When that pool fills, `zstore_put_phys()` returns NULL and the
+page stays resident -- and unbounded anonymous demand still ends in the
+pre-existing OOM panic.  Phase C adds a **swap device**: when the RAM
+pool is full, the coldest compressed blobs are written out to disk,
+freeing their pool pages; on fault they are read back (asynchronously)
+and decompressed.  This raises the effective anonymous-memory ceiling
+from RAM to RAM+disk.  It is "zswap writeback": disk holds the *already
+compressed* blobs, so each 4 KB page occupies <= ~2 KB on disk.
+
+Phase C **defers but does not remove OOM** -- once swap is also full the
+same terminal condition returns.  OOM-policy hardening (a system-memory
+reservation so servers never fail an allocation, plus a real OOM killer
+in PM that picks a victim instead of SIGSEGVing whoever faults first)
+remains necessary and is orthogonal to this phase.
+
+## Architecture decision: async block I/O from VM to a raw swap partition
+
+VM performs the swap I/O itself, against a dedicated raw block device
+(a swap partition), using an ASYNCHRONOUS block-I/O request/reply demux
+modeled on `vm/vfs.c` (the existing VM<->VFS async channel).  Rejected
+alternatives:
+- **Extend VFS_VMCALL for a writable swap-file path.**  Today
+  VMVFSREQ_FDIO is read-only (`actual_read_write_peek(..., PEEKING)`);
+  making it writable is a cross-server VFS protocol change, and VM would
+  need to hold a swap fd.  More moving parts, more blast radius.
+- **Synchronous libbdev (`bdev_read`/`bdev_write`).**  VM is
+  single-threaded; a blocking disk op would freeze *all* VM services for
+  the duration of every swap I/O.  Unacceptable.
+
+A raw partition (not a file) means the swap-slot index maps directly to
+a device offset -- no filesystem in the path.
+
+## Data model
+
+- **Swap slots.**  The device is divided into 4 KB slots, one compressed
+  blob per slot (v1; a blob is <= 2044 B so up to ~2 KB/slot is wasted --
+  packing is a later optimization).  A bitmap tracks free/used slots.
+- **Blob handle.**  `struct phys_block::pb_zref` stays an opaque
+  `void *`.  The store layer interprets it via a low-bit tag: an in-RAM
+  `zstore` pool-slot pointer is pointer-aligned (tag 0); an on-disk slot
+  is encoded as `(slot << 1) | 1` (tag 1).  So a compressed page is
+  either RAM-resident or disk-resident, and the fault/decompress path
+  dispatches on the tag.  fork/COW/exit already funnel through
+  `zstore_free()`/`zstore_get_phys()`, which will branch on the tag.
+
+## Sub-phases
+
+- **C0 (this): substrate.**  `swapstore.c` with the swap-slot bitmap
+  allocator, the tagged-handle encode/decode helpers (RAM vs disk),
+  stats (`vsi_swap_total/used/in/out`), and a boot self-test of the
+  allocator + encoding.  Feature-flagged OFF (no device configured, no
+  I/O).  Buildable and self-tested now; no behavior change.
+- **C1: async block I/O + device config.**  Async bdev request/reply
+  demux in VM; a `swapon` path that tells VM the swap device (dev_t) and
+  size; a self-test that writes a known page to the device and reads it
+  back (round-trip correctness).  De-risks the hardest part.
+- **C2: writeback.**  Below a deep pool watermark (or when a full RAM
+  pool would otherwise reject a store), pick cold RAM blobs and write
+  them to swap slots (async), converting their handle RAM->disk and
+  freeing the RAM pool slot.  Reuses B2 coldness.
+- **C3: read-in.**  `anon_pagefault` on a disk-tagged compressed block
+  issues an async swap read (SUSPEND + callback, like `mem_file`), then
+  decompresses and materializes; frees the swap slot.
+- **C4: tooling + validation.**  `swapon`/`swapoff` (configure a
+  partition as swap); validate that an unbounded-anon workload that
+  OOM-panics today now survives by swapping until swap is also
+  exhausted; regression at -smp 2/4.
+
+## Risks
+- Async bdev in VM (new machinery; must never block the single-threaded
+  event loop).
+- Fault-path async read-in latency and the SUSPEND/callback plumbing.
+- Swap-device configuration bootstrap (which partition, how VM learns it).
+- Tagged-handle correctness across fork/COW/exit (free the right store).
