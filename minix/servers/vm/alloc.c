@@ -84,6 +84,9 @@ static int below_low_watermark = 0;		/* hysteresis state */
 	((unsigned long)(total_pages / 100 > 512 ? total_pages / 100 : 512))
 #define RECLAIM_WATER_HIGH	(2 * RECLAIM_WATER_LOW)
 #define RECLAIM_BATCH_MAX	4096	/* pages (16 MB) per reclaim batch */
+#define RECLAIM_COMPRESS_MAX	512	/* cap for a proactive compress batch
+					 * (B2): compression costs CPU per
+					 * page, so bound the per-alloc stall */
 
 /* How many pages to ask cache_freepages() for in order to restore the
  * free-page headroom to the high watermark, bounded by the batch cap;
@@ -597,6 +600,22 @@ static phys_bytes alloc_pages(int pages, int memflags)
 				total_pages);
 		}
 		cache_freepages(reclaim_batch_size(0), 0 /*no evict*/);
+
+		/* B2 (RECLAIM_DESIGN.md): if freeing clean cache pages did
+		 * not restore headroom, proactively compress a bounded batch
+		 * of COLD anonymous pages into the zstore (mode 2) rather
+		 * than waiting for a hard allocation failure.  Only cold
+		 * pages are taken, and the batch is capped so this cannot add
+		 * a long stall to the allocation in flight.  The
+		 * below_low_watermark latch (re-armed at the high watermark)
+		 * keeps the pool-page allocations inside this compression
+		 * from re-triggering it. */
+		if(free_page_count < RECLAIM_WATER_HIGH) {
+			int batch = reclaim_batch_size(0);
+			if(batch > RECLAIM_COMPRESS_MAX)
+				batch = RECLAIM_COMPRESS_MAX;
+			cache_freepages(batch, 2 /*compress cold*/);
+		}
 	}
 
 	if(memflags & PAF_CLEAR) {

@@ -328,7 +328,7 @@ int cache_freepages(int pages, int evict)
 	 * detach their process mappings (they will re-fault and be
 	 * re-fetched on next use) and free the page.  LRU-oldest first.
 	 */
-	if(evict && freed < pages) {
+	if(evict == 1 && freed < pages) {
 		for(cp = lru_oldest; cp && freed < pages; cp = newercp) {
 			newercp = cp->newer;
 			assert(cp->page->refcount >= 1);
@@ -347,11 +347,14 @@ int cache_freepages(int pages, int evict)
 		}
 	}
 
-	/* Pass three (phase B, RECLAIM_DESIGN.md): compress out resident
-	 * anonymous pages into the zstore.  Also last-resort only.
+	/* Pass three (phase B, RECLAIM_DESIGN.md): compress out anonymous
+	 * pages into the zstore.  Hard-failure path (mode 1) compresses
+	 * cold pages first and then any page to make progress; the
+	 * proactive path (mode 2, B2) compresses only cold pages.
 	 */
 	if(evict && freed < pages)
-		freed += map_compress_anon_pages(pages - freed);
+		freed += map_compress_anon_pages(pages - freed,
+			evict == 2 /*cold_only*/);
 
 	stat_reclaim_freed += freed;
 
