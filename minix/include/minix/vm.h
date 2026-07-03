@@ -53,6 +53,10 @@ struct vm_stats_info {
   unsigned long vsi_lowwater_hits;   /* free pages dipped below low watermark */
   unsigned long vsi_water_low;	     /* low watermark (pages) */
   unsigned long vsi_water_high;	     /* high watermark (pages) */
+  unsigned long vsi_zblobs;	     /* compressed pages currently stored */
+  unsigned long vsi_zpool;	     /* zstore pool pages */
+  unsigned long vsi_zin;	     /* pages compressed out (total) */
+  unsigned long vsi_zout;	     /* pages decompressed back (total) */
 };
 
 struct vm_usage_info {

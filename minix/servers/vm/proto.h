@@ -183,6 +183,7 @@ int map_get_phys(struct vmproc *vmp, vir_bytes addr, phys_bytes *r);
 int map_get_ref(struct vmproc *vmp, vir_bytes addr, u8_t *cnt);
 unsigned int physregions(struct vir_region *vr);
 int map_evict_clean_page(struct phys_block *pb);
+int map_compress_anon_pages(int target);
 
 void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui);
 void get_usage_info_kernel(struct vm_usage_info *vui);
@@ -231,6 +232,15 @@ int addcache(dev_t dev, u64_t def_off, ino_t ino, u64_t ino_off, int flags,
 	struct phys_block *pb);
 void cache_sanitycheck_internal(void);
 int cache_freepages(int pages, int evict);
+
+/* zstore.c */
+void *zstore_put_phys(phys_bytes src_phys);
+int zstore_get_phys(void *handle, phys_bytes dst_phys);
+extern void *const ZSTORE_ZERO;
+void zstore_free(void *handle);
+void zstore_get_stats(unsigned long *blobs, unsigned long *poolpages,
+	unsigned long *compressed, unsigned long *decompressed);
+void zstore_count_zero(void);
 void get_stats_info(struct vm_stats_info *vsi);
 void cache_lru_touch(struct cached_page *hb);
 void rmcache(struct cached_page *cp);

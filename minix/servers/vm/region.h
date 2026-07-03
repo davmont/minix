@@ -30,9 +30,14 @@ struct phys_block {
 	struct phys_region	*firstregion;	
 	u8_t			refcount;	/* Refcount of these pages */
 	u8_t			flags;
+
+	/* When PBF_COMPRESSED: handle of the compressed page contents in
+	 * the zstore (RECLAIM_DESIGN.md, phase B); phys is MAP_NONE. */
+	void			*pb_zref;
 };
 
 #define PBF_INCACHE		0x01
+#define PBF_COMPRESSED		0x02	/* contents live in the zstore */
 
 typedef struct vir_region {
 	vir_bytes	vaddr;	/* virtual address, offset from pagetable */

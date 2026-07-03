@@ -11,6 +11,7 @@
 #include "vm.h"
 #include "region.h"
 #include "glo.h"
+#include "lz4.h"
 
 /* These functions are static so as to not pollute the
  * global namespace, and are accessed through their function
@@ -58,6 +59,14 @@ static int anon_unreference(struct phys_region *pr)
 	assert(pr->ph->refcount == 0);
 	if(pr->ph->phys != MAP_NONE)
 		free_mem(ABS2CLICK(pr->ph->phys), 1);
+	else if(pr->ph->flags & PBF_COMPRESSED) {
+		/* Contents live in the zstore; the process is going away
+		 * (exit/unmap), so just drop the blob. */
+		zstore_free(pr->ph->pb_zref);
+		USE(pr->ph,
+			pr->ph->flags &= ~PBF_COMPRESSED;
+			pr->ph->pb_zref = NULL;);
+	}
 	return OK;
 }
 
@@ -78,8 +87,41 @@ static int anon_pagefault(struct vmproc *vmp, struct vir_region *region,
 	}
 	new_page = CLICK2ABS(new_page_cl);
 
-	/* Totally new block? Create it. */
+	/* Totally new block? Create it - either by zero-fill (the page
+	 * never existed) or by decompressing it back from the zstore
+	 * (it was compressed out under memory pressure; phase B).
+	 */
 	if(ph->ph->phys == MAP_NONE) {
+		if(ph->ph->flags & PBF_COMPRESSED) {
+			/* Decompress the blob straight into the freshly
+			 * allocated frame via sys_abscopy (inside
+			 * zstore_get_phys) - no per-fault VM mapping or
+			 * TLB flush. */
+			zstore_get_phys(ph->ph->pb_zref, new_page);
+			USE(ph->ph,
+				ph->ph->flags &= ~PBF_COMPRESSED;
+				ph->ph->pb_zref = NULL;);
+			ph->ph->phys = new_page;
+
+			/* A page compressed before a fork is shared
+			 * (refcount > 1) afterwards.  Unlike a fresh
+			 * zero-fill block (always refcount 1 here), a
+			 * write fault must therefore still COW: our
+			 * caller expects the page to be writable on
+			 * return when 'write' is set - there is no
+			 * hardware retry for VM-internal
+			 * handle_memory() users such as fork's message
+			 * materialization, so returning a read-only
+			 * shared page would fault forever.
+			 */
+			if(ph->ph->refcount > 1 && write) {
+				assert(region->flags & VR_WRITABLE);
+				return mem_cow(region, ph, MAP_NONE,
+					MAP_NONE);
+			}
+
+			return OK;
+		}
 		ph->ph->phys = new_page;
 		assert(ph->ph->phys != MAP_NONE);
 

@@ -122,6 +122,8 @@ int do_info(message *m)
 
 		get_stats_info(&vsi);
 		get_reclaim_stats_info(&vsi);
+		zstore_get_stats(&vsi.vsi_zblobs, &vsi.vsi_zpool,
+			&vsi.vsi_zin, &vsi.vsi_zout);
 
 		addr = (vir_bytes) &vsi;
 		size = sizeof(vsi);

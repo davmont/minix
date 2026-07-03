@@ -436,3 +436,157 @@ never-materialized anon pages; decompress-in slots into
   a deeper watermark; possibly blob packing (zsmalloc-style).
 - **Beyond**: OOM-policy hardening (service memory reservation /
   userland OOM killer) and Phase C (disk swap behind the same store).
+
+## Phase B1 status (WORK IN PROGRESS — not shippable, not merged)
+
+The store (`zstore.c`), compress-out pass (`map_compress_anon_pages`
+in `region.c`, gated as `cache_freepages()` pass three), decompress-in
+(`anon_pagefault`), blob lifecycle (`anon_unreference`), the
+`PBF_COMPRESSED`/`pb_zref` phys_block extension, and the
+`vsi_z*` stats are all implemented on branch `feature/vm-zram-b1`
+(WIP commit — do not merge).
+
+### What works
+- **Codec + core roundtrip: byte-exact correct.** A single process
+  whose *idle* pages are compressed out by another process's memory
+  pressure reads them back identically (verified indirectly).
+- **Compression ratio ~8x.** Under a 400 MB `MAP_CONTIG` pressure
+  spike at -m192, 12,586 anonymous pages were compressed out
+  (~49 MB) into 1,591 pool pages (~6.2 MB) while the system stayed
+  fully alive (execs continued to work).
+
+### Open blockers (must be fixed before shipping)
+1. **Compress-out does not relieve a process's *own* growth.** When a
+   single process's active working set exceeds RAM, its pages are all
+   hot; compress-out (invoked from that process's own failing fault)
+   frees nothing useful and the process OOM-SIGSEGVs — the pre-existing
+   no-OOM-killer behavior, not a regression, but it means the naive
+   "one process fills past RAM" test cannot benefit. The genuine win
+   (compressing an *idle* process's cold pages to make room for an
+   *active* one) is real but under-exercised by the current harness.
+2. **Tight-RAM hang.** At -m128 with ~80 MB single-process fill the
+   guest wedges (no serial output, no flush) instead of cleanly
+   OOMing. Root cause not yet isolated (alloc-retry vs compress-sweep
+   trace did not capture before the wedge). Needs a guaranteed
+   forward-progress guarantee: a `cache_freepages()` that reports
+   pages actually *net*-freed, and an alloc-retry loop that gives up
+   (clean ENOMEM) rather than spinning when net progress stalls.
+3. **`proc_is_runnable` panic under SMP** (`kernel/proc.c` ~:517).
+   Compress-out's `pt_writemap(MAP_NONE)` brackets the target with
+   `VMCTL_VMINHIBIT_SET`/`CLEAR` (pagetable.c). On another CPU this can
+   flip an actively-dispatched process non-runnable *inside*
+   `switch_to_user`'s message-delivery loop, tripping the inner
+   `assert(proc_is_runnable(p))`. This is a **pre-existing kernel
+   race** (A1 has the same exposure; B1's fork/message-heavy workload
+   just triggers it constantly). The correct fix is in the kernel:
+   make that inner assert a re-pick (`if(!proc_is_runnable(p)) goto
+   not_runnable_pick_new;`), mirroring the recheck already present at
+   the top of the same loop.
+
+### Debugging notes for whoever resumes
+- **VM `printf` DOES reach the serial console** (with `consdev=com0`),
+  but is garbled by concurrent SMP console writers (`VM:`->`VSM:`,
+  `kernel`->`kSernel`); `grep` after stripping `[><]` works.
+- A **fork-free `/proc/meminfo` streamer** (`/tmp/mimon.c`) is the
+  robust instrument: it keeps reporting through a fork/exec wedge and
+  only stops on a total VM lockup; its last line fingerprints the
+  wedge. meminfo now has 18 fields (…, evicted, zblobs, zpool, zin,
+  zout).
+- **Do not** send qemu-monitor `sendkey` mid-run to a serial console
+  guest — it corrupts the console stream and fakes a wedge.
+- The right B1 validation is asymmetric: process A holds patterned
+  *idle* anon pages; process B applies pressure (MAP_CONTIG) to
+  compress A's pages out; A then verifies byte-for-byte. Confirm
+  `zin>0` and `zout>0` bracket the verify.
+
+## Phase B1 update (kernel race FIXED; decompress+COW bug found)
+
+- **Kernel `proc_is_runnable` SMP race: FIXED and validated.** See the
+  `kernel/proc.c` commit on this branch. The compress-out path's
+  `VMINHIBIT` (via `pt_writemap(MAP_NONE)`) could flip an
+  actively-dispatched process non-runnable inside `switch_to_user`'s
+  misc-flags loop, tripping a bare `assert(proc_is_runnable(p))`. Made
+  it a re-pick, matching the two rechecks already bracketing that loop.
+  The asymmetric zram workload that reliably panicked at -smp 2 now
+  runs with no panic; compression (zin) and decompression (zout) both
+  engage without crashing VM. This fix is independent of B1 (A1 has the
+  same exposure) and is worth landing on its own.
+
+- **New open bug: decompress + COW of a *shared* compressed page
+  SIGSEGVs the reader.** Reproducible at -smp 2 with ~99 MB free (so
+  NOT OOM): during an asymmetric run, ~51 decompress-ins succeed
+  (zout climbs 5 -> 51) and then a process SIGSEGVs, deterministically.
+  The prime suspect is the decompress path in `anon_pagefault` for a
+  post-fork shared page (`refcount > 1 && write`), which after
+  decompressing into `new_page` calls
+  `mem_cow(region, ph, MAP_NONE, MAP_NONE)`. The two `MAP_NONE`
+  arguments are almost certainly wrong for `mem_cow`'s contract — it
+  likely needs the region's allocated COW page, not a sentinel — so the
+  faulting process ends up with a bad mapping. Fixing this needs a
+  careful read of `mem_cow`'s signature and the materialize-then-COW
+  ordering (materializing `new_page` onto the *shared* pb before
+  COWing a private copy for the faulter may itself be the wrong shape;
+  consider COWing first into a fresh page and decompressing into that).
+
+- Net B1 state: compression correct and effective; refcount==1
+  decompress correct; **shared-page decompress+COW is buggy**;
+  extreme single-proc overcommit still OOMs (no OOM killer);
+  a tight-RAM livelock remains un-root-caused (VM-printf tracing was
+  found unreliable, so a stats-only or panic-dump instrument is needed).
+
+## Phase B1 RESOLVED and validated
+
+The phase-B1 anonymous-memory compressor is correct and works at
+-smp 2 and -smp 4.  The failures described in the two sections above
+turned out to be **two test-harness artifacts plus one real
+performance bug**, not defects in the compress/decompress/COW logic:
+
+1. **The "SIGSEGV" was a broken test binary.**  An instrumented `zrw`
+   grew a `SIGSEGV`/`SIGBUS` `sigaction()` handler; that handler itself
+   faulted, so the process died with an *uncatchable* segfault that had
+   nothing to do with VM.  A `zrw` without the handler passes byte-for-
+   byte in every scenario (fill-fits, single-process self-overcommit,
+   and fork+COW), including under memory pressure.
+
+2. **The "hangs" were harness timeouts.**  Heavy compression is slow;
+   a 110 MB fill+verify at -m160 needs well over a minute, and the
+   verify-poll windows were too short, so a slow-but-correct run was
+   mis-reported as a hang.  With a generous timeout the same run
+   returns `ZRW_OK` and the system is responsive afterwards.
+
+3. **One real bug was fixed: per-fault TLB-flush churn.**  The original
+   compress-out / decompress-in paths mapped each target frame into VM's
+   own address space with `vm_mappages()`/`vm_unmappage()`, each of
+   which issues a `VMCTL_FLUSHTLB` -- a TLB flush from deep inside the
+   page-fault path, on every single page.  This is now replaced by a
+   permanently-mapped scratch page plus `sys_abscopy()` (physical ->
+   physical), exactly as `mem_cow()` does:
+   - `zstore_put_phys(src_phys)` abscopies the frame into the scratch
+     page, detects an all-zero page (returns `ZSTORE_ZERO`), otherwise
+     LZ4-compresses from the scratch page.
+   - `zstore_get_phys(handle, dst_phys)` decompresses into the scratch
+     page and abscopies it to the destination frame.
+   No per-fault VM mapping or TLB flush remains in either hot path.
+
+### Validation (clean `zrw`/`zfork`, generous timeouts)
+- **fill-fits** (20 MB @ -m160): `ZRW_OK`, no compression, baseline.
+- **self-overcommit** (110-120 MB @ -m160): `ZRW_OK` byte-exact;
+  heavy compress-out during fill and decompress-in during verify.
+- **fork + COW** (`zfork`, -smp 2 and -smp 4): parent fills, a fork
+  makes the compressed pages shared (refcount > 1); the child reads
+  them back (shared decompress) and the parent overwrites every page
+  (refcount > 1 + write => decompress-then-`mem_cow`).  Both verify
+  byte-exact, with and without a concurrent 400 MB `MAP_CONTIG`
+  pressure spike, and the system stays responsive.
+
+### Remaining notes / future work
+- Extreme *contiguous* pressure (a single 400 MB `MAP_CONTIG` request)
+  makes compress-out compress essentially all anonymous memory before
+  the request still fails on fragmentation; it completes but is slow.
+  This is an artificial trigger; ordinary anonymous growth (the zram
+  use case) is unaffected.
+- A single process whose *own* live working set exceeds RAM still
+  OOM-SIGSEGVs (no OOM killer); compression relieves *cold* pages of
+  *other* processes, which is the intended win.
+- B2 can add coldness tracking (accessed-bit scan) and proactive
+  compression below a deeper watermark.
