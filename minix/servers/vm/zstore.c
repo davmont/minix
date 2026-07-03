@@ -8,10 +8,17 @@
  * slot, guaranteeing at least a 2x net win for every stored page.
  * All-zero pages are detected by the caller and not stored at all.
  *
- * Pool pages are allocated with plain alloc_mem() + vm_mappages().
- * zstore_put() is only ever called from the reclaim path, which is
- * protected against re-entering itself (cache_freepages() busy guard),
- * so a pool-growth allocation cannot recurse into reclaim.
+ * Pool pages are allocated with alloc_mem() + vm_mappages() and freed
+ * once empty, so the pool shrinks as well as grows (phase B3).  Each
+ * pool page has an off-page descriptor; those descriptors come from a
+ * small SELF-CONTAINED allocator (below), deliberately NOT from the
+ * shared slaballoc(): zstore grows from inside compress-out, which is
+ * itself reachable from within a slaballoc() (slaballoc -> vm_allocpage
+ * -> alloc_mem -> cache_freepages -> compress-out), and slaballoc() is
+ * not re-entrant.  zstore_put_phys() is only ever called from the
+ * reclaim path, which is protected against re-entering itself
+ * (cache_freepages() busy guard), so a pool-growth allocation cannot
+ * recurse into reclaim.
  */
 
 #include <assert.h>
@@ -38,9 +45,64 @@ static const int zs_slotsize[ZS_CLASSES] = { 512, 1024, 2048 };
 /* Pool cap: at most 1/4 of physical memory in pool pages. */
 #define ZS_POOL_MAXPAGES	((unsigned long)total_pages / 4)
 
-/* Per-class freelist of empty slots.  A freed slot's first pointer-size
- * bytes link it into the list. */
-static void *zs_freelist[ZS_CLASSES];
+/* Each pool page has an off-page descriptor.  Per class we keep a list
+ * of descriptors; each descriptor owns its page's free-slot list and a
+ * used count, so a page whose last blob is released is unmapped and
+ * freed back to the allocator (phase B3).  A freed slot's first
+ * pointer-size bytes link it into its page's free list. */
+struct zs_pagedesc {
+	struct zs_pagedesc	*next;		/* class page list, or (when
+						 * free) desc free list */
+	unsigned char		*va;		/* mapped pool-page base */
+	phys_bytes		 phys;		/* physical address of page */
+	void			*freeslots;	/* free slots in THIS page */
+	int			 class;		/* size class */
+	int			 nused;		/* slots in use */
+	int			 nslots;	/* total slots in page */
+};
+
+static struct zs_pagedesc *zs_pagelist[ZS_CLASSES];
+
+/* Self-contained descriptor allocator: descriptors are carved out of
+ * dedicated pages (obtained with alloc_mem()+vm_mappages(), the same
+ * compress-out-safe primitives the pool uses) and kept on a free list.
+ * Descriptor pages are never returned (one per ~85 pool pages, ~1%). */
+static struct zs_pagedesc *zs_desc_free;
+
+static struct zs_pagedesc *
+zs_desc_alloc(void)
+{
+	struct zs_pagedesc *d;
+
+	if (zs_desc_free == NULL) {
+		phys_bytes ph;
+		struct zs_pagedesc *arr;
+		int n, i;
+
+		if ((ph = alloc_mem(1, 0)) == NO_MEM)
+			return NULL;
+		if (!(arr = vm_mappages(CLICK2ABS(ph), 1))) {
+			free_mem(ph, 1);
+			return NULL;
+		}
+		n = (int)(VM_PAGE_SIZE / sizeof(struct zs_pagedesc));
+		for (i = 0; i < n; i++) {
+			arr[i].next = zs_desc_free;
+			zs_desc_free = &arr[i];
+		}
+	}
+
+	d = zs_desc_free;
+	zs_desc_free = d->next;
+	return d;
+}
+
+static void
+zs_desc_release(struct zs_pagedesc *d)
+{
+	d->next = zs_desc_free;
+	zs_desc_free = d;
+}
 
 /* Statistics. */
 static unsigned long zs_blobs = 0;		/* blobs currently stored */
@@ -89,33 +151,109 @@ zs_page_is_zero(void)
 	return 1;
 }
 
-static int
+/* Add one pool page for 'class', carve it into slots, and return its
+ * descriptor (linked at the head of the class list), or NULL. */
+static struct zs_pagedesc *
 zs_grow(int class)
 {
+	struct zs_pagedesc *pd;
 	phys_bytes ph;
 	unsigned char *page;
 	int i, slot = zs_slotsize[class];
 
 	if (zs_poolpages >= ZS_POOL_MAXPAGES)
-		return ENOMEM;
+		return NULL;
 
-	if ((ph = alloc_mem(1, 0)) == NO_MEM)
-		return ENOMEM;
+	if (!(pd = zs_desc_alloc()))
+		return NULL;
 
+	if ((ph = alloc_mem(1, 0)) == NO_MEM) {
+		zs_desc_release(pd);
+		return NULL;
+	}
 	if (!(page = vm_mappages(CLICK2ABS(ph), 1))) {
 		free_mem(ph, 1);
-		return ENOMEM;
+		zs_desc_release(pd);
+		return NULL;
 	}
 
+	pd->va = page;
+	pd->phys = CLICK2ABS(ph);
+	pd->class = class;
+	pd->nused = 0;
+	pd->nslots = 0;
+	pd->freeslots = NULL;
+
+	for (i = 0; i + slot <= VM_PAGE_SIZE; i += slot) {
+		*(void **)(page + i) = pd->freeslots;
+		pd->freeslots = page + i;
+		pd->nslots++;
+	}
+
+	pd->next = zs_pagelist[class];
+	zs_pagelist[class] = pd;
 	zs_poolpages++;
 
-	/* Carve the page into slots of this class. */
-	for (i = 0; i + slot <= VM_PAGE_SIZE; i += slot) {
-		*(void **)(page + i) = zs_freelist[class];
-		zs_freelist[class] = page + i;
-	}
+	return pd;
+}
 
-	return OK;
+/* Allocate one free slot of 'class', growing the pool if needed. */
+static unsigned char *
+zs_slot_alloc(int class)
+{
+	struct zs_pagedesc *pd;
+	unsigned char *slotp;
+
+	for (pd = zs_pagelist[class]; pd; pd = pd->next)
+		if (pd->freeslots != NULL)
+			break;
+	if (pd == NULL && (pd = zs_grow(class)) == NULL)
+		return NULL;
+
+	slotp = pd->freeslots;
+	pd->freeslots = *(void **)slotp;
+	pd->nused++;
+	return slotp;
+}
+
+/* Return 'slotp' (of the given class) to its page; unmap and free the
+ * pool page once its last slot is released (phase B3). */
+static void
+zs_slot_free(unsigned char *slotp, int class)
+{
+	unsigned char *base = (unsigned char *)
+	    ((vir_bytes)slotp & ~((vir_bytes)VM_PAGE_SIZE - 1));
+	struct zs_pagedesc *pd, **pp;
+
+	for (pp = &zs_pagelist[class]; (pd = *pp) != NULL; pp = &pd->next)
+		if (pd->va == base)
+			break;
+	assert(pd != NULL);
+
+	*(void **)slotp = pd->freeslots;
+	pd->freeslots = slotp;
+	assert(pd->nused > 0);
+	pd->nused--;
+
+	if (pd->nused == 0) {
+		*pp = pd->next;			/* unlink from class list */
+
+		/* Unmap from VM's address space and return the frame to the
+		 * allocator, mirroring zs_grow() (vm_mappages never touched
+		 * vm_self_pages, so neither do we).  Not a hot path (only
+		 * when a page empties), so a TLB flush is affordable. */
+		if (pt_writemap(&vmproc[VM_PROC_NR],
+		    &vmproc[VM_PROC_NR].vm_pt, (vir_bytes)pd->va,
+		    MAP_NONE, VM_PAGE_SIZE, 0, WMF_OVERWRITE) != OK)
+			panic("zstore: pool page unmap failed");
+		if (sys_vmctl(SELF, VMCTL_FLUSHTLB, 0) != OK)
+			panic("zstore: VMCTL_FLUSHTLB failed");
+		free_mem(ABS2CLICK(pd->phys), 1);
+
+		zs_desc_release(pd);
+		assert(zs_poolpages > 0);
+		zs_poolpages--;
+	}
 }
 
 /*
@@ -154,11 +292,8 @@ zstore_put_phys(phys_bytes src_phys)
 			break;
 	assert(class < ZS_CLASSES);
 
-	if (zs_freelist[class] == NULL && zs_grow(class) != OK)
+	if (!(slotp = zs_slot_alloc(class)))
 		return NULL;
-
-	slotp = zs_freelist[class];
-	zs_freelist[class] = *(void **)slotp;
 
 	slotp[0] = (unsigned char)(clen & 0xff);
 	slotp[1] = (unsigned char)((clen >> 8) & 0xff);
@@ -224,8 +359,7 @@ zstore_free(void *handle)
 	assert(class < ZS_CLASSES);
 
 	slotp[3] = 0;	/* invalidate */
-	*(void **)slotp = zs_freelist[class];
-	zs_freelist[class] = slotp;
+	zs_slot_free(slotp, class);
 
 	assert(zs_blobs > 0);
 	zs_blobs--;
