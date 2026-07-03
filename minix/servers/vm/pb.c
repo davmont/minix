@@ -46,6 +46,7 @@ USE(newpb,
 	newpb->refcount = 0;
 	newpb->firstregion = NULL;
 	newpb->flags = 0;
+	newpb->pb_zref = NULL;
 	);
 
 	return newpb;

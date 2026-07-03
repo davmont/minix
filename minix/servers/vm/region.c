@@ -268,6 +268,17 @@ int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 	assert(!(pr->offset % VM_PAGE_SIZE));
 	assert(pb->refcount > 0);
 
+	/* A block whose contents live in the zstore (compressed out;
+	 * phase B) has no physical page: there is nothing to map, and
+	 * writing a PTE for MAP_NONE would create a present mapping to
+	 * a bogus frame.  The page faults in (and decompresses) on
+	 * first access, exactly like a never-materialized page.
+	 */
+	if(pb->phys == MAP_NONE) {
+		assert(pb->flags & PBF_COMPRESSED);
+		return OK;
+	}
+
 	if(pr_writable(vr, pr))
 		flags |= PTF_WRITE;
 	else
@@ -1651,4 +1662,151 @@ int map_evict_clean_page(struct phys_block *pb)
 	assert(pb->refcount == 1);	/* only the cache reference is left */
 
 	return OK;
+}
+
+/*===========================================================================*
+ *				map_compress_anon_pages			     *
+ *===========================================================================*/
+/*
+ * Compress out up to 'target' resident anonymous pages into the zstore
+ * (RECLAIM_DESIGN.md, phase B) and free their physical pages.  Called
+ * only from the reclaim path (cache_freepages() pass three), which
+ * guards against re-entrancy.  Returns the number of pages freed.
+ *
+ * Eligibility mirrors the phase-A1 predicates: the page must be plain
+ * resident anonymous memory (mem_type_anon, refcount 1, not remapped,
+ * not in the VM cache, not already compressed), and its sole mapping
+ * process must be a regular user process, not a thread-group leader,
+ * and not exiting.  All-zero pages are simply freed back to the
+ * never-materialized state (re-fault zero-fills), storing nothing.
+ *
+ * Selection is a bounded round-robin walk over process slots; within a
+ * process, regions and pages are taken in address order.  No coldness
+ * tracking yet (phase B2).
+ */
+int map_compress_anon_pages(int target)
+{
+	static int nextproc = 0;	/* round-robin cursor */
+	int freed = 0, visited = 0;
+	int p, i;
+	const int maxvisit = target * 8 + 256;	/* bound the walk */
+
+	if (target <= 0)
+		return 0;
+
+	for (p = 0; p < VMP_NR && freed < target; p++) {
+		struct vmproc *vmp = &vmproc[(nextproc + p) % VMP_NR];
+		region_iter r_iter;
+		struct vir_region *region;
+
+		if (!(vmp->vm_flags & VMF_INUSE))
+			continue;
+		if (vmp->vm_flags & VMF_EXITING)
+			continue;
+		if (!acl_is_user_proc(vmp))
+			continue;
+		if (vmp->vm_lwp_refcount > 0)
+			continue;
+
+		region_start_iter_least(&vmp->vm_regions_avl, &r_iter);
+		while ((region = region_get_iter(&r_iter)) != NULL &&
+		    freed < target && visited < maxvisit) {
+			int slots = phys_slot(region->length);
+
+			region_incr_iter(&r_iter);
+
+			if (region->def_memtype != &mem_type_anon)
+				continue;
+			if (region->remaps > 0)
+				continue;
+
+			for (i = 0; i < slots && freed < target &&
+			    visited < maxvisit; i++) {
+				struct phys_region *pr;
+				struct phys_block *pb;
+				unsigned char *va;
+				void *zref;
+				vir_bytes vaddr;
+				int j, zero;
+				const unsigned long *w;
+
+				if (!(pr = physblock_get(region,
+				    i * VM_PAGE_SIZE)))
+					continue;
+				visited++;
+				pb = pr->ph;
+				if (pr->memtype != &mem_type_anon)
+					continue;
+				if (pb->refcount != 1)
+					continue;
+				if (pb->phys == MAP_NONE)
+					continue;
+				if (pb->flags & (PBF_INCACHE|PBF_COMPRESSED))
+					continue;
+
+				/* Fence FIRST: clear the mapper's PTE
+				 * (pt_writemap stops the process and
+				 * schedules a TLB flush).  Anon pages
+				 * are writable, so reading the page
+				 * before fencing could lose a
+				 * concurrent store from another CPU.
+				 * If we bail out below, the PTE is
+				 * restored via map_ph_writept().
+				 */
+				vaddr = region->vaddr + pr->offset;
+				if (pt_writemap(vmp, &vmp->vm_pt, vaddr,
+				    MAP_NONE, VM_PAGE_SIZE, 0,
+				    WMF_OVERWRITE) != OK)
+					continue;
+
+				/* Map the page into VM to read it. */
+				if (!(va = vm_mappages(pb->phys, 1))) {
+					map_ph_writept(vmp, region, pr);
+					continue;
+				}
+
+				/* All zeroes?  Just forget the contents. */
+				zero = 1;
+				w = (const unsigned long *)va;
+				for (j = 0; j <
+				    (int)(VM_PAGE_SIZE / sizeof(*w)); j++) {
+					if (w[j] != 0) {
+						zero = 0;
+						break;
+					}
+				}
+
+				zref = NULL;
+				if (!zero &&
+				    (zref = zstore_put(va)) == NULL) {
+					/* Incompressible or pool full:
+					 * put the mapping back. */
+					vm_unmappage((vir_bytes)va);
+					map_ph_writept(vmp, region, pr);
+					continue;
+				}
+
+				/* Free the physical page; unmap our
+				 * temporary mapping first. */
+				vm_unmappage((vir_bytes)va);
+				free_mem(ABS2CLICK(pb->phys), 1);
+
+				USE(pb,
+					pb->phys = MAP_NONE;
+					if (zref != NULL) {
+						pb->flags |= PBF_COMPRESSED;
+						pb->pb_zref = zref;
+					});
+
+				if (zero)
+					zstore_count_zero();
+
+				freed++;
+			}
+		}
+	}
+
+	nextproc = (nextproc + 1) % VMP_NR;
+
+	return freed;
 }

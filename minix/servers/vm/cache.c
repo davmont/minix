@@ -294,9 +294,19 @@ void rmcache(struct cached_page *cp)
 int cache_freepages(int pages, int evict)
 {
 	struct cached_page *cp, *newercp;
+	static int busy = 0;
 	int freed = 0;
 	int oldsteps = 0;
 	int skips = 0;
+
+	/* Re-entrancy guard: the compress-out pass below allocates pool
+	 * pages through alloc_mem(), whose failure path calls back into
+	 * this function.  A nested call must not recurse into reclaim -
+	 * it simply fails, and the outer pass skips that page.
+	 */
+	if (busy)
+		return 0;
+	busy = 1;
 
 	stat_reclaim_calls++;
 
@@ -337,7 +347,15 @@ int cache_freepages(int pages, int evict)
 		}
 	}
 
+	/* Pass three (phase B, RECLAIM_DESIGN.md): compress out resident
+	 * anonymous pages into the zstore.  Also last-resort only.
+	 */
+	if(evict && freed < pages)
+		freed += map_compress_anon_pages(pages - freed);
+
 	stat_reclaim_freed += freed;
+
+	busy = 0;
 
 	return freed;
 }

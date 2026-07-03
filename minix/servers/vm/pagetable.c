@@ -417,6 +417,26 @@ void *vm_allocpage(phys_bytes *phys, int reason)
 }
 
 /*===========================================================================*
+ *				vm_unmappage		     		     *
+ *===========================================================================*/
+/* Remove a single-page temporary mapping from VM's own address space
+ * WITHOUT freeing the underlying physical page (unlike vm_freepages).
+ * Used by the zstore (de)compression paths.
+ */
+void vm_unmappage(vir_bytes vir)
+{
+	pt_t *pt = &vmprocess->vm_pt;
+
+	assert(!(vir % VM_PAGE_SIZE));
+	if(pt_writemap(vmprocess, pt, vir, MAP_NONE, VM_PAGE_SIZE, 0,
+		WMF_OVERWRITE) != OK)
+		panic("vm_unmappage: pt_writemap failed");
+
+	if(sys_vmctl(SELF, VMCTL_FLUSHTLB, 0) != OK)
+		panic("VMCTL_FLUSHTLB failed");
+}
+
+/*===========================================================================*
  *				vm_pagelock		     		     *
  *===========================================================================*/
 void vm_pagelock(void *vir, int lockflag)

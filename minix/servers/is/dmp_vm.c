@@ -83,6 +83,10 @@ vm_dmp(void)
 		vsi.vsi_alloc_fails, vsi.vsi_lowwater_hits,
 		vsi.vsi_water_low, vsi.vsi_water_high);
 	n++;
+	printf("Zstore: %lu blobs in %lu pool pages; %lu compressed, "
+		"%lu decompressed\n",
+		vsi.vsi_zblobs, vsi.vsi_zpool, vsi.vsi_zin, vsi.vsi_zout);
+	n++;
 	printf("\n");
 	n++;
 
