@@ -48,8 +48,46 @@ static unsigned long zs_poolpages = 0;		/* pool pages allocated */
 static unsigned long zs_compressed = 0;		/* pages compressed out */
 static unsigned long zs_decompressed = 0;	/* pages decompressed in */
 
-/* Scratch buffer for (de)compression. */
+/* Scratch buffer for the compressed side of (de)compression. */
 static unsigned char zs_scratch[VM_PAGE_SIZE];
+
+/* Permanently-mapped scratch PAGE used to move page contents to/from
+ * arbitrary physical frames via sys_abscopy(), instead of mapping each
+ * target frame into VM's address space per operation.  The old
+ * per-operation vm_mappages()/vm_unmappage() pair issued a
+ * VMCTL_FLUSHTLB on every compress/decompress, i.e. a TLB shootdown
+ * from deep inside the page-fault path -- expensive and, on SMP, a
+ * source of intermittent stalls when another CPU was blocked in VM.
+ * One page mapped once at first use avoids all of that. */
+static unsigned char *zs_page;		/* VM-mapped scratch page */
+static phys_bytes zs_page_phys;		/* its physical address */
+
+/* Sentinel returned by zstore_put_phys() for an all-zero page: nothing
+ * is stored (the page can simply be freed and will zero-fill on
+ * re-fault), but this is distinct from NULL (= not stored, keep page). */
+void *const ZSTORE_ZERO = (void *)(vir_bytes)1;
+
+static int
+zs_scratch_page_init(void)
+{
+	if (zs_page != NULL)
+		return OK;
+	if (!(zs_page = vm_allocpage(&zs_page_phys, VMP_SLAB)))
+		return ENOMEM;
+	return OK;
+}
+
+static int
+zs_page_is_zero(void)
+{
+	const unsigned long *w = (const unsigned long *)zs_page;
+	int i;
+
+	for (i = 0; i < (int)(VM_PAGE_SIZE / sizeof(*w)); i++)
+		if (w[i] != 0)
+			return 0;
+	return 1;
+}
 
 static int
 zs_grow(int class)
@@ -81,17 +119,33 @@ zs_grow(int class)
 }
 
 /*
- * Compress the (VM-mapped) page contents at 'src' into the store.
- * Returns a blob handle, or NULL if the page does not compress into
- * the largest slot or the pool cannot grow.
+ * Compress the page at physical address 'src_phys' into the store.
+ * The page is first pulled into the permanently-mapped scratch page
+ * with sys_abscopy() (no per-call VM mapping / TLB flush), then
+ * compressed from there.  Returns:
+ *   ZSTORE_ZERO  - the page was all zeroes; nothing stored (the caller
+ *                  should free the frame; it will zero-fill on re-fault)
+ *   NULL         - not stored (incompressible or pool cannot grow); the
+ *                  caller must keep the frame
+ *   otherwise    - an opaque blob handle
  */
 void *
-zstore_put(const unsigned char *src)
+zstore_put_phys(phys_bytes src_phys)
 {
 	unsigned char *slotp;
 	int clen, class;
 
-	clen = vm_lz4_compress(src, VM_PAGE_SIZE, zs_scratch, ZS_MAXPAYLOAD);
+	if (zs_scratch_page_init() != OK)
+		return NULL;
+
+	if (sys_abscopy(src_phys, zs_page_phys, VM_PAGE_SIZE) != OK)
+		return NULL;
+
+	if (zs_page_is_zero())
+		return ZSTORE_ZERO;
+
+	clen = vm_lz4_compress(zs_page, VM_PAGE_SIZE, zs_scratch,
+	    ZS_MAXPAYLOAD);
 	if (clen <= 0)
 		return NULL;	/* incompressible (for our purposes) */
 
@@ -119,17 +173,19 @@ zstore_put(const unsigned char *src)
 }
 
 /*
- * Decompress the blob at 'handle' into the (VM-mapped) page at 'dst'
- * and release the blob.  Returns OK, or panics on store corruption
- * (which would mean silent data loss for the process).
+ * Decompress the blob at 'handle' into the physical frame 'dst_phys'
+ * (via the scratch page + sys_abscopy) and release the blob.  Returns
+ * OK, or panics on store corruption (which would mean silent data loss
+ * for the process).
  */
 int
-zstore_get_free(void *handle, unsigned char *dst)
+zstore_get_phys(void *handle, phys_bytes dst_phys)
 {
 	unsigned char *slotp = handle;
 	int clen, class, dlen;
 
 	assert(slotp != NULL);
+	assert(zs_page != NULL);	/* a blob exists => put_phys ran */
 	if (slotp[3] != ZS_MAGIC)
 		panic("zstore: bad blob magic");
 	clen = slotp[0] | (slotp[1] << 8);
@@ -138,9 +194,12 @@ zstore_get_free(void *handle, unsigned char *dst)
 	    clen + ZS_HDR > zs_slotsize[class])
 		panic("zstore: bad blob header");
 
-	dlen = vm_lz4_decompress(slotp + ZS_HDR, clen, dst, VM_PAGE_SIZE);
+	dlen = vm_lz4_decompress(slotp + ZS_HDR, clen, zs_page, VM_PAGE_SIZE);
 	if (dlen != VM_PAGE_SIZE)
 		panic("zstore: decompress failed (%d)", dlen);
+
+	if (sys_abscopy(zs_page_phys, dst_phys, VM_PAGE_SIZE) != OK)
+		panic("zstore: abscopy on decompress failed");
 
 	zs_decompressed++;
 

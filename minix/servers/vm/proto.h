@@ -118,7 +118,6 @@ void *vm_allocpages(phys_bytes *p, int cat, int pages);
 void *vm_allocpagedir(phys_bytes *p);
 int pt_mapkernel(pt_t *pt);
 void vm_pagelock(void *vir, int lockflag);
-void vm_unmappage(vir_bytes vir);
 int vm_addrok(void *vir, int write);
 int get_vm_self_pages(void);
 int pt_writable(struct vmproc *vmp, vir_bytes v);
@@ -235,8 +234,9 @@ void cache_sanitycheck_internal(void);
 int cache_freepages(int pages, int evict);
 
 /* zstore.c */
-void *zstore_put(const unsigned char *src);
-int zstore_get_free(void *handle, unsigned char *dst);
+void *zstore_put_phys(phys_bytes src_phys);
+int zstore_get_phys(void *handle, phys_bytes dst_phys);
+extern void *const ZSTORE_ZERO;
 void zstore_free(void *handle);
 void zstore_get_stats(unsigned long *blobs, unsigned long *poolpages,
 	unsigned long *compressed, unsigned long *decompressed);

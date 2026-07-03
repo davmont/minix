@@ -93,15 +93,11 @@ static int anon_pagefault(struct vmproc *vmp, struct vir_region *region,
 	 */
 	if(ph->ph->phys == MAP_NONE) {
 		if(ph->ph->flags & PBF_COMPRESSED) {
-			unsigned char *va;
-
-			if(!(va = vm_mappages(new_page, 1))) {
-				free_mem(new_page_cl, 1);
-				printf("anon_pagefault: no temp mapping\n");
-				return ENOMEM;
-			}
-			zstore_get_free(ph->ph->pb_zref, va);
-			vm_unmappage((vir_bytes)va);
+			/* Decompress the blob straight into the freshly
+			 * allocated frame via sys_abscopy (inside
+			 * zstore_get_phys) - no per-fault VM mapping or
+			 * TLB flush. */
+			zstore_get_phys(ph->ph->pb_zref, new_page);
 			USE(ph->ph,
 				ph->ph->flags &= ~PBF_COMPRESSED;
 				ph->ph->pb_zref = NULL;);

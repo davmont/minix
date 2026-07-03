@@ -1724,11 +1724,8 @@ int map_compress_anon_pages(int target)
 			    visited < maxvisit; i++) {
 				struct phys_region *pr;
 				struct phys_block *pb;
-				unsigned char *va;
 				void *zref;
 				vir_bytes vaddr;
-				int j, zero;
-				const unsigned long *w;
 
 				if (!(pr = physblock_get(region,
 				    i * VM_PAGE_SIZE)))
@@ -1759,36 +1756,22 @@ int map_compress_anon_pages(int target)
 				    WMF_OVERWRITE) != OK)
 					continue;
 
-				/* Map the page into VM to read it. */
-				if (!(va = vm_mappages(pb->phys, 1))) {
+				/* Pull the frame into the store's scratch
+				 * page and compress it there (sys_abscopy,
+				 * no per-page VM mapping / TLB flush).
+				 * ZSTORE_ZERO: all-zero page, store nothing
+				 * (re-fault zero-fills).  NULL: incompressible
+				 * or pool full - put the mapping back. */
+				zref = zstore_put_phys(pb->phys);
+				if (zref == NULL) {
 					map_ph_writept(vmp, region, pr);
 					continue;
 				}
-
-				/* All zeroes?  Just forget the contents. */
-				zero = 1;
-				w = (const unsigned long *)va;
-				for (j = 0; j <
-				    (int)(VM_PAGE_SIZE / sizeof(*w)); j++) {
-					if (w[j] != 0) {
-						zero = 0;
-						break;
-					}
+				if (zref == ZSTORE_ZERO) {
+					zstore_count_zero();
+					zref = NULL;
 				}
 
-				zref = NULL;
-				if (!zero &&
-				    (zref = zstore_put(va)) == NULL) {
-					/* Incompressible or pool full:
-					 * put the mapping back. */
-					vm_unmappage((vir_bytes)va);
-					map_ph_writept(vmp, region, pr);
-					continue;
-				}
-
-				/* Free the physical page; unmap our
-				 * temporary mapping first. */
-				vm_unmappage((vir_bytes)va);
 				free_mem(ABS2CLICK(pb->phys), 1);
 
 				USE(pb,
@@ -1797,9 +1780,6 @@ int map_compress_anon_pages(int target)
 						pb->flags |= PBF_COMPRESSED;
 						pb->pb_zref = zref;
 					});
-
-				if (zero)
-					zstore_count_zero();
 
 				freed++;
 			}

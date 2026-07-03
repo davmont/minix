@@ -533,3 +533,60 @@ in `region.c`, gated as `cache_freepages()` pass three), decompress-in
   extreme single-proc overcommit still OOMs (no OOM killer);
   a tight-RAM livelock remains un-root-caused (VM-printf tracing was
   found unreliable, so a stats-only or panic-dump instrument is needed).
+
+## Phase B1 RESOLVED and validated
+
+The phase-B1 anonymous-memory compressor is correct and works at
+-smp 2 and -smp 4.  The failures described in the two sections above
+turned out to be **two test-harness artifacts plus one real
+performance bug**, not defects in the compress/decompress/COW logic:
+
+1. **The "SIGSEGV" was a broken test binary.**  An instrumented `zrw`
+   grew a `SIGSEGV`/`SIGBUS` `sigaction()` handler; that handler itself
+   faulted, so the process died with an *uncatchable* segfault that had
+   nothing to do with VM.  A `zrw` without the handler passes byte-for-
+   byte in every scenario (fill-fits, single-process self-overcommit,
+   and fork+COW), including under memory pressure.
+
+2. **The "hangs" were harness timeouts.**  Heavy compression is slow;
+   a 110 MB fill+verify at -m160 needs well over a minute, and the
+   verify-poll windows were too short, so a slow-but-correct run was
+   mis-reported as a hang.  With a generous timeout the same run
+   returns `ZRW_OK` and the system is responsive afterwards.
+
+3. **One real bug was fixed: per-fault TLB-flush churn.**  The original
+   compress-out / decompress-in paths mapped each target frame into VM's
+   own address space with `vm_mappages()`/`vm_unmappage()`, each of
+   which issues a `VMCTL_FLUSHTLB` -- a TLB flush from deep inside the
+   page-fault path, on every single page.  This is now replaced by a
+   permanently-mapped scratch page plus `sys_abscopy()` (physical ->
+   physical), exactly as `mem_cow()` does:
+   - `zstore_put_phys(src_phys)` abscopies the frame into the scratch
+     page, detects an all-zero page (returns `ZSTORE_ZERO`), otherwise
+     LZ4-compresses from the scratch page.
+   - `zstore_get_phys(handle, dst_phys)` decompresses into the scratch
+     page and abscopies it to the destination frame.
+   No per-fault VM mapping or TLB flush remains in either hot path.
+
+### Validation (clean `zrw`/`zfork`, generous timeouts)
+- **fill-fits** (20 MB @ -m160): `ZRW_OK`, no compression, baseline.
+- **self-overcommit** (110-120 MB @ -m160): `ZRW_OK` byte-exact;
+  heavy compress-out during fill and decompress-in during verify.
+- **fork + COW** (`zfork`, -smp 2 and -smp 4): parent fills, a fork
+  makes the compressed pages shared (refcount > 1); the child reads
+  them back (shared decompress) and the parent overwrites every page
+  (refcount > 1 + write => decompress-then-`mem_cow`).  Both verify
+  byte-exact, with and without a concurrent 400 MB `MAP_CONTIG`
+  pressure spike, and the system stays responsive.
+
+### Remaining notes / future work
+- Extreme *contiguous* pressure (a single 400 MB `MAP_CONTIG` request)
+  makes compress-out compress essentially all anonymous memory before
+  the request still fails on fragmentation; it completes but is slow.
+  This is an artificial trigger; ordinary anonymous growth (the zram
+  use case) is unaffected.
+- A single process whose *own* live working set exceeds RAM still
+  OOM-SIGSEGVs (no OOM killer); compression relieves *cold* pages of
+  *other* processes, which is the intended win.
+- B2 can add coldness tracking (accessed-bit scan) and proactive
+  compression below a deeper watermark.
