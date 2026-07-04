@@ -242,6 +242,16 @@ void zstore_free(void *handle);
 void zstore_get_stats(unsigned long *blobs, unsigned long *poolpages,
 	unsigned long *compressed, unsigned long *decompressed);
 void zstore_count_zero(void);
+
+/* swapstore.c (phase C) */
+unsigned long swapstore_slot_alloc(void);
+void swapstore_slot_free(unsigned long slot);
+int swapstore_handle_is_disk(void *handle);
+void *swapstore_slot_to_handle(unsigned long slot);
+unsigned long swapstore_handle_to_slot(void *handle);
+void swapstore_get_stats(unsigned long *total, unsigned long *used,
+	unsigned long *in, unsigned long *out);
+int swapstore_selftest(void);
 void get_stats_info(struct vm_stats_info *vsi);
 void cache_lru_touch(struct cached_page *hb);
 void rmcache(struct cached_page *cp);
