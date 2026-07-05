@@ -308,28 +308,28 @@ zstore_put_phys(phys_bytes src_phys)
 }
 
 /*
- * Decompress the blob at 'handle' into the physical frame 'dst_phys'
- * (via the scratch page + sys_abscopy) and release the blob.  Returns
- * OK, or panics on store corruption (which would mean silent data loss
- * for the process).
+ * Decompress a blob buffer (the ZS_HDR header + compressed payload, the
+ * exact bytes of a store slot) into the physical frame 'dst_phys' via the
+ * scratch page + sys_abscopy.  The buffer may be a live store slot or a
+ * page read back from swap (phase C3) -- same layout either way.  Panics
+ * on corruption (which would mean silent data loss for the process).
  */
 int
-zstore_get_phys(void *handle, phys_bytes dst_phys)
+zstore_decompress_buf(const void *blob, phys_bytes dst_phys)
 {
-	unsigned char *slotp = handle;
+	const unsigned char *b = blob;
 	int clen, class, dlen;
 
-	assert(slotp != NULL);
 	assert(zs_page != NULL);	/* a blob exists => put_phys ran */
-	if (slotp[3] != ZS_MAGIC)
+	if (b[3] != ZS_MAGIC)
 		panic("zstore: bad blob magic");
-	clen = slotp[0] | (slotp[1] << 8);
-	class = slotp[2];
+	clen = b[0] | (b[1] << 8);
+	class = b[2];
 	if (class >= ZS_CLASSES || clen <= 0 ||
 	    clen + ZS_HDR > zs_slotsize[class])
 		panic("zstore: bad blob header");
 
-	dlen = vm_lz4_decompress(slotp + ZS_HDR, clen, zs_page, VM_PAGE_SIZE);
+	dlen = vm_lz4_decompress(b + ZS_HDR, clen, zs_page, VM_PAGE_SIZE);
 	if (dlen != VM_PAGE_SIZE)
 		panic("zstore: decompress failed (%d)", dlen);
 
@@ -337,10 +337,49 @@ zstore_get_phys(void *handle, phys_bytes dst_phys)
 		panic("zstore: abscopy on decompress failed");
 
 	zs_decompressed++;
-
-	zstore_free(handle);
-
 	return OK;
+}
+
+/*
+ * Decompress the RAM blob at 'handle' into the physical frame 'dst_phys'
+ * and release the blob.
+ */
+int
+zstore_get_phys(void *handle, phys_bytes dst_phys)
+{
+	assert(handle != NULL);
+	zstore_decompress_buf(handle, dst_phys);
+	zstore_free(handle);
+	return OK;
+}
+
+/*
+ * Copy the raw bytes of the RAM blob at 'handle' (ZS_HDR header +
+ * compressed payload) into 'dst', zero-padding to 'dstlen'.  Used by the
+ * phase-C2 writeback path to stage a blob into a page-sized buffer before
+ * writing it to a swap slot; the blob is NOT released.  'dstlen' must be
+ * at least the whole slot size.
+ */
+void
+zstore_blob_copyout(void *handle, void *dst, size_t dstlen)
+{
+	const unsigned char *slotp = handle;
+	int clen, class;
+	size_t n;
+
+	assert(slotp != NULL);
+	if (slotp[3] != ZS_MAGIC)
+		panic("zstore: bad blob magic on copyout");
+	clen = slotp[0] | (slotp[1] << 8);
+	class = slotp[2];
+	if (class >= ZS_CLASSES || clen <= 0 ||
+	    clen + ZS_HDR > zs_slotsize[class])
+		panic("zstore: bad blob header on copyout");
+
+	n = (size_t)(ZS_HDR + clen);
+	assert(dstlen >= n);
+	memcpy(dst, slotp, n);
+	memset((unsigned char *)dst + n, 0, dstlen - n);
 }
 
 /*
@@ -380,4 +419,13 @@ void
 zstore_count_zero(void)
 {
 	zs_compressed++;
+}
+
+/* Current pool occupancy and cap in pages, for the phase-C2 writeback
+ * watermark (spill blobs to disk as the RAM pool approaches its cap). */
+void
+zstore_pool_usage(unsigned long *pages, unsigned long *cap)
+{
+	*pages = zs_poolpages;
+	*cap = ZS_POOL_MAXPAGES;
 }

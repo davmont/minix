@@ -125,6 +125,11 @@ int do_info(message *m)
 		zstore_get_stats(&vsi.vsi_zblobs, &vsi.vsi_zpool,
 			&vsi.vsi_zin, &vsi.vsi_zout);
 		vsi.vsi_swaptest = swapio_selftest_result();
+		{
+			unsigned long swtotal;
+			swapstore_get_stats(&swtotal, &vsi.vsi_swapused,
+				&vsi.vsi_swapin, &vsi.vsi_swapout);
+		}
 
 		addr = (vir_bytes) &vsi;
 		size = sizeof(vsi);

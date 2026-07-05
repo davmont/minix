@@ -237,13 +237,17 @@ int cache_freepages(int pages, int evict);
 /* zstore.c */
 void *zstore_put_phys(phys_bytes src_phys);
 int zstore_get_phys(void *handle, phys_bytes dst_phys);
+int zstore_decompress_buf(const void *blob, phys_bytes dst_phys);
+void zstore_blob_copyout(void *handle, void *dst, size_t dstlen);
 extern void *const ZSTORE_ZERO;
 void zstore_free(void *handle);
 void zstore_get_stats(unsigned long *blobs, unsigned long *poolpages,
 	unsigned long *compressed, unsigned long *decompressed);
 void zstore_count_zero(void);
+void zstore_pool_usage(unsigned long *pages, unsigned long *cap);
 
 /* swapstore.c (phase C) */
+#define NO_SWAP_SLOT	((unsigned long)-1)
 unsigned long swapstore_slot_alloc(void);
 void swapstore_slot_free(unsigned long slot);
 int swapstore_handle_is_disk(void *handle);
@@ -267,6 +271,17 @@ void do_swap_reply(message *m);
 int do_swapon(message *m);
 void swapio_selftest_start(void);
 int swapio_selftest_result(void);
+
+/* swappage.c (phase C2 writeback + C3 read-in) */
+int vm_reclaim_active(void);
+int swappage_init(void);
+void swapout_tick(void);
+void swapout_cancel_pb(struct phys_block *pb);
+int swapout_pb_busy(struct phys_block *pb);
+int anon_swapin_start(struct vmproc *vmp, struct vir_region *region,
+	struct phys_region *ph, int write, vfs_callback_t cb, void *state,
+	int len, int *io, phys_bytes new_page, phys_bytes new_page_cl);
+struct phys_block *map_find_compressed_ram_page(void);
 void get_stats_info(struct vm_stats_info *vsi);
 void cache_lru_touch(struct cached_page *hb);
 void rmcache(struct cached_page *cp);

@@ -616,6 +616,7 @@ static phys_bytes alloc_pages(int pages, int memflags)
 				batch = RECLAIM_COMPRESS_MAX;
 			cache_freepages(batch, 2 /*compress cold*/);
 		}
+
 	}
 
 	if(memflags & PAF_CLEAR) {
@@ -626,6 +627,17 @@ static phys_bytes alloc_pages(int pages, int memflags)
 	}
 
 	return mem;
+}
+
+/*===========================================================================*
+ *				vm_reclaim_active			     *
+ *===========================================================================*/
+/* True while free memory is below the low watermark (a reclaim episode is in
+ * progress).  VM's main loop uses this to drive phase-C2 swap write-back off
+ * the hot allocation path. */
+int vm_reclaim_active(void)
+{
+	return below_low_watermark;
 }
 
 /*===========================================================================*
