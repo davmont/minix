@@ -128,6 +128,7 @@ void pm_setuid(endpoint_t proc_e, int euid, int ruid);
 void pm_setgroups(endpoint_t proc_e, int ngroups, gid_t *addr);
 void pm_setsid(endpoint_t proc_e);
 int do_sync(void);
+int do_swapctl(void);
 int do_fsync(void);
 void pm_reboot(void);
 int do_svrctl(void);

@@ -726,6 +726,12 @@
 #	define VMV_ENDPOINT		m10_i1
 #	define VMV_RESULT		m10_i2
 #	define VMV_REQID		m10_i3
+
+/* Swap control: VFS -> VM, resolved swap device (phase C). */
+#define VM_SWAPON		(VM_RQ_BASE+49)
+#	define VMSW_ENDPT		m1_i1	/* swap driver endpoint */
+#	define VMSW_MINOR		m1_i2	/* swap minor device */
+#	define VMSW_NSLOTS		m1_i3	/* number of 4 KB slots */
 #	define VMV_DEV			m10_i4
 #	define VMV_INO			m10_l1
 #	define VMV_FD			m10_l2

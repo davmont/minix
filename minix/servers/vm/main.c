@@ -163,6 +163,15 @@ int main(void)
 		result = do_sef_init_request(&msg);
 		if(result != OK) panic("do_sef_init_request failed!\n");
 		result = SUSPEND;	/* do not reply to RS */
+	} else if (msg.m_type == BDEV_REPLY) {
+		/* Asynchronous reply from the swap block driver (phase C). */
+		do_swap_reply(&msg);
+		continue;
+	} else if (msg.m_type == VM_SWAPON && msg.m_source == VFS_PROC_NR) {
+		/* VFS-resolved swap device (control plane, phase C).
+		 * Fire-and-forget: no reply (avoids VFS<->VM sync). */
+		do_swapon(&msg);
+		continue;
 	} else if (msg.m_type == VM_PAGEFAULT) {
 		if (!IPC_STATUS_FLAGS_TEST(rcv_sts, IPC_FLG_MSG_FROM_KERNEL)) {
 			printf("VM: process %d faked VM_PAGEFAULT "

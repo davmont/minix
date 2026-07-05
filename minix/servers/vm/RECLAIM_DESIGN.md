@@ -686,7 +686,9 @@ fork+COW / self-overcommit, not b1_val, to gauge the compressor.
 
 # Phase C: disk-backed swap (compressed-blob writeback)
 
-Status: **C0 (swap-store substrate + self-test) in progress.** Design below.
+Status: **C0 (swap-store substrate, PR #299) merged; C1 (async block
+I/O + device config) done and round-trip validated at -smp 2/4.** Design
+below.
 
 ## Goal
 
@@ -707,19 +709,44 @@ reservation so servers never fail an allocation, plus a real OOM killer
 in PM that picks a victim instead of SIGSEGVing whoever faults first)
 remains necessary and is orthogonal to this phase.
 
-## Architecture decision: async block I/O from VM to a raw swap partition
+## Architecture decision: control plane in VFS, data plane in VM
 
-VM performs the swap I/O itself, against a dedicated raw block device
-(a swap partition), using an ASYNCHRONOUS block-I/O request/reply demux
-modeled on `vm/vfs.c` (the existing VM<->VFS async channel).  Rejected
-alternatives:
+Swap splits into a **control plane** and a **data plane**, along the line
+of which server is allowed to depend on which:
+
+- **Control plane (VFS).**  `swapon(8)` -> `swapctl(2)` -> VFS
+  `do_swapctl`.  VFS *owns the device map* (`dmap`): it resolves the
+  swap device's major to the driver endpoint (`get_dmap_by_major`) and
+  *opens* the device (`bdev_open`, synchronous -- VFS is built for driver
+  I/O and may block a worker thread).  It then hands VM the already-
+  resolved `(driver endpoint, minor, nslots)` via a single `VM_SWAPON`
+  message.  Configuration is rare and off the reclaim path.
+- **Data plane (VM).**  VM does the swap I/O itself, directly to the
+  driver endpoint, using an ASYNCHRONOUS BDEV request/reply demux (it
+  `asynsend`s BDEV_READ/WRITE and handles BDEV_REPLY in its main loop).
+  VM never makes a *synchronous* driver call and never blocks.
+
+Strategic principle: **the reclaim path must not depend on any server
+that in turn depends on VM.**  If VM synchronously called VFS (or blocked
+on a driver) to page, a fault in that server while VM waits would
+deadlock the pager.  So VFS does the one-time resolve/open; the hot path
+is VM<->driver only, with everything it needs (bounce page, standing
+grant) pre-reserved at swapon so nothing is allocated under pressure.
+
+Rejected alternatives:
+- **VM discovers the driver itself** (`ds_retrieve_label_endpt`).  The
+  disk driver's label is not reliably resolvable from VM, and label
+  discovery is the wrong layer -- VFS already holds the authoritative
+  device->driver map.
+- **VM opens the device synchronously.**  A synchronous `BDEV_OPEN`
+  `ipc_sendrec` from VM freezes the single-threaded pager for the whole
+  round trip (and wedges it entirely if the reply is delayed); measured
+  to hang the system.  The open belongs in VFS.
 - **Extend VFS_VMCALL for a writable swap-file path.**  Today
-  VMVFSREQ_FDIO is read-only (`actual_read_write_peek(..., PEEKING)`);
-  making it writable is a cross-server VFS protocol change, and VM would
-  need to hold a swap fd.  More moving parts, more blast radius.
-- **Synchronous libbdev (`bdev_read`/`bdev_write`).**  VM is
-  single-threaded; a blocking disk op would freeze *all* VM services for
-  the duration of every swap I/O.  Unacceptable.
+  VMVFSREQ_FDIO is read-only; making it writable is a cross-server
+  protocol change, and it would put VFS on VM's hot reclaim path.
+- **Synchronous libbdev (`bdev_read`/`bdev_write`) in VM.**  Same
+  single-threaded-block problem as a sync open, on every I/O.
 
 A raw partition (not a file) means the swap-slot index maps directly to
 a device offset -- no filesystem in the path.
@@ -744,10 +771,13 @@ a device offset -- no filesystem in the path.
   stats (`vsi_swap_total/used/in/out`), and a boot self-test of the
   allocator + encoding.  Feature-flagged OFF (no device configured, no
   I/O).  Buildable and self-tested now; no behavior change.
-- **C1: async block I/O + device config.**  Async bdev request/reply
-  demux in VM; a `swapon` path that tells VM the swap device (dev_t) and
-  size; a self-test that writes a known page to the device and reads it
-  back (round-trip correctness).  De-risks the hardest part.
+- **C1 (done, validated): async block I/O + device config.**  Async
+  bdev request/reply demux in VM (`swapio.c`); the `swapctl(2)` -> VFS ->
+  `VM_SWAPON` control-plane path that resolves+opens the device and hands
+  VM the endpoint; a swapon-time self-test that writes a known page to
+  slot 0 and reads it back (round-trip correctness).  De-risked the
+  hardest part.  Validated at -smp 2/4: `swaptest`==1 (byte-exact
+  round-trip on a real IDE disk), no VM wedge.
 - **C2: writeback.**  Below a deep pool watermark (or when a full RAM
   pool would otherwise reject a store), pick cold RAM blobs and write
   them to swap slots (async), converting their handle RAM->disk and
@@ -766,3 +796,49 @@ a device offset -- no filesystem in the path.
 - Fault-path async read-in latency and the SUSPEND/callback plumbing.
 - Swap-device configuration bootstrap (which partition, how VM learns it).
 - Tagged-handle correctness across fork/COW/exit (free the right store).
+
+## C1 detail: control plane + async data-plane client (as built)
+
+BDEV protocol (minix/include/minix/ipc.h mess_lbdev_lblockdriver_msg /
+mess_lblockdriver_lbdev_reply):
+- request  m_type BDEV_READ/WRITE; fields pos, minor, id, count, grant.
+- reply    m_type BDEV_REPLY; fields status, id.  The `id` correlates
+  request<->reply, so async demux is a simple id->callback match.
+
+Control plane -- `swapctl(2)` (VFS_SWAPCTL) -> VFS `do_swapctl`:
+- super-user only; args (major, minor, nslots).
+- resolve `get_dmap_by_major(major)->dmap_driver` (the driver endpoint);
+- `bdev_open(makedev(major,minor), R_BIT|W_BIT)` -- open synchronously
+  and keep it open (VM will do raw I/O to the open minor);
+- `asynsend` `VM_SWAPON {endpoint, minor, nslots}` to VM (fire-and-forget;
+  source-restricted to VFS on VM's side, so a user process cannot forge
+  a driver endpoint into VM).
+
+Data plane -- `swapio.c` (VM), fully async, nothing allocated on the hot
+path:
+- `swapio_configure_ep(driver, minor, nslots)`: reserve ONE bounce page
+  (`vm_allocpage`, VMP_SLAB) and a STANDING grant on it
+  (`cpf_grant_direct`, CPF_READ|CPF_WRITE) reused for every I/O; hand
+  nslots to swapstore.  No driver call -> non-blocking.  (VFS already
+  opened the device.)
+- `swapio_write_page(slot, buf_phys, cb, arg)`: `sys_abscopy` the page
+  into the bounce buffer, fill BDEV_WRITE (pos = slot*VM_PAGE_SIZE,
+  count = VM_PAGE_SIZE, the standing grant, a fresh id), `asynsend` to
+  the driver.  `swapio_read_page` is the mirror (copy out on reply).
+- `do_swap_reply(m)`: match m.id against the single in-flight request;
+  for a read, `sys_abscopy` bounce->frame; invoke cb(status, arg).  The
+  standing grant persists (covers only the bounce page).  Wired into
+  main.c's dispatch (a BDEV_REPLY from the swap driver endpoint).
+- One I/O in flight at a time (one bounce page); `swapio_busy()` lets
+  callers serialize.  A per-slot bounce pool is a later optimization if
+  concurrency is wanted.
+
+Until `VM_SWAPON` runs, the device endpoint is NONE and every entry point
+is a no-op returning failure -- so this module is inert on a system
+without swap.
+
+Round-trip self-test (temporary, removed once C2/C3 exercise the path for
+real): right after swapon, write a known page to slot 0, read it back,
+compare; result in `/proc/meminfo` (`vsi_swaptest`: 1 OK, 12 write-fail,
+14 read-fail, 15 mismatch).  Validated ==1 at -smp 2/4 with a raw IDE
+disk as the swap device.

@@ -252,6 +252,21 @@ unsigned long swapstore_handle_to_slot(void *handle);
 void swapstore_get_stats(unsigned long *total, unsigned long *used,
 	unsigned long *in, unsigned long *out);
 int swapstore_selftest(void);
+int swapstore_configure(unsigned long nslots);
+
+/* swapio.c (phase C) */
+typedef void (*swapio_cb_t)(int status, void *arg);
+int swapio_configure_ep(endpoint_t driver, int minor, unsigned long nslots);
+int swapio_write_page(unsigned long slot, phys_bytes buf_phys,
+	swapio_cb_t cb, void *arg);
+int swapio_read_page(unsigned long slot, phys_bytes dst_phys,
+	swapio_cb_t cb, void *arg);
+int swapio_busy(void);
+int swapio_configured(void);
+void do_swap_reply(message *m);
+int do_swapon(message *m);
+void swapio_selftest_start(void);
+int swapio_selftest_result(void);
 void get_stats_info(struct vm_stats_info *vsi);
 void cache_lru_touch(struct cached_page *hb);
 void rmcache(struct cached_page *cp);

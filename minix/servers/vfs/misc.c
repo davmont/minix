@@ -277,6 +277,54 @@ int do_fcntl(void)
 /*===========================================================================*
  *				do_sync					     *
  *===========================================================================*/
+/*===========================================================================*
+ *				do_swapctl				     *
+ *===========================================================================*/
+int do_swapctl(void)
+{
+/* Configure swap on a block device (phase C, RECLAIM_DESIGN.md).  The
+ * caller passes a device major/minor and a slot count; VFS resolves the
+ * major to its driver endpoint (it owns the dmap) and hands the resolved
+ * device to VM, which does the swap I/O directly.  Fire-and-forget: the
+ * outcome is observable via VM (self-test / stats).
+ */
+  int major, minor, nslots, r;
+  struct dmap *dp;
+  dev_t dev;
+  message m;
+
+  if (!super_user) return(EPERM);
+
+  major = job_m_in.m1_i1;
+  minor = job_m_in.m1_i2;
+  nslots = job_m_in.m1_i3;
+
+  if ((dp = get_dmap_by_major((devmajor_t) major)) == NULL)
+	return(ENXIO);
+  if (dp->dmap_driver == NONE)
+	return(ENXIO);
+
+  /* Open the device and keep it open: VM will do raw block I/O to it, but
+   * must never make a synchronous driver call itself (it is the pager).
+   * VFS is built for driver I/O, so it does the open here. */
+  dev = makedev(major, minor);
+  if ((r = bdev_open(dev, R_BIT | W_BIT)) != OK)
+	return(r);
+
+  memset(&m, 0, sizeof(m));
+  m.m_type = VM_SWAPON;
+  m.VMSW_ENDPT = dp->dmap_driver;
+  m.VMSW_MINOR = minor;
+  m.VMSW_NSLOTS = nslots;
+
+  if (asynsend3(VM_PROC_NR, &m, 0) != OK) {
+	bdev_close(dev);
+	return(EIO);
+  }
+
+  return(OK);
+}
+
 int do_sync(void)
 {
   struct vmnt *vmp;

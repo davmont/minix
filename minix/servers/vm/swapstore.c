@@ -136,6 +136,43 @@ swapstore_get_stats(unsigned long *total, unsigned long *used,
 }
 
 /*
+ * Configure the swap area with 'nslots' 4 KB slots (phase C1): allocate
+ * and zero the slot bitmap.  Called once at swapon time.  Returns OK or
+ * an error; on failure the store stays unconfigured (inert).
+ */
+int
+swapstore_configure(unsigned long nslots)
+{
+	unsigned long words, bytes;
+	phys_bytes ph;
+	void *bm;
+	int pages;
+
+	if (swap_bitmap != NULL)
+		return EBUSY;
+	if (nslots == 0)
+		return EINVAL;
+
+	words = (nslots + BITS_PER_WORD - 1) / BITS_PER_WORD;
+	bytes = words * sizeof(unsigned long);
+	pages = (int)((bytes + VM_PAGE_SIZE - 1) / VM_PAGE_SIZE);
+
+	if ((ph = alloc_mem(pages, 0)) == NO_MEM)
+		return ENOMEM;
+	if (!(bm = vm_mappages(CLICK2ABS(ph), pages))) {
+		free_mem(ph, pages);
+		return ENOMEM;
+	}
+	memset(bm, 0, (size_t)pages * VM_PAGE_SIZE);
+
+	swap_bitmap = bm;
+	swap_nslots = nslots;
+	swap_used = 0;
+	swap_hint = 0;
+	return OK;
+}
+
+/*
  * Self-test (RECLAIM_DESIGN.md, phase C0): exercise the tagged-handle
  * encoding and the slot bitmap on a small temporary device, so the
  * load-bearing encoding is validated before anything depends on it.

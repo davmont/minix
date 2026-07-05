@@ -89,4 +89,5 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_EXTATTR_SET_FD) = do_extattr,		/* extattr_set_fd(2) */
 	CALL(VFS_EXTATTR_LIST_FD) = do_extattr,		/* extattr_list_fd(2) */
 	CALL(VFS_EXTATTR_DELETE_FD) = do_extattr,	/* extattr_delete_fd(2) */
+	CALL(VFS_SWAPCTL) = do_swapctl,			/* swapctl (phase C) */
 };
