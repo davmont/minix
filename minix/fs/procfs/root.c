@@ -115,7 +115,7 @@ root_meminfo(void)
 	 * low-watermark hits, and the low/high watermarks.
 	 */
 	buf_printf("%u %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu"
-	    " %lu %lu %lu %lu\n",
+	    " %lu %lu %lu %lu %lu\n",
 	    vsi.vsi_pagesize, vsi.vsi_total,
 	    vsi.vsi_free, vsi.vsi_largest, vsi.vsi_cached,
 	    vsi.vsi_cache_pinned, vsi.vsi_cache_evictable,
@@ -123,7 +123,8 @@ root_meminfo(void)
 	    vsi.vsi_alloc_fails, vsi.vsi_lowwater_hits,
 	    vsi.vsi_water_low, vsi.vsi_water_high,
 	    vsi.vsi_evicted,
-	    vsi.vsi_zblobs, vsi.vsi_zpool, vsi.vsi_zin, vsi.vsi_zout);
+	    vsi.vsi_zblobs, vsi.vsi_zpool, vsi.vsi_zin, vsi.vsi_zout,
+	    vsi.vsi_swaptest);
 }
 
 #if defined(__i386__) || defined(__x86_64__)

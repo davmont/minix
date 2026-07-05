@@ -57,6 +57,7 @@ struct vm_stats_info {
   unsigned long vsi_zpool;	     /* zstore pool pages */
   unsigned long vsi_zin;	     /* pages compressed out (total) */
   unsigned long vsi_zout;	     /* pages decompressed back (total) */
+  unsigned long vsi_swaptest;	     /* C1 swap round-trip self-test result */
 };
 
 struct vm_usage_info {

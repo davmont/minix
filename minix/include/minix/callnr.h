@@ -149,7 +149,8 @@
 #define VFS_EXTATTR_SET_FD	(VFS_BASE + 71)
 #define VFS_EXTATTR_LIST_FD	(VFS_BASE + 72)
 #define VFS_EXTATTR_DELETE_FD	(VFS_BASE + 73)
+#define VFS_SWAPCTL		(VFS_BASE + 74)
 
-#define NR_VFS_CALLS		74	/* highest number from base plus one */
+#define NR_VFS_CALLS		75	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */
