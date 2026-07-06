@@ -1,4 +1,5 @@
 /*	$NetBSD$	*/
+
 /* zconf.h -- configuration of the zlib compression library
  * Copyright (C) 1995-2024 Jean-loup Gailly, Mark Adler
  * For conditions of distribution and use, see copyright notice in zlib.h
@@ -435,13 +436,6 @@ typedef uLong FAR uLongf;
 #endif
 
 #ifdef HAVE_UNISTD_H    /* may be set to #if 1 by ./configure */
-#  define Z_HAVE_UNISTD_H
-#endif
-
-/* MINIX/NetBSD: enable off_t-based z_off_t and unistd for userland (not the
- * kernel/standalone builds), matching the previous vendored zconf.h. */
-#if (defined(__NetBSD__) || defined(__minix)) && \
-    !defined(_KERNEL) && !defined(_STANDALONE)
 #  define Z_HAVE_UNISTD_H
 #endif
 
