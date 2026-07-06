@@ -1,7 +1,7 @@
 /*	$OpenBSD: file.c,v 1.11 2010/07/02 20:48:48 nicm Exp $	*/
 
 /*-
- * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
+ * Copyright (c) 1999 James Howard and Dag-Erling Coï¿½dan Smï¿½rgrav
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -53,12 +53,12 @@ struct file {
 	int	 noseek;
 	FILE	*f;
 	mmf_t	*mmf;
-	gzFile	*gzf;
+	gzFile	gzf;
 };
 
 #ifndef NOZ
 static char *
-gzfgetln(gzFile *f, size_t *len)
+gzfgetln(gzFile f, size_t *len)
 {
 	size_t		n;
 	int		c;

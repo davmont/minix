@@ -1,4 +1,5 @@
 /*	$NetBSD$	*/
+
 /* zconf.h -- configuration of the zlib compression library
  * Copyright (C) 1995-2024 Jean-loup Gailly, Mark Adler
  * For conditions of distribution and use, see copyright notice in zlib.h
@@ -251,11 +252,11 @@
 #  define z_longlong long long
 #  if defined(NO_SIZE_T)
      typedef unsigned NO_SIZE_T z_size_t;
-#  elif defined(STDC) && !defined(_STANDALONE)
+#  elif defined(STDC)
 #    include <stddef.h>
      typedef size_t z_size_t;
 #  else
-     typedef unsigned long z_size_t;   /* MINIX/NetBSD -nostdinc standalone */
+     typedef unsigned long z_size_t;
 #  endif
 #  undef z_longlong
 #endif
@@ -417,7 +418,7 @@ typedef uLong FAR uLongf;
    typedef Byte       *voidp;
 #endif
 
-#if !defined(Z_U4) && !defined(Z_SOLO) && !defined(_STANDALONE) && defined(STDC)
+#if !defined(Z_U4) && !defined(Z_SOLO) && defined(STDC)
 #  include <limits.h>
 #  if (UINT_MAX == 0xffffffffUL)
 #    define Z_U4 unsigned
@@ -438,13 +439,6 @@ typedef uLong FAR uLongf;
 #  define Z_HAVE_UNISTD_H
 #endif
 
-/* MINIX/NetBSD: enable off_t-based z_off_t and unistd for userland (not the
- * kernel/standalone builds), matching the previous vendored zconf.h. */
-#if (defined(__NetBSD__) || defined(__minix)) && \
-    !defined(_KERNEL) && !defined(_STANDALONE)
-#  define Z_HAVE_UNISTD_H
-#endif
-
 #ifdef HAVE_STDARG_H    /* may be set to #if 1 by ./configure */
 #  define Z_HAVE_STDARG_H
 #endif
@@ -457,11 +451,7 @@ typedef uLong FAR uLongf;
 
 #if defined(STDC) || defined(Z_HAVE_STDARG_H)
 #  ifndef Z_SOLO
-#    if defined(_STANDALONE) || defined(_KERNEL)
-#      include <sys/stdarg.h>   /* MINIX/NetBSD: -nostdinc va_list */
-#    else
-#      include <stdarg.h>       /* for va_list */
-#    endif
+#    include <stdarg.h>         /* for va_list */
 #  endif
 #endif
 
