@@ -1,7 +1,7 @@
 /*	$OpenBSD: grep.h,v 1.19 2013/11/26 13:21:16 deraadt Exp $	*/
 
 /*-
- * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
+ * Copyright (c) 1999 James Howard and Dag-Erling Coï¿½dan Smï¿½rgrav
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -121,6 +121,6 @@ void		 grep_close(file_t *f);
 
 /* binary.c */
 int		 bin_file(FILE * f);
-int		 gzbin_file(gzFile * f);
+int		 gzbin_file(gzFile f);
 int		 mmbin_file(mmf_t *f);
 
