@@ -1,7 +1,6 @@
-/*	$NetBSD: jump.c,v 1.4 2013/09/04 20:02:10 tron Exp $	*/
-
+/*	$NetBSD$	*/
 /*
- * Copyright (C) 1984-2012  Mark Nudelman
+ * Copyright (C) 1984-2024  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
@@ -18,17 +17,16 @@
 #include "position.h"
 
 extern int jump_sline;
-extern int squished;
-extern int screen_trashed;
+extern lbool squished;
 extern int sc_width, sc_height;
 extern int show_attn;
 extern int top_scroll;
+extern POSITION header_start_pos;
 
 /*
  * Jump to the end of the file.
  */
-	public void
-jump_forw()
+public void jump_forw(void)
 {
 	POSITION pos;
 	POSITION end_pos;
@@ -36,6 +34,12 @@ jump_forw()
 	if (ch_end_seek())
 	{
 		error("Cannot seek to end of file", NULL_PARG);
+		return;
+	}
+	end_pos = ch_tell();
+	if (position(sc_height-1) == end_pos)
+	{
+		eof_bell();
 		return;
 	}
 	/* 
@@ -50,10 +54,9 @@ jump_forw()
 	 * to get to the beginning of the last line.
 	 */
 	pos_clear();
-	end_pos = ch_tell();
 	pos = back_line(end_pos);
 	if (pos == NULL_POSITION)
-		jump_loc((POSITION)0, sc_height-1);
+		jump_loc(ch_zero(), sc_height-1);
 	else
 	{
 		jump_loc(pos, sc_height-1);
@@ -63,11 +66,26 @@ jump_forw()
 }
 
 /*
+ * Jump to the last buffered line in the file.
+ */
+public void jump_forw_buffered(void)
+{
+	POSITION end;
+
+	if (ch_end_buffer_seek())
+	{
+		error("Cannot seek to end of buffers", NULL_PARG);
+		return;
+	}
+	end = ch_tell();
+	if (end != NULL_POSITION && end > 0)
+		jump_line_loc(end-1, sc_height-1);
+}
+
+/*
  * Jump to line n in the file.
  */
-	public void
-jump_back(linenum)
-	LINENUM linenum;
+public void jump_back(LINENUM linenum)
 {
 	POSITION pos;
 	PARG parg;
@@ -98,26 +116,26 @@ jump_back(linenum)
 /*
  * Repaint the screen.
  */
-	public void
-repaint()
+public void repaint(void)
 {
 	struct scrpos scrpos;
 	/*
 	 * Start at the line currently at the top of the screen
 	 * and redisplay the screen.
 	 */
-	get_scrpos(&scrpos);
+	get_scrpos(&scrpos, TOP);
 	pos_clear();
-	jump_loc(scrpos.pos, scrpos.ln);
+	if (scrpos.pos == NULL_POSITION)
+		/* Screen hasn't been drawn yet. */
+		jump_loc(ch_zero(), 1);
+	else
+		jump_loc(scrpos.pos, scrpos.ln);
 }
 
 /*
  * Jump to a specified percentage into the file.
  */
-	public void
-jump_percent(percent, fraction)
-	int percent;
-	long fraction;
+public void jump_percent(int percent, long fraction)
 {
 	POSITION pos, len;
 
@@ -147,10 +165,7 @@ jump_percent(percent, fraction)
  * Like jump_loc, but the position need not be 
  * the first character in a line.
  */
-	public void
-jump_line_loc(pos, sline)
-	POSITION pos;
-	int sline;
+public void jump_line_loc(POSITION pos, int sline)
 {
 	int c;
 
@@ -170,24 +185,55 @@ jump_line_loc(pos, sline)
 	jump_loc(pos, sline);
 }
 
+static void after_header_message(void)
+{
+#if HAVE_TIME
+#define MSG_FREQ 1 /* seconds */
+    static time_type last_msg = (time_type) 0;
+    time_type now = get_time();
+    if (now < last_msg + MSG_FREQ)
+        return;
+    last_msg = now;
+#endif
+    bell();
+    /* {{ This message displays before the file text is updated, which is not a good UX. }} */
+    /** error("Cannot display text before header; use --header=- to disable header", NULL_PARG); */
+}
+
+/*
+ * Ensure that a position is not before the header.
+ * If it is, print a message and return the position of the start of the header.
+ * {{ This is probably not being used correctly in all cases. 
+ *    It does not account for the location of pos on the screen, 
+ *    so lines before pos could be displayed. }}
+ */
+public POSITION after_header_pos(POSITION pos)
+{
+	if (header_start_pos != NULL_POSITION && pos < header_start_pos)
+	{
+        after_header_message();
+        pos = header_start_pos;
+	}
+	return pos;
+}
+
 /*
  * Jump to a specified position in the file.
  * The position must be the first character in a line.
  * Place the target line on a specified line on the screen.
  */
-	public void
-jump_loc(pos, sline)
-	POSITION pos;
-	int sline;
+public void jump_loc(POSITION pos, int sline)
 {
-	register int nline;
+	int nline;
+	int sindex;
 	POSITION tpos;
 	POSITION bpos;
 
 	/*
 	 * Normalize sline.
 	 */
-	sline = adjsline(sline);
+	pos = after_header_pos(pos);
+	sindex = sindex_from_sline(sline);
 
 	if ((nline = onscreen(pos)) >= 0)
 	{
@@ -195,14 +241,14 @@ jump_loc(pos, sline)
 		 * The line is currently displayed.  
 		 * Just scroll there.
 		 */
-		nline -= sline;
+		nline -= sindex;
 		if (nline > 0)
 			forw(nline, position(BOTTOM_PLUS_ONE), 1, 0, 0);
-		else if (nline < 0)
+		else
 			back(-nline, position(TOP), 1, 0);
 #if HILITE_SEARCH
 		if (show_attn)
-			repaint_hilite(1);
+			repaint_hilite(TRUE);
 #endif
 		return;
 	}
@@ -231,7 +277,7 @@ jump_loc(pos, sline)
 		 * call forw() and put the desired line at the 
 		 * sline-th line on the screen.
 		 */
-		for (nline = 0;  nline < sline;  nline++)
+		for (nline = 0;  nline < sindex;  nline++)
 		{
 			if (bpos != NULL_POSITION && pos <= bpos)
 			{
@@ -240,10 +286,10 @@ jump_loc(pos, sline)
 				 * close enough to the current screen
 				 * that we can just scroll there after all.
 				 */
-				forw(sc_height-sline+nline-1, bpos, 1, 0, 0);
+				forw(sc_height-sindex+nline-1, bpos, 1, 0, 0);
 #if HILITE_SEARCH
 				if (show_attn)
-					repaint_hilite(1);
+					repaint_hilite(TRUE);
 #endif
 				return;
 			}
@@ -260,18 +306,18 @@ jump_loc(pos, sline)
 			}
 		}
 		lastmark();
-		squished = 0;
-		screen_trashed = 0;
-		forw(sc_height-1, pos, 1, 0, sline-nline);
+		squished = FALSE;
+		screen_trashed_num(0);
+		forw(sc_height-1, pos, 1, 0, sindex-nline);
 	} else
 	{
 		/*
 		 * The desired line is before the current screen.
 		 * Move forward in the file far enough so that we
 		 * can call back() and put the desired line at the 
-		 * sline-th line on the screen.
+		 * sindex-th line on the screen.
 		 */
-		for (nline = sline;  nline < sc_height - 1;  nline++)
+		for (nline = sindex;  nline < sc_height - 1;  nline++)
 		{
 			pos = forw_line(pos);
 			if (pos == NULL_POSITION)
@@ -283,6 +329,9 @@ jump_loc(pos, sline)
 				 */
 				break;
 			}
+#if HILITE_SEARCH
+			pos = next_unfiltered(pos);
+#endif
 			if (pos >= tpos)
 			{
 				/* 
@@ -293,7 +342,7 @@ jump_loc(pos, sline)
 				back(nline+1, tpos, 1, 0);
 #if HILITE_SEARCH
 				if (show_attn)
-					repaint_hilite(1);
+					repaint_hilite(TRUE);
 #endif
 				return;
 			}
@@ -303,7 +352,7 @@ jump_loc(pos, sline)
 			clear();
 		else
 			home();
-		screen_trashed = 0;
+		screen_trashed_num(0);
 		add_back_pos(pos);
 		back(sc_height-1, pos, 1, 0);
 	}

@@ -4,6 +4,6 @@
 
 PROG=	lesskey
 
-SRCS=	lesskey version.c  
+SRCS=	lesskey.c lesskey_parse.c xbuf.c version.c  
 
 .include "bsd.prog.mk"

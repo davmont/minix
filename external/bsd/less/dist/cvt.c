@@ -1,7 +1,6 @@
-/*	$NetBSD: cvt.c,v 1.3 2013/09/04 19:44:21 tron Exp $	*/
-
+/*	$NetBSD$	*/
 /*
- * Copyright (C) 1984-2012  Mark Nudelman
+ * Copyright (C) 1984-2024  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
@@ -21,11 +20,9 @@ extern int utf_mode;
 /*
  * Get the length of a buffer needed to convert a string.
  */
-	public int
-cvt_length(len, ops)
-	int len;
-	int ops;
+public size_t cvt_length(size_t len, int ops)
 {
+	(void) ops;
 	if (utf_mode)
 		/*
 		 * Just copying a string in UTF-8 mode can cause it to grow 
@@ -39,12 +36,10 @@ cvt_length(len, ops)
 /*
  * Allocate a chpos array for use by cvt_text.
  */
-	public int *
-cvt_alloc_chpos(len)
-	int len;
+public int * cvt_alloc_chpos(size_t len)
 {
-	int i;
-	int *chpos = (int *) ecalloc(sizeof(int), len);
+	size_t i;
+	int *chpos = (int *) ecalloc(len, sizeof(int));
 	/* Initialize all entries to an invalid position. */
 	for (i = 0;  i < len;  i++)
 		chpos[i] = -1;
@@ -56,18 +51,12 @@ cvt_alloc_chpos(len)
  * Returns converted text in odst.  The original offset of each
  * odst character (when it was in osrc) is returned in the chpos array.
  */
-	public void
-cvt_text(odst, osrc, chpos, lenp, ops)
-	char *odst;
-	char *osrc;
-	int *chpos;
-	int *lenp;
-	int ops;
+public void cvt_text(mutable char *odst, constant char *osrc, mutable int *chpos, mutable size_t *lenp, int ops)
 {
 	char *dst;
 	char *edst = odst;
-	char *src;
-	register char *src_end;
+	constant char *src;
+	constant char *src_end;
 	LWCHAR ch;
 
 	if (lenp != NULL)
@@ -77,32 +66,40 @@ cvt_text(odst, osrc, chpos, lenp, ops)
 
 	for (src = osrc, dst = odst;  src < src_end;  )
 	{
-		int src_pos = src - osrc;
-		int dst_pos = dst - odst;
-		ch = step_char(&src, +1, src_end);
+		size_t src_pos = ptr_diff(src, osrc);
+		size_t dst_pos = ptr_diff(dst, odst);
+		struct ansi_state *pansi;
+		ch = step_charc(&src, +1, src_end);
 		if ((ops & CVT_BS) && ch == '\b' && dst > odst)
 		{
 			/* Delete backspace and preceding char. */
 			do {
 				dst--;
-			} while (dst > odst &&
+			} while (dst > odst && utf_mode &&
 				!IS_ASCII_OCTET(*dst) && !IS_UTF8_LEAD(*dst));
-		} else if ((ops & CVT_ANSI) && IS_CSI_START(ch))
+		} else if ((ops & CVT_ANSI) && (pansi = ansi_start(ch)) != NULL)
 		{
 			/* Skip to end of ANSI escape sequence. */
-			src++;  /* skip the CSI start char */
 			while (src < src_end)
-				if (!is_ansi_middle(*src++))
+			{
+				if (ansi_step(pansi, ch) != ANSI_MID)
 					break;
+				ch = (LWCHAR) *src++; /* {{ would step_char work? }} */
+			}
+			ansi_done(pansi);
 		} else
 		{
 			/* Just copy the char to the destination buffer. */
+			char *cdst = dst;
 			if ((ops & CVT_TO_LC) && IS_UPPER(ch))
 				ch = TO_LOWER(ch);
 			put_wchar(&dst, ch);
 			/* Record the original position of the char. */
 			if (chpos != NULL)
-				chpos[dst_pos] = src_pos;
+			{
+				while (cdst++ < dst)
+					chpos[dst_pos++] = (int) src_pos; /*{{type-issue}}*/
+			}
 		}
 		if (dst > edst)
 			edst = dst;
@@ -111,6 +108,6 @@ cvt_text(odst, osrc, chpos, lenp, ops)
 		edst--;
 	*edst = '\0';
 	if (lenp != NULL)
-		*lenp = edst - odst;
+		*lenp = ptr_diff(edst, odst);
 	/* FIXME: why was this here?  if (chpos != NULL) chpos[dst - odst] = src - osrc; */
 }
