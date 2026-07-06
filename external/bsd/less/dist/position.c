@@ -1,7 +1,6 @@
-/*	$NetBSD: position.c,v 1.4 2013/09/04 19:44:21 tron Exp $	*/
-
+/*	$NetBSD$	*/
 /*
- * Copyright (C) 1984-2012  Mark Nudelman
+ * Copyright (C) 1984-2024  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
@@ -23,46 +22,44 @@
 #include "less.h"
 #include "position.h"
 
-static POSITION *table = NULL;	/* The position table */
-static int table_size;
+static POSITION *table = NULL;  /* The position table */
+static int table_size = 0;
 
 extern int sc_width, sc_height;
+extern int hshift;
 
 /*
  * Return the starting file position of a line displayed on the screen.
  * The line may be specified as a line number relative to the top
  * of the screen, but is usually one of these special cases:
- *	the top (first) line on the screen
- *	the second line on the screen
- *	the bottom line on the screen
- *	the line after the bottom line on the screen
+ *      the top (first) line on the screen
+ *      the second line on the screen
+ *      the bottom line on the screen
+ *      the line after the bottom line on the screen
  */
-	public POSITION
-position(where)
-	int where;
+public POSITION position(int sindex)
 {
-	switch (where)
+	switch (sindex)
 	{
 	case BOTTOM:
-		where = sc_height - 2;
+		sindex = sc_height - 2;
 		break;
 	case BOTTOM_PLUS_ONE:
-		where = sc_height - 1;
+		sindex = sc_height - 1;
 		break;
 	case MIDDLE:
-		where = (sc_height - 1) / 2;
+		sindex = (sc_height - 1) / 2;
+		break;
 	}
-	return (table[where]);
+	return (table[sindex]);
 }
 
 /*
  * Add a new file position to the bottom of the position table.
  */
-	public void
-add_forw_pos(pos)
-	POSITION pos;
+public void add_forw_pos(POSITION pos)
 {
-	register int i;
+	int i;
 
 	/*
 	 * Scroll the position table up.
@@ -75,11 +72,9 @@ add_forw_pos(pos)
 /*
  * Add a new file position to the top of the position table.
  */
-	public void
-add_back_pos(pos)
-	POSITION pos;
+public void add_back_pos(POSITION pos)
 {
-	register int i;
+	int i;
 
 	/*
 	 * Scroll the position table down.
@@ -92,10 +87,9 @@ add_back_pos(pos)
 /*
  * Initialize the position table, done whenever we clear the screen.
  */
-	public void
-pos_clear()
+public void pos_clear(void)
 {
-	register int i;
+	int i;
 
 	for (i = 0;  i < sc_height;  i++)
 		table[i] = NULL_POSITION;
@@ -104,11 +98,9 @@ pos_clear()
 /*
  * Allocate or reallocate the position table.
  */
-	public void
-pos_init()
+public void pos_init(void)
 {
 	struct scrpos scrpos;
-	scrpos.pos = scrpos.ln = 0;	/* XXX: GCC */
 
 	if (sc_height <= table_size)
 		return;
@@ -118,11 +110,11 @@ pos_init()
 	 */
 	if (table != NULL)
 	{
-		get_scrpos(&scrpos);
+		get_scrpos(&scrpos, TOP);
 		free((char*)table);
 	} else
 		scrpos.pos = NULL_POSITION;
-	table = (POSITION *) ecalloc(sc_height, sizeof(POSITION));
+	table = (POSITION *) ecalloc((size_t) sc_height, sizeof(POSITION)); /*{{type-issue}}*/
 	table_size = sc_height;
 	pos_clear();
 	if (scrpos.pos != NULL_POSITION)
@@ -134,11 +126,9 @@ pos_init()
  * Check the position table to see if the position falls within its range.
  * Return the position table entry if found, -1 if not.
  */
-	public int
-onscreen(pos)
-	POSITION pos;
+public int onscreen(POSITION pos)
 {
-	register int i;
+	int i;
 
 	if (pos < table[0])
 		return (-1);
@@ -151,18 +141,14 @@ onscreen(pos)
 /*
  * See if the entire screen is empty.
  */
-	public int
-empty_screen()
+public int empty_screen(void)
 {
 	return (empty_lines(0, sc_height-1));
 }
 
-	public int
-empty_lines(s, e)
-	int s;
-	int e;
+public int empty_lines(int s, int e)
 {
-	register int i;
+	int i;
 
 	for (i = s;  i <= e;  i++)
 		if (table[i] != NULL_POSITION && table[i] != 0)
@@ -178,23 +164,44 @@ empty_lines(s, e)
  * such that the top few lines are empty, we may have to set
  * the screen line to a number > 0.
  */
-	public void
-get_scrpos(scrpos)
-	struct scrpos *scrpos;
+public void get_scrpos(struct scrpos *scrpos, int where)
 {
-	register int i;
+	int i;
+	int dir;
+	int last;
+
+	switch (where)
+	{
+	case TOP:
+		i = 0; dir = +1; last = sc_height-2;
+		break;
+	case BOTTOM: case BOTTOM_PLUS_ONE:
+		i = sc_height-2; dir = -1; last = 0;
+		break;
+	default:
+		i = where;
+		if (table[i] == NULL_POSITION) {
+			scrpos->pos = NULL_POSITION;
+			return;
+		}
+		/* Values of dir and last don't matter after this. */
+		break;
+	}
 
 	/*
 	 * Find the first line on the screen which has something on it,
 	 * and return the screen line number and the file position.
 	 */
-	for (i = 0; i < sc_height;  i++)
+	for (;; i += dir)
+	{
 		if (table[i] != NULL_POSITION)
 		{
 			scrpos->ln = i+1;
 			scrpos->pos = table[i];
 			return;
 		}
+		if (i == last) break;
+	}
 	/*
 	 * The screen is empty.
 	 */
@@ -210,9 +217,7 @@ get_scrpos(scrpos)
  * or it may be in { -1 .. -(sc_height-1) } to refer to lines
  * relative to the bottom of the screen.
  */
-	public int
-adjsline(sline)
-	int sline;
+public int sindex_from_sline(int sline)
 {
 	/*
 	 * Negative screen line number means
@@ -221,14 +226,78 @@ adjsline(sline)
 	if (sline < 0)
 		sline += sc_height;
 	/*
-	 * Can't be less than 1 or greater than sc_height-1.
+	 * Can't be less than 1 or greater than sc_height.
 	 */
 	if (sline <= 0)
 		sline = 1;
-	if (sline >= sc_height)
-		sline = sc_height - 1;
+	if (sline > sc_height)
+		sline = sc_height;
 	/*
 	 * Return zero-based line number, not one-based.
 	 */
 	return (sline-1);
+}
+
+/*
+ * Given a line that starts at linepos,
+ * and the character at byte offset choff into that line,
+ * return the number of characters (not bytes) between the
+ * beginning of the line and the first byte of the choff character.
+ */
+static int pos_shift(POSITION linepos, size_t choff)
+{
+	constant char *line;
+	size_t line_len;
+	POSITION pos;
+	int cvt_ops;
+	char *cline;
+
+	pos = forw_raw_line_len(linepos, choff, &line, &line_len);
+	if (pos == NULL_POSITION || line_len != choff)
+		return -1;
+	cvt_ops = get_cvt_ops(0); /* {{ Passing 0 ignores SRCH_NO_REGEX; does it matter? }} */
+	/* {{ It would be nice to be able to call cvt_text with dst=NULL, to avoid need to alloc a useless cline. }} */
+	cline = (char *) ecalloc(1, cvt_length(line_len, cvt_ops));
+	cvt_text(cline, line, NULL, &line_len, cvt_ops);
+	free(cline);
+	return (int) line_len;  /*{{type-issue}}*/
+}
+
+/*
+ * Return the position of the first char of the line containing tpos.
+ * Thus if tpos is the first char of its line, just return tpos.
+ */
+static POSITION beginning_of_line(POSITION tpos)
+{
+	ch_seek(tpos);
+	while (ch_tell() != ch_zero())
+	{
+		int ch = ch_back_get();
+		if (ch == '\n')
+		{
+			(void) ch_forw_get();
+			break;
+		}
+	}
+	return ch_tell();
+}
+
+/*
+ * When viewing long lines, it may be that the first char in the top screen
+ * line is not the first char in its (file) line (the table is "beheaded").
+ * This function sets that entry to the position of the first char in the line,
+ * and sets hshift so that the first char in the first line is unchanged.
+ */
+public void pos_rehead(void)
+{
+	POSITION linepos;
+	POSITION tpos = table[TOP];
+	if (tpos == NULL_POSITION)
+		return;
+	linepos = beginning_of_line(tpos);
+	if (linepos == tpos)
+		return;
+	table[TOP] = linepos;
+	hshift = pos_shift(linepos, (size_t) (tpos - linepos));
+	screen_trashed();
 }
