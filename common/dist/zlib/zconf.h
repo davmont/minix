@@ -251,11 +251,11 @@
 #  define z_longlong long long
 #  if defined(NO_SIZE_T)
      typedef unsigned NO_SIZE_T z_size_t;
-#  elif defined(STDC)
+#  elif defined(STDC) && !defined(_STANDALONE)
 #    include <stddef.h>
      typedef size_t z_size_t;
 #  else
-     typedef unsigned long z_size_t;
+     typedef unsigned long z_size_t;   /* MINIX/NetBSD -nostdinc standalone */
 #  endif
 #  undef z_longlong
 #endif
@@ -417,7 +417,7 @@ typedef uLong FAR uLongf;
    typedef Byte       *voidp;
 #endif
 
-#if !defined(Z_U4) && !defined(Z_SOLO) && defined(STDC)
+#if !defined(Z_U4) && !defined(Z_SOLO) && !defined(_STANDALONE) && defined(STDC)
 #  include <limits.h>
 #  if (UINT_MAX == 0xffffffffUL)
 #    define Z_U4 unsigned
@@ -457,7 +457,11 @@ typedef uLong FAR uLongf;
 
 #if defined(STDC) || defined(Z_HAVE_STDARG_H)
 #  ifndef Z_SOLO
-#    include <stdarg.h>         /* for va_list */
+#    if defined(_STANDALONE) || defined(_KERNEL)
+#      include <sys/stdarg.h>   /* MINIX/NetBSD: -nostdinc va_list */
+#    else
+#      include <stdarg.h>       /* for va_list */
+#    endif
 #  endif
 #endif
 

@@ -1729,7 +1729,11 @@ ZEXTERN uLong ZEXPORT adler32_combine(uLong adler1, uLong adler2,
    negative, the result has no meaning or utility.
 */
 
+#if !defined(_KERNEL) && !defined(_STANDALONE)
+/* MINIX/NetBSD: the kernel and the standalone boot loader provide their own
+ * crc32() (libkern), with a different prototype; do not redeclare zlib's. */
 ZEXTERN uLong ZEXPORT crc32(uLong crc, const Bytef *buf, uInt len);
+#endif
 /*
      Update a running CRC-32 with the bytes buf[0..len-1] and return the
    updated CRC-32. A CRC-32 value is in the range of a 32-bit unsigned integer.

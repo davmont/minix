@@ -23,12 +23,20 @@
 
 #include "zlib.h"
 
+#if (defined(__minix) || defined(__NetBSD__)) && \
+    (defined(_KERNEL) || defined(_STANDALONE))
+/* MINIX/NetBSD kernel and standalone (boot loader) builds are -nostdinc:
+ * libkern supplies memcpy/memset/size_t/etc. in place of the C library
+ * headers <stddef.h>/<string.h>/<stdlib.h>. */
+#  include <lib/libkern/libkern.h>
+#else
 #if defined(STDC) && !defined(Z_SOLO)
 #  if !(defined(_WIN32_WCE) && defined(_MSC_VER))
 #    include <stddef.h>
 #  endif
 #  include <string.h>
 #  include <stdlib.h>
+#endif
 #endif
 
 #ifndef local
@@ -44,7 +52,7 @@ typedef unsigned short ush;
 typedef ush FAR ushf;
 typedef unsigned long  ulg;
 
-#if !defined(Z_U8) && !defined(Z_SOLO) && defined(STDC)
+#if !defined(Z_U8) && !defined(Z_SOLO) && !defined(_STANDALONE) && defined(STDC)
 #  include <limits.h>
 #  if (ULONG_MAX == 0xffffffffffffffff)
 #    define Z_U8 unsigned long
