@@ -27,7 +27,7 @@ void RC2_cfb64_encrypt(const unsigned char *in, unsigned char *out,
                        int *num, int encrypt)
 {
     register uint32_t v0, v1, t;
-    register int n = *num;
+    register int n = *num & 0x07;
     register long l = length;
     uint32_t ti[2];
     unsigned char *iv, c, cc;

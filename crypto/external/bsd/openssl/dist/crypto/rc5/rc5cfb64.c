@@ -27,7 +27,7 @@ void RC5_32_cfb64_encrypt(const unsigned char *in, unsigned char *out,
                           unsigned char *ivec, int *num, int encrypt)
 {
     register RC5_32_INT v0, v1, t;
-    register int n = *num;
+    register int n = *num & 0x07;
     register long l = length;
     RC5_32_INT ti[2];
     unsigned char *iv, c, cc;
