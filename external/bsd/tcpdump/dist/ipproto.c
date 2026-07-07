@@ -15,20 +15,18 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: ipproto.c,v 1.6 2017/09/08 14:01:12 christos Exp $");
+__RCSID("$NetBSD: ipproto.c,v 1.9 2026/03/19 00:05:13 christos Exp $");
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <netdissect-stdinc.h>
+#include "netdissect-stdinc.h"
 
 #include "netdissect.h"
 #include "ipproto.h"
 
 const struct tok ipproto_values[] = {
-    { IPPROTO_HOPOPTS, "Options" },
+    { IPPROTO_HOPOPTS, "HBH" },
     { IPPROTO_ICMP, "ICMP" },
     { IPPROTO_IGMP, "IGMP" },
     { IPPROTO_IPV4, "IPIP" },
@@ -46,17 +44,19 @@ const struct tok ipproto_values[] = {
     { IPPROTO_AH, "AH" },
     { IPPROTO_MOBILE, "Mobile IP" },
     { IPPROTO_ICMPV6, "ICMPv6" },
+    { IPPROTO_DSTOPTS, "DSTOPT" },
     { IPPROTO_MOBILITY_OLD, "Mobile IP (old)" },
     { IPPROTO_EIGRP, "EIGRP" },
     { IPPROTO_OSPF, "OSPF" },
     { IPPROTO_PIM, "PIM" },
     { IPPROTO_IPCOMP, "Compressed IP" },
-    { IPPROTO_VRRP, "VRRP" },
+    { IPPROTO_VRRP, "VRRP" }, /* See also CARP. */
     { IPPROTO_PGM, "PGM" },
     { IPPROTO_SCTP, "SCTP" },
     { IPPROTO_MOBILITY, "Mobility" },
     { IPPROTO_PFSYNC, "PFSYNC" },
     { IPPROTO_CARP, "CARP" },
+    { IPPROTO_ETHERNET, "Ethernet" },
     { 0, NULL }
 };
 
@@ -362,7 +362,7 @@ static const char *netdb_protocol_names[256] = {
 
 /* The function enforces the array index to be 8-bit. */
 const char *
-netdb_protoname (const nd_uint8_t protoid)
+netdb_protoname (const uint8_t protoid)
 {
 	return netdb_protocol_names[protoid];
 }

@@ -17,14 +17,12 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: af.c,v 1.6 2017/09/08 14:01:12 christos Exp $");
+__RCSID("$NetBSD: af.c,v 1.8 2024/09/02 16:15:29 christos Exp $");
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <netdissect-stdinc.h>
+#include "netdissect-stdinc.h"
 #include "netdissect.h"
 #include "af.h"
 

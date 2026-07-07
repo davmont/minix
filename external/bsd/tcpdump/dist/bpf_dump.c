@@ -20,18 +20,17 @@
  */
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: bpf_dump.c,v 1.5 2017/01/24 23:29:13 christos Exp $");
+__RCSID("$NetBSD: bpf_dump.c,v 1.7 2024/09/02 16:15:29 christos Exp $");
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <netdissect-stdinc.h>
+#include "netdissect-stdinc.h"
 
 #include <stdio.h>
 
 #include "netdissect.h"
+#include "interface.h"
 
 void
 bpf_dump(const struct bpf_program *p, int option)

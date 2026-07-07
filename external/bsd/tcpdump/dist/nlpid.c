@@ -15,14 +15,12 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$NetBSD: nlpid.c,v 1.7 2017/09/08 14:01:12 christos Exp $");
+__RCSID("$NetBSD: nlpid.c,v 1.9 2024/09/02 16:15:30 christos Exp $");
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <netdissect-stdinc.h>
+#include "netdissect-stdinc.h"
 #include "netdissect.h"
 #include "nlpid.h"
 

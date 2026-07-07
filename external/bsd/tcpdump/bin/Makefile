@@ -1,16 +1,10 @@
-#	$NetBSD: Makefile,v 1.21.6.1 2023/08/11 13:42:57 martin Exp $	
+#	$NetBSD: Makefile,v 1.31 2026/03/19 00:05:12 christos Exp $	
 
 WARNS?=	1	# XXX: need to cleanup later
 
 CWARNFLAGS.clang+=	-Wno-constant-logical-operand -Wno-error=unused-function
 
 .include <bsd.own.mk>
-
-.if defined(__MINIX)
-#LSC: -Wno-unused-but-set-variable while compiling with -DNDEBUG -O2
-#LSC: -Wno-maybe-uninitialized while compiling with -DNDEBUG -O3
-CWARNFLAGS.gcc+=	-Wno-unused-but-set-variable -Wno-maybe-uninitialized
-.endif # defined(__MINIX)
 
 USE_FORT?= yes	# network client
 
@@ -21,10 +15,11 @@ SRCDIR=	${.CURDIR}/../dist
 PROG=	tcpdump
 MAN=	tcpdump.8 
 
-SRCS=	addrtoname.c cpack.c gmpls.c gmt2local.c machdep.c oui.c parsenfsfh.c \
-	setsignal.c smbutil.c tcpdump.c netdissect.c checksum.c signature.c \
-	l2vpn.c nlpid.c ipproto.c af.c in_cksum.c pf_print_state.c \
-	util-print.c addrtostr.c ascii_strcasecmp.c print.c strtoaddr.c
+SRCS=	addrtoname.c cpack.c fptype.c gmpls.c machdep.c oui.c parsenfsfh.c \
+	smbutil.c tcpdump.c netdissect-alloc.c netdissect.c checksum.c \
+	signature.c l2vpn.c nlpid.c ntp.c ipproto.c af.c in_cksum.c \
+	pf_print_state.c util-print.c addrtostr.c ascii_strcasecmp.c print.c \
+	strtoaddr.c
 
 SRCS+=	bpf_dump.c
 SRCS+=	version.c
@@ -38,14 +33,17 @@ print-aodv.c \
 print-aoe.c \
 print-ap1394.c \
 print-arcnet.c \
+print-arista.c \
 print-arp.c \
 print-ascii.c \
 print-atalk.c \
 print-atm.c \
+print-bcm-li.c \
 print-beep.c \
 print-bfd.c \
 print-bgp.c \
 print-bootp.c \
+print-brcmtag.c \
 print-bt.c \
 print-calm-fast.c \
 print-carp.c \
@@ -57,6 +55,7 @@ print-cnfp.c \
 print-dccp.c \
 print-decnet.c \
 print-domain.c \
+print-dsa.c \
 print-dtp.c \
 print-dvmrp.c \
 print-eap.c \
@@ -78,10 +77,12 @@ print-http.c \
 print-icmp.c \
 print-igmp.c \
 print-igrp.c \
+print-ip-demux.c \
 print-ip.c \
 print-ipcomp.c \
 print-ipfc.c \
 print-ipnet.c \
+print-ipoib.c \
 print-ipx.c \
 print-isakmp.c \
 print-isoclns.c \
@@ -99,7 +100,7 @@ print-lspping.c \
 print-lwapp.c \
 print-lwres.c \
 print-m3ua.c \
-print-medsa.c \
+print-macsec.c \
 print-mobile.c \
 print-mobility.c \
 print-mpcp.c \
@@ -114,9 +115,9 @@ print-ntp.c \
 print-null.c \
 print-olsr.c \
 print-openflow-1.0.c \
+print-openflow-1.3.c \
 print-openflow.c \
 print-ospf.c \
-print-otv.c \
 print-pflog.c \
 print-pfsync.c \
 print-pgm.c \
@@ -126,13 +127,14 @@ print-ppi.c \
 print-ppp.c \
 print-pppoe.c \
 print-pptp.c \
+print-ptp.c \
 print-radius.c \
 print-raw.c \
+print-realtek.c \
 print-resp.c \
 print-rip.c \
 print-ripng.c \
 print-rpki-rtr.c \
-print-rrcp.c \
 print-rsvp.c \
 print-rtsp.c \
 print-rx.c \
@@ -145,8 +147,11 @@ print-slow.c \
 print-smb.c \
 print-smtp.c \
 print-snmp.c \
+print-someip.c \
+print-ssh.c \
 print-stp.c \
 print-sunatm.c \
+print-sunrpc.c \
 print-symantec.c \
 print-syslog.c \
 print-tcp.c \
@@ -157,14 +162,18 @@ print-tipc.c \
 print-token.c \
 print-udld.c \
 print-udp.c \
+print-unsupported.c \
 print-usb.c \
 print-vjc.c \
 print-vqp.c \
 print-vrrp.c \
+print-vsock.c \
 print-vtp.c \
 print-vxlan-gpe.c \
 print-vxlan.c \
 print-wb.c \
+print-whois.c \
+print-zep.c \
 print-zephyr.c \
 print-zeromq.c
 
@@ -181,12 +190,13 @@ CPPFLAGS+=  -I${NETBSDSRCDIR}/dist/pf/sbin/pfctl \
 
 AWKS= atime.awk packetdat.awk stime.awk send-ack.awk   
 
-CPPFLAGS+=-DHAVE_CONFIG_H -D_U_="__attribute__((__unused__))"
+CPPFLAGS+=-DHAVE_CONFIG_H
 
 CPPFLAGS+=-DWITH_USER=\"_tcpdump\"
 CPPFLAGS+=-DWITH_CHROOT=\"/var/chroot/tcpdump\"
 
-.if (${USE_INET6} != "no")
+# XXX INET6 is too entangled into many of the L2 printers.
+#.if (${USE_INET6} != "no")
 SRCS+= \
 print-babel.c \
 print-ip6opts.c \
@@ -198,11 +208,7 @@ print-ospf6.c \
 print-rt6.c
 
 CPPFLAGS+=-DHAVE_OS_IPV6_SUPPORT=1
-.elif defined(__MINIX)
-# MINIX 3 compilation fix for USE_INET6=no  (print-udp.c references
-# ip6_print symbols even when v6 is off).
-SRCS+=	print-ip6.c
-.endif
+#.endif
 
 CPPFLAGS+=-DHAVE_LIBCRYPTO=1 -DHAVE_OPENSSL_EVP_H 
 LDADD+=	-lcrypto -lcrypt
@@ -214,12 +220,8 @@ tcpdump.8: tcpdump.1.in
 	@rm -f ${.TARGET}
 	cp ${.ALLSRC} ${.TARGET}
 
-.if !defined(__MINIX)
-# MINIX ships clang 3.6 which doesn't recognise this warning.
-CWARNFLAGS.clang+=	-Wno-error=address-of-packed-member
-.endif
-CWARNFLAGS.gcc+=	${GCC_NO_ADDR_OF_PACKED_MEMBER}
-COPTS.print-bgp.c+=	${GCC_NO_FORMAT_TRUNCATION}
+CWARNFLAGS+=		${CC_WNO_ADDRESS_OF_PACKED_MEMBER}
+COPTS.print-bgp.c+=	${CC_WNO_FORMAT_TRUNCATION}
 COPTS.signature.c+=	-Wno-error=deprecated-declarations
 COPTS.print-tcp.c+=	-Wno-error=deprecated-declarations
 
