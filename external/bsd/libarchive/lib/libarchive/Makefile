@@ -41,7 +41,8 @@ SRCS=		archive_acl.c \
 		archive_entry_stat.c \
 		archive_entry_strmode.c \
 		archive_entry_xattr.c \
-		archive_getdate.c \
+		archive_parse_date.c \
+		archive_time.c \
 		archive_hmac.c \
 		archive_match.c \
 		archive_options.c \
@@ -484,6 +485,10 @@ FILESMODE_libarchive.pc=	${NONBINMODE}
 FILESDIR_libarchive.pc=		/usr/lib/pkgconfig
 
 CLEANFILES+=libarchive.pc
+
+# libarchive 3.8 upstream assigns string literals to char * in several
+# spots (parse_option, 7zip reader, ...); benign, not worth dist patches.
+CWARNFLAGS.clang+=	-Wno-error=incompatible-pointer-types-discards-qualifiers
 
 .include <bsd.lib.mk>
 

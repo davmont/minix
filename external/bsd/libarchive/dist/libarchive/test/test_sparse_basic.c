@@ -198,7 +198,7 @@ is_sparse_supported_fiemap(const char *path)
 		return (0);
 	fm = (struct fiemap *)buff;
 	fm->fm_start = 0;
-	fm->fm_length = ~0ULL;;
+	fm->fm_length = ~0ULL;
 	fm->fm_flags = FIEMAP_FLAG_SYNC;
 	fm->fm_extent_count = (sizeof(buff) - sizeof(*fm))/
 		sizeof(struct fiemap_extent);
@@ -608,7 +608,8 @@ DEFINE_TEST(test_sparse_basic)
 	verify_sparse_file(a, "file2", sparse_file2, 20);
 	/* Encoded non sparse; expect a data block but no sparse entries. */
 	verify_sparse_file(a, "file3", sparse_file3, 0);
-	verify_sparse_file(a, "file4", sparse_file4, 2);
+	if (sizeof(off_t) > 4)
+		verify_sparse_file(a, "file4", sparse_file4, 2);
 
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
@@ -635,7 +636,8 @@ DEFINE_TEST(test_sparse_basic)
 	verify_sparse_file(a, "file1", sparse_file1, 0);
 	verify_sparse_file(a, "file2", sparse_file2, 0);
 	verify_sparse_file(a, "file3", sparse_file3, 0);
-	verify_sparse_file(a, "file4", sparse_file4, 0);
+	if (sizeof(off_t) > 4)
+		verify_sparse_file(a, "file4", sparse_file4, 0);
 
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
@@ -692,4 +694,30 @@ DEFINE_TEST(test_fully_sparse_files)
 
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 	free(cwd);
+}
+
+DEFINE_TEST(test_sparse_iterator)
+{
+	struct archive_entry *entry;
+	int64_t offset, length;
+	int count;
+
+	entry = archive_entry_new();
+	archive_entry_set_pathname(entry, "testfile");
+	archive_entry_set_mode(entry, 0100644);
+	archive_entry_set_size(entry, 1024);
+
+	/* Add one sparse block covering the entire file */
+	archive_entry_sparse_add_entry(entry, 0, 1024);
+
+	/* Should remove the only block covering the entire file */
+	archive_entry_sparse_reset(entry);
+
+	count = 0;
+	while (archive_entry_sparse_next(entry, &offset, &length) == ARCHIVE_OK)
+		count++;
+	assertEqualInt(0, count);
+	assertEqualInt(0, archive_entry_sparse_count(entry));
+
+	archive_entry_free(entry);
 }

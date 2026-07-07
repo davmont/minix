@@ -26,7 +26,6 @@
 #include "test.h"
 
 #define __LIBARCHIVE_BUILD
-#include <archive_crc32.h>
 
 static
 int extract_one(struct archive* a, struct archive_entry* ae, uint32_t crc)
@@ -47,7 +46,7 @@ int extract_one(struct archive* a, struct archive_entry* ae, uint32_t crc)
 		goto fn_exit;
 	}
 
-	computed_crc = crc32(0, buf, fsize);
+	computed_crc = bitcrc32(0, buf, fsize);
 	assertEqualInt(computed_crc, crc);
 	ret = 0;
 
@@ -84,7 +83,7 @@ int extract_one_using_blocks(struct archive* a, int block_size, uint32_t crc)
 			/* ok */
 		}
 
-		computed_crc = crc32(computed_crc, buf, bytes_read);
+		computed_crc = bitcrc32(computed_crc, buf, bytes_read);
 	}
 
 	assertEqualInt(computed_crc, crc);
@@ -306,7 +305,7 @@ verify_extract_length_at_end(struct archive *a, int seek_checks)
 	}
 
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 static void
@@ -369,7 +368,7 @@ test_symlink(void)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	free(p);
 }
@@ -399,7 +398,7 @@ DEFINE_TEST(test_read_format_zip_ppmd_one_file)
 	assertEqualIntA(a, 0, extract_one(a, ae, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_ppmd_one_file_blockread)
@@ -419,7 +418,7 @@ DEFINE_TEST(test_read_format_zip_ppmd_one_file_blockread)
 	assertEqualIntA(a, 0, extract_one_using_blocks(a, 13, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_ppmd_multi)
@@ -451,7 +450,7 @@ DEFINE_TEST(test_read_format_zip_ppmd_multi)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_ppmd_multi_blockread)
@@ -483,7 +482,7 @@ DEFINE_TEST(test_read_format_zip_ppmd_multi_blockread)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_one_file)
@@ -508,7 +507,7 @@ DEFINE_TEST(test_read_format_zip_lzma_one_file)
 	assertEqualIntA(a, 0, extract_one(a, ae, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_one_file_blockread)
@@ -533,7 +532,7 @@ DEFINE_TEST(test_read_format_zip_lzma_one_file_blockread)
 	assertEqualIntA(a, 0, extract_one_using_blocks(a, 13, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_multi)
@@ -570,7 +569,7 @@ DEFINE_TEST(test_read_format_zip_lzma_multi)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_multi_blockread)
@@ -607,7 +606,7 @@ DEFINE_TEST(test_read_format_zip_lzma_multi_blockread)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 
@@ -620,7 +619,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_one_file)
 	assert((a = archive_read_new()) != NULL);
 	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("bzip2 is not fully supported on this platform");
-		archive_read_close(a);
+		archive_read_free(a);
 		return;
 	}
 	extract_reference_file(refname);
@@ -633,7 +632,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_one_file)
 	assertEqualIntA(a, 0, extract_one(a, ae, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_bzip2_one_file_blockread)
@@ -645,7 +644,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_one_file_blockread)
 	assert((a = archive_read_new()) != NULL);
 	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("bzip2 is not fully supported on this platform");
-		archive_read_close(a);
+		archive_read_free(a);
 		return;
 	}
 	extract_reference_file(refname);
@@ -658,7 +657,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_one_file_blockread)
 	assertEqualIntA(a, 0, extract_one_using_blocks(a, 13, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_bzip2_multi)
@@ -670,7 +669,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_multi)
 	assert((a = archive_read_new()) != NULL);
 	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("bzip2 is not fully supported on this platform");
-		archive_read_close(a);
+		archive_read_free(a);
 		return;
 	}
 	extract_reference_file(refname);
@@ -695,7 +694,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_multi)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_bzip2_multi_blockread)
@@ -707,7 +706,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_multi_blockread)
 	assert((a = archive_read_new()) != NULL);
 	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("bzip2 is not fully supported on this platform");
-		archive_read_close(a);
+		archive_read_free(a);
 		return;
 	}
 	extract_reference_file(refname);
@@ -732,7 +731,7 @@ DEFINE_TEST(test_read_format_zip_bzip2_multi_blockread)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_zstd_one_file)
@@ -758,7 +757,7 @@ DEFINE_TEST(test_read_format_zip_zstd_one_file)
 	assertEqualIntA(a, 0, extract_one(a, ae, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_zstd_one_file_blockread)
@@ -784,7 +783,7 @@ DEFINE_TEST(test_read_format_zip_zstd_one_file_blockread)
 	assertEqualIntA(a, 0, extract_one_using_blocks(a, 13, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_zstd_multi)
@@ -822,7 +821,7 @@ DEFINE_TEST(test_read_format_zip_zstd_multi)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_zstd_multi_blockread)
@@ -860,7 +859,7 @@ DEFINE_TEST(test_read_format_zip_zstd_multi_blockread)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_xz_multi)
@@ -897,7 +896,7 @@ DEFINE_TEST(test_read_format_zip_xz_multi)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_xz_multi_blockread)
@@ -934,7 +933,7 @@ DEFINE_TEST(test_read_format_zip_xz_multi_blockread)
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_ppmd8_crash_1)
@@ -956,7 +955,7 @@ DEFINE_TEST(test_read_format_zip_ppmd8_crash_1)
 	 * proper fix, the unpacker was entering an unlimited loop. */
 	assertEqualIntA(a, ARCHIVE_FATAL, archive_read_data(a, buf, 1));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_bz2_hang_on_invalid)
@@ -969,7 +968,7 @@ DEFINE_TEST(test_read_format_zip_bz2_hang_on_invalid)
 	assert((a = archive_read_new()) != NULL);
 	if (ARCHIVE_OK != archive_read_support_filter_bzip2(a)) {
 		skipping("bzip2 is not fully supported on this platform");
-		archive_read_close(a);
+		archive_read_free(a);
 		return;
 	}
 	extract_reference_file(refname);
@@ -982,7 +981,7 @@ DEFINE_TEST(test_read_format_zip_bz2_hang_on_invalid)
 	 * But it shouldn't crash. */
 	assertEqualIntA(a, ARCHIVE_FATAL, archive_read_data(a, buf, 64));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_ppmd8_crash_2)
@@ -1003,7 +1002,7 @@ DEFINE_TEST(test_read_format_zip_ppmd8_crash_2)
 	 * But it shouldn't crash. */
 	assertEqualIntA(a, ARCHIVE_FATAL, archive_read_data(a, buf, 64));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_alone_leak)
@@ -1038,7 +1037,7 @@ DEFINE_TEST(test_read_format_zip_lzma_alone_leak)
 	assertEqualIntA(a, ARCHIVE_FATAL, archive_read_data(a, buf, sizeof(buf)));
 
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	/* This testcase shouldn't produce any memory leaks. When running test
 	 * suite under Valgrind or ASan, the test runner won't return with
@@ -1067,7 +1066,7 @@ DEFINE_TEST(test_read_format_zip_lzma_stream_end)
 	assertEqualIntA(a, 0, extract_one(a, ae, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_lzma_stream_end_blockread)
@@ -1092,7 +1091,7 @@ DEFINE_TEST(test_read_format_zip_lzma_stream_end_blockread)
 	assertEqualIntA(a, 0, extract_one_using_blocks(a, 13, 0xBA8E3BAA));
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_7z_lzma)
@@ -1124,7 +1123,7 @@ DEFINE_TEST(test_read_format_zip_7z_lzma)
 		"/src/abc_measurement_analysis_sample.py",
 		archive_entry_symlink(ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }
 
 DEFINE_TEST(test_read_format_zip_7z_deflate)
@@ -1170,5 +1169,5 @@ DEFINE_TEST(test_read_format_zip_7z_deflate)
 	}
 	assertEqualInt(AE_IFLNK, archive_entry_filetype(ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }

@@ -315,6 +315,10 @@ struct archive_write_disk {
 	int			 stream_valid;
 	int			 decmpfs_compression_level;
 #endif
+#if !(ARCHIVE_XATTR_LINUX || ARCHIVE_XATTR_DARWIN || ARCHIVE_XATTR_AIX ||\
+    ARCHIVE_XATTR_FREEBSD)
+	int			 warning_done;
+#endif
 };
 
 /*
@@ -452,12 +456,14 @@ symlink_free(struct archive_write_disk *a)
 static int
 la_mktemp(struct archive_write_disk *a)
 {
+	struct archive_string *tmp = &a->_tmpname_data;
 	int oerrno, fd;
 	mode_t mode;
 
-	archive_string_empty(&a->_tmpname_data);
-	archive_string_sprintf(&a->_tmpname_data, "%s.XXXXXX", a->name);
-	a->tmpname = a->_tmpname_data.s;
+	archive_strcpy(tmp, a->name);
+	archive_string_dirname(tmp);
+	archive_strcat(tmp, "/tar.XXXXXXXX");
+	a->tmpname = tmp->s;
 
 	fd = __archive_mkstemp(a->tmpname);
 	if (fd == -1)
@@ -518,9 +524,11 @@ la_verify_filetype(mode_t mode, __LA_MODE_T filetype) {
 	case AE_IFLNK:
 		ret = (S_ISLNK(mode));
 		break;
+#ifdef S_ISSOCK
 	case AE_IFSOCK:
 		ret = (S_ISSOCK(mode));
 		break;
+#endif
 	case AE_IFCHR:
 		ret = (S_ISCHR(mode));
 		break;
@@ -632,11 +640,12 @@ _archive_write_disk_header(struct archive *_a, struct archive_entry *entry)
 	a->pst = NULL;
 	a->current_fixup = NULL;
 	a->deferred = 0;
-	if (a->entry) {
-		archive_entry_free(a->entry);
-		a->entry = NULL;
-	}
+	archive_entry_free(a->entry);
 	a->entry = archive_entry_clone(entry);
+	if (a->entry == NULL) {
+		archive_set_error(&a->archive, ENOMEM, "Out of memory");
+		return (ARCHIVE_FATAL);
+	}
 	a->fd = -1;
 	a->fd_offset = 0;
 	a->offset = 0;
@@ -1007,7 +1016,7 @@ write_data_block(struct archive_write_disk *a, const char *buff, size_t size)
 		return (ARCHIVE_OK);
 
 	if (a->filesize == 0 || a->fd < 0) {
-		archive_set_error(&a->archive, 0,
+		archive_set_error(&a->archive, EIO,
 		    "Attempt to write to an empty file");
 		return (ARCHIVE_WARN);
 	}
@@ -1631,7 +1640,7 @@ hfs_write_data_block(struct archive_write_disk *a, const char *buff,
 		return (ARCHIVE_OK);
 
 	if (a->filesize == 0 || a->fd < 0) {
-		archive_set_error(&a->archive, 0,
+		archive_set_error(&a->archive, EIO,
 		    "Attempt to write to an empty file");
 		return (ARCHIVE_WARN);
 	}
@@ -1710,7 +1719,7 @@ _archive_write_disk_data_block(struct archive *_a,
 	if (r < ARCHIVE_OK)
 		return (r);
 	if ((size_t)r < size) {
-		archive_set_error(&a->archive, 0,
+		archive_set_error(&a->archive, EOVERFLOW,
 		    "Too much data: Truncating file at %ju bytes",
 		    (uintmax_t)a->filesize);
 		return (ARCHIVE_WARN);
@@ -2011,7 +2020,7 @@ archive_write_disk_gid(struct archive *_a, const char *name, la_int64_t id)
                return (a->lookup_gid)(a->lookup_gid_data, name, id);
        return (id);
 }
- 
+
 int64_t
 archive_write_disk_uid(struct archive *_a, const char *name, la_int64_t id)
 {
@@ -2155,7 +2164,7 @@ restore_entry(struct archive_write_disk *a)
 
 	if ((en == ENOENT) && (archive_entry_hardlink(a->entry) != NULL)) {
 		archive_set_error(&a->archive, en,
-		    "Hard-link target '%s' does not exist.",
+		    "Hard-link target '%s' does not exist",
 		    archive_entry_hardlink(a->entry));
 		return (ARCHIVE_FAILED);
 	}
@@ -2232,7 +2241,7 @@ restore_entry(struct archive_write_disk *a)
 		if (a->skip_file_set &&
 		    a->st.st_dev == (dev_t)a->skip_file_dev &&
 		    a->st.st_ino == (ino_t)a->skip_file_ino) {
-			archive_set_error(&a->archive, 0,
+			archive_set_error(&a->archive, EIO,
 			    "Refusing to overwrite archive");
 			return (ARCHIVE_FAILED);
 		}
@@ -2242,7 +2251,7 @@ restore_entry(struct archive_write_disk *a)
 				(void)clear_nochange_fflags(a);
 
 			if ((a->flags & ARCHIVE_EXTRACT_SAFE_WRITES) &&
-			    S_ISREG(a->st.st_mode)) {
+			    S_ISREG(a->mode)) {
 				/* Use a temporary file to extract */
 				if ((a->fd = la_mktemp(a)) == -1) {
 					archive_set_error(&a->archive, errno,
@@ -2454,7 +2463,7 @@ create_filesystem_object(struct archive_write_disk *a)
 	 */
 	mode = final_mode & 0777 & ~a->user_umask;
 
-	/* 
+	/*
 	 * Always create writable such that [f]setxattr() works if we're not
 	 * root.
 	 */
@@ -3056,7 +3065,7 @@ check_symlinks_fsobj(struct archive_write_disk *a, char *path, int *a_eno,
 				 */
 				/*
 				if (!S_ISLNK(path)) {
-					fsobj_error(a_eno, a_estr, 0,
+					fsobj_error(a_eno, a_estr, -1,
 					    "Removing symlink ", path);
 				}
 				*/
@@ -3072,7 +3081,7 @@ check_symlinks_fsobj(struct archive_write_disk *a, char *path, int *a_eno,
 #endif
 				if (r != 0) {
 					tail[0] = c;
-					fsobj_error(a_eno, a_estr, 0,
+					fsobj_error(a_eno, a_estr, EIO,
 					    "Cannot remove intervening "
 					    "symlink ", path);
 					res = ARCHIVE_FAILED;
@@ -3084,7 +3093,7 @@ check_symlinks_fsobj(struct archive_write_disk *a, char *path, int *a_eno,
 				/*
 				 * We are not the last element and we want to
 				 * follow symlinks if they are a directory.
-				 * 
+				 *
 				 * This is needed to extract hardlinks over
 				 * symlinks.
 				 */
@@ -3132,7 +3141,7 @@ check_symlinks_fsobj(struct archive_write_disk *a, char *path, int *a_eno,
 					head = tail + 1;
 				} else {
 					tail[0] = c;
-					fsobj_error(a_eno, a_estr, 0,
+					fsobj_error(a_eno, a_estr, ELOOP,
 					    "Cannot extract through "
 					    "symlink ", path);
 					res = ARCHIVE_FAILED;
@@ -3140,7 +3149,7 @@ check_symlinks_fsobj(struct archive_write_disk *a, char *path, int *a_eno,
 				}
 			} else {
 				tail[0] = c;
-				fsobj_error(a_eno, a_estr, 0,
+				fsobj_error(a_eno, a_estr, ELOOP,
 				    "Cannot extract through symlink ", path);
 				res = ARCHIVE_FAILED;
 				break;
@@ -3495,7 +3504,7 @@ create_dir(struct archive_write_disk *a, char *path)
 			le = new_fixup(a, path);
 			if (le == NULL)
 				return (ARCHIVE_FATAL);
-			le->fixup |=TODO_MODE_BASE;
+			le->fixup |= TODO_MODE_BASE;
 			le->mode = mode_final;
 		}
 		return (ARCHIVE_OK);
@@ -3507,8 +3516,17 @@ create_dir(struct archive_write_disk *a, char *path)
 	 * don't add it to the fixup list here, as it's already been
 	 * added.
 	 */
-	if (la_stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-		return (ARCHIVE_OK);
+	if (errno == EEXIST) {
+		if (la_stat(path, &st) == 0) {
+			if (S_ISDIR(st.st_mode))
+				return (ARCHIVE_OK);
+			/* path exists but is not a directory */
+			errno = ENOTDIR;
+		} else {
+			/* restore original errno */
+			errno = EEXIST;
+		}
+	}
 
 	archive_set_error(&a->archive, errno, "Failed to create dir '%s'",
 	    path);
@@ -3669,7 +3687,7 @@ set_time_tru64(int fd, int mode, const char *name,
 	tstamp.atime.tv_sec = atime;
 	tstamp.mtime.tv_sec = mtime;
 	tstamp.ctime.tv_sec = ctime;
-#if defined (__hpux) && defined (__ia64)
+#if defined (__hpux) && ( defined (__ia64) || defined (__hppa) )
 	tstamp.atime.tv_nsec = atime_nsec;
 	tstamp.mtime.tv_nsec = mtime_nsec;
 	tstamp.ctime.tv_nsec = ctime_nsec;
@@ -3852,7 +3870,7 @@ set_mode(struct archive_write_disk *a, int mode)
 		 * permissions on symlinks, so a failure here has no
 		 * impact.
 		 */
-		if (lchmod(a->name, mode) != 0) {
+		if (lchmod(a->name, (mode_t)mode) != 0) {
 			switch (errno) {
 			case ENOTSUP:
 			case ENOSYS:
@@ -3867,7 +3885,8 @@ set_mode(struct archive_write_disk *a, int mode)
 				break;
 			default:
 				archive_set_error(&a->archive, errno,
-				    "Can't set permissions to 0%o", (int)mode);
+				    "Can't set permissions to 0%o",
+				    (unsigned int)mode);
 				r = ARCHIVE_WARN;
 			}
 		}
@@ -3881,16 +3900,16 @@ set_mode(struct archive_write_disk *a, int mode)
 		 */
 #ifdef HAVE_FCHMOD
 		if (a->fd >= 0)
-			r2 = fchmod(a->fd, mode);
+			r2 = fchmod(a->fd, (mode_t)mode);
 		else
 #endif
 		/* If this platform lacks fchmod(), then
 		 * we'll just use chmod(). */
-		r2 = chmod(a->name, mode);
+		r2 = chmod(a->name, (mode_t)mode);
 
 		if (r2 != 0) {
 			archive_set_error(&a->archive, errno,
-			    "Can't set permissions to 0%o", (int)mode);
+			    "Can't set permissions to 0%o", (unsigned int)mode);
 			r = ARCHIVE_WARN;
 		}
 	}
@@ -3991,10 +4010,14 @@ clear_nochange_fflags(struct archive_write_disk *a)
 #ifdef UF_APPEND
 	    | UF_APPEND
 #endif
-#ifdef EXT2_APPEND_FL
+#if defined(FS_APPEND_FL)
+	    | FS_APPEND_FL
+#elif defined(EXT2_APPEND_FL)
 	    | EXT2_APPEND_FL
 #endif
-#ifdef EXT2_IMMUTABLE_FL
+#if defined(FS_IMMUTABLE_FL)
+	    | FS_IMMUTABLE_FL
+#elif defined(EXT2_IMMUTABLE_FL)
 	    | EXT2_IMMUTABLE_FL
 #endif
 	;
@@ -4065,7 +4088,7 @@ set_fflags_platform(struct archive_write_disk *a, int fd, const char *name,
 #elif defined(HAVE_CHFLAGS)
 	if (S_ISLNK(a->st.st_mode)) {
 		archive_set_error(&a->archive, errno,
-		    "Can't set file flags on symlink.");
+		    "Can't set file flags on symlink");
 		return (ARCHIVE_WARN);
 	}
 	if (chflags(name, a->st.st_flags) == 0)
@@ -4344,8 +4367,10 @@ create_tempdatafork(struct archive_write_disk *a, const char *pathname)
 	int tmpfd;
 
 	archive_string_init(&tmpdatafork);
-	archive_strcpy(&tmpdatafork, "tar.md.XXXXXX");
-	tmpfd = mkstemp(tmpdatafork.s);
+	archive_strcpy(&tmpdatafork, pathname);
+	archive_string_dirname(&tmpdatafork);
+	archive_strcat(&tmpdatafork, "/tar.XXXXXXXX");
+	tmpfd = __archive_mkstemp(tmpdatafork.s);
 	if (tmpfd < 0) {
 		archive_set_error(&a->archive, errno,
 		    "Failed to mkstemp");
@@ -4424,8 +4449,10 @@ set_mac_metadata(struct archive_write_disk *a, const char *pathname,
 	 * silly dance of writing the data to disk just so that
 	 * copyfile() can read it back in again. */
 	archive_string_init(&tmp);
-	archive_strcpy(&tmp, "tar.mmd.XXXXXX");
-	fd = mkstemp(tmp.s);
+	archive_strcpy(&tmp, pathname);
+	archive_string_dirname(&tmp);
+	archive_strcat(&tmp, "/tar.XXXXXXXX");
+	fd = __archive_mkstemp(tmp.s);
 
 	if (fd < 0) {
 		archive_set_error(&a->archive, errno,
@@ -4620,7 +4647,7 @@ set_xattrs(struct archive_write_disk *a)
 		} else
 			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
 			    "Cannot restore extended "
-			    "attributes on this file system.");
+			    "attributes on this file system");
 	}
 
 	archive_string_free(&errlist);
@@ -4722,7 +4749,7 @@ set_xattrs(struct archive_write_disk *a)
 		} else
 			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
 			    "Cannot restore extended "
-			    "attributes on this file system.");
+			    "attributes on this file system");
 	}
 
 	archive_string_free(&errlist);
@@ -4735,12 +4762,10 @@ set_xattrs(struct archive_write_disk *a)
 static int
 set_xattrs(struct archive_write_disk *a)
 {
-	static int warning_done = 0;
-
 	/* If there aren't any extended attributes, then it's okay not
 	 * to extract them, otherwise, issue a single warning. */
-	if (archive_entry_xattr_count(a->entry) != 0 && !warning_done) {
-		warning_done = 1;
+	if (archive_entry_xattr_count(a->entry) != 0 && !a->warning_done) {
+		a->warning_done = 1;
 		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
 		    "Cannot restore extended attributes on this system");
 		return (ARCHIVE_WARN);
@@ -4818,4 +4843,3 @@ static void close_file_descriptor(struct archive_write_disk* a)
 
 
 #endif /* !_WIN32 || __CYGWIN__ */
-

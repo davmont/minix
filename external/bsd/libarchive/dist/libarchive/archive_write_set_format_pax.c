@@ -40,6 +40,7 @@
 #include "archive.h"
 #include "archive_entry.h"
 #include "archive_entry_locale.h"
+#include "archive_integer.h"
 #include "archive_private.h"
 #include "archive_write_private.h"
 #include "archive_write_set_format_private.h"
@@ -676,7 +677,8 @@ archive_write_pax_header(struct archive_write *a,
 			const wchar_t *wp;
 
 			wp = archive_entry_pathname_w(entry_original);
-			if (wp != NULL && wp[wcslen(wp) -1] != L'/') {
+			if (wp != NULL && wp[0] != L'\0' &&
+			    wp[wcslen(wp) - 1] != L'/') {
 				struct archive_wstring ws;
 
 				archive_string_init(&ws);
@@ -1062,7 +1064,7 @@ archive_write_pax_header(struct archive_write *a,
 	}
 
 	/* If numeric GID is too large, add 'gid' to pax extended attrs. */
-	if ((unsigned int)archive_entry_gid(entry_main) >= (1 << 18)) {
+	if (archive_entry_gid(entry_main) >= (1 << 18)) {
 		add_pax_attr_int(&(pax->pax_header), "gid",
 		    archive_entry_gid(entry_main));
 		need_extension = 1;
@@ -1078,7 +1080,7 @@ archive_write_pax_header(struct archive_write *a,
 	}
 
 	/* If numeric UID is too large, add 'uid' to pax extended attrs. */
-	if ((unsigned int)archive_entry_uid(entry_main) >= (1 << 18)) {
+	if (archive_entry_uid(entry_main) >= (1 << 18)) {
 		add_pax_attr_int(&(pax->pax_header), "uid",
 		    archive_entry_uid(entry_main));
 		need_extension = 1;
@@ -1414,7 +1416,7 @@ archive_write_pax_header(struct archive_write *a,
 		struct archive_entry *pax_attr_entry;
 		time_t s;
 		int64_t uid, gid;
-		int mode;
+		__LA_MODE_T mode;
 
 		pax_attr_entry = archive_entry_new2(&a->archive);
 		p = entry_name.s;
@@ -1471,7 +1473,7 @@ archive_write_pax_header(struct archive_write *a,
 		if (r < ARCHIVE_WARN) {
 			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
 			    "archive_write_pax_header: "
-			    "'x' header failed?!  This can't happen.\n");
+			    "'x' header failed?!  This can't happen");
 			archive_entry_free(entry_main);
 			archive_string_free(&entry_name);
 			return (ARCHIVE_FATAL);
@@ -1571,7 +1573,7 @@ build_ustar_entry_name(char *dest, const char *src, size_t src_length,
 	const char *filename, *filename_end;
 	char *p;
 	int need_slash = 0; /* Was there a trailing slash? */
-	size_t suffix_length = 99;
+	size_t suffix_length = 98; /* 99 - 1 for trailing slash */
 	size_t insert_length;
 
 	/* Length of additional dir element to be added. */
@@ -1623,7 +1625,7 @@ build_ustar_entry_name(char *dest, const char *src, size_t src_length,
 	/* Step 2: Locate the "prefix" section of the dirname, including
 	 * trailing '/'. */
 	prefix = src;
-	prefix_end = prefix + 155;
+	prefix_end = prefix + 154 /* 155 - 1 for trailing / */;
 	if (prefix_end > filename)
 		prefix_end = filename;
 	while (prefix_end > prefix && *prefix_end != '/')
@@ -1934,17 +1936,17 @@ url_encode(const char *in)
 
 	for (s = in; *s != '\0'; s++) {
 		if (*s < 33 || *s > 126 || *s == '%' || *s == '=') {
-			if (SIZE_MAX - out_len < 4)
+			if (archive_ckd_add_size(&out_len, out_len, 3))
 				return (NULL);
-			out_len += 3;
 		} else {
-			if (SIZE_MAX - out_len < 2)
+			if (archive_ckd_add_size(&out_len, out_len, 1))
 				return (NULL);
-			out_len++;
 		}
 	}
 
-	out = malloc(out_len + 1);
+	if (archive_ckd_add_size(&out_len, out_len, 1))
+		return (NULL);
+	out = malloc(out_len);
 	if (out == NULL)
 		return (NULL);
 

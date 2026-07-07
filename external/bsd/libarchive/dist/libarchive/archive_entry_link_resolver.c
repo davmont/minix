@@ -78,7 +78,7 @@ struct links_entry {
 struct archive_entry_linkresolver {
 	struct links_entry	**buckets;
 	struct links_entry	 *spare;
-	unsigned long		  number_entries;
+	size_t			  number_entries;
 	size_t			  number_buckets;
 	int			  strategy;
 };
@@ -158,13 +158,12 @@ archive_entry_linkresolver_set_strategy(struct archive_entry_linkresolver *res,
 void
 archive_entry_linkresolver_free(struct archive_entry_linkresolver *res)
 {
-	struct links_entry *le;
-
 	if (res == NULL)
 		return;
 
-	while ((le = next_entry(res, NEXT_ENTRY_ALL)) != NULL)
-		archive_entry_free(le->entry);
+	while (next_entry(res, NEXT_ENTRY_ALL) != NULL) {
+		/* Actual freeing done by next_entry() */
+	}
 	free(res->buckets);
 	free(res);
 }
@@ -280,6 +279,10 @@ find_entry(struct archive_entry_linkresolver *res,
 	dev_t			 dev;
 	int64_t			 ino;
 
+	if (!archive_entry_ino_is_set(entry) || !archive_entry_dev_is_set(entry)) {
+		return (NULL);
+	}
+
 	/* Free a held entry. */
 	if (res->spare != NULL) {
 		archive_entry_free(res->spare->canonical);
@@ -369,11 +372,19 @@ insert_entry(struct archive_entry_linkresolver *res,
 	struct links_entry *le;
 	size_t hash, bucket;
 
+	if (!archive_entry_ino_is_set(entry) || !archive_entry_dev_is_set(entry)) {
+		return (NULL);
+	}
+
 	/* Add this entry to the links cache. */
 	le = calloc(1, sizeof(struct links_entry));
 	if (le == NULL)
 		return (NULL);
 	le->canonical = archive_entry_clone(entry);
+	if (le->canonical == NULL) {
+		free(le);
+		return (NULL);
+	}
 
 	/* If the links cache is getting too full, enlarge the hash table. */
 	if (res->number_entries > res->number_buckets * 2)

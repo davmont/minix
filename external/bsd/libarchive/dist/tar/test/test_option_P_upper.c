@@ -55,7 +55,7 @@ DEFINE_TEST(test_extract_tar_absolute_paths)
 	UNLINK(temp_absolute_file_name);
 
 	// Extracting the archive without -P / --absolute-paths should strip leading drive letter or slash
-	r = systemf("%s -xf test.tar", testprog);
+	r = systemf("%s -xf test.tar 2>test.err", testprog);
 	assertEqualInt(r, 0);
 	assertFileNotExists(temp_absolute_file_name);
 
@@ -79,4 +79,5 @@ DEFINE_TEST(test_extract_tar_absolute_paths)
 #else
 	assertFileNotExists(temp_absolute_file_name + 1); // Skip the slash.
 #endif
+	free(temp_absolute_file_name);
 }

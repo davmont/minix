@@ -35,8 +35,8 @@
 #include <string.h>
 #include <time.h>
 
-#define __LIBARCHIVE_BUILD 1
-#include "archive_getdate.h"
+#include "archive.h"
+#include "archive_integer.h"
 
 /* Basic time units. */
 #define	EPOCH		1970
@@ -50,7 +50,7 @@ enum DSTMODE { DSTon, DSToff, DSTmaybe };
 enum { tAM, tPM };
 /* Token types returned by nexttoken() */
 enum { tAGO = 260, tDAY, tDAYZONE, tAMPM, tMONTH, tMONTH_UNIT, tSEC_UNIT,
-       tUNUMBER, tZONE, tDST };
+       tUNUMBER, tZONE, tDST, tERROR };
 struct token { int token; time_t value; };
 
 /*
@@ -704,9 +704,7 @@ Convert(time_t Month, time_t Day, time_t Year,
 		Year += 1900;
 	DaysInMonth[1] = Year % 4 == 0 && (Year % 100 != 0 || Year % 400 == 0)
 	    ? 29 : 28;
-	/* Checking for 2038 bogusly assumes that time_t is 32 bits.  But
-	   I'm too lazy to try to check for time_t overflow in another way.  */
-	if (Year < EPOCH || Year >= 2038
+	if (Year < EPOCH || (sizeof(time_t) <= 4 && Year >= 2038)
 	    || Month < 1 || Month > 12
 	    /* Lint fluff:  "conversion from long may lose accuracy" */
 	    || Day < 1 || Day > DaysInMonth[(int)--Month]
@@ -821,6 +819,36 @@ RelativeMonth(time_t Start, time_t Timezone, time_t RelMonth)
 }
 
 /*
+ * Parses and consumes an unsigned 64-bit number.
+ * Returns UINT64_MAX if the number overflows.
+ */
+static uint64_t
+consume_unsigned_number(const char **in) {
+	uint64_t value = 0;
+	unsigned char c;
+
+	/* Get the first character, abort if it's not a digit */
+	c = (unsigned char)(**in);
+	if (c < '0' || c > '9') {
+		return UINT64_MAX;
+	}
+
+	/* Fold digits into the value, abort on overflow */
+	while (c >= '0' && c <= '9') {
+		unsigned char digit = c - '0';
+
+		/* Return error if the result would overflow UINT64_MAX */
+		if (archive_ckd_mul_u64(&value, value, 10) ||
+		    archive_ckd_add_u64(&value, value, digit)) {
+			return UINT64_MAX;
+		}
+		(*in)++;
+		c = (unsigned char)(**in);
+	}
+	return value;
+}
+
+/*
  * Tokenizer.
  */
 static int
@@ -861,7 +889,8 @@ nexttoken(const char **in, time_t *value)
 			    && i < sizeof(buff)-1) {
 				if (*src != '.') {
 					if (isupper((unsigned char)*src))
-						buff[i++] = tolower((unsigned char)*src);
+						buff[i++] = (char)tolower(
+						    (unsigned char)*src);
 					else
 						buff[i++] = *src;
 				}
@@ -891,15 +920,19 @@ nexttoken(const char **in, time_t *value)
 		}
 
 		/*
-		 * Not in the word table, maybe it's a number.  Note:
-		 * Because '-' and '+' have other special meanings, I
-		 * don't deal with signed numbers here.
+		 * Not in the word table. If it starts with a digit,
+		 * it must be a number. Note: Because '-' and '+' have
+		 * other special meanings, I don't deal with signed
+		 * numbers here.
 		 */
-		if (isdigit((unsigned char)(c = **in))) {
-			for (*value = 0; isdigit((unsigned char)(c = *(*in)++)); )
-				*value = 10 * *value + c - '0';
-			(*in)--;
-			return (tUNUMBER);
+		if (isdigit((unsigned char)(**in))) {
+			uint64_t val = consume_unsigned_number(in);
+			if (val > 9999) {
+				return (tERROR);
+			} else {
+				*value = val;
+				return (tUNUMBER);
+			}
 		}
 
 		return *(*in)++;
@@ -914,7 +947,7 @@ difftm (struct tm *a, struct tm *b)
 {
 	int ay = a->tm_year + (TM_YEAR_ORIGIN - 1);
 	int by = b->tm_year + (TM_YEAR_ORIGIN - 1);
-	int days = (
+	long days = (
 		/* difference in day of year */
 		a->tm_yday - b->tm_yday
 		/* + intervening leap days */
@@ -930,13 +963,46 @@ difftm (struct tm *a, struct tm *b)
 }
 
 /*
+ * Parses a Unix epoch timestamp (seconds).
+ * This supports a subset of what GNU tar accepts from black box testing,
+ * but covers common use cases.
+ */
+static time_t
+parse_unix_epoch(const char *p)
+{
+	uint64_t val;
+	time_t epoch;
+
+	/* may begin with + */
+	if (*p == '+') {
+		p++;
+	}
+
+	/* followed by some number */
+	val = consume_unsigned_number(&p);
+	/* Truncate to time_t */
+	epoch = (time_t)val;
+	/* If truncated value is different, then
+	 * the value is too large for `time_t`. */
+	if (epoch < 0 || (uint64_t)epoch != val) {
+		return (time_t)-1;
+	}
+	/* If there's any more characters, fail. */
+	if (*p != '\0') {
+		return (time_t)-1;
+	}
+
+	return epoch;
+}
+
+/*
  *
  * The public function.
  *
  * TODO: tokens[] array should be dynamically sized.
  */
 time_t
-__archive_get_date(time_t now, const char *p)
+archive_parse_date(time_t now, const char *p)
 {
 	struct token	tokens[256];
 	struct gdstate	_gds;
@@ -947,6 +1013,13 @@ __archive_get_date(time_t now, const char *p)
 	time_t		Start;
 	time_t		tod;
 	long		tzone;
+
+	/*
+	 * @-prefixed Unix epoch timestamps (seconds)
+	 * Skip the complex tokenizer - We do not want to accept strings like "@tenth"
+	 */
+	if (*p == '@')
+		return parse_unix_epoch(p + 1);
 
 	/* Clear out the parsed token array. */
 	memset(tokens, 0, sizeof(tokens));

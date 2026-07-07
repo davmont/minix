@@ -41,6 +41,7 @@
 #include "archive_entry.h"
 #include "archive_private.h"
 #include "archive_read_disk_private.h"
+#include "archive_time_private.h"
 
 #ifndef O_BINARY
 #define O_BINARY	0
@@ -49,8 +50,10 @@
 /* Old SDKs do not provide IO_REPARSE_TAG_SYMLINK */
 #define	IO_REPARSE_TAG_SYMLINK 0xA000000CL
 #endif
-/* To deal with absolute symlink isuues */
+/* To deal with absolute symlink issues */
 #define START_ABSOLUTE_SYMLINK_REPARSE L"\\??\\"
+
+#define MAX_FILESYSTEM_ID 1000000
 
 /*-
  * This is a new directory-walking system that addresses a number
@@ -355,6 +358,8 @@ la_linkname_from_handle(HANDLE h, wchar_t **linkname, int *linktype)
 	}
 
 	indata = malloc(MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
+	if (indata == NULL)
+		return (-1);
 	ret = DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, indata,
 	    1024, &inbytes, NULL);
 	if (ret == 0) {
@@ -602,7 +607,7 @@ _archive_read_close(struct archive *_a)
 
 static void
 setup_symlink_mode(struct archive_read_disk *a, char symlink_mode, 
-    int follow_symlinks)
+    char follow_symlinks)
 {
 	a->symlink_mode = symlink_mode;
 	a->follow_symlinks = follow_symlinks;
@@ -943,8 +948,8 @@ next_entry(struct archive_read_disk *a, struct tree *t,
 	if (a->matching) {
 		r = archive_match_path_excluded(a->matching, entry);
 		if (r < 0) {
-			archive_set_error(&(a->archive), errno,
-			    "Failed : %s", archive_error_string(a->matching));
+			archive_set_error(&(a->archive), archive_errno(a->matching),
+			    "%s", archive_error_string(a->matching));
 			return (r);
 		}
 		if (r) {
@@ -1015,8 +1020,8 @@ next_entry(struct archive_read_disk *a, struct tree *t,
 	if (a->matching) {
 		r = archive_match_time_excluded(a->matching, entry);
 		if (r < 0) {
-			archive_set_error(&(a->archive), errno,
-			    "Failed : %s", archive_error_string(a->matching));
+			archive_set_error(&(a->archive), archive_errno(a->matching),
+			    "%s", archive_error_string(a->matching));
 			return (r);
 		}
 		if (r) {
@@ -1041,8 +1046,8 @@ next_entry(struct archive_read_disk *a, struct tree *t,
 	if (a->matching) {
 		r = archive_match_owner_excluded(a->matching, entry);
 		if (r < 0) {
-			archive_set_error(&(a->archive), errno,
-			    "Failed : %s", archive_error_string(a->matching));
+			archive_set_error(&(a->archive), archive_errno(a->matching),
+			    "%s", archive_error_string(a->matching));
 			return (r);
 		}
 		if (r) {
@@ -1447,22 +1452,27 @@ update_current_filesystem(struct archive_read_disk *a, int64_t dev)
 	/*
 	 * There is a new filesystem, we generate a new ID for.
 	 */
-	fid = t->max_filesystem_id++;
-	if (t->max_filesystem_id > t->allocated_filesystem) {
-		size_t s;
+	fid = t->max_filesystem_id;
+	if (fid >= MAX_FILESYSTEM_ID) {
+		archive_set_error(&a->archive, ENOMEM, "Too many filesystems");
+		return (ARCHIVE_FATAL);
+	}
+	if (fid + 1 > t->allocated_filesystem) {
+		int s;
 		void *p;
 
-		s = t->max_filesystem_id * 2;
+		s = (fid + 1) * 2;
 		p = realloc(t->filesystem_table,
-			s * sizeof(*t->filesystem_table));
+		    s * sizeof(*t->filesystem_table));
 		if (p == NULL) {
 			archive_set_error(&a->archive, ENOMEM,
 			    "Can't allocate tar data");
 			return (ARCHIVE_FATAL);
 		}
 		t->filesystem_table = (struct filesystem *)p;
-		t->allocated_filesystem = (int)s;
+		t->allocated_filesystem = s;
 	}
+	t->max_filesystem_id = fid + 1;
 	t->current_filesystem_id = fid;
 	t->current_filesystem = &(t->filesystem_table[fid]);
 	t->current_filesystem->dev = dev;
@@ -1625,6 +1635,8 @@ tree_push(struct tree *t, const wchar_t *path, const wchar_t *full_path,
 	struct tree_entry *te;
 
 	te = calloc(1, sizeof(*te));
+	if (te == NULL)
+		return;
 	te->next = t->stack;
 	te->parent = t->current;
 	if (te->parent)
@@ -1651,7 +1663,7 @@ tree_push(struct tree *t, const wchar_t *path, const wchar_t *full_path,
 /*
  * Append a name to the current dir path.
  */
-static void
+static int
 tree_append(struct tree *t, const wchar_t *name, size_t name_length)
 {
 	size_t size_needed;
@@ -1664,7 +1676,8 @@ tree_append(struct tree *t, const wchar_t *name, size_t name_length)
 
 	/* Resize pathname buffer as needed. */
 	size_needed = name_length + t->dirname_length + 2;
-	archive_wstring_ensure(&t->path, size_needed);
+	if (archive_wstring_ensure(&t->path, size_needed) == NULL)
+		return (TREE_ERROR_FATAL);
 	/* Add a separating '/' if it's needed. */
 	if (t->dirname_length > 0 &&
 	    t->path.s[archive_strlen(&t->path)-1] != L'/')
@@ -1676,13 +1689,15 @@ tree_append(struct tree *t, const wchar_t *name, size_t name_length)
 		t->full_path.s[t->full_path_dir_length] = L'\0';
 		t->full_path.length = t->full_path_dir_length;
 		size_needed = name_length + t->full_path_dir_length + 2;
-		archive_wstring_ensure(&t->full_path, size_needed);
+		if (archive_wstring_ensure(&t->full_path, size_needed) == NULL)
+			return (TREE_ERROR_FATAL);
 		/* Add a separating '\' if it's needed. */
 		if (t->full_path.s[archive_strlen(&t->full_path)-1] != L'\\')
 			archive_wstrappend_wchar(&t->full_path, L'\\');
 		archive_wstrncat(&t->full_path, name, name_length);
 		t->restore_time.full_path = t->full_path.s;
 	}
+	return (0);
 }
 
 /*
@@ -1694,9 +1709,14 @@ tree_open(const wchar_t *path, int symlink_mode, int restore_time)
 	struct tree *t;
 
 	t = calloc(1, sizeof(*t));
+	if (t == NULL)
+		return (NULL);
 	archive_string_init(&(t->full_path));
 	archive_string_init(&t->path);
-	archive_wstring_ensure(&t->path, 15);
+	if (archive_wstring_ensure(&t->path, 15) == NULL) {
+		free(t);
+		return (NULL);
+	}
 	t->initial_symlink_mode = symlink_mode;
 	return (tree_reopen(t, path, restore_time));
 }
@@ -1755,7 +1775,8 @@ tree_reopen(struct tree *t, const wchar_t *path, int restore_time)
 		p = wcsrchr(base, L'/');
 		if (p != NULL) {
 			*p = L'\0';
-			tree_append(t, base, p - base);
+			if (tree_append(t, base, p - base))
+				goto failed;
 			t->dirname_length = archive_strlen(&t->path);
 			base = p + 1;
 		}
@@ -1891,8 +1912,10 @@ tree_next(struct tree *t)
 			}
 			/* Top stack item needs a regular visit. */
 			t->current = t->stack;
-			tree_append(t, t->stack->name.s,
+			r = tree_append(t, t->stack->name.s,
 			    archive_strlen(&(t->stack->name)));
+			if (r != 0)
+				return (r);
 			//t->dirname_length = t->path_length;
 			//tree_pop(t);
 			t->stack->flags &= ~needsFirstVisit;
@@ -1900,8 +1923,10 @@ tree_next(struct tree *t)
 		} else if (t->stack->flags & needsDescent) {
 			/* Top stack item is dir to descend into. */
 			t->current = t->stack;
-			tree_append(t, t->stack->name.s,
+			r = tree_append(t, t->stack->name.s,
 			    archive_strlen(&(t->stack->name)));
+			if (r != 0)
+				return (r);
 			t->stack->flags &= ~needsDescent;
 			r = tree_descent(t);
 			if (r != 0) {
@@ -1944,9 +1969,10 @@ tree_dir_next_windows(struct tree *t, const wchar_t *pattern)
 			struct archive_wstring pt;
 
 			archive_string_init(&pt);
-			archive_wstring_ensure(&pt,
+			if (archive_wstring_ensure(&pt,
 			    archive_strlen(&(t->full_path))
-			      + 2 + wcslen(pattern));
+			      + 2 + wcslen(pattern)) == NULL)
+				return (TREE_ERROR_FATAL);
 			archive_wstring_copy(&pt, &(t->full_path));
 			archive_wstrappend_wchar(&pt, L'\\');
 			archive_wstrcat(&pt, pattern);
@@ -1978,28 +2004,10 @@ tree_dir_next_windows(struct tree *t, const wchar_t *pattern)
 			continue;
 		if (name[0] == L'.' && name[1] == L'.' && name[2] == L'\0')
 			continue;
-		tree_append(t, name, namelen);
+		r = tree_append(t, name, namelen);
+		if (r != 0)
+			return (r);
 		return (t->visit_type = TREE_REGULAR);
-	}
-}
-
-#define EPOC_TIME ARCHIVE_LITERAL_ULL(116444736000000000)
-static void
-fileTimeToUtc(const FILETIME *filetime, time_t *t, long *ns)
-{
-	ULARGE_INTEGER utc;
-
-	utc.HighPart = filetime->dwHighDateTime;
-	utc.LowPart  = filetime->dwLowDateTime;
-	if (utc.QuadPart >= EPOC_TIME) {
-		utc.QuadPart -= EPOC_TIME;
-		/* milli seconds base */
-		*t = (time_t)(utc.QuadPart / 10000000);
-		/* nano seconds base */
-		*ns = (long)(utc.QuadPart % 10000000) * 100;
-	} else {
-		*t = 0;
-		*ns = 0;
 	}
 }
 
@@ -2008,15 +2016,15 @@ entry_copy_bhfi(struct archive_entry *entry, const wchar_t *path,
 	const WIN32_FIND_DATAW *findData,
 	const BY_HANDLE_FILE_INFORMATION *bhfi)
 {
-	time_t secs;
-	long nsecs;
+	int64_t secs;
+	uint32_t nsecs;
 	mode_t mode;
 
-	fileTimeToUtc(&bhfi->ftLastAccessTime, &secs, &nsecs);
+	ntfs_to_unix(FILETIME_to_ntfs(&bhfi->ftLastAccessTime), &secs, &nsecs);
 	archive_entry_set_atime(entry, secs, nsecs);
-	fileTimeToUtc(&bhfi->ftLastWriteTime, &secs, &nsecs);
+	ntfs_to_unix(FILETIME_to_ntfs(&bhfi->ftLastWriteTime), &secs, &nsecs);
 	archive_entry_set_mtime(entry, secs, nsecs);
-	fileTimeToUtc(&bhfi->ftCreationTime, &secs, &nsecs);
+	ntfs_to_unix(FILETIME_to_ntfs(&bhfi->ftCreationTime), &secs, &nsecs);
 	archive_entry_set_birthtime(entry, secs, nsecs);
 	archive_entry_set_ctime(entry, secs, nsecs);
 	archive_entry_set_dev(entry, bhfi_dev(bhfi));

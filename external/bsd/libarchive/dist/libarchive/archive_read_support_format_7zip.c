@@ -28,8 +28,14 @@
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
+#if HAVE_STDINT_H
+#include <stdint.h>
+#endif
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
 #endif
 #ifdef HAVE_BZLIB_H
 #include <bzlib.h>
@@ -50,6 +56,7 @@
 #include "archive_ppmd7_private.h"
 #include "archive_private.h"
 #include "archive_read_private.h"
+#include "archive_time_private.h"
 #include "archive_endian.h"
 
 #ifndef HAVE_ZLIB_H
@@ -59,7 +66,27 @@
 #define _7ZIP_SIGNATURE	"7z\xBC\xAF\x27\x1C"
 #define SFX_MIN_ADDR	0x27000
 #define SFX_MAX_ADDR	0x60000
+#define SFX_MAX_OFFSET	(SFX_MAX_ADDR - SFX_MIN_ADDR)
+#define SFX_MAX_SEEK	0x800000
 
+/*
+ * PE format
+ */
+#define PE_DOS_HDR_LEN				0x40
+#define PE_DOS_HDR_ELFANEW_OFFSET	0x3c
+#define PE_COFF_HDR_LEN				0x18
+#define PE_COFF_HDR_SEC_CNT_OFFSET	0x6
+#define PE_COFF_HDR_OPT_SZ_OFFSET	0x14
+#define PE_SEC_HDR_LEN 				0x28
+#define PE_SEC_HDR_RAW_ADDR_OFFSET	0x14
+#define PE_SEC_HDR_RAW_SZ_OFFSET	0x10
+
+/*
+ * ELF format
+ */
+#define ELF_HDR_MIN_LEN 0x40 /* sizeof(Elf64_Ehdr) */
+#define ELF_HDR_EI_CLASS_OFFSET 0x04
+#define ELF_HDR_EI_DATA_OFFSET 0x05
 
 /*
  * Codec ID
@@ -83,6 +110,7 @@
 #define _7Z_ARM		0x03030501
 #define _7Z_ARMTHUMB	0x03030701
 #define _7Z_ARM64	0xa
+#define _7Z_RISCV	0xb
 #define _7Z_SPARC	0x03030805
 
 #define _7Z_ZSTD	0x4F71101 /* Copied from https://github.com/mcmilk/7-Zip-zstd.git */
@@ -144,11 +172,10 @@ struct _7z_digests {
 	uint32_t	*digests;
 };
 
-
 struct _7z_folder {
 	uint64_t		 numCoders;
 	struct _7z_coder {
-		unsigned long	 codec;
+		uint64_t	 codec;
 		uint64_t	 numInStreams;
 		uint64_t	 numOutStreams;
 		uint64_t	 propertiesSize;
@@ -224,13 +251,13 @@ struct _7zip_entry {
 #define CRC32_IS_SET	(1<<3)
 #define HAS_STREAM	(1<<4)
 
-	time_t			 mtime;
-	time_t			 atime;
-	time_t			 ctime;
-	long			 mtime_ns;
-	long			 atime_ns;
-	long			 ctime_ns;
-	uint32_t		 mode;
+	int64_t			 mtime;
+	int64_t			 atime;
+	int64_t			 ctime;
+	uint32_t		 mtime_ns;
+	uint32_t		 atime_ns;
+	uint32_t		 ctime_ns;
+	__LA_MODE_T		 mode;
 	uint32_t		 attr;
 };
 
@@ -308,7 +335,7 @@ struct _7zip {
 	int			 stream_valid;
 #endif
 	/* Decoding Zstandard data. */
-#if HAVE_ZSTD_H
+#if HAVE_ZSTD_H && HAVE_LIBZSTD
 	ZSTD_DStream		 *zstd_dstream;
 	int		         zstdstream_valid;
 #endif
@@ -319,12 +346,10 @@ struct _7zip {
 	IByteIn			 bytein;
 	struct {
 		const unsigned char	*next_in;
-		int64_t			 avail_in;
-		int64_t			 total_in;
-		int64_t			 stream_in;
+		size_t			 avail_in;
+		size_t			 stream_in;
 		unsigned char		*next_out;
-		int64_t			 avail_out;
-		int64_t			 total_out;
+		size_t			 avail_out;
 		int			 overconsumed;
 	} ppstream;
 	int			 ppmd7_valid;
@@ -372,6 +397,27 @@ struct _7zip {
  * the files. */
 #define UMAX_ENTRY	ARCHIVE_LITERAL_ULL(100000000)
 
+/*
+ * Files without unpack streams must be described by the EmptyStream bitmap,
+ * which consumes one bit for every file entry in FilesInfo.
+ */
+static int
+files_info_numfiles_is_sane(const struct _7zip *zip)
+{
+	uint64_t empty_stream_map_bytes;
+
+	if (zip->numFiles > UMAX_ENTRY)
+		return (0);
+	if (zip->numFiles > SIZE_MAX / sizeof(*zip->entries))
+		return (0);
+
+	if (zip->numFiles <= zip->si.ss.unpack_streams)
+		return (1);
+
+	empty_stream_map_bytes = (zip->numFiles + 7) / 8;
+	return (empty_stream_map_bytes <= zip->header_bytes_remaining);
+}
+
 static int	archive_read_format_7zip_has_encrypted_entries(struct archive_read *);
 static int	archive_read_support_format_7zip_capabilities(struct archive_read *a);
 static int	archive_read_format_7zip_bid(struct archive_read *, int);
@@ -381,14 +427,13 @@ static int	archive_read_format_7zip_read_data(struct archive_read *,
 static int	archive_read_format_7zip_read_data_skip(struct archive_read *);
 static int	archive_read_format_7zip_read_header(struct archive_read *,
 		    struct archive_entry *);
-static int	check_7zip_header_in_sfx(const char *);
-static unsigned long decode_codec_id(const unsigned char *, size_t);
+static int	check_7zip_header_in_sfx(const unsigned char *);
+static int	decode_codec_id(const unsigned char *, size_t, uint64_t *);
 static int	decode_encoded_header_info(struct archive_read *,
 		    struct _7z_stream_info *);
 static int	decompress(struct archive_read *, struct _7zip *,
 		    void *, size_t *, const void *, size_t *);
 static ssize_t	extract_pack_stream(struct archive_read *, size_t);
-static void	fileTimeToUtc(uint64_t, time_t *, long *);
 static uint64_t folder_uncompressed_size(struct _7z_folder *);
 static void	free_CodersInfo(struct _7z_coders_info *);
 static void	free_Digest(struct _7z_digests *);
@@ -424,7 +469,9 @@ static ssize_t	read_stream(struct archive_read *, const void **, size_t,
 		    size_t);
 static int	seek_pack(struct archive_read *);
 static int64_t	skip_stream(struct archive_read *, size_t);
-static int	skip_sfx(struct archive_read *, ssize_t);
+static int	get_data_offset(struct archive_read *, int64_t *, int);
+static int	get_pe_sfx_offset(struct archive_read *, int64_t *);
+static int	get_elf_sfx_offset(struct archive_read *, int64_t *, int);
 static int	slurp_central_directory(struct archive_read *, struct _7zip *,
 		    struct _7z_header_info *);
 static int	setup_decode_folder(struct archive_read *, struct _7z_folder *,
@@ -435,6 +482,9 @@ static void	arm_Init(struct _7zip *);
 static size_t	arm_Convert(struct _7zip *, uint8_t *, size_t);
 static size_t	arm64_Convert(struct _7zip *, uint8_t *, size_t);
 static ssize_t		Bcj2_Decode(struct _7zip *, uint8_t *, size_t);
+static size_t	sparc_Convert(struct _7zip *, uint8_t *, size_t);
+static size_t	powerpc_Convert(struct _7zip *, uint8_t *, size_t);
+static int64_t	seek_compat(struct archive_read *, int64_t, int, int);
 
 
 int
@@ -501,62 +551,92 @@ archive_read_format_7zip_has_encrypted_entries(struct archive_read *_a)
 }
 
 static int
+get_data_offset(struct archive_read *a, int64_t *data_offset, int compat)
+{
+	const unsigned char *p;
+	int64_t offset, sfx_offset;
+	int r, window;
+
+	if ((p = __archive_read_ahead(a, 6, NULL)) == NULL) {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+		    "Truncated 7-Zip file body");
+		return (ARCHIVE_FATAL);
+	}
+
+	/* If first six bytes are the 7-Zip signature,
+	 * return the offset right now. */
+	if (memcmp(p, _7ZIP_SIGNATURE, 6) == 0) {
+		*data_offset = 0;
+		return (ARCHIVE_OK);
+	}
+
+	/*
+	 * It may be a 7-Zip SFX archive file. If first two bytes are
+	 * 'M' and 'Z' (PE, Windows) or first four bytes are
+	 * "\x7F\x45LF" (ELF, Posix-like systems), seek the 7-Zip
+	 * signature. While get_pe_sfx_offset can be performed without
+	 * performing a seek, get_elf_sfx_offset requires one,
+	 * thus a performance difference between the two is expected. 
+	 */
+	if ((p[0] == 'M' && p[1] == 'Z'))
+		r = get_pe_sfx_offset(a, &sfx_offset);
+	else if (memcmp(p, "\x7F\x45LF", 4) == 0)
+		r = get_elf_sfx_offset(a, &sfx_offset, compat);
+	else
+		r = ARCHIVE_FATAL;
+	if (r < ARCHIVE_WARN || sfx_offset > SFX_MAX_SEEK)
+		goto fail;
+
+	offset = sfx_offset;
+	window = 4096;
+	while (offset + window <= (sfx_offset + SFX_MAX_OFFSET)) {
+		ssize_t bytes_avail;
+		const unsigned char *buff = __archive_read_ahead(a,
+				offset + window, &bytes_avail);
+		if (buff == NULL) {
+			/* Remaining bytes are less than window. */
+			window >>= 1;
+			if (window < 0x40)
+				goto fail;
+			continue;
+		}
+		p = buff + offset;
+		while (p + 32 < buff + bytes_avail) {
+			int step = check_7zip_header_in_sfx(p);
+			if (step == 0) {
+				*data_offset = p - buff;
+				return (ARCHIVE_OK);
+			}
+			p += step;
+		}
+		offset = p - buff;
+	}
+fail:
+	archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+	    "Couldn't find out 7-Zip header");
+	return (ARCHIVE_FATAL);
+}
+
+static int
 archive_read_format_7zip_bid(struct archive_read *a, int best_bid)
 {
-	const char *p;
+	int64_t data_offset;
 
 	/* If someone has already bid more than 32, then avoid
 	   trashing the look-ahead buffers with a seek. */
 	if (best_bid > 32)
 		return (-1);
 
-	if ((p = __archive_read_ahead(a, 6, NULL)) == NULL)
+	if (get_data_offset(a, &data_offset, 0) < 0)
 		return (0);
 
-	/* If first six bytes are the 7-Zip signature,
-	 * return the bid right now. */
-	if (memcmp(p, _7ZIP_SIGNATURE, 6) == 0)
-		return (48);
-
-	/*
-	 * It may a 7-Zip SFX archive file. If first two bytes are
-	 * 'M' and 'Z' available on Windows or first four bytes are
-	 * "\x7F\x45LF" available on posix like system, seek the 7-Zip
-	 * signature. Although we will perform a seek when reading
-	 * a header, what we do not use __archive_read_seek() here is
-	 * due to a bidding performance.
-	 */
-	if ((p[0] == 'M' && p[1] == 'Z') || memcmp(p, "\x7F\x45LF", 4) == 0) {
-		ssize_t offset = SFX_MIN_ADDR;
-		ssize_t window = 4096;
-		ssize_t bytes_avail;
-		while (offset + window <= (SFX_MAX_ADDR)) {
-			const char *buff = __archive_read_ahead(a,
-					offset + window, &bytes_avail);
-			if (buff == NULL) {
-				/* Remaining bytes are less than window. */
-				window >>= 1;
-				if (window < 0x40)
-					return (0);
-				continue;
-			}
-			p = buff + offset;
-			while (p + 32 < buff + bytes_avail) {
-				int step = check_7zip_header_in_sfx(p);
-				if (step == 0)
-					return (48);
-				p += step;
-			}
-			offset = p - buff;
-		}
-	}
-	return (0);
+	return (48);
 }
 
 static int
-check_7zip_header_in_sfx(const char *p)
+check_7zip_header_in_sfx(const unsigned char *p)
 {
-	switch ((unsigned char)p[5]) {
+	switch (p[5]) {
 	case 0x1C:
 		if (memcmp(p, _7ZIP_SIGNATURE, 6) != 0)
 			return (6);
@@ -565,8 +645,7 @@ check_7zip_header_in_sfx(const char *p)
 		 * Magic Code, so we should do this in order not to
 		 * make a mis-detection.
 		 */
-		if (crc32(0, (const unsigned char *)p + 12, 20)
-			!= archive_le32dec(p + 8))
+		if (crc32(0, p + 12, 20) != archive_le32dec(p + 8))
 			return (6);
 		/* Hit the header! */
 		return (0);
@@ -580,68 +659,257 @@ check_7zip_header_in_sfx(const char *p)
 }
 
 static int
-skip_sfx(struct archive_read *a, ssize_t bytes_avail)
+get_pe_sfx_offset(struct archive_read *a, int64_t *sfx_offset)
 {
-	const void *h;
-	const char *p, *q;
-	size_t skip, offset;
-	ssize_t bytes, window;
+	const char *h;
+	int64_t max_offset, offset;
+	ssize_t bytes;
+	uint16_t opt_hdr_sz, sec_cnt;
 
 	/*
-	 * If bytes_avail > SFX_MIN_ADDR we do not have to call
-	 * __archive_read_seek() at this time since we have
-	 * already had enough data.
+	 * If encounter any weirdness, revert to old brute-force style search
 	 */
-	if (bytes_avail > SFX_MIN_ADDR)
-		__archive_read_consume(a, SFX_MIN_ADDR);
-	else if (__archive_read_seek(a, SFX_MIN_ADDR, SEEK_SET) < 0)
-		return (ARCHIVE_FATAL);
+	*sfx_offset = SFX_MIN_ADDR;
 
-	offset = 0;
-	window = 1;
-	while (offset + window <= SFX_MAX_ADDR - SFX_MIN_ADDR) {
-		h = __archive_read_ahead(a, window, &bytes);
+	for (;;) {
+		/*
+		 * Read Dos header to find e_lfanew
+		 */
+		h = __archive_read_ahead(a, PE_DOS_HDR_LEN, &bytes);
 		if (h == NULL) {
-			/* Remaining bytes are less than window. */
-			window >>= 1;
-			if (window < 0x40)
-				goto fatal;
-			continue;
+			return (ARCHIVE_FATAL);
 		}
-		if (bytes < 6) {
-			/* This case might happen when window == 1. */
-			window = 4096;
-			continue;
+		if (h[0] != 'M' || h[1] != 'Z') {
+			break;
 		}
-		p = (const char *)h;
-		q = p + bytes;
+		offset = archive_le32dec(h + PE_DOS_HDR_ELFANEW_OFFSET);
+		if (offset > SFX_MAX_SEEK) {
+			return (ARCHIVE_FATAL);
+		}
 
 		/*
-		 * Scan ahead until we find something that looks
-		 * like the 7-Zip header.
+		 * Read COFF header to find opt header size and sec cnt
 		 */
-		while (p + 32 < q) {
-			int step = check_7zip_header_in_sfx(p);
-			if (step == 0) {
-				struct _7zip *zip =
-				    (struct _7zip *)a->format->data;
-				skip = p - (const char *)h;
-				__archive_read_consume(a, skip);
-				zip->seek_base = SFX_MIN_ADDR + offset + skip;
-				return (ARCHIVE_OK);
+		if (bytes < offset + PE_COFF_HDR_LEN) {
+			h = __archive_read_ahead(a, offset + PE_COFF_HDR_LEN,
+			    &bytes);
+			if (h == NULL) {
+				return (ARCHIVE_FATAL);
 			}
-			p += step;
+			if (h[offset] != 'P' || h[offset + 1] != 'E') {
+				break;
+			}
 		}
-		skip = p - (const char *)h;
-		__archive_read_consume(a, skip);
-		offset += skip;
-		if (window == 1)
-			window = 4096;
+		sec_cnt = archive_le16dec(
+		    h + offset + PE_COFF_HDR_SEC_CNT_OFFSET);
+		opt_hdr_sz = archive_le16dec(
+		    h + offset + PE_COFF_HDR_OPT_SZ_OFFSET);
+
+		/*
+		 * Skip optional header
+		 */
+		if (opt_hdr_sz != 0) {
+			offset += PE_COFF_HDR_LEN + opt_hdr_sz;
+		} else {
+			break;
+		}
+
+		if (offset + sec_cnt * PE_SEC_HDR_LEN > SFX_MAX_SEEK) {
+			return (ARCHIVE_FATAL);
+		}
+
+		/*
+		 * Traverse sec table to find max raw offset (i.e., overlay)
+		 */
+		if (bytes < offset + sec_cnt * PE_SEC_HDR_LEN) {
+			h = __archive_read_ahead(a,
+			    offset + sec_cnt * PE_SEC_HDR_LEN, NULL);
+			if (h == NULL) {
+				return (ARCHIVE_FATAL);
+			}
+		}
+		max_offset = offset;
+		while (sec_cnt > 0) {
+			int64_t sec_end;
+
+			sec_end = (int64_t)archive_le32dec(
+				      h + offset + PE_SEC_HDR_RAW_SZ_OFFSET) +
+			    archive_le32dec(
+				h + offset + PE_SEC_HDR_RAW_ADDR_OFFSET);
+			if (sec_end > max_offset) {
+				max_offset = sec_end;
+			}
+			offset += PE_SEC_HDR_LEN;
+			sec_cnt--;
+		}
+		*sfx_offset = max_offset;
+		break;
 	}
-fatal:
-	archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
-	    "Couldn't find out 7-Zip header");
-	return (ARCHIVE_FATAL);
+
+	return (ARCHIVE_OK);
+}
+
+static int
+get_elf_sfx_offset(struct archive_read *a, int64_t *sfx_offset, int compat)
+{
+	int64_t r;
+	const char *h;
+	char big_endian, format_64;
+	size_t request;
+	uint64_t e_shoff, strtab_offset, strtab_size;
+	uint16_t e_shentsize, e_shnum, e_shstrndx;
+	uint16_t (*dec16)(const void *);
+	uint32_t (*dec32)(const void *);
+	uint64_t (*dec64)(const void *);
+
+	/*
+	 * If encounter any weirdness, revert to old brute-force style search
+	 */
+	*sfx_offset = SFX_MIN_ADDR;
+
+	for (;;) {
+		/*
+		 * Read Elf header to find bitness & endianness
+		 */
+		h = __archive_read_ahead(a, ELF_HDR_MIN_LEN, NULL);
+		if (h == NULL) {
+			return (ARCHIVE_FATAL);
+		}
+		if (memcmp(h, "\x7F\x45LF", 4) != 0) {
+			break;
+		}
+		format_64 = h[ELF_HDR_EI_CLASS_OFFSET] == 0x2;
+		big_endian = h[ELF_HDR_EI_DATA_OFFSET] == 0x2;
+		if (big_endian) {
+			dec16 = &archive_be16dec;
+			dec32 = &archive_be32dec;
+			dec64 = &archive_be64dec;
+		} else {
+			dec16 = &archive_le16dec;
+			dec32 = &archive_le32dec;
+			dec64 = &archive_le64dec;
+		}
+
+		/*
+		 * Read section header table info
+		 */
+		if (format_64) {
+			e_shoff = (*dec64)(h + 0x28);
+			e_shentsize = (*dec16)(h + 0x3A);
+			e_shnum = (*dec16)(h + 0x3C);
+			e_shstrndx = (*dec16)(h + 0x3E);
+			if (e_shnum < e_shstrndx || e_shentsize < 0x28)
+				break;
+
+		} else {
+			e_shoff = (*dec32)(h + 0x20);
+			e_shentsize = (*dec16)(h + 0x2E);
+			e_shnum = (*dec16)(h + 0x30);
+			e_shstrndx = (*dec16)(h + 0x32);
+			if (e_shnum < e_shstrndx || e_shentsize < 0x18)
+				break;
+		}
+
+		if ((int64_t)e_shoff < 0) {
+			return (ARCHIVE_FATAL);
+		}
+
+		/*
+		 * Reading the section table to find strtab section
+		 */
+		if (seek_compat(a, e_shoff, SEEK_SET, compat) < 0) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
+			return (ARCHIVE_FATAL);
+		}
+		if (format_64) {
+			request = (size_t)e_shnum * e_shentsize + 0x28;
+		} else {
+			request = (size_t)e_shnum * e_shentsize + 0x18;
+		}
+		if (request > SFX_MAX_SEEK) {
+			return (ARCHIVE_FATAL);
+		}
+		h = __archive_read_ahead(a, request, NULL);
+		if (h == NULL) {
+			return (ARCHIVE_FATAL);
+		}
+		if (format_64) {
+			strtab_offset = (*dec64)(
+			    h + e_shstrndx * e_shentsize + 0x18);
+			strtab_size = (*dec64)(
+			    h + e_shstrndx * e_shentsize + 0x20);
+		} else {
+			strtab_offset = (*dec32)(
+			    h + e_shstrndx * e_shentsize + 0x10);
+			strtab_size = (*dec32)(
+			    h + e_shstrndx * e_shentsize + 0x14);
+		}
+		if ((int64_t)strtab_offset < 0 || strtab_size < 6 ||
+		    strtab_size > SFX_MAX_SEEK)
+			return (ARCHIVE_FATAL);
+
+		/*
+		 * Read the STRTAB section to find the .data offset
+		 */
+		if (seek_compat(a, strtab_offset, SEEK_SET, compat) < 0) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
+			return (ARCHIVE_FATAL);
+		}
+		h = __archive_read_ahead(a, strtab_size, NULL);
+		if (h == NULL) {
+			return (ARCHIVE_FATAL);
+		}
+		size_t data_sym_offset = strtab_size;
+		for (size_t offset = 0; offset < strtab_size - 6; offset++) {
+			if (memcmp(h + offset, ".data\00", 6) == 0) {
+				data_sym_offset = offset;
+				break;
+			}
+		}
+		if (data_sym_offset == strtab_size) {
+			break;
+		}
+
+		/*
+		 * Find the section with the .data name
+		 */
+		if (seek_compat(a, e_shoff, SEEK_SET, compat) < 0) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
+			return (ARCHIVE_FATAL);
+		}
+		h = __archive_read_ahead(a, (size_t)e_shnum * e_shentsize, NULL);
+		if (h == NULL) {
+			return (ARCHIVE_FATAL);
+		}
+		size_t sec_tbl_offset = 0;
+		while (e_shnum > 0) {
+			uint32_t name_offset;
+
+			name_offset = (*dec32)(h + sec_tbl_offset);
+			if (name_offset == data_sym_offset) {
+				int64_t sel_offset;
+
+				if (format_64) {
+					sel_offset = (*dec64)(
+					    h + sec_tbl_offset + 0x18);
+				} else {
+					sel_offset = (*dec32)(
+					    h + sec_tbl_offset + 0x10);
+				}
+				if (sel_offset >= 0)
+					*sfx_offset = sel_offset;
+				break;
+			}
+			sec_tbl_offset += e_shentsize;
+			e_shnum--;
+		}
+		break;
+	}
+
+	r = seek_compat(a, 0, SEEK_SET, compat);
+	if (r < 0)
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
+	return (int)r;
 }
 
 static int
@@ -737,7 +1005,7 @@ archive_read_format_7zip_read_header(struct archive_read *a,
 		archive_set_error(&a->archive,
 		    ARCHIVE_ERRNO_FILE_FORMAT,
 		    "Pathname cannot be converted "
-		    "from %s to current locale.",
+		    "from %s to current locale",
 		    archive_string_conversion_charset_name(zip->sconv));
 		ret = ARCHIVE_WARN;
 	}
@@ -766,29 +1034,19 @@ archive_read_format_7zip_read_header(struct archive_read *a,
 	const int supported_attrs = FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
 
 	if (zip_entry->attr & supported_attrs) {
-		char *fflags_text, *ptr;
-		/* allocate for ",rdonly,hidden,system" */
-		fflags_text = malloc(22 * sizeof(*fflags_text));
-		if (fflags_text != NULL) {
-			ptr = fflags_text; 
-			if (zip_entry->attr & FILE_ATTRIBUTE_READONLY) {
-				strcpy(ptr, ",rdonly");
-				ptr = ptr + 7;
-			}
-			if (zip_entry->attr & FILE_ATTRIBUTE_HIDDEN) {
-				strcpy(ptr, ",hidden");
-				ptr = ptr + 7;
-			}
-			if (zip_entry->attr & FILE_ATTRIBUTE_SYSTEM) {
-				strcpy(ptr, ",system");
-				ptr = ptr + 7;
-			}
-			if (ptr > fflags_text) {
-				archive_entry_copy_fflags_text(entry,
-				    fflags_text + 1);
-			}
-			free(fflags_text);
-		}
+		char buf[sizeof(",rdonly,hidden,system")];
+		char *fflags[3] = { "", "", "" };
+		char **flag = fflags;
+
+		if (zip_entry->attr & FILE_ATTRIBUTE_READONLY)
+			*flag++ = ",rdonly";
+		if (zip_entry->attr & FILE_ATTRIBUTE_HIDDEN)
+			*flag++ = ",hidden";
+		if (zip_entry->attr & FILE_ATTRIBUTE_SYSTEM)
+			*flag++ = ",system";
+
+		snprintf(buf, sizeof(buf), "%s%s%s", fflags[0], fflags[1], fflags[2]);
+		archive_entry_copy_fflags_text(entry, buf + 1);
 	}
 
 	/* If there's no body, force read_data() to return EOF immediately. */
@@ -798,6 +1056,13 @@ archive_read_format_7zip_read_header(struct archive_read *a,
 	if ((zip_entry->mode & AE_IFMT) == AE_IFLNK) {
 		unsigned char *symname = NULL;
 		size_t symsize = 0;
+
+		if (zip->entry_bytes_remaining > 1024 * 1024) {
+			archive_set_error(&a->archive, ENOMEM,
+			    "Rejecting malformed 7zip archive: "
+			    "symlink contents exceed 1 megabyte");
+			return (ARCHIVE_FATAL);
+		}
 
 		/*
 		 * Symbolic-name is recorded as its contents. We have to
@@ -951,7 +1216,7 @@ archive_read_format_7zip_read_data_skip(struct archive_read *a)
 	 */
 	bytes_skipped = skip_stream(a, (size_t)zip->entry_bytes_remaining);
 	if (bytes_skipped < 0)
-		return (ARCHIVE_FATAL);
+		return ((int)bytes_skipped);
 	zip->entry_bytes_remaining = 0;
 
 	/* This entry is finished and done. */
@@ -1043,17 +1308,20 @@ set_error(struct archive_read *a, int ret)
 
 #endif
 
-static unsigned long
-decode_codec_id(const unsigned char *codecId, size_t id_size)
+static int
+decode_codec_id(const unsigned char *codecId, size_t id_size, uint64_t *id)
 {
 	unsigned i;
-	unsigned long id = 0;
+	uint64_t v = 0;
 
 	for (i = 0; i < id_size; i++) {
-		id <<= 8;
-		id += codecId[i];
+		if (v > (uint64_t)INT64_MAX / 256)
+			return (-1);
+		v <<= 8;
+		v += codecId[i];
 	}
-	return (id);
+	*id = v;
+	return (0);
 }
 
 static Byte
@@ -1063,29 +1331,26 @@ ppmd_read(void *p)
 	struct _7zip *zip = (struct _7zip *)(a->format->data);
 	Byte b;
 
-	if (zip->ppstream.avail_in <= 0) {
+	if (zip->ppstream.avail_in == 0) {
 		/*
 		 * Ppmd7_DecodeSymbol might require reading multiple bytes
 		 * and we are on boundary;
 		 * last resort to read using __archive_read_ahead.
 		 */
-		ssize_t bytes_avail = 0;
 		const uint8_t* data = __archive_read_ahead(a,
-		    (size_t)zip->ppstream.stream_in+1, &bytes_avail);
-		if(data == NULL || bytes_avail < zip->ppstream.stream_in+1) {
+		    zip->ppstream.stream_in + 1, NULL);
+		if (data == NULL) {
 			archive_set_error(&a->archive,
 			    ARCHIVE_ERRNO_FILE_FORMAT,
 			    "Truncated 7z file data");
 			zip->ppstream.overconsumed = 1;
 			return (0);
 		}
-		zip->ppstream.next_in++;
 		b = data[zip->ppstream.stream_in];
 	} else {
 		b = *zip->ppstream.next_in++;
+		zip->ppstream.avail_in--;
 	}
-	zip->ppstream.avail_in--;
-	zip->ppstream.total_in++;
 	zip->ppstream.stream_in++;
 	return (b);
 }
@@ -1109,11 +1374,14 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 			if (coder2->codec != _7Z_X86 &&
 			    coder2->codec != _7Z_X86_BCJ2 &&
 			    coder2->codec != _7Z_ARM &&
-			    coder2->codec != _7Z_ARM64) {
+			    coder2->codec != _7Z_ARM64 &&
+			    coder2->codec != _7Z_POWERPC &&
+			    coder2->codec != _7Z_SPARC) {
 				archive_set_error(&a->archive,
 				    ARCHIVE_ERRNO_MISC,
-				    "Unsupported filter %lx for %lx",
-				    coder2->codec, coder1->codec);
+				    "Unsupported filter %jx for %jx",
+				    (uintmax_t)coder2->codec,
+				    (uintmax_t)coder1->codec);
 				return (ARCHIVE_FAILED);
 			}
 			zip->codec2 = coder2->codec;
@@ -1167,7 +1435,8 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 		 * size to liblzma when using lzma_raw_decoder() liblzma
 		 * could correctly deal with BCJ+LZMA. But unfortunately
 		 * there is no way to do that.
-		 * Discussion about this can be found at XZ Utils forum.
+		 *
+		 * Reference: https://web.archive.org/web/20240405171610/https://www.mail-archive.com/xz-devel@tukaani.org/msg00373.html
 		 */
 		if (coder2 != NULL) {
 			zip->codec2 = coder2->codec;
@@ -1221,6 +1490,12 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 #ifdef LZMA_FILTER_ARM64
 			case _7Z_ARM64:
 				filters[fi].id = LZMA_FILTER_ARM64;
+				fi++;
+				break;
+#endif
+#ifdef LZMA_FILTER_RISCV
+			case _7Z_RISCV:
+				filters[fi].id = LZMA_FILTER_RISCV;
 				fi++;
 				break;
 #endif
@@ -1311,7 +1586,7 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 #endif
 	case _7Z_ZSTD:
 	{
-#if defined(HAVE_ZSTD_H)
+#if HAVE_ZSTD_H && HAVE_LIBZSTD
 		if (zip->zstdstream_valid) {
 			ZSTD_freeDStream(zip->zstd_dstream);
 			zip->zstdstream_valid = 0;
@@ -1334,7 +1609,7 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 			    -15 /* Don't check for zlib header */);
 		if (r != Z_OK) {
 			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
-			    "Couldn't initialize zlib stream.");
+			    "Couldn't initialize zlib stream");
 			return (ARCHIVE_FAILED);
 		}
 		zip->stream_valid = 1;
@@ -1385,8 +1660,6 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 		zip->ppmd7_valid = 1;
 		zip->ppmd7_stat = 0;
 		zip->ppstream.overconsumed = 0;
-		zip->ppstream.total_in = 0;
-		zip->ppstream.total_out = 0;
 		break;
 	}
 	case _7Z_X86:
@@ -1396,6 +1669,7 @@ init_decompression(struct archive_read *a, struct _7zip *zip,
 	case _7Z_ARM:
 	case _7Z_ARMTHUMB:
 	case _7Z_ARM64:
+	case _7Z_RISCV:
 	case _7Z_SPARC:
 	case _7Z_DELTA:
 		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
@@ -1475,7 +1749,7 @@ decompress(struct archive_read *a, struct _7zip *zip,
 			if (bytes < 0) {
 				archive_set_error(&(a->archive),
 				    ARCHIVE_ERRNO_MISC,
-				    "BCJ2 conversion Failed");
+				    "BCJ2 conversion failed");
 				return (ARCHIVE_FAILED);
 			}
 			zip->main_stream_bytes_remaining -=
@@ -1529,7 +1803,7 @@ decompress(struct archive_read *a, struct _7zip *zip,
 		default:
 			archive_set_error(&(a->archive),
 			    ARCHIVE_ERRNO_MISC,
-				"Decompression failed(%d)",
+				"Decompression failed (%d)",
 			    r);
 			return (ARCHIVE_FAILED);
 		}
@@ -1592,7 +1866,7 @@ decompress(struct archive_read *a, struct _7zip *zip,
 		t_avail_out = zip->stream.avail_out;
 		break;
 #endif
-#ifdef HAVE_ZSTD_H
+#if HAVE_ZSTD_H && HAVE_LIBZSTD
 	case _7Z_ZSTD:
 	{
 		ZSTD_inBuffer input = { t_next_in, t_avail_in, 0 }; // src, size, pos
@@ -1668,14 +1942,13 @@ decompress(struct archive_read *a, struct _7zip *zip,
 			}
 			*zip->ppstream.next_out++ = (unsigned char)sym;
 			zip->ppstream.avail_out--;
-			zip->ppstream.total_out++;
 			if (flush_bytes)
 				flush_bytes--;
 		} while (zip->ppstream.avail_out &&
 			(zip->ppstream.avail_in || flush_bytes));
 
-		t_avail_in = (size_t)zip->ppstream.avail_in;
-		t_avail_out = (size_t)zip->ppstream.avail_out;
+		t_avail_in = zip->ppstream.avail_in;
+		t_avail_out = zip->ppstream.avail_out;
 		break;
 	}
 	default:
@@ -1708,6 +1981,10 @@ decompress(struct archive_read *a, struct _7zip *zip,
 			*outbytes = arm_Convert(zip, buff, *outbytes);
 		} else if (zip->codec2 == _7Z_ARM64) {
 			*outbytes = arm64_Convert(zip, buff, *outbytes);
+		} else if (zip->codec2 == _7Z_SPARC) {
+			*outbytes = sparc_Convert(zip, buff, *outbytes);
+		} else if (zip->codec2 == _7Z_POWERPC) {
+			*outbytes = powerpc_Convert(zip, buff, *outbytes);
 		}
 	}
 
@@ -1727,7 +2004,7 @@ decompress(struct archive_read *a, struct _7zip *zip,
 		bytes = Bcj2_Decode(zip, bcj2_next_out, bcj2_avail_out);
 		if (bytes < 0) {
 			archive_set_error(&(a->archive),
-			    ARCHIVE_ERRNO_MISC, "BCJ2 conversion Failed");
+			    ARCHIVE_ERRNO_MISC, "BCJ2 conversion failed");
 			return (ARCHIVE_FAILED);
 		}
 		zip->main_stream_bytes_remaining -=
@@ -1775,7 +2052,7 @@ free_decompression(struct archive_read *a, struct _7zip *zip)
 		zip->stream_valid = 0;
 	}
 #endif
-#ifdef HAVE_ZSTD_H
+#if HAVE_ZSTD_H && HAVE_LIBZSTD
 	if (zip->zstdstream_valid)
 		ZSTD_freeDStream(zip->zstd_dstream);
 #endif
@@ -2027,7 +2304,8 @@ read_Folder(struct archive_read *a, struct _7z_folder *f)
 		if ((p = header_bytes(a, codec_size)) == NULL)
 			return (-1);
 
-		f->coders[i].codec = decode_codec_id(p, codec_size);
+		if (decode_codec_id(p, codec_size, &f->coders[i].codec) < 0)
+			return (-1);
 
 		if (simple) {
 			f->coders[i].numInStreams = 1;
@@ -2291,9 +2569,8 @@ read_SubStreamsInfo(struct archive_read *a, struct _7z_substream_info *ss,
 		for (i = 0; i < numFolders; i++) {
 			if (parse_7zip_uint64(a, &(f[i].numUnpackStreams)) < 0)
 				return (-1);
-			if (UMAX_ENTRY < f[i].numUnpackStreams)
-				return (-1);
-			if (unpack_streams > SIZE_MAX - UMAX_ENTRY) {
+			if (f[i].numUnpackStreams >
+			    UMAX_ENTRY - unpack_streams) {
 				return (-1);
 			}
 			unpack_streams += (size_t)f[i].numUnpackStreams;
@@ -2303,6 +2580,13 @@ read_SubStreamsInfo(struct archive_read *a, struct _7z_substream_info *ss,
 		type = *p;
 	} else
 		unpack_streams = numFolders;
+
+	if (type != kSize) {
+		for (i = 0; i < numFolders; i++) {
+			if (f[i].numUnpackStreams > 1)
+				return (-1);
+		}
+	}
 
 	ss->unpack_streams = unpack_streams;
 	if (unpack_streams) {
@@ -2345,11 +2629,6 @@ read_SubStreamsInfo(struct archive_read *a, struct _7z_substream_info *ss,
 		if ((p = header_bytes(a, 1)) == NULL)
 			return (-1);
 		type = *p;
-	}
-
-	for (i = 0; i < unpack_streams; i++) {
-		ss->digestsDefined[i] = 0;
-		ss->digests[i] = 0;
 	}
 
 	numDigests = 0;
@@ -2554,7 +2833,7 @@ read_Header(struct archive_read *a, struct _7z_header_info *h,
 
 	if (parse_7zip_uint64(a, &(zip->numFiles)) < 0)
 		return (-1);
-	if (UMAX_ENTRY < zip->numFiles)
+	if (!files_info_numfiles_is_sane(zip))
 		return (-1);
 
 	zip->entries = calloc((size_t)zip->numFiles, sizeof(*zip->entries));
@@ -2576,7 +2855,7 @@ read_Header(struct archive_read *a, struct _7z_header_info *h,
 
 		if (parse_7zip_uint64(a, &size) < 0)
 			return (-1);
-		if (zip->header_bytes_remaining < size)
+		if (zip->header_bytes_remaining < size || size > SIZE_MAX / 4)
 			return (-1);
 		ll = (size_t)size;
 
@@ -2841,23 +3120,6 @@ read_Header(struct archive_read *a, struct _7z_header_info *h,
 	return (0);
 }
 
-#define EPOC_TIME ARCHIVE_LITERAL_ULL(116444736000000000)
-static void
-fileTimeToUtc(uint64_t fileTime, time_t *timep, long *ns)
-{
-
-	if (fileTime >= EPOC_TIME) {
-		fileTime -= EPOC_TIME;
-		/* milli seconds base */
-		*timep = (time_t)(fileTime / 10000000);
-		/* nano seconds base */
-		*ns = (long)(fileTime % 10000000) * 100;
-	} else {
-		*timep = 0;
-		*ns = 0;
-	}
-}
-
 static int
 read_Times(struct archive_read *a, struct _7z_header_info *h, int type)
 {
@@ -2900,19 +3162,19 @@ read_Times(struct archive_read *a, struct _7z_header_info *h, int type)
 			goto failed;
 		switch (type) {
 		case kCTime:
-			fileTimeToUtc(archive_le64dec(p),
+			ntfs_to_unix(archive_le64dec(p),
 			    &(entries[i].ctime),
 			    &(entries[i].ctime_ns));
 			entries[i].flg |= CTIME_IS_SET;
 			break;
 		case kATime:
-			fileTimeToUtc(archive_le64dec(p),
+			ntfs_to_unix(archive_le64dec(p),
 			    &(entries[i].atime),
 			    &(entries[i].atime_ns));
 			entries[i].flg |= ATIME_IS_SET;
 			break;
 		case kMTime:
-			fileTimeToUtc(archive_le64dec(p),
+			ntfs_to_unix(archive_le64dec(p),
 			    &(entries[i].mtime),
 			    &(entries[i].mtime_ns));
 			entries[i].flg |= MTIME_IS_SET;
@@ -3000,20 +3262,22 @@ slurp_central_directory(struct archive_read *a, struct _7zip *zip,
 	uint64_t next_header_size;
 	uint32_t next_header_crc;
 	ssize_t bytes_avail;
+	int64_t data_offset;
 	int check_header_crc, r;
 
-	if ((p = __archive_read_ahead(a, 32, &bytes_avail)) == NULL)
+	if (get_data_offset(a, &data_offset, 1) < 0)
 		return (ARCHIVE_FATAL);
-
-	if ((p[0] == 'M' && p[1] == 'Z') || memcmp(p, "\x7F\x45LF", 4) == 0) {
-		/* This is an executable ? Must be self-extracting... */
-		r = skip_sfx(a, bytes_avail);
-		if (r < ARCHIVE_WARN)
-			return (r);
-		if ((p = __archive_read_ahead(a, 32, &bytes_avail)) == NULL)
-			return (ARCHIVE_FATAL);
+	if (__archive_read_consume(a, data_offset) < 0) {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
+		return (ARCHIVE_FATAL);
 	}
-	zip->seek_base += 32;
+	if ((p = __archive_read_ahead(a, 32, &bytes_avail)) == NULL) {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+		    "Truncated 7-Zip file header");
+		return (ARCHIVE_FATAL);
+	}
+
+	zip->seek_base = (uint64_t)data_offset + 32;
 
 	if (memcmp(p, _7ZIP_SIGNATURE, 6) != 0) {
 		archive_set_error(&a->archive, -1, "Not 7-Zip archive file");
@@ -3021,7 +3285,7 @@ slurp_central_directory(struct archive_read *a, struct _7zip *zip,
 	}
 
 	/* CRC check. */
-	if (crc32(0, (const unsigned char *)p + 12, 20)
+	if (crc32(0, p + 12, 20)
 	    != archive_le32dec(p + 8)) {
 #ifndef DONT_FAIL_ON_CRC_ERROR
 		archive_set_error(&a->archive, -1, "Header CRC error");
@@ -3045,9 +3309,11 @@ slurp_central_directory(struct archive_read *a, struct _7zip *zip,
 	if (next_header_offset != 0) {
 		if (bytes_avail >= (ssize_t)next_header_offset)
 			__archive_read_consume(a, next_header_offset);
-		else if (__archive_read_seek(a,
-		    next_header_offset + zip->seek_base, SEEK_SET) < 0)
+		else if (seek_compat(a,
+		    next_header_offset + zip->seek_base, SEEK_SET, 1) < 0) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
 			return (ARCHIVE_FATAL);
+		}
 	}
 	zip->stream_offset = next_header_offset;
 	zip->header_offset = next_header_offset;
@@ -3383,9 +3649,11 @@ seek_pack(struct archive_read *a)
 	    zip->si.pi.sizes[zip->pack_stream_index];
 	pack_offset = zip->si.pi.positions[zip->pack_stream_index];
 	if (zip->stream_offset != pack_offset) {
-		if (0 > __archive_read_seek(a, pack_offset + zip->seek_base,
-		    SEEK_SET))
+		if (0 > seek_compat(a, pack_offset + zip->seek_base,
+		    SEEK_SET, 1)) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC, "Seek error");
 			return (ARCHIVE_FATAL);
+		}
 		zip->stream_offset = pack_offset;
 	}
 	zip->pack_stream_index++;
@@ -3451,7 +3719,7 @@ read_stream(struct archive_read *a, const void **buff, size_t size,
 		r = setup_decode_folder(a,
 			&(zip->si.ci.folders[zip->folder_index]), 0);
 		if (r != ARCHIVE_OK)
-			return (ARCHIVE_FATAL);
+			return (r);
 
 		zip->folder_index++;
 	}
@@ -3526,15 +3794,9 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 	}
 
 	/*
-	 * Initialize a stream reader.
-	 */
-	zip->pack_stream_remaining = (unsigned)folder->numPackedStreams;
-	zip->pack_stream_index = (unsigned)folder->packIndex;
-	zip->folder_outbytes_remaining = folder_uncompressed_size(folder);
-	zip->uncompressed_buffer_bytes_remaining = 0;
-
-	/*
-	 * Check coder types.
+	 * Check coder types before modifying any stream-reader state, so that
+	 * an early return leaves zip unchanged (avoids partially-initialized
+	 * state that callers would have to reason about).
 	 */
 	for (i = 0; i < folder->numCoders; i++) {
 		switch(folder->coders[i].codec) {
@@ -3552,7 +3814,7 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 					ARCHIVE_ERRNO_MISC,
 					"The %s is encrypted, "
 					"but currently not supported", cname);
-				return (ARCHIVE_FATAL);
+				return (header ? ARCHIVE_FATAL : ARCHIVE_FAILED);
 			}
 			case _7Z_X86_BCJ2: {
 				found_bcj2++;
@@ -3572,8 +3834,16 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 		    ARCHIVE_ERRNO_MISC,
 		    "The %s is encoded with many filters, "
 		    "but currently not supported", cname);
-		return (ARCHIVE_FATAL);
+		return (header ? ARCHIVE_FATAL : ARCHIVE_FAILED);
 	}
+
+	/*
+	 * Initialize a stream reader.
+	 */
+	zip->pack_stream_remaining = (unsigned)folder->numPackedStreams;
+	zip->pack_stream_index = (unsigned)folder->packIndex;
+	zip->folder_outbytes_remaining = folder_uncompressed_size(folder);
+	zip->uncompressed_buffer_bytes_remaining = 0;
 	coder1 = &(folder->coders[0]);
 	if (folder->numCoders == 2)
 		coder2 = &(folder->coders[1]);
@@ -3594,6 +3864,7 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 		ssize_t bytes;
 		unsigned char *b[3] = {NULL, NULL, NULL};
 		uint64_t sunpack[3] ={-1, -1, -1};
+		uint64_t remaining;
 		size_t s[3] = {0, 0, 0};
 		int idx[3] = {0, 1, 2};
 
@@ -3648,12 +3919,14 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 			coder2 = &(fc[3]);
 			zip->main_stream_bytes_remaining =
 				(size_t)folder->unPackSize[2];
+			remaining = folder->unPackSize[2];
 		} else if (coder2 != NULL && coder2->codec == _7Z_X86_BCJ2 &&
 		    zip->pack_stream_remaining == 4 &&
 		    folder->numInStreams == 5 && folder->numOutStreams == 2) {
 			/* Source type 0 made by 7z */
 			zip->main_stream_bytes_remaining =
 				(size_t)folder->unPackSize[0];
+			remaining = folder->unPackSize[0];
 		} else {
 			/* We got an unexpected form. */
 			archive_set_error(&(a->archive),
@@ -3661,6 +3934,15 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 			    "Unsupported form of BCJ2 streams");
 			return (ARCHIVE_FATAL);
 		}
+		if (remaining > SIZE_MAX) {
+			archive_set_error(&(a->archive),
+			    ARCHIVE_ERRNO_MISC,
+			    "7-Zip sub-stream size exceeds "
+			    "platform maximum");
+			return (ARCHIVE_FATAL);
+		}
+		zip->main_stream_bytes_remaining = remaining;
+
 
 		/* Skip the main stream at this time. */
 		if ((r = seek_pack(a)) < 0)
@@ -3692,6 +3974,14 @@ setup_decode_folder(struct archive_read *a, struct _7z_folder *folder,
 
 			/* Allocate memory for the decoded data of a sub
 			 * stream. */
+			if (zip->folder_outbytes_remaining > SIZE_MAX) {
+				free(b[0]); free(b[1]); free(b[2]);
+				archive_set_error(&a->archive,
+				    ARCHIVE_ERRNO_MISC,
+				    "7-Zip sub-stream size exceeds "
+				    "platform maximum");
+				return (ARCHIVE_FATAL);
+			}
 			b[i] = malloc((size_t)zip->folder_outbytes_remaining);
 			if (b[i] == NULL) {
 				free(b[0]); free(b[1]); free(b[2]);
@@ -3864,9 +4154,7 @@ x86_Convert(struct _7zip *zip, uint8_t *data, size_t size)
 		prevPosT = bufferPos;
 
 		if (Test86MSByte(p[4])) {
-			uint32_t src = ((uint32_t)p[4] << 24) |
-				((uint32_t)p[3] << 16) | ((uint32_t)p[2] << 8) |
-				((uint32_t)p[1]);
+			uint32_t src = archive_le32dec(p + 1);
 			uint32_t dest;
 			for (;;) {
 				uint8_t b;
@@ -3926,16 +4214,13 @@ arm_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
 	for (i = 0; i + 4 <= size; i += 4) {
 		if (buf[i + 3] == 0xEB) {
 			// Calculate the transformed addr.
-			addr = (uint32_t)buf[i] | ((uint32_t)buf[i + 1] << 8)
-				| ((uint32_t)buf[i + 2] << 16);
+			addr = archive_le24dec(buf + i);
 			addr <<= 2;
 			addr -= zip->bcj_ip + (uint32_t)i;
 			addr >>= 2;
 
 			// Store the transformed addr in buf.
-			buf[i] = (uint8_t)addr;
-			buf[i + 1] = (uint8_t)(addr >> 8);
-			buf[i + 2] = (uint8_t)(addr >> 16);
+			archive_le24enc(buf + i, addr);
 		}
 	}
 
@@ -3966,20 +4251,14 @@ arm64_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
 	uint32_t addr;
 
 	for (i = 0; i + 4 <= size; i += 4) {
-		instr = (uint32_t)buf[i]
-			| ((uint32_t)buf[i+1] << 8)
-			| ((uint32_t)buf[i+2] << 16)
-			| ((uint32_t)buf[i+3] << 24);
+		instr = archive_le32dec(buf + i);
 
 		if ((instr >> 26) == 0x25) {
 			/* BL instruction */
 			addr = instr - ((zip->bcj_ip + (uint32_t)i) >> 2);
 			instr = 0x94000000 | (addr & 0x03FFFFFF);
 
-			buf[i]   = (uint8_t)instr;
-			buf[i+1] = (uint8_t)(instr >> 8);
-			buf[i+2] = (uint8_t)(instr >> 16);
-			buf[i+3] = (uint8_t)(instr >> 24);
+			archive_le32enc(buf + i, instr);
 		} else if ((instr & 0x9F000000) == 0x90000000) {
 			/* ADRP instruction */
 			addr = ((instr >> 29) & 3) | ((instr >> 3) & 0x1FFFFC);
@@ -3995,10 +4274,116 @@ arm64_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
 			instr |= (addr & 0x03FFFC) << 3;
 			instr |= (0U - (addr & 0x020000)) & 0xE00000;
 
-			buf[i]   = (uint8_t)instr;
-			buf[i+1] = (uint8_t)(instr >> 8);
-			buf[i+2] = (uint8_t)(instr >> 16);
-			buf[i+3] = (uint8_t)(instr >> 24);
+			archive_le32enc(buf + i, instr);
+		}
+	}
+
+	zip->bcj_ip += (uint32_t)i;
+
+	return i;
+}
+
+static size_t
+sparc_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
+{
+	// This function was adapted from
+	// static size_t bcj_sparc(struct xz_dec_bcj *s, uint8_t *buf, size_t size)
+	// in https://git.tukaani.org/xz-embedded.git
+
+	/*
+	 * Branch/Call/Jump (BCJ) filter decoders
+	 *
+	 * Authors: Lasse Collin <lasse.collin@tukaani.org>
+	 *          Igor Pavlov <https://7-zip.org/>
+	 *
+	 * Copyright (C) The XZ Embedded authors and contributors
+	 *
+	 * Permission to use, copy, modify, and/or distribute this
+	 * software for any purpose with or without fee is hereby granted.
+	 *
+	 * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+	 * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+	 * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL
+	 * THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
+	 * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+	 * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+	 * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+	 * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+	 */
+
+	size_t i;
+	uint32_t instr;
+
+	size &= ~(size_t)3;
+
+	for (i = 0; i < size; i += 4) {
+		instr = archive_be32dec(buf + i);
+
+		if ((instr >> 22) == 0x100 || (instr >> 22) == 0x1FF) {
+			instr <<= 2;
+			instr -= zip->bcj_ip + (uint32_t)i;
+			instr >>= 2;
+			instr = ((uint32_t)0x40000000 - (instr & 0x400000))
+			        | 0x40000000 | (instr & 0x3FFFFF);
+
+			archive_be32enc(buf + i, instr);
+		}
+	}
+
+	zip->bcj_ip += (uint32_t)i;
+
+	return i;
+}
+
+static size_t
+powerpc_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
+{
+	// This function was adapted from
+	// static size_t powerpc_code(void *simple, uint32_t now_pos, bool is_encoder, uint8_t *buffer, size_t size)
+	// in https://git.tukaani.org/xz.git
+
+	/*
+	 * Filter for PowerPC (big endian) binaries
+	 *
+	 * Authors: Igor Pavlov
+	 *          Lasse Collin
+	 *
+	 * Copyright (C) The XZ Utils authors and contributors
+	 *
+	 * Permission to use, copy, modify, and/or distribute this
+	 * software for any purpose with or without fee is hereby granted.
+	 *
+	 * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+	 * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+	 * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL
+	 * THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
+	 * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+	 * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+	 * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+	 * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+	 */
+
+	size &= ~(size_t)3;
+
+	size_t i;
+	for (i = 0; i < size; i += 4) {
+		// PowerPC branch 6(48) 24(Offset) 1(Abs) 1(Link)
+		if ((buf[i] >> 2) == 0x12
+			&& ((buf[i + 3] & 3) == 1)) {
+
+			const uint32_t src
+				= (((uint32_t)(buf[i + 0]) & 3) << 24)
+				| ((uint32_t)(buf[i + 1]) << 16)
+				| ((uint32_t)(buf[i + 2]) << 8)
+				| ((uint32_t)(buf[i + 3]) & ~UINT32_C(3));
+
+			uint32_t dest = src - (zip->bcj_ip + (uint32_t)(i));
+
+			buf[i + 0] = 0x48 | ((dest >> 24) &  0x03);
+			buf[i + 1] = (dest >> 16);
+			buf[i + 2] = (dest >> 8);
+			buf[i + 3] &= 0x03;
+			buf[i + 3] |= dest;
 		}
 	}
 
@@ -4029,8 +4414,17 @@ arm64_Convert(struct _7zip *zip, uint8_t *buf, size_t size)
 
 #define RC_READ_BYTE (*buffer++)
 #define RC_TEST { if (buffer == bufferLim) return SZ_ERROR_DATA; }
-#define RC_INIT2 zip->bcj2_code = 0; zip->bcj2_range = 0xFFFFFFFF; \
-  { int ii; for (ii = 0; ii < 5; ii++) { RC_TEST; zip->bcj2_code = (zip->bcj2_code << 8) | RC_READ_BYTE; }}
+#define RC_INIT2 do {							\
+	zip->bcj2_code = 0;						\
+	zip->bcj2_range = 0xFFFFFFFF;					\
+	{								\
+		int ii;							\
+		for (ii = 0; ii < 5; ii++) {				\
+			RC_TEST;					\
+			zip->bcj2_code = (zip->bcj2_code << 8) | RC_READ_BYTE; \
+		}							\
+	}								\
+} while (0)
 
 #define NORMALIZE if (zip->bcj2_range < kTopValue) { RC_TEST; zip->bcj2_range <<= 8; zip->bcj2_code = (zip->bcj2_code << 8) | RC_READ_BYTE; }
 
@@ -4143,15 +4537,10 @@ Bcj2_Decode(struct _7zip *zip, uint8_t *outBuf, size_t outSize)
 				buf2 += 4;
 				size2 -= 4;
 			}
-			dest = (((uint32_t)v[0] << 24) |
-			    ((uint32_t)v[1] << 16) |
-			    ((uint32_t)v[2] << 8) |
-			    ((uint32_t)v[3])) -
+			dest = archive_be32dec(v) -
 			    ((uint32_t)zip->bcj2_outPos + (uint32_t)outPos + 4);
-			out[0] = (uint8_t)dest;
-			out[1] = (uint8_t)(dest >> 8);
-			out[2] = (uint8_t)(dest >> 16);
-			out[3] = zip->bcj2_prevByte = (uint8_t)(dest >> 24);
+			archive_le32enc(out, dest);
+			zip->bcj2_prevByte = out[3];
 
 			for (i = 0; i < 4 && outPos < outSize; i++)
 				outBuf[outPos++] = out[i];
@@ -4178,3 +4567,33 @@ Bcj2_Decode(struct _7zip *zip, uint8_t *outBuf, size_t outSize)
 	return ((ssize_t)outPos);
 }
 
+/*
+ * Perform a seek to given position. If seeking is not supported,
+ * target position is in front of current position, and compat is requested,
+ * try to consume bytes until position is reached.
+ */
+int64_t
+seek_compat(struct archive_read *a, int64_t offset, int whence, int compat)
+{
+	int64_t ret = ARCHIVE_FAILED;
+
+	if (a->filter->can_seek)
+		ret = __archive_read_seek(a, offset, whence);
+	else if (compat) {
+		switch (whence) {
+		case SEEK_CUR:
+			ret = __archive_read_consume(a, offset);
+			break;
+		case SEEK_SET:
+			if (a->filter->position > offset)
+				break;
+			ret = __archive_read_consume(a,
+			    offset - a->filter->position);
+			break;
+		default:
+			break;
+		}
+	}
+
+	return (ret);
+}

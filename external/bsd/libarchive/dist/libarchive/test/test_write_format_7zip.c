@@ -181,7 +181,7 @@ test_basic(const char *compression_type)
 	assertEqualIntA(a, 0, archive_write_data(a, "12345678", 9));
 
 	/* Close out the archive. */
-	assertEqualInt(ARCHIVE_OK, archive_write_close(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/* Verify the initial header. */
@@ -310,7 +310,7 @@ test_basic(const char *compression_type)
 	assertEqualIntA(a, ARCHIVE_FILTER_NONE, archive_filter_code(a, 0));
 	assertEqualIntA(a, ARCHIVE_FORMAT_7ZIP, archive_format(a));
 
-	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	free(buff);
@@ -425,7 +425,7 @@ test_basic2(const char *compression_type)
 	assertEqualIntA(a, 0, archive_write_data(a, "12345678", 9));
 
 	/* Close out the archive. */
-	assertEqualInt(ARCHIVE_OK, archive_write_close(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/* Verify the initial header. */
@@ -517,7 +517,7 @@ test_basic2(const char *compression_type)
 	assertEqualIntA(a, ARCHIVE_FILTER_NONE, archive_filter_code(a, 0));
 	assertEqualIntA(a, ARCHIVE_FORMAT_7ZIP, archive_format(a));
 
-	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	free(buff);
@@ -566,4 +566,10 @@ DEFINE_TEST(test_write_format_7zip_basic_ppmd)
 {
 	/* Test that making a 7-Zip archive file with PPMd compression. */
 	test_basic("ppmd");
+}
+
+DEFINE_TEST(test_write_format_7zip_basic_zstd)
+{
+	/* Test that making a 7-Zip archive file with zstandard compression. */
+	test_basic("zstd");
 }

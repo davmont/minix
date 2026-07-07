@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2003-2015 Tim Kientzle
+ * Copyright (c) 2025 Tobias Stoeckmann
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -22,16 +22,32 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include "test.h"
 
-#ifndef ARCHIVE_GETDATE_H_INCLUDED
-#define ARCHIVE_GETDATE_H_INCLUDED
+/*
+ * Read a pax formatted tar archive that has an extremely large
+ * (4 GB) global header. The pax reader should correctly skip the header and
+ * jump to (or past) end of file without encountering any further entry.
+ */
+DEFINE_TEST(test_read_format_tar_pax_g_large)
+{
+	char name[] = "test_read_format_tar_pax_g_large.tar";
+	struct archive_entry *ae;
+	struct archive *a;
 
-#ifndef __LIBARCHIVE_BUILD
-#error This header is only to be used internally to libarchive.
-#endif
+	assert((a = archive_read_new()) != NULL);
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_filter_all(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_support_format_all(a));
+	extract_reference_file(name);
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_open_filename(a, name, 10240));
 
-#include <time.h>
+	/* Verify that no data entry is found. */
+	assertA(archive_read_next_header(a, &ae) != ARCHIVE_OK);
 
-time_t __archive_get_date(time_t now, const char *);
+	/* Verify that the format detection worked. */
+	assertEqualInt(ARCHIVE_FILTER_NONE, archive_filter_code(a, 0));
+	assertEqualInt(ARCHIVE_FORMAT_TAR_PAX_INTERCHANGE, archive_format(a));
 
-#endif
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
+}

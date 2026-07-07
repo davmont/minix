@@ -27,7 +27,6 @@
 /* Some tests will want to calculate some CRC32's, and this header can
  * help. */
 #define __LIBARCHIVE_BUILD
-#include <archive_crc32.h>
 #include <archive_endian.h>
 
 #define PROLOGUE(reffile) \
@@ -82,7 +81,7 @@ int verify_data(const uint8_t* data_ptr, int magic, int size) {
 		/* *lptr is a value inside unpacked test file, val is the
 		 * value that should be in the unpacked test file. */
 
-		if(archive_le32dec(lptr) != (uint32_t) val)
+		if(i4le(lptr) != (uint32_t) val)
 			return 0;
 	}
 
@@ -107,7 +106,7 @@ int extract_one(struct archive* a, struct archive_entry* ae, uint32_t crc) {
 		goto fn_exit;
 	}
 
-	computed_crc = crc32(0, buf, fsize);
+	computed_crc = bitcrc32(0, buf, fsize);
 	assertEqualInt(computed_crc, crc);
 	ret = 0;
 
@@ -336,7 +335,7 @@ DEFINE_TEST(test_read_format_rar5_blake2)
 	assertA(proper_size == archive_read_data(a, buf, proper_size));
 
 	/* To be extra pedantic, let's also check crc32 of the poem. */
-	assertEqualInt(crc32(0, buf, proper_size), 0x7E5EC49E);
+	assertEqualInt(bitcrc32(0, buf, proper_size), 0x7E5EC49E);
 
 	assertA(ARCHIVE_EOF == archive_read_next_header(a, &ae));
 	EPILOGUE();
@@ -359,7 +358,7 @@ DEFINE_TEST(test_read_format_rar5_arm_filter)
 	/* Yes, RARv5 unpacker itself should calculate the CRC, but in case
 	 * the DONT_FAIL_ON_CRC_ERROR define option is enabled during compilation,
 	 * let's still fail the test if the unpacked data is wrong. */
-	assertEqualInt(crc32(0, buf, proper_size), 0x886F91EB);
+	assertEqualInt(bitcrc32(0, buf, proper_size), 0x886F91EB);
 
 	assertA(ARCHIVE_EOF == archive_read_next_header(a, &ae));
 	EPILOGUE();
@@ -870,7 +869,7 @@ DEFINE_TEST(test_read_format_rar5_block_by_block)
 		if(bytes_read <= 0)
 			break;
 
-		computed_crc = crc32(computed_crc, buf, bytes_read);
+		computed_crc = bitcrc32(computed_crc, buf, bytes_read);
 	}
 
 	assertEqualInt(computed_crc, 0x7CCA70CD);
@@ -1112,6 +1111,18 @@ DEFINE_TEST(test_read_format_rar5_nonempty_dir_stream)
 	EPILOGUE();
 }
 
+DEFINE_TEST(test_read_format_rar5_nonempty_dir_data)
+{
+	PROLOGUE("test_read_format_rar5_dirdata.rar");
+
+	/* This archive is invalid. It declares a directory entry with nonzero
+	   data size. */
+
+	assertA(archive_read_next_header(a, &ae) == ARCHIVE_FATAL);
+
+	EPILOGUE();
+}
+
 DEFINE_TEST(test_read_format_rar5_fileattr)
 {
 	unsigned long set, clear, flag;
@@ -1127,7 +1138,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_READONLY;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_READONLY;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1139,7 +1150,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_HIDDEN;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_HIDDEN;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1150,8 +1161,8 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	assertEqualString("system", archive_entry_fflags_text(ae));
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
-	flag = UF_SYSTEM;;
-#elif defined(_WIN32) && !defined(CYGWIN)
+	flag = UF_SYSTEM;
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_SYSTEM;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1163,7 +1174,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_READONLY | UF_HIDDEN;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1175,7 +1186,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_READONLY;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_READONLY;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1187,7 +1198,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_HIDDEN;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_HIDDEN;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1199,7 +1210,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_SYSTEM;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_SYSTEM;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1211,7 +1222,7 @@ DEFINE_TEST(test_read_format_rar5_fileattr)
 	archive_entry_fflags(ae, &set, &clear);
 #if defined(__FreeBSD__)
 	flag = UF_READONLY | UF_HIDDEN;
-#elif defined(_WIN32) && !defined(CYGWIN)
+#elif defined(_WIN32) && !defined(__CYGWIN__)
 	flag = FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN;
 #endif
 	assertEqualInt(flag, set & flag);
@@ -1426,6 +1437,138 @@ DEFINE_TEST(test_read_format_rar5_data_ready_pointer_leak)
 	(void) archive_read_next_header(a, &ae);
 	/* This call shouldn't produce SIGSEGV. */
 	(void) archive_read_data(a, buf, sizeof(buf));
+
+	EPILOGUE();
+}
+
+DEFINE_TEST(test_read_format_rar5_only_crypt_exfld)
+{
+	/* GH #2711 */
+
+	char buf[4096];
+	PROLOGUE("test_read_format_rar5_only_crypt_exfld.rar");
+
+	/* The reader should allow iteration through files, but should fail
+	   during data extraction. */
+
+	assertA(archive_read_next_header(a, &ae) == ARCHIVE_OK);
+	assertA(archive_read_data(a, buf, sizeof(buf)) == ARCHIVE_FAILED);
+
+	/* The reader should also provide a valid error message. */
+	assertA(archive_error_string(a) != NULL);
+
+	EPILOGUE();
+}
+
+DEFINE_TEST(test_read_format_rar5_only_unsupported_exfld)
+{
+	/* GH #2711 */
+
+	char buf[4096];
+	PROLOGUE("test_read_format_rar5_unsupported_exfld.rar");
+
+	/* The reader should allow iteration through files, and it should
+	   succeed with data extraction. */
+
+	assertA(archive_read_next_header(a, &ae) == ARCHIVE_OK);
+
+	/* 48 is the expected number of bytes that should be extracted */
+	assertA(archive_read_data(a, buf, sizeof(buf)) == 48);
+
+	EPILOGUE();
+}
+
+DEFINE_TEST(test_read_format_rar5_invalidhash_and_validhtime_exfld)
+{
+	/* GH #2711 */
+
+	char buf[4096];
+	PROLOGUE("test_read_format_rar5_invalid_hash_valid_htime_exfld.rar");
+
+	/* The reader should report an error when trying to process this data.
+	   Returning EOF here means that the reader has failed to identify
+	   malformed structure. */
+
+	assertA(archive_read_next_header(a, &ae) < 0);
+	assertA(archive_read_data(a, buf, sizeof(buf)) < 0);
+
+	EPILOGUE();
+}
+
+/*
+ * Regression tests for the RAR5 base-block parser leaving unconsumed body
+ * bytes before returning ARCHIVE_RETRY (GHSA-9h2c-464f-j3hj). Each archive is
+ * the test_read_format_rar5_stored archive with extra, unread bytes appended
+ * to a no-data block's body. Before the fix the reader did not skip those
+ * bytes, so the stream misaligned and the following file entry was lost; with
+ * the fix the trailing bytes are skipped and helloworld.txt is read normally.
+ */
+DEFINE_TEST(test_read_format_rar5_main_block_extra_bytes)
+{
+	const char helloworld_txt[] = "hello libarchive test suite!\n";
+	la_ssize_t file_size = sizeof(helloworld_txt) - 1;
+	char buff[64];
+
+	/* HEAD_MAIN block padded with trailing bytes the parser does not read. */
+	PROLOGUE("test_read_format_rar5_main_block_extra_bytes.rar");
+
+	assertA(0 == archive_read_next_header(a, &ae));
+	assertEqualString("helloworld.txt", archive_entry_pathname(ae));
+	assertEqualInt(file_size, archive_entry_size(ae));
+	assertA(file_size == archive_read_data(a, buff, file_size));
+	assertEqualMem(buff, helloworld_txt, file_size);
+
+	assertA(ARCHIVE_EOF == archive_read_next_header(a, &ae));
+
+	EPILOGUE();
+}
+
+DEFINE_TEST(test_read_format_rar5_skip_block_extra_bytes)
+{
+	const char helloworld_txt[] = "hello libarchive test suite!\n";
+	la_ssize_t file_size = sizeof(helloworld_txt) - 1;
+	char buff[64];
+
+	/* An unknown HFL_SKIP_IF_UNKNOWN block carrying trailing bytes is inserted
+	 * before the file entry; the parser must skip the entire block. */
+	PROLOGUE("test_read_format_rar5_skip_block_extra_bytes.rar");
+
+	assertA(0 == archive_read_next_header(a, &ae));
+	assertEqualString("helloworld.txt", archive_entry_pathname(ae));
+	assertEqualInt(file_size, archive_entry_size(ae));
+	assertA(file_size == archive_read_data(a, buff, file_size));
+	assertEqualMem(buff, helloworld_txt, file_size);
+
+	assertA(ARCHIVE_EOF == archive_read_next_header(a, &ae));
+
+	EPILOGUE();
+}
+
+DEFINE_TEST(test_read_format_rar5_bytes_remaining_underflow)
+{
+	/* GH #2986 — CWE-191 signed integer underflow on
+	 * rar->file.bytes_remaining in process_block(). A malformed RAR5
+	 * archive whose compressed-block to_skip value exceeds the declared
+	 * remaining file data drives bytes_remaining negative; the negative
+	 * ssize_t later reaches read_ahead() and is implicitly converted to
+	 * a near-SIZE_MAX malloc request (CWE-122).
+	 *
+	 * The patched reader must reject the malformed archive with
+	 * ARCHIVE_FATAL before the negative value is reached. */
+
+	char buf[4096];
+	la_ssize_t r;
+	PROLOGUE("test_read_format_rar5_bytes_remaining_underflow.rar");
+
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
+	assertEqualString("poc.txt", archive_entry_pathname(ae));
+
+	do {
+		r = archive_read_data(a, buf, sizeof(buf));
+	} while (r > 0);
+
+	assertEqualIntA(a, ARCHIVE_FATAL, r);
+	assertA(archive_error_string(a) != NULL);
 
 	EPILOGUE();
 }

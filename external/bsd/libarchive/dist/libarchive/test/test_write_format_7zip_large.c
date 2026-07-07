@@ -126,7 +126,7 @@ test_large(const char *compression_type)
 	assertEqualIntA(a, ARCHIVE_FILTER_NONE, archive_filter_code(a, 0));
 	assertEqualIntA(a, ARCHIVE_FORMAT_7ZIP, archive_format(a));
 
-	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	free(buff);
@@ -168,4 +168,10 @@ DEFINE_TEST(test_write_format_7zip_large_ppmd)
 {
 	/* Test that making a 7-Zip archive file with PPMd compression. */
 	test_large("ppmd");
+}
+
+DEFINE_TEST(test_write_format_7zip_large_zstd)
+{
+	/* Test that making a 7-Zip archive file with zstd compression. */
+	test_large("zstd");
 }

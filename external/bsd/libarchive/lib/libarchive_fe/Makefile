@@ -7,7 +7,7 @@
 LIBISPRIVATE=	yes
 
 LIB=		archive_fe
-SRCS=		err.c line_reader.c passphrase.c
+SRCS=		lafe_err.c lafe_fnmatch.c lafe_getline.c line_reader.c passphrase.c
 NOMAN=		yes
 
 .include <bsd.lib.mk>

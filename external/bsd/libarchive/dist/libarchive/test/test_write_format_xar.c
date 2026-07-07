@@ -25,6 +25,8 @@
  */
 #include "test.h"
 
+#include <locale.h>
+
 static void
 test_xar(const char *option)
 {
@@ -42,14 +44,14 @@ test_xar(const char *option)
 	assert((a = archive_write_new()) != NULL);
 	if (archive_write_set_format_xar(a) != ARCHIVE_OK) {
 		skipping("xar is not supported on this platform");
-		assertEqualIntA(a, ARCHIVE_OK, archive_write_free(a));
+		assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 		return;
 	}
 	assertA(0 == archive_write_add_filter_none(a));
 	if (option != NULL &&
 	    archive_write_set_options(a, option) != ARCHIVE_OK) {
 		skipping("option `%s` is not supported on this platform", option);
-		assertEqualIntA(a, ARCHIVE_OK, archive_write_free(a));
+		assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 		return;
 	}
 
@@ -91,13 +93,13 @@ test_xar(const char *option)
 	archive_entry_free(ae);
 
 	/*
-	 * "dir/file3" has a bunch of attributes and 8 bytes of data.
+	 * "dir/file" has a bunch of attributes and 8 bytes of data.
 	 */
 	assert((ae = archive_entry_new()) != NULL);
 	archive_entry_set_atime(ae, 2, 20);
 	archive_entry_set_ctime(ae, 4, 40);
 	archive_entry_set_mtime(ae, 5, 50);
-	archive_entry_copy_pathname(ae, "dir/file");
+	archive_entry_copy_pathname(ae, "dir/../../dir/file");
 	archive_entry_set_mode(ae, AE_IFREG | 0755);
 	archive_entry_set_size(ae, 8);
 	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
@@ -111,7 +113,7 @@ test_xar(const char *option)
 	archive_entry_set_atime(ae, 2, 20);
 	archive_entry_set_ctime(ae, 4, 40);
 	archive_entry_set_mtime(ae, 5, 50);
-	archive_entry_copy_pathname(ae, "dir/dir2/file4");
+	archive_entry_copy_pathname(ae, "dir/..//dir/dir2/file4");
 	archive_entry_copy_hardlink(ae, "file");
 	archive_entry_set_mode(ae, AE_IFREG | 0755);
 	archive_entry_set_nlink(ae, 2);
@@ -147,6 +149,20 @@ test_xar(const char *option)
 	archive_entry_free(ae);
 
 	/*
+	 * "dir/file{UNICODE}" has a name that requires base64 encoding
+	 */
+	assert((ae = archive_entry_new()) != NULL);
+	archive_entry_set_atime(ae, 2, 20);
+	archive_entry_set_ctime(ae, 4, 40);
+	archive_entry_set_mtime(ae, 5, 50);
+	archive_entry_copy_pathname_w(ae, L"dir/file\U0001F574");
+	archive_entry_set_mode(ae, AE_IFREG | 0755);
+	archive_entry_set_size(ae, 8);
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
+	archive_entry_free(ae);
+	assertEqualIntA(a, 8, archive_write_data(a, "ghijklmn", 9));
+
+	/*
 	 * XXX TODO XXX Archive directory, other file types.
 	 * Archive extended attributes, ACLs, other metadata.
 	 * Verify they get read back correctly.
@@ -154,7 +170,7 @@ test_xar(const char *option)
 
 	/* Close out the archive. */
 	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_write_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 
 	/*
 	 *
@@ -262,17 +278,40 @@ test_xar(const char *option)
 	assert((AE_IFDIR | 0755) == archive_entry_mode(ae));
 
 	/*
+	 * Read "dir/file{UNICODE}"
+	 */
+	assertEqualIntA(a, 0, archive_read_next_header(a, &ae));
+	assertEqualInt(2, archive_entry_atime(ae));
+	assertEqualInt(0, archive_entry_atime_nsec(ae));
+	assertEqualInt(4, archive_entry_ctime(ae));
+	assertEqualInt(0, archive_entry_ctime_nsec(ae));
+	assertEqualInt(5, archive_entry_mtime(ae));
+	assertEqualInt(0, archive_entry_mtime_nsec(ae));
+	assertEqualWString(L"dir/file\U0001F574", archive_entry_pathname_w(ae));
+	assert((AE_IFREG | 0755) == archive_entry_mode(ae));
+	assertEqualInt(8, archive_entry_size(ae));
+	assertEqualIntA(a, 8, archive_read_data(a, buff2, 10));
+	assertEqualMem(buff2, "ghijklmn", 8);
+
+	/*
 	 * Verify the end of the archive.
 	 */
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_close(a));
-	assertEqualIntA(a, ARCHIVE_OK, archive_read_free(a));
+	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 
 	free(buff);
 }
 
 DEFINE_TEST(test_write_format_xar)
 {
+	/* xar mandates the use of UTF-8 XML; if we cannot
+	 * use UTF-8, perhaps we should not write xar. */
+	if (NULL == setlocale(LC_ALL, "en_US.UTF-8")) {
+		skipping("en_US.UTF-8 locale not available on this system.");
+		return;
+	}
+
 	/* Default mode. */
 	test_xar(NULL);
 
@@ -311,4 +350,33 @@ DEFINE_TEST(test_write_format_xar)
 	test_xar("compression=xz");
 	test_xar("compression=xz,compression-level=1");
 	test_xar("compression=xz,compression-level=9");
+}
+
+DEFINE_TEST(test_write_format_xar_entry_trunc)
+{
+	struct archive *a;
+	struct archive_entry *ae;
+	unsigned char buff[1024];
+	size_t used = 0;
+
+	assert((a = archive_write_new()) != NULL);
+	if (archive_write_set_format_xar(a) != ARCHIVE_OK) {
+		skipping("xar is not supported on this platform");
+		assertEqualInt(ARCHIVE_OK, archive_write_free(a));
+		return;
+	}
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_add_filter_none(a));
+	assertEqualIntA(a, ARCHIVE_OK,
+	    archive_write_open_memory(a, buff, sizeof(buff), &used));
+
+	assert((ae = archive_entry_new()) != NULL);
+	archive_entry_set_pathname(ae, "foo");
+	archive_entry_set_mode(ae, S_IFREG | 0644);
+	archive_entry_set_size(ae, 1028);
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, ae));
+	archive_entry_free(ae);
+	assertEqualIntA(a, 3, archive_write_data(a, "foo", 3));
+
+	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
+	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
 }
