@@ -1991,7 +1991,6 @@
 ./usr/include/uv/linux.h                                minix-comp
 ./usr/include/uv/os390.h                                minix-comp
 ./usr/include/uv/posix.h                                minix-comp
-./usr/include/uv/stdint-msvc2008.h                      minix-comp
 ./usr/include/uv/sunos.h                                minix-comp
 ./usr/include/uv/threadpool.h                           minix-comp
 ./usr/include/uv/tree.h                                 minix-comp

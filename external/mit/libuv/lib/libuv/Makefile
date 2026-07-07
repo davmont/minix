@@ -7,8 +7,8 @@ LIB=		uv
 .PATH:	${LIBUVSRCDIR}/src ${LIBUVSRCDIR}/src/unix
 
 # Platform-independent core.
-SRCS+=	fs-poll.c idna.c inet.c random.c strscpy.c strtok.c threadpool.c \
-	timer.c uv-common.c uv-data-getter-setters.c version.c
+SRCS+=	fs-poll.c idna.c inet.c random.c strscpy.c strtok.c thread-common.c \
+	threadpool.c timer.c uv-common.c uv-data-getter-setters.c version.c
 
 # Generic Unix backend (shared by all unix ports).
 SRCS+=	async.c core.c dl.c fs.c getaddrinfo.c getnameinfo.c loop-watcher.c \
@@ -33,8 +33,9 @@ LIBDPLIBS+=	pthread	${NETBSDSRCDIR}/lib/libpthread
 
 # Installed headers: uv.h + the uv/ subdirectory.
 INCS=		uv.h
+# uv/stdint-msvc2008.h was removed upstream in libuv 1.45.
 INCS+=		uv/aix.h uv/bsd.h uv/darwin.h uv/errno.h uv/linux.h uv/os390.h \
-		uv/posix.h uv/stdint-msvc2008.h uv/sunos.h uv/threadpool.h \
+		uv/posix.h uv/sunos.h uv/threadpool.h \
 		uv/tree.h uv/unix.h uv/version.h uv/win.h
 INCSDIR=	/usr/include
 .PATH:	${LIBUVSRCDIR}/include
