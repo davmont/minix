@@ -92,7 +92,7 @@
 #define PACKAGE_NAME "expat"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "expat 2.4.6"
+#define PACKAGE_STRING "expat 2.6.4"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "expat"
@@ -101,7 +101,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "2.4.6"
+#define PACKAGE_VERSION "2.6.4"
 
 /* Define to 1 if all of the C90 standard headers exist (not just the ones
    required in a freestanding environment). This macro is provided for
@@ -136,6 +136,9 @@
 
 /* Define to make parameter entity parsing functionality available. */
 #define XML_DTD 1
+
+/* Define to make general entities functionality available (expat 2.6+). */
+#define XML_GE 1
 
 /* Define to make XML Namespaces functionality available. */
 #define XML_NS 1
