@@ -6,6 +6,9 @@ LIB=		expat
 
 .PATH:	${EXPATSRCDIR}/lib
 SRCS=	xmlparse.c xmlrole.c xmltok.c
+# expat 2.8 split the entropy sources out of xmlparse.c; MINIX uses
+# arc4random_buf(3) with /dev/urandom as fallback (see expat_config.h).
+SRCS+=	random_arc4random_buf.c random_dev_urandom.c
 
 INCS=		expat.h expat_config.h expat_external.h
 INCSDIR=	/usr/include
