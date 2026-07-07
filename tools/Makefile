@@ -215,11 +215,6 @@ SUBDIR+=	mkubootimage
 .endif
 .endif # !defined(__MINIX)
 
-.if ${MKX11} != "no"
-SUBDIR+=	makestrs
-SUBDIR+=	makekeys
-.endif
-
 .endif # TOOLCHAIN_BUILDRUMP
 
 check_MKTOOLS: .PHONY .NOTMAIN

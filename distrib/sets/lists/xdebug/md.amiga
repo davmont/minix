@@ -1,3 +1,0 @@
-# $NetBSD: md.amiga,v 1.2 2015/08/10 19:23:32 mlelstv Exp $
-./usr/libdata/debug/usr/X11R6/bin/Xamiga.debug		-unknown-	x11,debug
-./usr/libdata/debug/usr/X11R6/bin/Xvfb.debug		-unknown-	x11,debug

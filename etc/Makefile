@@ -165,9 +165,6 @@ distribution: .PHONY .MAKE check_DESTDIR distrib-dirs
 	${MAKEDIRTARGET} ${NETBSDSRCDIR} install _DISTRIB=
 .endif	# !INSTALL_DONE
 	${MAKEDIRTARGET} . install-etc-files
-. if ${MKX11} != "no"
-	${MAKEDIRTARGET} ${NETBSDSRCDIR}/external/mit/xorg distribution
-. endif
 . if ${MKEXTSRC} != "no"
 	${MAKEDIRTARGET} ${NETBSDSRCDIR}/extsrc distribution
 . endif
@@ -338,11 +335,6 @@ install-etc-files: .PHONY .MAKE check_DESTDIR MAKEDEV
 	fi; \
 	${INSTALL_FILE} -o ${owner} -g ${group} -m ${mode} ${sdir}${files} ${tdir};
 .endfor
-.if ${MKX11} == "yes"
-	${INSTALL_DIR} -o ${BINOWN} -g ${BINGRP} -m 755 ${DESTDIR}/etc/X11
-	${INSTALL_FILE} -o ${BINOWN} -g ${BINGRP} -m 644 ${NETBSDSRCDIR}/etc/xorg.conf \
-		${DESTDIR}/etc/X11/xorg.conf
-.endif # ${MKX11} == "yes"
 # LSC: We need a safe install target for etc files, as this is expected from
 # our current user base. This safe version only leaves out the master.passwd
 # file in order not to loose any user account created.
@@ -511,20 +503,12 @@ OBSOLETE.files+=	modules
 .if ${MKATF} != "no"
 OBSOLETE.files+=	minix-tests tests
 .endif
-.if ${MKX11} != "no"
-OBSOLETE.files+=	xbase xcomp xetc xfont xserver
-.endif
 
 # XXX make "makeobsolete" set wise; then generate files respectively
 install-obsolete-lists: .PHONY .MAKE
 	mkdir -p ${OBSOLETE.dir}
-.if ${MKX11} != "no"
-	(cd ${NETBSDSRCDIR}/distrib/sets && \
-	    AWK=${TOOL_AWK:Q} MAKE=${MAKE:Q} ${HOST_SH} ./makeobsolete -b -t ${OBSOLETE.dir})
-.else
 	(cd ${NETBSDSRCDIR}/distrib/sets && \
 	    AWK=${TOOL_AWK:Q} MAKE=${MAKE:Q} ${HOST_SH} ./makeobsolete -t ${OBSOLETE.dir})
-.endif
 .for file in ${OBSOLETE.files}
 	${_MKMSG_INSTALL} ${DESTDIR}/var/db/obsolete/${file}
 	if [ ! -e ${DESTDIR}/var/db/obsolete/${file} ] || \

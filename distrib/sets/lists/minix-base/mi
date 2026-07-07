@@ -66,21 +66,7 @@
 ./dev                                                   minix-base
 ./dev/pts                                               minix-base
 ./etc                                                   minix-base
-./etc/X11                                               minix-base      xorg
 ./etc/X11/ctwm                                          minix-base
-./etc/X11/fs                                            minix-base      xorg
-./etc/X11/lbxproxy                                      minix-base      xorg
-./etc/X11/proxymngr                                     minix-base      xorg
-./etc/X11/rstart                                        minix-base      xorg
-./etc/X11/rstart/commands                               minix-base      xorg
-./etc/X11/rstart/commands/x11r6                         minix-base      xorg
-./etc/X11/rstart/contexts                               minix-base      xorg
-./etc/X11/twm                                           minix-base      xorg
-./etc/X11/xdm                                           minix-base      xorg
-./etc/X11/xinit                                         minix-base      xorg
-./etc/X11/xorg.conf                                     minix-base      xorg,optional
-./etc/X11/xserver                                       minix-base      xorg
-./etc/X11/xsm                                           minix-base      xorg
 ./etc/boot.cfg.default                                  minix-base
 ./etc/csh.cshrc                                         minix-base
 ./etc/csh.login                                         minix-base
@@ -95,9 +81,6 @@
 ./etc/devmand/usb_hub.cfg                               minix-base
 ./etc/devmand/usb_storage.cfg                           minix-base
 ./etc/dhcpcd.conf                                       minix-base
-./etc/fonts                                             minix-base      xorg
-./etc/fonts/conf.avail                                  minix-base      xorg
-./etc/fonts/conf.d                                      minix-base      xorg
 ./etc/gettytab                                          minix-base
 ./etc/group                                             minix-base
 ./etc/hostname.file                                     minix-base
@@ -4040,8 +4023,6 @@
 ./var/db/obsolete                                       minix-base
 ./var/db/obsolete/minix-base                            minix-base
 ./var/db/obsolete/minix                                 minix-base      obsolete
-./var/db/xdm                                            minix-base      xorg
-./var/db/xkb                                            minix-base      xorg
 ./var/heimdal                                           minix-base      crypto
 ./var/log                                               minix-base
 ./var/mail                                              minix-base

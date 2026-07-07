@@ -1097,8 +1097,6 @@ Usage: ${progname} [-EhnorUuxy] [-a arch] [-B buildid] [-C cdextras]
     -V var=[value] Set variable \`var' to \`value'.
     -w wrapper     Create ${toolprefix}make script as wrapper.
                    [Default: \${TOOLDIR}/bin/${toolprefix}make-\${MACHINE}]
-    -X x11src      Set X11SRCDIR to x11src.  [Default: /usr/xsrc]
-    -x             Set MKX11=yes; build X11 from X11SRCDIR
     -Y extsrcsrc   Set EXTSRCSRCDIR to extsrcsrc.  [Default: /usr/extsrc]
     -y             Set MKEXTSRC=yes; build extsrc from EXTSRCSRCDIR
     -Z var         Unset ("zap") variable \`var'.
@@ -1109,7 +1107,7 @@ _usage_
 
 parseoptions()
 {
-	opts='a:B:C:c:D:Ehj:M:m:N:nO:oR:rS:T:UuV:w:X:xY:yZ:'
+	opts='a:B:C:c:D:Ehj:M:m:N:nO:oR:rS:T:UuV:w:Y:yZ:'
 	opt_a=false
 	opt_m=false
 	BUILD_CLANG=
@@ -1280,15 +1278,6 @@ parseoptions()
 		-w)
 			eval ${optargcmd}; resolvepath OPTARG
 			makewrapper="${OPTARG}"
-			;;
-
-		-X)
-			eval ${optargcmd}; resolvepath OPTARG
-			setmakeenv X11SRCDIR "${OPTARG}"
-			;;
-
-		-x)
-			setmakeenv MKX11 yes
 			;;
 
 		-Y)

@@ -13,7 +13,7 @@ FILES=	bsd.README bsd.buildinstall.mk bsd.clang-analyze.mk bsd.clean.mk \
 	bsd.kmodule.mk bsd.lib.mk bsd.links.mk bsd.lua.mk \
 	bsd.man.mk bsd.nls.mk \
 	bsd.obj.mk bsd.own.mk bsd.prog.mk bsd.rpc.mk bsd.shlib.mk \
-	bsd.subdir.mk bsd.sys.mk bsd.syscall.mk bsd.test.mk bsd.x11.mk sys.mk
+	bsd.subdir.mk bsd.sys.mk bsd.syscall.mk bsd.test.mk sys.mk
 
 .if defined(__MINIX)
 # MINIX-specific files

@@ -3,7 +3,6 @@
 .include <bsd.own.mk>
 
 .if ${MKX11} != "no"
-EXTRA_DIST_FILES=	${.CURDIR}/NetBSD.dist.Xorg
 .endif
 
 .if defined(__MINIX)
