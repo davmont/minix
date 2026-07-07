@@ -207,6 +207,8 @@ bpf_filter(const struct bpf_insn *pc, const u_char *p, u_int wirelen,
 u_int
 bpf_filter_ext(const bpf_ctx_t *bc, const struct bpf_insn *pc, bpf_args_t *args)
 #else
+/* MINIX: alias for libpcap >= 1.10 internal name (NetBSD rev 1.73). */
+__strong_alias(pcapint_filter, bpf_filter)
 u_int
 bpf_filter(const struct bpf_insn *pc, const u_char *p, u_int wirelen,
     u_int buflen)
@@ -605,6 +607,8 @@ bpf_validate(const struct bpf_insn *f, int signed_len)
 int
 bpf_validate_ext(const bpf_ctx_t *bc, const struct bpf_insn *f, int signed_len)
 #else
+/* MINIX: alias for libpcap >= 1.10 internal name (NetBSD rev 1.73). */
+__strong_alias(pcapint_validate_filter, bpf_validate)
 int
 bpf_validate(const struct bpf_insn *f, int signed_len)
 #endif

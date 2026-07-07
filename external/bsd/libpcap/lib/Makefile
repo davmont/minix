@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.29 2020/03/29 19:50:46 christos Exp $	
+# $NetBSD: Makefile,v 1.37 2026/03/18 23:56:51 christos Exp $	
 
 USE_SHLIBDIR=yes
 .include <bsd.init.mk>
@@ -6,6 +6,9 @@ USE_FORT?= yes	# network protocol library
 
 CPPFLAGS+= -DPCAP_DONT_INCLUDE_PCAP_BPF_H -DHAVE_CONFIG_H -DENABLE_REMOTE
 CPPFLAGS+= -DPCAP_SUPPORT_RPCAP
+# The following is for a pure build but we can't do that because other
+# programs use the internal functions (rpcapd for example)
+#CPPFLAGS+= -fvisibility=hidden -Dpcap_EXPORTS
 CPPFLAGS+= -I${.OBJDIR}
 
 .SUFFIXES: .3 .3pcap
@@ -42,6 +45,7 @@ pcap_freecode.3pcap \
 pcap_get_required_select_timeout.3pcap \
 pcap_get_selectable_fd.3pcap \
 pcap_geterr.3pcap \
+pcap_init.3pcap \
 pcap_inject.3pcap \
 pcap_is_swapped.3pcap \
 pcap_lib_version.3pcap \
@@ -55,6 +59,7 @@ pcap_open_live.3pcap \
 pcap_set_buffer_size.3pcap \
 pcap_set_datalink.3pcap \
 pcap_set_promisc.3pcap \
+pcap_set_protocol_linux.3pcap \
 pcap_set_rfmon.3pcap \
 pcap_set_snaplen.3pcap \
 pcap_set_timeout.3pcap \
@@ -111,7 +116,7 @@ ${i:S/manfile.in/5/}: ${i} __sed
 .endfor
 
 CPPFLAGS+=	-I${.CURDIR}/../include -I${.CURDIR} -I${SRCDIR}
-CPPFLAGS+=	-DYYBISON
+CPPFLAGS+=	-DYYBISON -DYYDEBUG
 LPREFIX=	pcap_
 LFLAGS+=	--header-file=scanner.h
 YPREFIX=	pcap_
@@ -140,6 +145,8 @@ pcap-common.c \
 pcap-new.c \
 pcap-rpcap.c \
 pcap-rpcap-unix.c \
+pcap-usb-linux.c \
+pcap-util.c \
 pcap.c \
 rpcap-protocol.c \
 savefile.c \
@@ -161,17 +168,28 @@ scanner.d scanner.o: tokdefs.h
 tokdefs.h: grammar.h
 	cp $? $@
 
-CLEANFILES+=	tokdefs.h scanner.h
+CLEANFILES+=	tokdefs.h scanner.h grammar.y
 
 COPTS.bpf_image.c+=	-Wno-format-nonliteral
 
-COPTS.gencode.c+=	${${ACTIVE_CC} == "gcc" && ${HAVE_GCC:U0} >= 7:? -Wno-error=implicit-fallthrough :}
-COPTS.pcap.c+=		${GCC_NO_FORMAT_TRUNCATION}
-COPTS.pcap-bpf.c+=	${GCC_NO_STRINGOP_TRUNCATION}
-COPTS.pcap-new.c+=	${GCC_NO_FORMAT_TRUNCATION}
-COPTS.pcap-rpcap.c+=	${GCC_NO_FORMAT_TRUNCATION}
+COPTS.gencode.c+=	${CC_WNO_IMPLICIT_FALLTHROUGH}
+COPTS.pcap.c+=		${CC_WNO_FORMAT_TRUNCATION}
+COPTS.pcap-bpf.c+=	${CC_WNO_STRINGOP_TRUNCATION}
+COPTS.pcap-new.c+=	${CC_WNO_FORMAT_TRUNCATION}
+COPTS.pcap-rpcap.c+=	${CC_WNO_FORMAT_TRUNCATION}
 
 CWARNFLAGS.clang+=	-Wno-format-extra-args \
 			-Wno-unneeded-internal-declaration
+
+grammar.y: grammar.y.in
+	${_MKTARGET_CREATE}
+	${TOOL_SED} -e 's/@REENTRANT_PARSER@/%pure-parser/g' < ${.ALLSRC} > ${.TARGET}
+
+.if ${USE_OPENSSL:Uno} == "yes"
+CPPFLAGS  +=	-DHAVE_OPENSSL
+SRCS	  +=	sslutils.c
+LIBDPLIBS +=	ssl ${OPENSSLDIR}/lib/libssl \
+	    	crypto ${OPENSSLDIR}/lib/libcrypto
+.endif
 
 .include <bsd.lib.mk>

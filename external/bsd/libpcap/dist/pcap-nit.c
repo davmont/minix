@@ -1,4 +1,4 @@
-/*	$NetBSD: pcap-nit.c,v 1.5 2018/09/03 15:26:43 christos Exp $	*/
+/*	$NetBSD: pcap-nit.c,v 1.7 2024/09/02 15:33:37 christos Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1992, 1993, 1994, 1995, 1996
@@ -22,11 +22,9 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: pcap-nit.c,v 1.5 2018/09/03 15:26:43 christos Exp $");
+__RCSID("$NetBSD: pcap-nit.c,v 1.7 2024/09/02 15:33:37 christos Exp $");
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include <sys/types.h>
 #include <sys/time.h>
@@ -48,7 +46,6 @@ __RCSID("$NetBSD: pcap-nit.c,v 1.5 2018/09/03 15:26:43 christos Exp $");
 #include <netinet/tcp.h>
 #include <netinet/tcpip.h>
 
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 
@@ -119,7 +116,7 @@ pcap_read_nit(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 		if (cc < 0) {
 			if (errno == EWOULDBLOCK)
 				return (0);
-			pcap_fmt_errmsg_for_errno(p->errbuf, sizeof(p->errbuf),
+			pcapint_fmt_errmsg_for_errno(p->errbuf, sizeof(p->errbuf),
 			    errno, "pcap_read");
 			return (-1);
 		}
@@ -131,6 +128,9 @@ pcap_read_nit(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 	 * Loop through each packet.  The increment expression
 	 * rounds up to the next int boundary past the end of
 	 * the previous packet.
+	 *
+	 * This assumes that a single buffer of packets will have
+	 * <= INT_MAX packets, so the packet count doesn't overflow.
 	 */
 	n = 0;
 	ep = bp + cc;
@@ -173,7 +173,7 @@ pcap_read_nit(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 			continue;
 
 		default:
-			pcap_snprintf(p->errbuf, sizeof(p->errbuf),
+			snprintf(p->errbuf, sizeof(p->errbuf),
 			    "bad nit state %d", nh->nh_state);
 			return (-1);
 		}
@@ -184,7 +184,7 @@ pcap_read_nit(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 		caplen = nh->nh_wirelen;
 		if (caplen > p->snapshot)
 			caplen = p->snapshot;
-		if (bpf_filter(p->fcode.bf_insns, cp, nh->nh_wirelen, caplen)) {
+		if (pcapint_filter(p->fcode.bf_insns, cp, nh->nh_wirelen, caplen)) {
 			struct pcap_pkthdr h;
 			h.ts = nh->nh_timestamp;
 			h.len = nh->nh_wirelen;
@@ -202,7 +202,7 @@ pcap_read_nit(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 }
 
 static int
-pcap_inject_nit(pcap_t *p, const void *buf, size_t size)
+pcap_inject_nit(pcap_t *p, const void *buf, int size)
 {
 	struct sockaddr sa;
 	int ret;
@@ -211,7 +211,7 @@ pcap_inject_nit(pcap_t *p, const void *buf, size_t size)
 	strncpy(sa.sa_data, device, sizeof(sa.sa_data));
 	ret = sendto(p->fd, buf, size, 0, &sa, sizeof(sa));
 	if (ret == -1) {
-		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
 		    errno, "send");
 		return (-1);
 	}
@@ -254,7 +254,7 @@ nit_setflags(pcap_t *p)
 		nioc.nioc_flags |= NF_PROMISC;
 
 	if (ioctl(p->fd, SIOCSNIT, &nioc) < 0) {
-		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
 		    errno, "SIOCSNIT");
 		return (-1);
 	}
@@ -296,7 +296,7 @@ pcap_activate_nit(pcap_t *p)
 	memset(p, 0, sizeof(*p));
 	p->fd = fd = socket(AF_NIT, SOCK_RAW, NITPROTO_RAW);
 	if (fd < 0) {
-		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
 		    errno, "socket");
 		goto bad;
 	}
@@ -311,7 +311,7 @@ pcap_activate_nit(pcap_t *p)
 		 * they might be the same error, if they both end up
 		 * meaning "NIT doesn't know about that device".
 		 */
-		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
 		    errno, "bind: %s", snit.snit_ifname);
 		goto bad;
 	}
@@ -326,7 +326,7 @@ pcap_activate_nit(pcap_t *p)
 	p->bufsize = BUFSPACE;
 	p->buffer = malloc(p->bufsize);
 	if (p->buffer == NULL) {
-		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
 		    errno, "malloc");
 		goto bad;
 	}
@@ -347,36 +347,36 @@ pcap_activate_nit(pcap_t *p)
 	 * Ethernet framing).
 	 */
 	p->dlt_list = (u_int *) malloc(sizeof(u_int) * 2);
-	/*
-	 * If that fails, just leave the list empty.
-	 */
-	if (p->dlt_list != NULL) {
-		p->dlt_list[0] = DLT_EN10MB;
-		p->dlt_list[1] = DLT_DOCSIS;
-		p->dlt_count = 2;
+	if (p->dlt_list == NULL) {
+		pcapint_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "malloc");
+		goto bad;
 	}
+	p->dlt_list[0] = DLT_EN10MB;
+	p->dlt_list[1] = DLT_DOCSIS;
+	p->dlt_count = 2;
 
 	p->read_op = pcap_read_nit;
 	p->inject_op = pcap_inject_nit;
-	p->setfilter_op = install_bpf_program;	/* no kernel filtering */
+	p->setfilter_op = pcapint_install_bpf_program;	/* no kernel filtering */
 	p->setdirection_op = NULL;	/* Not implemented. */
 	p->set_datalink_op = NULL;	/* can't change data link type */
-	p->getnonblock_op = pcap_getnonblock_fd;
-	p->setnonblock_op = pcap_setnonblock_fd;
+	p->getnonblock_op = pcapint_getnonblock_fd;
+	p->setnonblock_op = pcapint_setnonblock_fd;
 	p->stats_op = pcap_stats_nit;
 
 	return (0);
  bad:
-	pcap_cleanup_live_common(p);
+	pcapint_cleanup_live_common(p);
 	return (PCAP_ERROR);
 }
 
 pcap_t *
-pcap_create_interface(const char *device _U_, char *ebuf)
+pcapint_create_interface(const char *device _U_, char *ebuf)
 {
 	pcap_t *p;
 
-	p = pcap_create_common(ebuf, sizeof (struct pcap_nit));
+	p = PCAP_CREATE_COMMON(ebuf, struct pcap_nit);
 	if (p == NULL)
 		return (NULL);
 
@@ -406,9 +406,9 @@ get_if_flags(const char *name _U_, bpf_u_int32 *flags _U_, char *errbuf _U_)
 }
 
 int
-pcap_platform_finddevs(pcap_if_list_t *devlistp, char *errbuf)
+pcapint_platform_finddevs(pcap_if_list_t *devlistp, char *errbuf)
 {
-	return (pcap_findalldevs_interfaces(devlistp, errbuf, can_be_bound,
+	return (pcapint_findalldevs_interfaces(devlistp, errbuf, can_be_bound,
 	    get_if_flags));
 }
 

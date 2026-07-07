@@ -522,6 +522,11 @@ void	bpf_jit_freecode(bpfjit_func_t);
 int	bpf_validate(const struct bpf_insn *, int);
 u_int	bpf_filter(const struct bpf_insn *, const u_char *, u_int, u_int);
 
+/* MINIX: userland helpers libpcap >= 1.10 expects <net/bpf.h> to declare
+ * (NetBSD added these by rev 1.78; the implementations live in libpcap). */
+void	bpf_dump(const struct bpf_program *, int);
+char	*bpf_image(const struct bpf_insn *, int);
+
 __END_DECLS
 
 #endif /* !_NET_BPF_H_ */
