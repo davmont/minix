@@ -48,10 +48,7 @@ __RCSID("$NetBSD: strlcpy.c,v 1.1.1.2 2017/01/31 21:14:53 christos Exp $");
  * Returns strlen(src); if retval >= siz, truncation occurred.
  */
 size_t
-event_strlcpy_(dst, src, siz)
-	char *dst;
-	const char *src;
-	size_t siz;
+event_strlcpy_(char *dst, const char *src, size_t siz)
 {
 	register char *d = dst;
 	register const char *s = src;
