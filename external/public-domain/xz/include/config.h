@@ -335,7 +335,7 @@
 #define PACKAGE_NAME "XZ Utils"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "XZ Utils 5.2.4"
+#define PACKAGE_STRING "XZ Utils 5.8.3"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "xz"
@@ -344,7 +344,7 @@
 #define PACKAGE_URL "https://tukaani.org/xz/"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "5.2.4"
+#define PACKAGE_VERSION "5.8.3"
 
 /* Define to necessary symbol if this constant uses a non-standard name on
    your system. */
@@ -432,9 +432,70 @@
 # define __EXTENSIONS__ 1
 #endif
 
+/*
+ * Knobs new in XZ Utils 5.8 (curated for NetBSD/MINIX, matching what
+ * configure would produce; see config.h.in in dist).
+ */
+
+/* Define to 1 if you have the `__builtin_assume_aligned' built-in. */
+#define HAVE___BUILTIN_ASSUME_ALIGNED 1
+
+/* Define to 1 if you have the `__builtin_bswap16/32/64' built-ins. */
+#define HAVE___BUILTIN_BSWAPXX 1
+
+/* Define to 1 if using CLOCK_MONOTONIC with clock_gettime() is supported. */
+#define HAVE_CLOCK_MONOTONIC 1
+
+/* Define to 1 if you have the <cpuid.h> header file. */
+#if defined(__i386__) || defined(__x86_64__)
+#define HAVE_CPUID_H 1
+#endif
+
+/* Define to 1 if _mm_clmulepi64_si128 is usable (runtime-dispatched;
+   the generic CRC code remains the fallback). */
+#if defined(__i386__) || defined(__x86_64__)
+#define HAVE_USABLE_CLMUL 1
+#endif
+
+/* New BCJ filters in 5.2+/5.6. */
+#define HAVE_DECODER_ARM64 1
+#define HAVE_ENCODER_ARM64 1
+#define HAVE_DECODER_RISCV 1
+#define HAVE_ENCODER_RISCV 1
+
+/* Define to 1 if __attribute__((__constructor__)) is supported. */
+#define HAVE_FUNC_ATTRIBUTE_CONSTRUCTOR 1
+
+/* Define to 1 if you have the `getrlimit' function. */
+#define HAVE_GETRLIMIT 1
+
+/* Define to 1 to enable the .lz (lzip) decompression support. */
+#define HAVE_LZIP_DECODER 1
+
+/* Define to 1 if you have the <stdio.h> header file. */
+#define HAVE_STDIO_H 1
+
+/* Define to 1 if you have the <sys/cdefs.h> header file. */
+#define HAVE_SYS_CDEFS_H 1
+
+/* Define to 1 if you have the `vasprintf' function. */
+#define HAVE_VASPRINTF 1
+
+/* Define to 1 if you have the <wchar.h> header file. */
+#define HAVE_WCHAR_H 1
+
+/* Not available on MINIX/NetBSD or not wanted:
+   HAVE_ARM64_CRC32, HAVE_CRC_X86_ASM (we build the C CRC only),
+   HAVE_LOONGARCH_CRC32, HAVE_ELF_AUX_INFO, HAVE_GETAUXVAL,
+   HAVE_HWCAP_CRC32, HAVE_LINUX_LANDLOCK, HAVE_PLEDGE,
+   HAVE_CAP_RIGHTS_LIMIT, HAVE_PROGRAM_INVOCATION_NAME,
+   HAVE_SYMBOL_VERSIONS_LINUX, HAVE_SYSCTLBYNAME,
+   HAVE_MINIX_CONFIG_H, TUKLIB_USE_UNSAFE_TYPE_PUNNING, _TIME_BITS,
+   HAVE_CFLOCALECOPYPREFERREDLANGUAGES. */
+
 
 /* Version number of package */
-#define VERSION "5.2.4"
+#define VERSION "5.8.3"
 
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */

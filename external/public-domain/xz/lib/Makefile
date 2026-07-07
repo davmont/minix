@@ -34,7 +34,8 @@ CPPFLAGS+=	-DNETBSD_NATIVE_SHA256
 SRCS+=	tuklib_physmem.c tuklib_cpucores.c
 
 .PATH:	${XZSRCDIR}/src/liblzma/check
-SRCS+=	check.c crc32_table.c crc64_table.c
+# xz 5.8 folded the CRC tables into crc32_fast.c/crc64_fast.c.
+SRCS+=	check.c
 SRCS+=	crc32_fast.c crc64_fast.c
 
 .if defined(HOSTLIB)
@@ -44,17 +45,20 @@ SRCS+=	sha256.c
 .PATH:	${XZSRCDIR}/src/liblzma/common
 SRCS+=	common.c block_util.c easy_preset.c filter_common.c \
 	hardware_physmem.c index.c \
-	stream_flags_common.c vli_size.c \
+	stream_flags_common.c string_conversion.c vli_size.c \
 	alone_encoder.c block_buffer_encoder.c block_encoder.c \
 	block_header_encoder.c easy_buffer_encoder.c easy_encoder.c \
 	easy_encoder_memusage.c filter_buffer_encoder.c \
 	filter_encoder.c filter_flags_encoder.c index_encoder.c \
+	microlzma_encoder.c \
 	stream_buffer_encoder.c stream_encoder.c \
 	stream_flags_encoder.c vli_encoder.c \
 	alone_decoder.c auto_decoder.c block_buffer_decoder.c \
 	block_decoder.c block_header_decoder.c easy_decoder_memusage.c \
+	file_info.c \
 	filter_buffer_decoder.c filter_decoder.c filter_flags_decoder.c \
-	index_decoder.c index_hash.c stream_buffer_decoder.c \
+	index_decoder.c index_hash.c lzip_decoder.c microlzma_decoder.c \
+	stream_buffer_decoder.c \
 	stream_decoder.c stream_flags_decoder.c vli_decoder.c
 
 # MINIX: no libpthread, so omit the multithreaded encoder + the
@@ -63,7 +67,7 @@ SRCS+=	common.c block_util.c easy_preset.c filter_common.c \
 .if !defined(__MINIX)
 SRCS+=	hardware_cputhreads.c outqueue.c
 .if !defined(HOSTLIB)
-SRCS+=	stream_encoder_mt.c
+SRCS+=	stream_encoder_mt.c stream_decoder_mt.c
 .endif
 .endif
 
@@ -84,7 +88,7 @@ SRCS+=	price_table.c
 
 .PATH:	${XZSRCDIR}/src/liblzma/simple
 SRCS+=	simple_coder.c simple_encoder.c simple_decoder.c \
-	arm.c armthumb.c ia64.c powerpc.c sparc.c x86.c
+	arm.c arm64.c armthumb.c ia64.c powerpc.c riscv.c sparc.c x86.c
 
 FILES+=			liblzma.pc
 FILESDIR_liblzma.pc=	/usr/lib/pkgconfig

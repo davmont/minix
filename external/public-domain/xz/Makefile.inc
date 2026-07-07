@@ -3,7 +3,7 @@
 .include <bsd.own.mk>
 
 XZHOMEPAGE=	http://tukaani.org/xz/
-XZVERSION=	5.2.4
+XZVERSION=	5.8.3
 
 XZSRCDIR:=	${.PARSEDIR}/dist
 .if defined(HOSTLIB) || defined(HOSTPROG)
