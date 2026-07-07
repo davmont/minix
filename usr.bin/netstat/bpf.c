@@ -69,7 +69,7 @@ bpf_stats(void)
 }
 
 void
-bpf_dump(const char *bpfif)
+nsbpf_dump(const char *bpfif)
 {
 	struct bpf_d_ext *dpe;
 

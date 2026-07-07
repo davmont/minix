@@ -138,7 +138,7 @@ void	mroutepr(u_long, u_long, u_long, u_long);
 void	mrt_stats(u_long, u_long);
 
 void	bpf_stats(void);
-void	bpf_dump(const char *);
+void	nsbpf_dump(const char *);
 
 kvm_t *get_kvmd(void);
 

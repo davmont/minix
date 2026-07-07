@@ -587,7 +587,7 @@ main(int argc, char *argv[])
 		if (sflag)
 			bpf_stats();
 		else
-			bpf_dump(interface);
+			nsbpf_dump(interface);
 		exit(0);
 	}
 #endif
