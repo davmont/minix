@@ -22,7 +22,7 @@
 #include "file.h"
 #ifndef lint
 #if 0
-FILE_RCSID("@(#)$File: strlcat.c,v 1.3 2022/09/13 18:46:07 christos Exp $")
+FILE_RCSID("@(#)$File: strlcat.c,v 1.5 2022/09/24 20:30:13 christos Exp $")
 #else
 __RCSID("$NetBSD: strlcat.c,v 1.1.1.4 2022/09/24 20:07:55 christos Exp $");
 #endif

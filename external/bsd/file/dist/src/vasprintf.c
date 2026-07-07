@@ -111,7 +111,7 @@ you use strange formats.
 
 #ifndef	lint
 #if 0
-FILE_RCSID("@(#)$File: vasprintf.c,v 1.21 2022/09/16 13:49:39 christos Exp $")
+FILE_RCSID("@(#)$File: vasprintf.c,v 1.23 2022/09/24 20:30:13 christos Exp $")
 #else
 __RCSID("$NetBSD: vasprintf.c,v 1.1.1.10 2022/09/24 20:07:55 christos Exp $");
 #endif

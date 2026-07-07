@@ -30,7 +30,7 @@
 
 #ifndef lint
 #if 0
-FILE_RCSID("@(#)$File: cdf_time.c,v 1.21 2022/09/16 13:51:06 christos Exp $")
+FILE_RCSID("@(#)$File: cdf_time.c,v 1.25 2024/11/25 21:24:59 christos Exp $")
 #else
 __RCSID("$NetBSD: cdf_time.c,v 1.11 2022/09/24 20:21:46 christos Exp $");
 #endif
@@ -47,14 +47,14 @@ __RCSID("$NetBSD: cdf_time.c,v 1.11 2022/09/24 20:21:46 christos Exp $");
 #define isleap(y) ((((y) % 4) == 0) && \
     ((((y) % 100) != 0) || (((y) % 400) == 0)))
 
-static const int mdays[] = {
+file_private const int mdays[] = {
     31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
 };
 
 /*
  * Return the number of days between jan 01 1601 and jan 01 of year.
  */
-static int
+file_private int
 cdf_getdays(int year)
 {
 	int days = 0;
@@ -69,7 +69,7 @@ cdf_getdays(int year)
 /*
  * Return the day within the month
  */
-static int
+file_private int
 cdf_getday(int year, int days)
 {
 	size_t m;
@@ -86,7 +86,7 @@ cdf_getday(int year, int days)
 /*
  * Return the 0...11 month number.
  */
-static int
+file_private int
 cdf_getmonth(int year, int days)
 {
 	size_t m;
@@ -101,12 +101,12 @@ cdf_getmonth(int year, int days)
 	return CAST(int, m);
 }
 
-int
+file_protected int
 cdf_timestamp_to_timespec(struct timespec *ts, cdf_timestamp_t t)
 {
 	struct tm tm;
 #ifdef HAVE_STRUCT_TM_TM_ZONE
-	static char UTC[] = "UTC";
+	file_private char UTC[] = "UTC";
 #endif
 	int rdays;
 
@@ -148,7 +148,7 @@ cdf_timestamp_to_timespec(struct timespec *ts, cdf_timestamp_t t)
 	return 0;
 }
 
-int
+file_protected int
 /*ARGSUSED*/
 cdf_timespec_to_timestamp(cdf_timestamp_t *t, const struct timespec *ts)
 {
@@ -171,10 +171,10 @@ cdf_timespec_to_timestamp(cdf_timestamp_t *t, const struct timespec *ts)
 	return 0;
 }
 
-char *
+file_protected char *
 cdf_ctime(const time_t *sec, char *buf)
 {
-	char *ptr = ctime_r(sec, buf);
+	char *ptr = *sec > MAX_CTIME ? NULL : ctime_r(sec, buf);
 	if (ptr != NULL)
 		return buf;
 #ifdef WIN32
@@ -194,8 +194,8 @@ main(int argc, char *argv[])
 {
 	struct timespec ts;
 	char buf[25];
-	static const cdf_timestamp_t tst = 0x01A5E403C2D59C00ULL;
-	static const char *ref = "Sat Apr 23 01:30:00 1977";
+	file_private const cdf_timestamp_t tst = 0x01A5E403C2D59C00ULL;
+	file_private const char *ref = "Sat Apr 23 01:30:00 1977";
 	char *p, *q;
 
 	cdf_timestamp_to_timespec(&ts, tst);

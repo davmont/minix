@@ -32,7 +32,7 @@
 
 #ifndef lint
 #if 0
-FILE_RCSID("@(#)$File: asprintf.c,v 1.5 2018/09/09 20:33:28 christos Exp $")
+FILE_RCSID("@(#)$File: asprintf.c,v 1.7 2022/09/24 20:30:13 christos Exp $")
 #else
 __RCSID("$NetBSD: asprintf.c,v 1.1.1.5 2018/10/18 23:54:09 christos Exp $");
 #endif

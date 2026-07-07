@@ -18,7 +18,7 @@ CPPFLAGS+=-I.
 .endif
 
 SRCS=		magic.c apprentice.c softmagic.c ascmagic.c compress.c	\
-		is_json.c is_tar.c readelf.c print.c fsmagic.c apptype.c \
+		is_json.c is_simh.c is_tar.c readelf.c print.c fsmagic.c apptype.c \
 		funcs.c cdf.c readcdf.c cdf_time.c encoding.c der.c buffer.c \
 		is_csv.c
 DPSRCS=		magic.h
