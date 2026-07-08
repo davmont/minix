@@ -304,7 +304,7 @@ new_item(char *name, char *description)
                 return NULL;
         }
         
-        strcpy(new_one->name.string, name);
+        strlcpy(new_one->name.string, name, new_one->name.length + 1);
 
 	if (description == NULL)
 		new_one->description.length = 0;
@@ -324,7 +324,7 @@ new_item(char *name, char *description)
 			return NULL;
 		}
 	
-		strcpy(new_one->description.string, description);
+		strlcpy(new_one->description.string, description, new_one->description.length + 1);
 	}
 
 	return new_one;
