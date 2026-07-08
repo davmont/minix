@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * logerr: errx with logging
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,9 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/socket.h>
 #include <sys/time.h>
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdarg.h>
@@ -163,7 +165,7 @@ vlogprintf_r(struct logctx *ctx, FILE *stream, const char *fmt, va_list args)
 			pid = getpid();
 		else
 			pid = ctx->log_pid;
-		if ((e = fprintf(stream, "[%d]", pid)) == -1)
+		if ((e = fprintf(stream, "[%d]", (int)pid)) == -1)
 			return -1;
 		len += e;
 	}
@@ -215,18 +217,25 @@ vlogmessage(int pri, const char *fmt, va_list args)
 	int len = 0;
 
 	if (ctx->log_fd != -1) {
+		pid_t pid = getpid();
 		char buf[LOGERR_SYSLOGBUF];
-		pid_t pid;
+		struct iovec iov[] = {
+			{ .iov_base = &pri, .iov_len = sizeof(pri) },
+			{ .iov_base = &pid, .iov_len = sizeof(pid) },
+			{ .iov_base = buf },
+		};
 
-		memcpy(buf, &pri, sizeof(pri));
-		pid = getpid();
-		memcpy(buf + sizeof(pri), &pid, sizeof(pid));
-		len = vsnprintf(buf + sizeof(pri) + sizeof(pid),
-		    sizeof(buf) - sizeof(pri) - sizeof(pid),
-		    fmt, args);
-		if (len != -1)
-			len = (int)write(ctx->log_fd, buf,
-			    ((size_t)++len) + sizeof(pri) + sizeof(pid));
+		len = vsnprintf(buf, sizeof(buf), fmt, args);
+		if (len != -1) {
+			if ((size_t)len >= sizeof(buf))
+				len = (int)sizeof(buf) - 1;
+			iov[2].iov_len = (size_t)(len + 1);
+			struct msghdr msg = {
+				.msg_iov = iov,
+				.msg_iovlen = sizeof(iov) / sizeof(iov[0]),
+			};
+			len = (int)sendmsg(ctx->log_fd, &msg, MSG_EOR);
+		}
 		return len;
 	}
 
@@ -376,6 +385,8 @@ logsetfd(int fd)
 	struct logctx *ctx = &_logctx;
 
 	ctx->log_fd = fd;
+	if (fd != -1)
+		closelog();
 #ifndef SMALL
 	if (fd != -1 && ctx->log_file != NULL) {
 		fclose(ctx->log_file);
@@ -384,28 +395,38 @@ logsetfd(int fd)
 #endif
 }
 
-int
+ssize_t
 logreadfd(int fd)
 {
 	struct logctx *ctx = &_logctx;
-	char buf[LOGERR_SYSLOGBUF];
-	int len, pri;
+	int pri;
+	pid_t pid;
+	char buf[LOGERR_SYSLOGBUF] = { '\0' };
+	struct iovec iov[] = {
+		{ .iov_base = &pri, .iov_len = sizeof(pri) },
+		{ .iov_base = &pid, .iov_len = sizeof(pid) },
+		{ .iov_base = buf,  .iov_len = sizeof(buf) },
+	};
+	struct msghdr msg = {
+		.msg_iov = iov,
+		.msg_iovlen = sizeof(iov) / sizeof(iov[0])
+	};
+	ssize_t len;
 
-	len = (int)read(fd, buf, sizeof(buf));
-	if (len == -1)
-		return -1;
-
-	/* Ensure we have pri, pid and a terminator */
-	if (len < (int)(sizeof(pri) + sizeof(pid_t) + 1) ||
-	    buf[len - 1] != '\0')
-	{
-		errno = EINVAL;
+	len = recvmsg(fd, &msg, MSG_WAITALL);
+	if (len == -1 || len == 0)
+		return len;
+	/* Ensure we received the minimum and at least one character to log */
+	if ((size_t)len < sizeof(pri) + sizeof(pid) + 1 ||
+	    msg.msg_flags & MSG_TRUNC) {
+		errno = EMSGSIZE;
 		return -1;
 	}
+	/* Ensure what we receive is NUL terminated */
+	buf[(size_t)len - (sizeof(pri) + sizeof(pid)) - 1] = '\0';
 
-	memcpy(&pri, buf, sizeof(pri));
-	memcpy(&ctx->log_pid, buf + sizeof(pri), sizeof(ctx->log_pid));
-	logmessage(pri, "%s", buf + sizeof(pri) + sizeof(ctx->log_pid));
+	ctx->log_pid = pid;
+	logmessage(pri, "%s", buf);
 	ctx->log_pid = 0;
 	return len;
 }
@@ -425,6 +446,8 @@ logsetopts(unsigned int opts)
 
 	ctx->log_opts = opts;
 	setlogmask(LOG_UPTO(opts & LOGERR_DEBUG ? LOG_DEBUG : LOG_INFO));
+	if (!(ctx->log_opts & LOGERR_LOG))
+		closelog();
 }
 
 #ifdef LOGERR_TAG
@@ -445,7 +468,7 @@ int
 logopen(const char *path)
 {
 	struct logctx *ctx = &_logctx;
-	int opts = 0;
+	int opts = LOG_NDELAY; /* Ensure openlog gets a fd */
 
 	/* Cache timezone */
 	tzset();
@@ -461,7 +484,8 @@ logopen(const char *path)
 
 	if (ctx->log_opts & LOGERR_LOG_PID)
 		opts |= LOG_PID;
-	openlog(getprogname(), opts, LOGERR_SYSLOG_FACILITY);
+	if (ctx->log_opts & LOGERR_LOG)
+		openlog(getprogname(), opts, LOGERR_SYSLOG_FACILITY);
 	if (path == NULL)
 		return 1;
 

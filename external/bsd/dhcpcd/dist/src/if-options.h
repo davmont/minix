@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -49,22 +49,22 @@
 
 #define DEFAULT_TIMEOUT		30
 #define DEFAULT_REBOOT		5
+#define DEFAULT_REQUEST		180	/* secs to request, mirror DHCP6 */
+#define DEFAULT_FALLBACK	5	/* secs until fallback */
+#define DEFAULT_IPV4LL		5	/* secs until ipv4ll */
 
 #ifndef HOSTNAME_MAX_LEN
 #define HOSTNAME_MAX_LEN	250	/* 255 - 3 (FQDN) - 2 (DNS enc) */
 #endif
-#define VENDORCLASSID_MAX_LEN	255
-#define CLIENTID_MAX_LEN	48
-#define USERCLASS_MAX_LEN	255
-#define VENDOR_MAX_LEN		255
-#define	MUDURL_MAX_LEN		255
+#define	DHCP_OPTION_MAX_LEN	255
 
 #define DHCPCD_ARP			(1ULL << 0)
 #define DHCPCD_RELEASE			(1ULL << 1)
 #define DHCPCD_RTBUILD			(1ULL << 2)
 #define DHCPCD_GATEWAY			(1ULL << 3)
 #define DHCPCD_STATIC			(1ULL << 4)
-#define DHCPCD_DEBUG			(1ULL << 5)
+// unused				(1ULL << 5)
+#define DHCPCD_ARP_PERSISTDEFENCE	(1ULL << 6)
 #define DHCPCD_LASTLEASE		(1ULL << 7)
 #define DHCPCD_INFORM			(1ULL << 8)
 #define DHCPCD_REQUEST			(1ULL << 9)
@@ -81,7 +81,7 @@
 #define DHCPCD_ANONYMOUS		(1ULL << 21)
 #define DHCPCD_BACKGROUND		(1ULL << 22)
 #define DHCPCD_VENDORRAW		(1ULL << 23)
-#define DHCPCD_NOWAITIP			(1ULL << 24) /* To force daemonise */
+// unused				(1ULL << 24)
 #define DHCPCD_WAITIP			(1ULL << 25)
 #define DHCPCD_SLAACPRIVATE		(1ULL << 26)
 #define DHCPCD_CSR_WARNED		(1ULL << 27)
@@ -183,6 +183,13 @@
 #define O_CONFIGURE		O_BASE + 50
 #define O_NOCONFIGURE		O_BASE + 51
 #define O_RANDOMISE_HWADDR	O_BASE + 52
+#define O_ARP_PERSISTDEFENCE	O_BASE + 53
+#define O_REQUEST_TIME		O_BASE + 54
+#define O_FALLBACK_TIME		O_BASE + 55
+#define O_IPV4LL_TIME		O_BASE + 56
+#define O_VSIO			O_BASE + 57
+#define O_VSIO6			O_BASE + 58
+#define O_NOSYSLOG		O_BASE + 59
 
 extern const struct option cf_options[];
 
@@ -209,10 +216,23 @@ struct if_ia {
 #endif
 };
 
+#ifndef SMALL
 struct vivco {
+	uint32_t en;
 	size_t len;
 	uint8_t *data;
 };
+struct vsio_so {
+	uint16_t opt;
+	uint16_t len;
+	void *data;
+};
+struct vsio {
+	uint32_t en;
+	size_t so_len;
+	struct vsio_so *so;
+};
+#endif
 
 struct if_options {
 	time_t mtime;
@@ -234,6 +254,9 @@ struct if_options {
 	uint32_t leasetime;
 	uint32_t timeout;
 	uint32_t reboot;
+	uint32_t request_time;
+	uint32_t fallback_time;
+	uint32_t ipv4ll_time;
 	unsigned long long options;
 	bool randomise_hwaddr;
 
@@ -248,13 +271,14 @@ struct if_options {
 
 	char **environ;
 
-	char hostname[HOSTNAME_MAX_LEN + 1]; /* We don't store the length */
+	char hostname[HOSTNAME_MAX_LEN + 1]; /* NUL terminated */
 	uint8_t fqdn;
-	uint8_t vendorclassid[VENDORCLASSID_MAX_LEN + 2];
-	uint8_t clientid[CLIENTID_MAX_LEN + 2];
-	uint8_t userclass[USERCLASS_MAX_LEN + 2];
-	uint8_t vendor[VENDOR_MAX_LEN + 2];
-	uint8_t mudurl[MUDURL_MAX_LEN + 2];
+	/* The first byte is the option length */
+	uint8_t vendorclassid[DHCP_OPTION_MAX_LEN + 1];
+	uint8_t clientid[DHCP_OPTION_MAX_LEN + 1];
+	uint8_t userclass[DHCP_OPTION_MAX_LEN + 1];
+	uint8_t vendor[DHCP_OPTION_MAX_LEN + 1];
+	uint8_t mudurl[DHCP_OPTION_MAX_LEN + 1];
 
 	size_t blacklist_len;
 	in_addr_t *blacklist;
@@ -266,6 +290,9 @@ struct if_options {
 
 	struct if_ia *ia;
 	size_t ia_len;
+#ifdef INET6
+	struct in6_addr token;
+#endif
 
 	struct dhcp_opt *dhcp_override;
 	size_t dhcp_override_len;
@@ -273,21 +300,28 @@ struct if_options {
 	size_t nd_override_len;
 	struct dhcp_opt *dhcp6_override;
 	size_t dhcp6_override_len;
-	uint32_t vivco_en;
-	struct vivco *vivco;
-	size_t vivco_len;
 	struct dhcp_opt *vivso_override;
 	size_t vivso_override_len;
+
+#ifndef SMALL
+	size_t vivco_len;
+	struct vivco *vivco;
+	size_t vsio_len;
+	struct vsio *vsio;
+	size_t vsio6_len;
+	struct vsio *vsio6;
+#endif
 
 	struct auth auth;
 };
 
-struct if_options *default_config(struct dhcpcd_ctx *);
 struct if_options *read_config(struct dhcpcd_ctx *,
     const char *, const char *, const char *);
 int add_options(struct dhcpcd_ctx *, const char *,
     struct if_options *, int, char **);
 void free_dhcp_opt_embenc(struct dhcp_opt *);
 void free_options(struct dhcpcd_ctx *, struct if_options *);
+
+char **alloc_args(int argc, char **argv);
 
 #endif

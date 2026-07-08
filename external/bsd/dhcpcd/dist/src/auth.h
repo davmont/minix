@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -29,11 +29,9 @@
 #ifndef AUTH_H
 #define AUTH_H
 
-#include "config.h"
+#include <stdint.h>
 
-#ifdef HAVE_SYS_QUEUE_H
-#include <sys/queue.h>
-#endif
+#include "queue.h"
 
 #define DHCPCD_AUTH_SEND	(1 << 0)
 #define DHCPCD_AUTH_REQUIRE	(1 << 1)

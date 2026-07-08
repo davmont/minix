@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - IPv6 ND handling
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,20 @@
 #include "dhcpcd.h"
 #include "ipv6.h"
 
+/* rfc4191 */
+struct routeinfo {
+	TAILQ_ENTRY(routeinfo) next;
+	struct in6_addr prefix;
+	uint8_t prefix_len;
+	uint32_t lifetime;
+	uint8_t flags;
+	struct timespec acquired;
+	char sprefix[INET6_ADDRSTRLEN];
+};
+
+TAILQ_HEAD(routeinfohead, routeinfo);
+
+
 struct ra {
 	TAILQ_ENTRY(ra) next;
 	struct interface *iface;
@@ -45,13 +59,14 @@ struct ra {
 	uint8_t *data;
 	size_t data_len;
 	struct timespec acquired;
-	unsigned char flags;
+	uint8_t flags;
 	uint32_t lifetime;
 	uint32_t reachable;
 	uint32_t retrans;
 	uint32_t mtu;
 	uint8_t hoplimit;
 	struct ipv6_addrhead addrs;
+	struct routeinfohead rinfos;
 	bool hasdns;
 	bool expired;
 	bool willexpire;
@@ -98,12 +113,14 @@ struct rs_state {
 #define	RETRANS_TIMER			1000	/* milliseconds */
 #define	DELAY_FIRST_PROBE_TIME		5	/* seconds */
 
+#define	MIN_EXTENDED_VLTIME		7200	/* seconds */
+
 int ipv6nd_open(bool);
 #ifdef __sun
 int ipv6nd_openif(struct interface *);
 #endif
 void ipv6nd_recvmsg(struct dhcpcd_ctx *, struct msghdr *);
-int ipv6nd_rtpref(struct ra *);
+int ipv6nd_rtpref(uint8_t);
 void ipv6nd_printoptions(const struct dhcpcd_ctx *,
     const struct dhcp_opt *, size_t);
 void ipv6nd_startrs(struct interface *);
@@ -125,6 +142,7 @@ void ipv6nd_advertise(struct ipv6_addr *);
 void ipv6nd_startexpire(struct interface *);
 void ipv6nd_drop(struct interface *);
 void ipv6nd_neighbour(struct dhcpcd_ctx *, struct in6_addr *, bool);
+void ipv6nd_abort(struct interface *);
 #endif /* INET6 */
 
 #endif /* IPV6ND_H */

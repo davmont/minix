@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,7 @@ struct ipv4ll_state {
 	struct in_addr pickedaddr;
 	struct ipv4_addr *addr;
 	char randomstate[128];
+	bool running;
 	bool seeded;
 	bool down;
 	size_t conflicts;

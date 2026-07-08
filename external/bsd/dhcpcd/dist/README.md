@@ -1,11 +1,11 @@
 # dhcpcd
 
 dhcpcd is a
-[DHCP](http://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) and a
-[DHCPv6](http://en.wikipedia.org/wiki/DHCPv6) client.
-It's also an IPv4LL (aka [ZeroConf](http://en.wikipedia.org/wiki/Zeroconf))
+[DHCP](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) and a
+[DHCPv6](https://en.wikipedia.org/wiki/DHCPv6) client.
+It's also an IPv4LL (aka [ZeroConf](https://en.wikipedia.org/wiki/Zeroconf))
 client.
-In layman's terms, dhcpcd runs on your machine and silently configures your
+In layperson's terms, dhcpcd runs on your machine and silently configures your
 computer to work on the attached networks without trouble and mostly without
 configuration.
 
@@ -78,8 +78,8 @@ which only apply to calling dhcpcd from the command line.
 
 
 ## Compatibility
-dhcpcd-5 is only fully command line compatible with dhcpcd-4
-For compatibility with older versions, use dhcpcd-4
+dhcpcd-5 is only fully command line compatible with dhcpcd-4. 
+For compatibility with older versions, use dhcpcd-4.
 
 ## Upgrading
 dhcpcd-7 defaults the database directory to `/var/db/dhcpcd` instead of
@@ -87,10 +87,10 @@ dhcpcd-7 defaults the database directory to `/var/db/dhcpcd` instead of
 in /etc.
 
 dhcpcd-9 defaults the run directory to `/var/run/dhcpcd` instead of
-`/var/run` and the prefix of dhcpcd has been removed from the files.
+`/var/run` and the prefix of dhcpcd has been removed from the files therein.
 
 ## ChangeLog
 We no longer supply a ChangeLog.
 However, you're more than welcome to read the
-[commit log](https://roy.marples.name/git/dhcpcd/log) and
-[archived release announcements](http://roy.marples.name/archives/dhcpcd-discuss/).
+[commit log](https://github.com/NetworkConfiguration/dhcpcd/commits) and
+[release announcements](https://github.com/NetworkConfiguration/dhcpcd/releases).

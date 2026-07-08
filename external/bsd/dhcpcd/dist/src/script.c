@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -279,7 +279,7 @@ make_env(struct dhcpcd_ctx *ctx, const struct interface *ifp,
 		if (efprintf(fp, "PATH=%s",
 		    path == NULL ? DEFAULT_PATH : path) == -1)
 			goto eexit;
-		if (efprintf(fp, "pid=%d", getpid()) == -1)
+		if (efprintf(fp, "pid=%d", (int)getpid()) == -1)
 			goto eexit;
 	}
 
@@ -420,6 +420,7 @@ make_env(struct dhcpcd_ctx *ctx, const struct interface *ifp,
 	} else if (strcmp(reason, "TEST") == 0 ||
 	    strcmp(reason, "PREINIT") == 0 ||
 	    strcmp(reason, "CARRIER") == 0 ||
+	    strcmp(reason, "STOP") == 0 ||
 	    strcmp(reason, "UNKNOWN") == 0)
 	{
 		if_up = false_str;
@@ -471,7 +472,7 @@ make_env(struct dhcpcd_ctx *ctx, const struct interface *ifp,
 		if (efprintf(fp, "af_waiting=%d", af) == -1)
 			goto eexit;
 	}
-	if (ifo->options & DHCPCD_DEBUG) {
+	if (loggetopts() & LOGERR_DEBUG) {
 		if (efprintf(fp, "syslog_debug=true") == -1)
 			goto eexit;
 	}
@@ -682,33 +683,42 @@ send_interface(struct fd_list *fd, const struct interface *ifp, int af)
 }
 
 static int
+script_status(const char *script, int status)
+{
+
+	if (WIFEXITED(status)) {
+		if (WEXITSTATUS(status))
+			logerrx("%s: %s: WEXITSTATUS %d",
+			    __func__, script, WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status))
+		logerrx("%s: %s: %s",
+		    __func__, script, strsignal(WTERMSIG(status)));
+
+	return WEXITSTATUS(status);
+}
+
+static int
 script_run(struct dhcpcd_ctx *ctx, char **argv)
 {
 	pid_t pid;
-	int status = 0;
+	int status;
 
 	pid = script_exec(argv, ctx->script_env);
-	if (pid == -1)
+	if (pid == -1) {
 		logerr("%s: %s", __func__, argv[0]);
-	else if (pid != 0) {
-		/* Wait for the script to finish */
-		while (waitpid(pid, &status, 0) == -1) {
-			if (errno != EINTR) {
-				logerr("%s: waitpid", __func__);
-				status = 0;
-				break;
-			}
-		}
-		if (WIFEXITED(status)) {
-			if (WEXITSTATUS(status))
-				logerrx("%s: %s: WEXITSTATUS %d",
-				    __func__, argv[0], WEXITSTATUS(status));
-		} else if (WIFSIGNALED(status))
-			logerrx("%s: %s: %s",
-			    __func__, argv[0], strsignal(WTERMSIG(status)));
-	}
+		return -1;
+	} else if (pid == 0)
+		return 0;
 
-	return WEXITSTATUS(status);
+	/* Wait for the script to finish */
+	while (waitpid(pid, &status, 0) == -1) {
+		if (errno != EINTR) {
+			logerr("%s: waitpid", __func__);
+			status = 0;
+			break;
+		}
+	}
+	return script_status(argv[0], status);
 }
 
 int
@@ -729,6 +739,7 @@ script_dump(const char *env, size_t len)
 			env += 4;
 		printf("%s\n", env);
 	}
+	fflush(stdout);
 	return 0;
 }
 
@@ -762,10 +773,14 @@ script_runreason(const struct interface *ifp, const char *reason)
 	logdebugx("%s: executing: %s %s", ifp->name, argv[0], reason);
 
 #ifdef PRIVSEP
-	if (ctx->options & DHCPCD_PRIVSEP) {
-		if (ps_root_script(ctx,
-		    ctx->script_buf, ctx->script_buflen) == -1)
+	if (IN_PRIVSEP(ctx)) {
+		ssize_t err;
+
+		err = ps_root_script(ctx, ctx->script_buf, (size_t)buflen);
+		if (err == -1)
 			logerr(__func__);
+		else
+			script_status(ctx->script, (int)err);
 		goto send_listeners;
 	}
 #endif

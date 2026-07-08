@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 #include <stdbool.h>
 
 #include "dhcpcd.h"
+#include "queue.h"
 
 #if !defined(CTL_FREE_LIST)
 #define	CTL_FREE_LIST 1

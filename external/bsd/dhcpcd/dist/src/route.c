@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - route management
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -61,6 +62,14 @@
     for ((N) = RB_TREE_MAX(T); \
         (N) && ((S) = RB_TREE_PREV((T), (N)), 1); \
         (N) = (S))
+#endif
+
+/*
+ * For our purposes, RTF_CONNECTED is the same as RTF_CLONING.
+ * If we change the route, we want to flush anything dynamically created.
+ */
+#if defined(BSD) && !defined(RTF_CLONING) && defined(RTF_CONNECTED)
+#define	RTF_CLONING	RTF_CONNECTED
 #endif
 
 #ifdef RT_FREE_ROUTE_TABLE_STATS
@@ -255,7 +264,7 @@ rt_is_default(const struct rt *rt)
 }
 
 static void
-rt_desc(const char *cmd, const struct rt *rt)
+rt_desc(int loglevel, const char *cmd, const struct rt *rt)
 {
 	char dest[INET_MAX_ADDRSTRLEN], gateway[INET_MAX_ADDRSTRLEN];
 	int prefix;
@@ -273,25 +282,25 @@ rt_desc(const char *cmd, const struct rt *rt)
 
 	if (rt->rt_flags & RTF_HOST) {
 		if (gateway_unspec)
-			loginfox("%s: %s host route to %s",
+			logmessage(loglevel, "%s: %s host route to %s",
 			    ifname, cmd, dest);
 		else
-			loginfox("%s: %s host route to %s via %s",
+			logmessage(loglevel, "%s: %s host route to %s via %s",
 			    ifname, cmd, dest, gateway);
 	} else if (rt_is_default(rt)) {
 		if (gateway_unspec)
-			loginfox("%s: %s default route",
+			logmessage(loglevel, "%s: %s default route",
 			    ifname, cmd);
 		else
-			loginfox("%s: %s default route via %s",
+			logmessage(loglevel, "%s: %s default route via %s",
 			    ifname, cmd, gateway);
 	} else if (gateway_unspec)
-		loginfox("%s: %s%s route to %s/%d",
+		logmessage(loglevel, "%s: %s%s route to %s/%d",
 		    ifname, cmd,
 		    rt->rt_flags & RTF_REJECT ? " reject" : "",
 		    dest, prefix);
 	else
-		loginfox("%s: %s%s route to %s/%d via %s",
+		logmessage(loglevel, "%s: %s%s route to %s/%d via %s",
 		    ifname, cmd,
 		    rt->rt_flags & RTF_REJECT ? " reject" : "",
 		    dest, prefix, gateway);
@@ -304,9 +313,9 @@ rt_headclear0(struct dhcpcd_ctx *ctx, rb_tree_t *rts, int af)
 
 	if (rts == NULL)
 		return;
-	assert(ctx != NULL);
 #ifdef RT_FREE_ROUTE_TABLE
-	assert(&ctx->froutes != rts);
+	if (ctx != NULL)
+		assert(&ctx->froutes != rts);
 #endif
 
 	RB_TREE_FOREACH_SAFE(rt, rts, rtn) {
@@ -326,7 +335,7 @@ rt_headclear(rb_tree_t *rts, int af)
 
 	if (rts == NULL || (rt = RB_TREE_MIN(rts)) == NULL)
 		return;
-	rt_headclear0(rt->rt_ifp->ctx, rts, af);
+	rt_headclear0(rt->rt_ifp ? rt->rt_ifp->ctx : NULL, rts, af);
 }
 
 static void
@@ -489,8 +498,8 @@ rt_recvrt(int cmd, const struct rt *rt, pid_t pid)
 			char buf[32];
 
 			rb_tree_remove_node(&ctx->routes, f);
-			snprintf(buf, sizeof(buf), "pid %d deleted", pid);
-			rt_desc(buf, f);
+			snprintf(buf, sizeof(buf), "pid %d deleted", (int)pid);
+			rt_desc(LOG_WARNING, buf, f);
 			rt_free(f);
 		}
 		break;
@@ -502,11 +511,62 @@ rt_recvrt(int cmd, const struct rt *rt, pid_t pid)
 #endif
 }
 
+/* Compare miscellaneous route details */
+static int
+rt_cmp_mtu(struct rt *nrt, struct rt *ort)
+{
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+	/* FreeBSD puts the interface MTU into the route MTU
+	 * if the route does not define it's own. */
+	unsigned int nmtu, omtu;
+
+	nmtu = nrt->rt_mtu ? nrt->rt_mtu : (unsigned int)nrt->rt_ifp->mtu;
+	omtu = ort->rt_mtu ? ort->rt_mtu : (unsigned int)ort->rt_ifp->mtu;
+	if (omtu != nmtu)
+		return 1;
+#else
+	if (ort->rt_mtu != nrt->rt_mtu)
+		return 1;
+#endif
+
+	return 0;
+}
+
+#ifdef HAVE_ROUTE_LIFETIME
+static int
+rt_cmp_lifetime(struct rt *nrt, struct rt *ort)
+{
+	/* There might be a minor difference between kernel route
+	 * lifetime and our lifetime due to processing times.
+	 * We allow a small deviation to avoid needless route changes.
+	 * dhcpcd will expire the route regardless of route lifetime support.
+	 */
+	struct timespec ts;
+	uint32_t deviation;
+
+	timespecsub(&nrt->rt_aquired, &ort->rt_aquired, &ts);
+	if (ts.tv_sec < 0)
+		ts.tv_sec = -ts.tv_sec;
+	if (ts.tv_sec > RTLIFETIME_DEV_MAX)
+		return 1;
+	if (nrt->rt_lifetime > ort->rt_lifetime)
+		deviation = nrt->rt_lifetime - ort->rt_lifetime;
+	else
+		deviation = ort->rt_lifetime - nrt->rt_lifetime;
+	if (deviation > RTLIFETIME_DEV_MAX)
+		return 1;
+
+	return 0;
+}
+#endif
+
 static bool
 rt_add(rb_tree_t *kroutes, struct rt *nrt, struct rt *ort)
 {
 	struct dhcpcd_ctx *ctx;
-	bool change, kroute, result;
+	struct rt *krt;
+	int loglevel = LOG_INFO;
+	bool change, result = false;
 
 	assert(nrt != NULL);
 	ctx = nrt->rt_ifp->ctx;
@@ -526,48 +586,46 @@ rt_add(rb_tree_t *kroutes, struct rt *nrt, struct rt *ort)
 	    sa_is_unspecified(&nrt->rt_netmask))
 		return false;
 
-	rt_desc(ort == NULL ? "adding" : "changing", nrt);
-
-	change = kroute = result = false;
-	if (ort == NULL) {
-		ort = rb_tree_find_node(kroutes, nrt);
-		if (ort != NULL &&
-		    ((ort->rt_flags & RTF_REJECT &&
-		      nrt->rt_flags & RTF_REJECT) ||
-		     (ort->rt_ifp == nrt->rt_ifp &&
+	krt = rb_tree_find_node(kroutes, nrt);
+	if (krt != NULL &&
+	    krt->rt_ifp == nrt->rt_ifp &&
+	    /* Only test flags dhcpcd controls */
+	    (krt->rt_flags & (RTF_HOST | RTF_REJECT)) == nrt->rt_flags &&
 #ifdef HAVE_ROUTE_METRIC
-		    ort->rt_metric == nrt->rt_metric &&
+	    krt->rt_metric == nrt->rt_metric &&
 #endif
-		    sa_cmp(&ort->rt_gateway, &nrt->rt_gateway) == 0)))
-		{
-			if (ort->rt_mtu == nrt->rt_mtu)
-				return true;
-			change = true;
-			kroute = true;
-		}
-	} else if (ort->rt_dflags & RTDF_FAKE &&
-	    !(nrt->rt_dflags & RTDF_FAKE) &&
-	    ort->rt_ifp == nrt->rt_ifp &&
-#ifdef HAVE_ROUTE_METRIC
-	    ort->rt_metric == nrt->rt_metric &&
-#endif
-	    sa_cmp(&ort->rt_dest, &nrt->rt_dest) == 0 &&
-	    rt_cmp_netmask(ort, nrt) == 0 &&
-	    sa_cmp(&ort->rt_gateway, &nrt->rt_gateway) == 0)
+	    sa_cmp(&krt->rt_dest, &nrt->rt_dest) == 0 &&
+	    rt_cmp_netmask(krt, nrt) == 0 &&
+	    sa_cmp(&krt->rt_gateway, &nrt->rt_gateway) == 0 &&
+	    (nrt->rt_ifp->flags & IFF_LOOPBACK || rt_cmp_mtu(krt, nrt) == 0))
 	{
-		if (ort->rt_mtu == nrt->rt_mtu)
+#ifdef HAVE_ROUTE_LIFETIME
+		if (rt_cmp_lifetime(krt, nrt) == 0) {
+			rt_desc(LOG_DEBUG, "keeping", krt);
 			return true;
-		change = true;
+		} else
+			loglevel = LOG_DEBUG;
+#else
+		rt_desc(LOG_DEBUG, "keeping", krt);
+		return true;
+#endif
 	}
 
+	rt_desc(loglevel, ort == NULL ? "adding" : "changing", nrt);
+
+	change = krt != NULL;
 #ifdef RTF_CLONING
 	/* BSD can set routes to be cloning routes.
 	 * Cloned routes inherit the parent flags.
 	 * As such, we need to delete and re-add the route to flush children
 	 * to correct the flags. */
-	if (change && ort != NULL && ort->rt_flags & RTF_CLONING)
+	if (change && krt != NULL && krt->rt_flags & RTF_CLONING)
 		change = false;
 #endif
+	/* Reject routes have a gateway, non reject routes don't.
+	 * BSD kernels at least preserve RTF_GATEWAY so we need to punt it. */
+	if (change && krt->rt_flags & RTF_REJECT && !(nrt->rt_flags & RTF_REJECT))
+		change = false;
 
 	if (change) {
 		if (if_route(RTM_CHANGE, nrt) != -1) {
@@ -582,8 +640,8 @@ rt_add(rb_tree_t *kroutes, struct rt *nrt, struct rt *ort)
 	/* With route metrics, we can safely add the new route before
 	 * deleting the old route. */
 	if (if_route(RTM_ADD, nrt) != -1) {
-		if (ort != NULL) {
-			if (if_route(RTM_DELETE, ort) == -1 && errno != ESRCH)
+		if (krt != NULL) {
+			if (if_route(RTM_DELETE, krt) == -1 && errno != ESRCH)
 				logerr("if_route (DEL)");
 		}
 		result = true;
@@ -601,19 +659,17 @@ rt_add(rb_tree_t *kroutes, struct rt *nrt, struct rt *ort)
 #ifdef ROUTE_PER_GATEWAY
 	errno = 0;
 #endif
-	if (ort != NULL) {
-		if (if_route(RTM_DELETE, ort) == -1 && errno != ESRCH)
+	if (krt != NULL) {
+		if (if_route(RTM_DELETE, krt) == -1 && errno != ESRCH)
 			logerr("if_route (DEL)");
-		else
-			kroute = false;
 	}
 #ifdef ROUTE_PER_GATEWAY
 	/* The OS allows many routes to the same dest with different gateways.
 	 * dhcpcd does not support this yet, so for the time being just keep on
 	 * deleting the route until there is an error. */
-	if (ort != NULL && errno == 0) {
+	if (krt != NULL && errno == 0) {
 		for (;;) {
-			if (if_route(RTM_DELETE, ort) == -1)
+			if (if_route(RTM_DELETE, krt) == -1)
 				break;
 		}
 	}
@@ -632,9 +688,9 @@ logerr:
 	logerr("if_route (ADD)");
 
 out:
-	if (kroute) {
-		rb_tree_remove_node(kroutes, ort);
-		rt_free(ort);
+	if (krt != NULL) {
+		rb_tree_remove_node(kroutes, krt);
+		rt_free(krt);
 	}
 	return result;
 }
@@ -644,22 +700,24 @@ rt_delete(struct rt *rt)
 {
 	int retval;
 
-	rt_desc("deleting", rt);
+	rt_desc(LOG_INFO, "deleting", rt);
 	retval = if_route(RTM_DELETE, rt) == -1 ? false : true;
 	if (!retval && errno != ENOENT && errno != ESRCH)
 		logerr(__func__);
 	return retval;
 }
 
-static bool
+static int
 rt_cmp(const struct rt *r1, const struct rt *r2)
 {
 
-	return (r1->rt_ifp == r2->rt_ifp &&
+	if (r1->rt_ifp == r2->rt_ifp &&
 #ifdef HAVE_ROUTE_METRIC
 	    r1->rt_metric == r2->rt_metric &&
 #endif
-	    sa_cmp(&r1->rt_gateway, &r2->rt_gateway) == 0);
+	    sa_cmp(&r1->rt_gateway, &r2->rt_gateway) == 0)
+		return 0;
+	return 1;
 }
 
 static bool
@@ -675,10 +733,13 @@ rt_doroute(rb_tree_t *kroutes, struct rt *rt)
 		if (rt->rt_dflags & RTDF_FAKE)
 			return true;
 		if (or->rt_dflags & RTDF_FAKE ||
-		    !rt_cmp(rt, or) ||
+		    rt_cmp(rt, or) != 0 ||
 		    (rt->rt_ifa.sa_family != AF_UNSPEC &&
 		    sa_cmp(&or->rt_ifa, &rt->rt_ifa) != 0) ||
-		    or->rt_mtu != rt->rt_mtu)
+#ifdef HAVE_ROUTE_LIFETIME
+		    rt_cmp_lifetime(rt, or) != 0 ||
+#endif
+		    rt_cmp_mtu(rt, or) != 0)
 		{
 			if (!rt_add(kroutes, rt, or))
 				return false;
@@ -690,7 +751,7 @@ rt_doroute(rb_tree_t *kroutes, struct rt *rt)
 			or = rb_tree_find_node(kroutes, rt);
 			if (or == NULL)
 				return false;
-			if (!rt_cmp(rt, or))
+			if (rt_cmp(rt, or) == 0)
 				return false;
 		} else {
 			if (!rt_add(kroutes, rt, NULL))
@@ -708,10 +769,17 @@ rt_build(struct dhcpcd_ctx *ctx, int af)
 	struct rt *rt, *rtn;
 	unsigned long long o;
 
+	/* When exiting with persistence, don't change any routing
+	 * which maybe affected by interfaces stopping. */
+	if ((ctx->options & (DHCPCD_EXITING | DHCPCD_PERSISTENT)) ==
+	    (DHCPCD_EXITING | DHCPCD_PERSISTENT))
+		return;
+
 	rb_tree_init(&routes, &rt_compare_proto_ops);
 	rb_tree_init(&added, &rt_compare_os_ops);
 	rb_tree_init(&kroutes, &rt_compare_os_ops);
-	if_initrt(ctx, &kroutes, af);
+	if (if_initrt(ctx, &kroutes, af) != 0)
+		logerr("%s: if_initrt", __func__);
 	ctx->rt_order = 0;
 	ctx->options |= DHCPCD_RTBUILD;
 
@@ -759,7 +827,8 @@ rt_build(struct dhcpcd_ctx *ctx, int af)
 	}
 
 #ifdef BSD
-	if (if_missfilter_apply(ctx) == -1 && errno != ENOTSUP)
+	if (!(ctx->options & DHCPCD_EXITING) &&
+	    if_missfilter_apply(ctx) == -1 && errno != ENOTSUP)
 		logerr("if_missfilter_apply");
 #endif
 

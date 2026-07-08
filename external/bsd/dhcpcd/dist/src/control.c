@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,8 @@
 	    (sizeof(*(su)) - sizeof((su)->sun_path) + strlen((su)->sun_path))
 #endif
 
+static void control_handle_data(void *, unsigned short);
+
 static void
 control_queue_free(struct fd_list *fd)
 {
@@ -84,41 +86,38 @@ control_free(struct fd_list *fd)
 		fd->ctx->ps_control_client = NULL;
 #endif
 
-	if (eloop_event_remove_writecb(fd->ctx->eloop, fd->fd) == -1)
-		logerr(__func__);
+	eloop_event_delete(fd->ctx->eloop, fd->fd);
+	close(fd->fd);
 	TAILQ_REMOVE(&fd->ctx->control_fds, fd, next);
 	control_queue_free(fd);
 	free(fd);
 }
 
-void
-control_delete(struct fd_list *fd)
+static void
+control_hangup(struct fd_list *fd)
 {
 
 #ifdef PRIVSEP
-	if (IN_PRIVSEP_SE(fd->ctx))
-		return;
+	if (IN_PRIVSEP(fd->ctx)) {
+		if (ps_ctl_sendeof(fd) == -1)
+			logerr(__func__);
+	}
 #endif
-
-	eloop_event_delete(fd->ctx->eloop, fd->fd);
-	close(fd->fd);
 	control_free(fd);
 }
 
-static void
-control_handle_data(void *arg)
+static int
+control_handle_read(struct fd_list *fd)
 {
-	struct fd_list *fd = arg;
 	char buffer[1024];
 	ssize_t bytes;
 
 	bytes = read(fd->fd, buffer, sizeof(buffer) - 1);
-
+	if (bytes == -1)
+		logerr(__func__);
 	if (bytes == -1 || bytes == 0) {
-		/* Control was closed or there was an error.
-		 * Remove it from our list. */
-		control_delete(fd);
-		return;
+		control_hangup(fd);
+		return -1;
 	}
 
 #ifdef PRIVSEP
@@ -130,18 +129,96 @@ control_handle_data(void *arg)
 		fd->flags &= ~FD_SENDLEN;
 		if (err == -1) {
 			logerr(__func__);
-			return;
+			return 0;
 		}
 		if (err == 1 &&
 		    ps_ctl_sendargs(fd, buffer, (size_t)bytes) == -1) {
 			logerr(__func__);
-			control_delete(fd);
+			control_free(fd);
+			return -1;
 		}
-		return;
+		return 0;
 	}
 #endif
 
 	control_recvdata(fd, buffer, (size_t)bytes);
+	return 0;
+}
+
+static int
+control_handle_write(struct fd_list *fd)
+{
+	struct iovec iov[2];
+	int iov_len;
+	struct fd_data *data;
+
+	data = TAILQ_FIRST(&fd->queue);
+
+	if (data->data_flags & FD_SENDLEN) {
+		iov[0].iov_base = &data->data_len;
+		iov[0].iov_len = sizeof(size_t);
+		iov[1].iov_base = data->data;
+		iov[1].iov_len = data->data_len;
+		iov_len = 2;
+	} else {
+		iov[0].iov_base = data->data;
+		iov[0].iov_len = data->data_len;
+		iov_len = 1;
+	}
+
+	if (writev(fd->fd, iov, iov_len) == -1) {
+		if (errno != EPIPE && errno != ENOTCONN) {
+			// We don't get ELE_HANGUP for some reason
+			logerr("%s: write", __func__);
+		}
+		control_hangup(fd);
+		return -1;
+	}
+
+	TAILQ_REMOVE(&fd->queue, data, next);
+#ifdef CTL_FREE_LIST
+	TAILQ_INSERT_TAIL(&fd->free_queue, data, next);
+#else
+	if (data->data_size != 0)
+		free(data->data);
+	free(data);
+#endif
+
+	if (TAILQ_FIRST(&fd->queue) != NULL)
+		return 0;
+
+#ifdef PRIVSEP
+	if (IN_PRIVSEP_SE(fd->ctx) && !(fd->flags & FD_LISTEN)) {
+		if (ps_ctl_sendeof(fd) == -1)
+			logerr(__func__);
+	}
+#endif
+
+	/* Done sending data, stop watching write to fd */
+	if (eloop_event_add(fd->ctx->eloop, fd->fd, ELE_READ,
+	    control_handle_data, fd) == -1)
+		logerr("%s: eloop_event_add", __func__);
+	return 0;
+}
+
+static void
+control_handle_data(void *arg, unsigned short events)
+{
+	struct fd_list *fd = arg;
+
+	if (!(events & (ELE_READ | ELE_WRITE | ELE_HANGUP)))
+		logerrx("%s: unexpected event 0x%04x", __func__, events);
+
+	if (events & ELE_WRITE && !(events & ELE_HANGUP)) {
+		if (control_handle_write(fd) == -1)
+			return;
+	}
+	if (events & ELE_READ) {
+		if (control_handle_read(fd) == -1)
+			return;
+	}
+	if (events & ELE_HANGUP)
+		control_hangup(fd);
 }
 
 void
@@ -192,7 +269,7 @@ control_recvdata(struct fd_list *fd, char *data, size_t len)
 		if (dhcpcd_handleargs(fd->ctx, fd, argc, argvp) == -1) {
 			logerr(__func__);
 			if (errno != EINTR && errno != EAGAIN) {
-				control_delete(fd);
+				control_free(fd);
 				return;
 			}
 		}
@@ -220,12 +297,16 @@ control_new(struct dhcpcd_ctx *ctx, int fd, unsigned int flags)
 }
 
 static void
-control_handle1(struct dhcpcd_ctx *ctx, int lfd, unsigned int fd_flags)
+control_handle1(struct dhcpcd_ctx *ctx, int lfd, unsigned int fd_flags,
+    unsigned short events)
 {
 	struct sockaddr_un run;
 	socklen_t len;
 	struct fd_list *l;
 	int fd, flags;
+
+	if (events != ELE_READ)
+		logerrx("%s: unexpected event 0x%04x", __func__, events);
 
 	len = sizeof(run);
 	if ((fd = accept(lfd, (struct sockaddr *)&run, &len)) == -1)
@@ -248,8 +329,9 @@ control_handle1(struct dhcpcd_ctx *ctx, int lfd, unsigned int fd_flags)
 	if (l == NULL)
 		goto error;
 
-	if (eloop_event_add(ctx->eloop, l->fd, control_handle_data, l) == -1)
-		logerr(__func__);
+	if (eloop_event_add(ctx->eloop, l->fd, ELE_READ,
+	    control_handle_data, l) == -1)
+		logerr("%s: eloop_event_add", __func__);
 	return;
 
 error:
@@ -259,19 +341,19 @@ error:
 }
 
 static void
-control_handle(void *arg)
+control_handle(void *arg, unsigned short events)
 {
 	struct dhcpcd_ctx *ctx = arg;
 
-	control_handle1(ctx, ctx->control_fd, 0);
+	control_handle1(ctx, ctx->control_fd, 0, events);
 }
 
 static void
-control_handle_unpriv(void *arg)
+control_handle_unpriv(void *arg, unsigned short events)
 {
 	struct dhcpcd_ctx *ctx = arg;
 
-	control_handle1(ctx, ctx->control_unpriv_fd, FD_UNPRIV);
+	control_handle1(ctx, ctx->control_unpriv_fd, FD_UNPRIV, events);
 }
 
 static int
@@ -380,11 +462,15 @@ control_start(struct dhcpcd_ctx *ctx, const char *ifname, sa_family_t family)
 		return -1;
 
 	ctx->control_fd = fd;
-	eloop_event_add(ctx->eloop, fd, control_handle, ctx);
+	if (eloop_event_add(ctx->eloop, fd, ELE_READ,
+	    control_handle, ctx) == -1)
+		logerr("%s: eloop_event_add", __func__);
 
 	if ((fd = control_start1(ctx, ifname, family, S_UNPRIV)) != -1) {
 		ctx->control_unpriv_fd = fd;
-		eloop_event_add(ctx->eloop, fd, control_handle_unpriv, ctx);
+		if (eloop_event_add(ctx->eloop, fd, ELE_READ,
+		    control_handle_unpriv, ctx) == -1)
+			logerr("%s: eloop_event_add", __func__);
 	}
 	return ctx->control_fd;
 }
@@ -419,9 +505,11 @@ control_stop(struct dhcpcd_ctx *ctx)
 
 #ifdef PRIVSEP
 	if (IN_PRIVSEP_SE(ctx)) {
-		if (ps_root_unlink(ctx, ctx->control_sock) == -1)
+		if (ctx->control_sock[0] != '\0' &&
+		    ps_root_unlink(ctx, ctx->control_sock) == -1)
 			retval = -1;
-		if (ps_root_unlink(ctx, ctx->control_sock_unpriv) == -1)
+		if (ctx->control_sock_unpriv[0] != '\0' &&
+		    ps_root_unlink(ctx, ctx->control_sock_unpriv) == -1)
 			retval = -1;
 		return retval;
 	} else if (ctx->options & DHCPCD_FORKED)
@@ -489,62 +577,11 @@ control_send(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 	return write(ctx->control_fd, buffer, len);
 }
 
-static void
-control_writeone(void *arg)
-{
-	struct fd_list *fd;
-	struct iovec iov[2];
-	int iov_len;
-	struct fd_data *data;
-
-	fd = arg;
-	data = TAILQ_FIRST(&fd->queue);
-
-	if (data->data_flags & FD_SENDLEN) {
-		iov[0].iov_base = &data->data_len;
-		iov[0].iov_len = sizeof(size_t);
-		iov[1].iov_base = data->data;
-		iov[1].iov_len = data->data_len;
-		iov_len = 2;
-	} else {
-		iov[0].iov_base = data->data;
-		iov[0].iov_len = data->data_len;
-		iov_len = 1;
-	}
-
-	if (writev(fd->fd, iov, iov_len) == -1) {
-		logerr("%s: write", __func__);
-		control_delete(fd);
-		return;
-	}
-
-	TAILQ_REMOVE(&fd->queue, data, next);
-#ifdef CTL_FREE_LIST
-	TAILQ_INSERT_TAIL(&fd->free_queue, data, next);
-#else
-	if (data->data_size != 0)
-		free(data->data);
-	free(data);
-#endif
-
-	if (TAILQ_FIRST(&fd->queue) != NULL)
-		return;
-
-	if (eloop_event_remove_writecb(fd->ctx->eloop, fd->fd) == -1)
-		logerr(__func__);
-#ifdef PRIVSEP
-	if (IN_PRIVSEP_SE(fd->ctx) && !(fd->flags & FD_LISTEN)) {
-		if (ps_ctl_sendeof(fd) == -1)
-			logerr(__func__);
-		control_free(fd);
-	}
-#endif
-}
-
 int
 control_queue(struct fd_list *fd, void *data, size_t data_len)
 {
 	struct fd_data *d;
+	unsigned short events;
 
 	if (data_len == 0) {
 		errno = EINVAL;
@@ -589,6 +626,9 @@ control_queue(struct fd_list *fd, void *data, size_t data_len)
 	d->data_flags = fd->flags & FD_SENDLEN;
 
 	TAILQ_INSERT_TAIL(&fd->queue, d, next);
-	eloop_event_add_w(fd->ctx->eloop, fd->fd, control_writeone, fd);
-	return 0;
+	events = ELE_WRITE;
+	if (fd->flags & FD_LISTEN)
+		events |= ELE_READ;
+	return eloop_event_add(fd->ctx->eloop, fd->fd, events,
+	    control_handle_data, fd);
 }

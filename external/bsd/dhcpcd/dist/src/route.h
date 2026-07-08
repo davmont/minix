@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - route management
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * rEDISTRIBUTION AND USE IN SOURCE AND BINARY FORMS, WITH OR WITHOUT
@@ -31,6 +31,8 @@
 
 #ifdef HAVE_SYS_RBTREE_H
 #include <sys/rbtree.h>
+#else
+#include "rbtree.h"
 #endif
 
 #include <sys/socket.h>
@@ -64,6 +66,9 @@
 # include <linux/version.h> /* RTA_PREF is only an enum.... */
 # if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
 #  define HAVE_ROUTE_PREF
+# endif
+# if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
+#  define HAVE_ROUTE_LIFETIME /* For IPv6 routes only */
 # endif
 #endif
 
@@ -120,6 +125,11 @@ struct rt {
 #define	RTDF_GATELINK		0x40		/* Gateway is on link */
 	size_t			rt_order;
 	rb_node_t		rt_tree;
+#ifdef HAVE_ROUTE_LIFETIME
+	struct timespec		rt_aquired;	/* timestamp of aquisition */
+	uint32_t		rt_lifetime;	/* current lifetime of route */
+#define	RTLIFETIME_DEV_MAX	2 		/* max deviation for cmp */
+#endif
 };
 
 extern const rb_tree_ops_t rt_compare_list_ops;

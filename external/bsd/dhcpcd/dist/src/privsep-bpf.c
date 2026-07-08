@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * Privilege Separation BPF Initiator
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -53,8 +53,10 @@
 #include "logerr.h"
 #include "privsep.h"
 
+/* We expect to have open 3 SEQPACKET and one RAW fd */
+
 static void
-ps_bpf_recvbpf(void *arg)
+ps_bpf_recvbpf(void *arg, unsigned short events)
 {
 	struct ps_process *psp = arg;
 	struct bpf *bpf = psp->psp_bpf;
@@ -64,6 +66,9 @@ ps_bpf_recvbpf(void *arg)
 		.ps_id = psp->psp_id,
 		.ps_cmd = psp->psp_id.psi_cmd,
 	};
+
+	if (!(events & (ELE_READ | ELE_ERROR)))
+		logerrx("%s: unexpected event 0x%04x", __func__, events);
 
 	bpf->bpf_flags &= ~BPF_EOF;
 	/* A BPF read can read more than one filtered packet at time.
@@ -131,19 +136,18 @@ ps_bpf_recvmsgcb(void *arg, struct ps_msghdr *psm, struct msghdr *msg)
 }
 
 static void
-ps_bpf_recvmsg(void *arg)
+ps_bpf_recvmsg(void *arg, unsigned short events)
 {
 	struct ps_process *psp = arg;
 
-	if (ps_recvpsmsg(psp->psp_ctx, psp->psp_fd,
+	if (ps_recvpsmsg(psp->psp_ctx, psp->psp_fd, events,
 	    ps_bpf_recvmsgcb, arg) == -1)
 		logerr(__func__);
 }
 
 static int
-ps_bpf_start_bpf(void *arg)
+ps_bpf_start_bpf(struct ps_process *psp)
 {
-	struct ps_process *psp = arg;
 	struct dhcpcd_ctx *ctx = psp->psp_ctx;
 	char *addr;
 	struct in_addr *ia = &psp->psp_id.psi_addr.psa_in_addr;
@@ -158,14 +162,17 @@ ps_bpf_start_bpf(void *arg)
 	ps_freeprocesses(ctx, psp);
 
 	psp->psp_bpf = bpf_open(&psp->psp_ifp, psp->psp_filter, ia);
+#ifdef DEBUG_FD
+	logdebugx("pid %d bpf_fd=%d", getpid(), psp->psp_bpf->bpf_fd);
+#endif
 	if (psp->psp_bpf == NULL)
 		logerr("%s: bpf_open",__func__);
 #ifdef PRIVSEP_RIGHTS
 	else if (ps_rights_limit_fd(psp->psp_bpf->bpf_fd) == -1)
 		logerr("%s: ps_rights_limit_fd", __func__);
 #endif
-	else if (eloop_event_add(ctx->eloop,
-	    psp->psp_bpf->bpf_fd, ps_bpf_recvbpf, psp) == -1)
+	else if (eloop_event_add(ctx->eloop, psp->psp_bpf->bpf_fd, ELE_READ,
+	    ps_bpf_recvbpf, psp) == -1)
 		logerr("%s: eloop_event_add", __func__);
 	else {
 		psp->psp_work_fd = psp->psp_bpf->bpf_fd;
@@ -184,6 +191,8 @@ ps_bpf_cmd(struct dhcpcd_ctx *ctx, struct ps_msghdr *psm, struct msghdr *msg)
 	pid_t start;
 	struct iovec *iov = msg->msg_iov;
 	struct interface *ifp;
+	struct in_addr *ia = &psm->ps_id.psi_addr.psa_in_addr;
+	const char *addr;
 
 	cmd = (uint16_t)(psm->ps_cmd & ~(PS_START | PS_STOP));
 	psp = ps_findprocess(ctx, &psm->ps_id);
@@ -241,11 +250,17 @@ ps_bpf_cmd(struct dhcpcd_ctx *ctx, struct ps_msghdr *psm, struct msghdr *msg)
 		break;
 	}
 
-	start = ps_dostart(ctx,
-	    &psp->psp_pid, &psp->psp_fd,
-	    ps_bpf_recvmsg, NULL, psp,
-	    ps_bpf_start_bpf, NULL,
-	    PSF_DROPPRIVS);
+	if (ia->s_addr == INADDR_ANY)
+		addr = NULL;
+	else
+		addr = inet_ntoa(*ia);
+	snprintf(psp->psp_name, sizeof(psp->psp_name), "BPF %s%s%s",
+	    psp->psp_protostr,
+	    addr != NULL ? " " : "", addr != NULL ? addr : "");
+
+	start = ps_startprocess(psp, ps_bpf_recvmsg, NULL,
+	    ps_bpf_start_bpf, PSF_DROPPRIVS);
+
 	switch (start) {
 	case -1:
 		ps_freeprocess(psp);
@@ -254,8 +269,8 @@ ps_bpf_cmd(struct dhcpcd_ctx *ctx, struct ps_msghdr *psm, struct msghdr *msg)
 		ps_entersandbox("stdio", NULL);
 		break;
 	default:
-		logdebugx("%s: spawned BPF %s on PID %d",
-		    psp->psp_ifname, psp->psp_protostr, start);
+		logdebugx("%s: spawned %s on PID %d",
+		    psp->psp_ifname, psp->psp_name, psp->psp_pid);
 		break;
 	}
 	return start;
@@ -319,7 +334,7 @@ ps_bpf_send(const struct interface *ifp, const struct in_addr *ia,
 	if (ia != NULL)
 		psm.ps_id.psi_addr.psa_in_addr = *ia;
 
-	return ps_sendpsmdata(ctx, ctx->ps_root_fd, &psm, data, len);
+	return ps_sendpsmdata(ctx, PS_ROOT_FD(ctx), &psm, data, len);
 }
 
 #ifdef ARP

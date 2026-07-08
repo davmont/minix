@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,7 @@
 
 #include "common.h"
 #include "dhcpcd.h"
+#include "eloop.h"
 #include "if-options.h"
 
 const char *
@@ -46,10 +47,15 @@ hwaddr_ntoa(const void *hwaddr, size_t hwlen, char *buf, size_t buflen)
 	const unsigned char *hp, *ep;
 	char *p;
 
-	if (buf == NULL || hwlen == 0)
+	/* Allow a hwlen of 0 to be an empty string. */
+	if (buf == NULL || buflen == 0) {
+		errno = ENOBUFS;
 		return NULL;
+	}
 
 	if (hwlen * 3 > buflen) {
+		/* We should still terminate the string just in case. */
+		buf[0] = '\0';
 		errno = ENOBUFS;
 		return NULL;
 	}
@@ -57,7 +63,6 @@ hwaddr_ntoa(const void *hwaddr, size_t hwlen, char *buf, size_t buflen)
 	hp = hwaddr;
 	ep = hp + hwlen;
 	p = buf;
-
 	while (hp < ep) {
 		if (hp != hwaddr)
 			*p ++= ':';
@@ -209,4 +214,27 @@ is_root_local(void)
 	errno = ENOTSUP;
 	return -1;
 #endif
+}
+
+uint32_t
+lifetime_left(uint32_t lifetime, const struct timespec *acquired, struct timespec *now)
+{
+	uint32_t elapsed;
+	struct timespec n;
+
+	if (lifetime == INFINITE_LIFETIME)
+		return lifetime;
+
+	if (now == NULL) {
+		timespecclear(&n);
+		now = &n;
+	}
+	if (!timespecisset(now))
+		clock_gettime(CLOCK_MONOTONIC, now);
+
+	elapsed = (uint32_t)eloop_timespec_diff(now, acquired, NULL);
+	if (elapsed > lifetime)
+		return 0;
+
+	return lifetime - elapsed;
 }

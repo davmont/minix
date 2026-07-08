@@ -1,6 +1,6 @@
 .\" SPDX-License-Identifier: BSD-2-Clause
 .\"
-.\" Copyright (c) 2006-2021 Roy Marples
+.\" Copyright (c) 2006-2025 Roy Marples
 .\" All rights reserved
 .\"
 .\" Redistribution and use in source and binary forms, with or without
@@ -24,7 +24,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd August 23, 2021
+.Dd May 8, 2025
 .Dt DHCPCD 8
 .Os
 .Sh NAME
@@ -171,7 +171,7 @@ only works with those interfaces, otherwise
 discovers available Ethernet interfaces that can be configured.
 When
 .Nm
-not limited to one interface on the command line,
+is not limited to one interface on the command line,
 it is running in Manager mode.
 The
 .Nm dhcpcd-ui
@@ -182,16 +182,20 @@ If a single interface is given then
 only works for that interface and runs as a separate instance to other
 .Nm
 processes.
+The
 .Fl w , Fl Fl waitip
 option is enabled in this instance to maintain compatibility with older
 versions.
-Using a single interface also affects the
+Using a single interface,
+optionally further limited to an address protocol,
+also affects the
 .Fl k ,
 .Fl N ,
 .Fl n
 and
 .Fl x
-options, where the same interface will need to be specified, as a lack of an
+options, where the same interface and any address protocol
+will need to be specified, as a lack of an
 interface will imply Manager mode which this is not.
 To force starting in Manager mode with only one interface, the
 .Fl M , Fl Fl manager
@@ -226,7 +230,6 @@ This script runs each script found in
 in a lexical order.
 The default installation supplies the scripts
 .Pa 01-test ,
-.Pa 02-dump ,
 .Pa 20-resolv.conf
 and
 .Pa 30-hostname .
@@ -266,8 +269,7 @@ instead of the default
 .Pa /libexec/dhcpcd-run-hooks .
 .It Fl D , Fl Fl duid Op Ar ll | lt | uuid | value
 Use a DHCP Unique Identifier.
-If a system UUID is available, that will be used to create a DUID-UUID,
-otheriwse if persistent storage is available then a DUID-LLT
+If persistent storage is available then a DUID-LLT
 (link local address + time) is generated,
 otherwise DUID-LL is generated (link local address).
 The DUID type can be hinted as an optional parameter if the file
@@ -321,7 +323,7 @@ to put things back afterwards.
 does not read a new configuration when this happens - you should rebind if you
 need that functionality.
 .It Fl F , Fl Fl fqdn Ar fqdn
-Requests that the DHCP server updates DNS using FQDN instead of just a
+Requests that the DHCP server update DNS using FQDN instead of just a
 hostname.
 Valid values for
 .Ar fqdn
@@ -452,9 +454,9 @@ variable for use in
 .Pa /libexec/dhcpcd-run-hooks .
 .It Fl p , Fl Fl persistent
 .Nm
-normally de-configures the
+de-configures the
 .Ar interface
-and configuration when it exits.
+when it exits unless this option is enabled.
 Sometimes, this isn't desirable if, for example, you have root mounted over
 NFS or SSH clients connect to this host and they need to be notified of
 the host shutting down.
@@ -520,18 +522,19 @@ option instead.
 Timeout after
 .Ar seconds ,
 instead of the default 30.
+On timeout,
+.Nm
+will exit if the
+.Fl 1 ,
+.Fl Fl oneshot
+option has been given,
+otherwise it will fork into the background and keep on
+trying.
 A setting of 0
 .Ar seconds
 causes
 .Nm
 to wait forever to get a lease.
-If
-.Nm
-is working on a single interface then
-.Nm
-will exit when a timeout occurs, otherwise
-.Nm
-will fork into the background.
 .It Fl u , Fl Fl userclass Ar class
 Tags the DHCPv4 message with the userclass
 .Ar class .
@@ -671,7 +674,7 @@ from the DHCP message before processing.
 Print the
 .Pa pidfile
 .Nm
-will use based on commmand-line arguments to stdout.
+will use based on command-line arguments to stdout.
 .It Fl Q , Fl Fl require Ar option
 Requires the
 .Ar option
@@ -713,7 +716,9 @@ Use the
 or
 .Fl 6
 flags to specify an address family.
-If a lease is piped in via standard input then that is dumped.
+If a lease is piped in via standard input then use the special interface named
+.Ar -
+to dump it.
 In this case, specifying an address family is mandatory.
 .It Fl V , Fl Fl variables
 Display a list of option codes, the associated variable and encoding for use in
@@ -790,7 +795,7 @@ If the point to point interface is configured for INFORM, then
 unicasts INFORM to the destination, otherwise it defaults to STATIC.
 .Sh NOTES
 .Nm
-requires a Berkley Packet Filter, or BPF device on BSD based systems and a
+requires a Berkeley Packet Filter, or BPF device on BSD based systems and a
 Linux Socket Filter, or LPF device on Linux based systems for all IPv4
 configuration.
 .Pp
@@ -826,7 +831,7 @@ Linux
 .Pa /dev
 management modules.
 .It Pa /libexec/dhcpcd-hooks
-A directory containing bourne shell scripts that are run by the above script.
+A directory containing Bourne shell scripts that are run by the above script.
 Each script can be disabled by using the
 .Fl C , Fl Fl nohook
 option described above.
@@ -882,4 +887,4 @@ RFC\ 6603, RFC\ 6704, RFC\ 7217, RFC\ 7550, RFC\ 7844.
 .An Roy Marples Aq Mt roy@marples.name
 .Sh BUGS
 Please report them to
-.Lk http://roy.marples.name/projects/dhcpcd
+.Lk https://roy.marples.name/projects/dhcpcd

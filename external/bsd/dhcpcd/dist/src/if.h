@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -137,7 +137,35 @@ typedef unsigned long		ioctl_request_t;
  * It used to work, but lukily Solaris can fall back to
  * IP_PKTINFO. */
 #undef IP_RECVIF
+#endif
 
+/* Private structures specific to an OS */
+#ifdef BSD
+struct priv {
+#ifdef INET6
+	int pf_inet6_fd;
+#endif
+#if defined(SIOCALIFADDR) && defined(IFLR_ACTIVE) /*NetBSD */
+	int pf_link_fd;
+#endif
+};
+#endif
+#ifdef __linux__
+struct priv {
+	int route_fd;
+	int generic_fd;
+	uint32_t route_pid;
+};
+#endif
+#ifdef __sun
+struct priv {
+#ifdef INET6
+	int pf_inet6_fd;
+#endif
+};
+#endif
+
+#ifdef __sun
 /* Solaris getifaddrs is very un-suitable for dhcpcd.
  * See if-sun.c for details why. */
 struct ifaddrs;
@@ -152,14 +180,15 @@ int if_ioctl(struct dhcpcd_ctx *, ioctl_request_t, void *, size_t);
 #else
 #define	pioctl(ctx, req, data, len) ioctl((ctx)->pf_inet_fd, (req),(data),(len))
 #endif
-int if_getflags(struct interface *);
 int if_setflag(struct interface *, short, short);
+int if_getmtu(const struct interface *);
 #define if_up(ifp) if_setflag((ifp), (IFF_UP | IFF_RUNNING), 0)
 #define if_down(ifp) if_setflag((ifp), 0, IFF_UP);
 bool if_is_link_up(const struct interface *);
 bool if_valid_hwaddr(const uint8_t *, size_t);
 struct if_head *if_discover(struct dhcpcd_ctx *, struct ifaddrs **,
     int, char * const *);
+void if_freeifaddrs(struct dhcpcd_ctx *ctx, struct ifaddrs **);
 void if_markaddrsstale(struct if_head *);
 void if_learnaddrs(struct dhcpcd_ctx *, struct if_head *, struct ifaddrs **);
 void if_deletestaleaddrs(struct if_head *);
@@ -167,9 +196,6 @@ struct interface *if_find(struct if_head *, const char *);
 struct interface *if_findindex(struct if_head *, unsigned int);
 struct interface *if_loopback(struct dhcpcd_ctx *);
 void if_free(struct interface *);
-int if_domtu(const struct interface *, short int);
-#define if_getmtu(ifp) if_domtu((ifp), 0)
-#define if_setmtu(ifp, mtu) if_domtu((ifp), (mtu))
 int if_carrier(struct interface *, const void *);
 bool if_roaming(struct interface *);
 
@@ -203,7 +229,7 @@ int if_ignoregroup(int, const char *);
 bool if_ignore(struct dhcpcd_ctx *, const char *);
 int if_vimaster(struct dhcpcd_ctx *ctx, const char *);
 unsigned short if_vlanid(const struct interface *);
-char * if_getnetworknamespace(char *, size_t);
+char * if_getnetworknamespace(char *, size_t); /* used by udev */
 int if_opensockets(struct dhcpcd_ctx *);
 int if_opensockets_os(struct dhcpcd_ctx *);
 void if_closesockets(struct dhcpcd_ctx *);

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -93,6 +93,7 @@
 #define D6_OPTION_FQDN			39
 #define D6_OPTION_POSIX_TIMEZONE	41
 #define D6_OPTION_TZDB_TIMEZONE		42
+#define D6_OPTION_NTP_SERVER		56
 #define D6_OPTION_PD_EXCLUDE		67
 #define D6_OPTION_SOL_MAX_RT		82
 #define D6_OPTION_INF_MAX_RT		83
@@ -114,7 +115,7 @@
 
 #define	SOL_MAX_DELAY		1
 #define	SOL_TIMEOUT		1
-#define	SOL_MAX_RT		3600 /* RFC7083 */
+#define	SOL_MAX_RT		3600	/* RFC 8415 */
 #define	SOL_MAX_RC		0
 #define	REQ_MAX_DELAY		0
 #define	REQ_TIMEOUT		1
@@ -134,14 +135,14 @@
 #define	INF_MAX_DELAY		1
 #define	INF_TIMEOUT		1
 #define	INF_MAX_RD		CNF_MAX_RD /* NOT RFC defined */
-#define	INF_MAX_RT		3600 /* RFC7083 */
+#define	INF_MAX_RT		3600	/* RFC 8415*/
 #define	REL_MAX_DELAY		0
 #define	REL_TIMEOUT		1
 #define	REL_MAX_RT		0
-#define	REL_MAX_RC		5
+#define	REL_MAX_RC		4	/* RFC 8415 */
 #define	DEC_MAX_DELAY		0
 #define	DEC_TIMEOUT		1
-#define	DEC_MAX_RC		5
+#define	DEC_MAX_RC		4	/* RFC 8415 */
 #define	REC_MAX_DELAY		0
 #define	REC_TIMEOUT		2
 #define	REC_MAX_RC		8
@@ -172,6 +173,7 @@ enum DH6S {
 	DH6S_DELEGATED,
 	DH6S_RELEASE,
 	DH6S_RELEASED,
+	DH6S_MANUALREBIND,
 };
 
 struct dhcp6_state {

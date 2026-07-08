@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -27,12 +27,12 @@
 
 #ifdef SMALL
 #define INITDEFINES	      25
-#define INITDEFINENDS	       6
-#define INITDEFINE6S	      14
-#else
-#define INITDEFINES	     125
 #define INITDEFINENDS	       7
-#define INITDEFINE6S	      69
+#define INITDEFINE6S	      15
+#else
+#define INITDEFINES	     157
+#define INITDEFINENDS	       8
+#define INITDEFINE6S	      74
 #endif
 
 extern const char dhcpcd_embedded_conf[];

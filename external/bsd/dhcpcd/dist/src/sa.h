@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * Socket Address handling for dhcpcd
- * Copyright (c) 2015-2021 Roy Marples <roy@marples.name>
+ * Copyright (c) 2015-2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -67,6 +67,7 @@ bool sa_is_loopback(const struct sockaddr *);
 void *sa_toaddr(struct sockaddr *);
 int sa_toprefix(const struct sockaddr *);
 int sa_fromprefix(struct sockaddr *, int);
+void in6_addr_fromprefix(struct in6_addr *, int);
 const char *sa_addrtop(const struct sockaddr *, char *, socklen_t);
 int sa_cmp(const struct sockaddr *, const struct sockaddr *);
 void sa_in_init(struct sockaddr *, const struct in_addr *);
