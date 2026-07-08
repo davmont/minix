@@ -50,7 +50,8 @@ Current after the 2026-07 upgrade batch: LLVM/clang 22.1.7, OpenSSL
 libevent 2.1.13, xz 5.8.3, libarchive 3.8.8, lua 5.4.8, file 5.46,
 tz 2026a, libpcap 1.10.6, tcpdump 4.99.6 (both resynced from
 NetBSD-current; ndp vendors gmt2local.c, netstat's bpf_dump renamed
-nsbpf_dump), BIND 9.20.24 + liburcu 0.15.0, dhcpcd 9.4.1, bzip2 1.0.8.
+nsbpf_dump), BIND 9.20.24 + liburcu 0.15.0, dhcpcd 10.3.1, bzip2 1.0.8.
+ISC DHCP (server/relay) retired.
 The batch was validated with a full amd64 release build and a QEMU
 boot of the ISO to login, running the upgraded binaries in-system.
 
@@ -90,10 +91,13 @@ Landed since the audit, with notes:
 
 Known-stale, deliberately deferred (each needs its own effort):
 
-- **ISC DHCP 4.3.0 is EOL upstream (no fixed release exists)** — retire
-  server/relay, keep dhcpcd as the client story (10.x upgrade separate).
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
-  minix/net/lwip.
+  minix/net/lwip.  Note the lwIP BPF device is the current ceiling for
+  a few things: it does not perform dhcpcd's raw-ARP DAD send
+  (dhcpcd ships `noarp`) or an all-interfaces master-mode socket
+  (dhcpcd runs per-interface, no `-M`), and named's local-query stall
+  is suspected to live here too.  A BPF-send / socket-option audit of
+  minix/net/lwip/bpfdev.c would unblock all three.
 - Bootstrap-entangled and left alone: gmake 3.81, texinfo 4.8,
   binutils 2.34, flex, nvi, elftoolchain, heimdal 7.8.0, netpgp.
 
