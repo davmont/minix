@@ -438,8 +438,6 @@
 ./sbin/chown					base-sysutil-root
 ./sbin/clri					base-sysutil-root
 ./sbin/devpubd					base-sysutil-root
-./sbin/dhclient					base-dhclient-root
-./sbin/dhclient-script				base-dhclient-root
 ./sbin/dhcpcd					base-dhcpcd-root
 ./sbin/disklabel				base-sysutil-root
 ./sbin/dkctl					base-sysutil-root
@@ -1603,8 +1601,6 @@
 ./usr/sbin/dbsym				base-sysutil-bin	binutils
 ./usr/sbin/ddns-confgen				base-bind-bin
 ./usr/sbin/dev_mkdb				base-sysutil-bin
-./usr/sbin/dhcpd				base-dhcpd-bin
-./usr/sbin/dhcrelay				base-dhcpd-bin
 ./usr/sbin/dig					base-obsolete		obsolete
 ./usr/sbin/diskpart				base-sysutil-bin
 ./usr/sbin/dnsquery				base-obsolete		obsolete
@@ -1770,7 +1766,6 @@
 ./usr/sbin/ntptime				base-ntp-bin
 ./usr/sbin/ntptimeset				base-obsolete		obsolete
 ./usr/sbin/ntptrace				base-ntp-bin
-./usr/sbin/omshell				base-dhcpd-bin
 ./usr/sbin/pac					base-sysutil-bin
 ./usr/sbin/paxctl				base-sysutil-bin
 ./usr/sbin/pcictl				base-sysutil-bin
@@ -1987,8 +1982,6 @@
 ./usr/share/calendar/calendar.music		base-calendar-share	share
 ./usr/share/calendar/calendar.netbsd		base-calendar-share	share
 ./usr/share/calendar/calendar.usholiday		base-calendar-share	share
-./usr/share/dhcpd				base-dhcpd-bin
-./usr/share/dhcpd/pxe.defs			base-dhcpd-bin		share
 ./usr/share/dict				base-reference-share
 ./usr/share/dict/papers				base-reference-share
 ./usr/share/dict/special			base-reference-share
@@ -2132,7 +2125,6 @@
 ./usr/share/examples/blacklist			base-sys-examples
 ./usr/share/examples/blacklist/blacklistd.conf	base-sys-examples
 ./usr/share/examples/blacklist/npf.conf		base-sys-examples
-./usr/share/examples/dhcp			base-dhcpd-examples
 ./usr/share/examples/disktab			base-sys-examples
 ./usr/share/examples/emul			base-sys-examples
 ./usr/share/examples/emul/linux			base-sys-examples

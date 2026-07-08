@@ -126,10 +126,7 @@
 ./etc/rc.d/SERVERS                                      minix-base
 ./etc/rc.d/blacklistd                                   minix-base
 ./etc/rc.d/bootconf.sh                                  minix-base
-./etc/rc.d/dhclient                                     minix-base
 ./etc/rc.d/dhcpcd                                       minix-base
-./etc/rc.d/dhcpd                                        minix-base
-./etc/rc.d/dhcrelay                                     minix-base
 ./etc/rc.d/downinterfaces                               minix-base
 ./etc/rc.d/fsck                                         minix-base
 ./etc/rc.d/ftpd                                         minix-base
@@ -231,8 +228,6 @@
 ./sbin/blacklistctl                                     minix-base
 ./sbin/blacklistd                                       minix-base
 ./sbin/chown                                            minix-base
-./sbin/dhclient-script                                  minix-base
-./sbin/dhclient                                         minix-base
 ./sbin/dhcpcd                                           minix-base
 ./sbin/fsck                                             minix-base
 ./sbin/fsck_ext2fs                                      minix-base
@@ -364,7 +359,6 @@
 ./usr/bin/deroff                                        minix-base
 ./usr/bin/devmand                                       minix-base
 ./usr/bin/devsize                                       minix-base
-./usr/bin/dhcpd                                         minix-base      obsolete
 ./usr/bin/dhrystone                                     minix-base
 ./usr/bin/diff                                          minix-base
 ./usr/bin/dig                                           minix-base
@@ -1172,8 +1166,6 @@
 ./usr/sbin/chroot                                       minix-base
 ./usr/sbin/ddns-confgen                                 minix-base
 ./usr/sbin/dev_mkdb                                     minix-base
-./usr/sbin/dhcpd                                        minix-base
-./usr/sbin/dhcrelay                                     minix-base
 ./usr/sbin/diskctl                                      minix-base
 ./usr/sbin/dnssec-cds                                   minix-base
 ./usr/sbin/dnssec-dsfromkey                             minix-base
@@ -1219,7 +1211,6 @@
 ./usr/sbin/ndp                                          minix-base      inet6
 ./usr/sbin/newfs_mfs                                    minix-base
 ./usr/sbin/nsec3hash                                    minix-base
-./usr/sbin/omshell                                      minix-base
 ./usr/sbin/pkg_add                                      minix-base      crypto
 ./usr/sbin/pkg_admin                                    minix-base      crypto
 ./usr/sbin/pkg_create                                   minix-base      crypto
@@ -1264,8 +1255,6 @@
 ./usr/share/calendar/calendar.music                     minix-base
 ./usr/share/calendar/calendar.netbsd                    minix-base
 ./usr/share/calendar/calendar.usholiday                 minix-base
-./usr/share/dhcpd                                       minix-base
-./usr/share/dhcpd/pxe.defs                              minix-base
 ./usr/share/doc                                         minix-base
 ./usr/share/doc/html                                    minix-base      obsolete
 ./usr/share/doc/html/bzip2                              minix-base      obsolete
@@ -1338,7 +1327,6 @@
 ./usr/share/examples/blacklist/blacklistd.conf          minix-base
 ./usr/share/examples/blacklist/npf.conf                 minix-base
 ./usr/share/examples/dhcp                               minix-base
-./usr/share/examples/dhcp/dhcpd.conf                    minix-base
 ./usr/share/examples/ftpd                               minix-base
 ./usr/share/examples/kerberos                           minix-base      crypto
 ./usr/share/examples/kerberos/krb5.conf                 minix-base      crypto

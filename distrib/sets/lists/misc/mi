@@ -1359,7 +1359,6 @@
 ./usr/share/examples/atf/atf-run.hooks		misc-obsolete		share,kyua,obsolete
 ./usr/share/examples/atf/tests-results.css	misc-atf-examples	share,atf,!kyua
 ./usr/share/examples/atf/tests-results.css	misc-obsolete		share,kyua,obsolete
-./usr/share/examples/dhcp/dhcpd.conf		misc-dhcpd-examples	share
 ./usr/share/examples/disktab/disktab		misc-sys-examples	share
 ./usr/share/examples/emul/linux/etc/LINUX_MAKEDEV	misc-sys-examples	share
 ./usr/share/examples/emul/svr4/etc/SVR4_MAKEDEV	misc-sys-examples	share

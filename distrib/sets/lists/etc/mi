@@ -44,7 +44,6 @@
 ./etc/defaults/rc.conf				etc-sys-defaults
 ./etc/defaults/security.conf			etc-sys-defaults
 ./etc/defaults/weekly.conf			etc-sys-defaults
-./etc/dhclient-script				etc-obsolete		obsolete
 ./etc/dhcpcd.conf				etc-dhcpcd-etc
 ./etc/disktab					etc-sysutil-etc
 ./etc/dm.conf					etc-games-etc
@@ -189,10 +188,7 @@
 ./etc/rc.d/cleartmp				etc-sys-rc
 ./etc/rc.d/cron					etc-cron-rc
 ./etc/rc.d/devpubd				etc-sys-rc
-./etc/rc.d/dhclient				etc-dhclient-rc
 ./etc/rc.d/dhcpcd				etc-dhcpcd-rc
-./etc/rc.d/dhcpd				etc-dhcpd-rc
-./etc/rc.d/dhcrelay				etc-dhcpd-rc
 ./etc/rc.d/dmesg				etc-sys-rc
 ./etc/rc.d/downinterfaces			etc-sys-rc
 ./etc/rc.d/envsys				etc-sys-rc
