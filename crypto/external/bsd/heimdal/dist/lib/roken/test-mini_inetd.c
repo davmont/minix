@@ -233,7 +233,8 @@ test_simple_echo(void)
 
 	{
 	    char buf[81];
-	    while (gets(buf)) {
+	    while (fgets(buf, sizeof(buf), stdin)) {
+			buf[strcspn(buf, "\r\n")] = '\0';
 		fprintf(stderr, "[%s] Received [%s]\n", prog, buf);
 
 		if (!strcmp(buf, "exit"))
@@ -243,7 +244,7 @@ test_simple_echo(void)
 		puts(buf);
 	    }
 
-	    fprintf(stderr, "[%s] gets() failed (%s)\n", prog, _strerror("gets"));
+	    fprintf(stderr, "[%s] fgets() failed (%s)\n", prog, _strerror("fgets"));
 	}
     }
 
