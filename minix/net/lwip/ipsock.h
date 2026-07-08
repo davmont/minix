@@ -25,6 +25,7 @@ struct ipsock {
 #define PKTF_RECVTTL		0x0000020	/* receive ancillary TTL */
 #define PKTF_RECVTOS		0x0000040	/* receive ancillary TOS */
 #define PKTF_MCAWARE		0x0000080	/* owner is multicast aware */
+#define PKTF_RECVIF		0x0000100	/* receive ancillary RECVIF (sdl) */
 
 #define TCPF_CONNECTING		0x0001000	/* attempting to connect */
 #define TCPF_SENT_FIN		0x0002000	/* send FIN when possible */

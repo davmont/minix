@@ -4,6 +4,8 @@
 #include "pktsock.h"
 #include "ifaddr.h"
 
+#include <net/if_dl.h>		/* for IP_RECVIF's struct sockaddr_dl */
+
 /*
  * This buffer should be much bigger (at least 10KB, according to RFC 3542),
  * but we do not support the ancillary options that take so much space anyway.
@@ -689,6 +691,7 @@ pktsock_put_ctl(struct pktsock * pkt, const struct sockdriver_data * ctl,
 	struct pktaddr4 *pktaddr4;
 	struct in_pktinfo ipi;
 	struct in6_pktinfo ipi6;
+	struct sockaddr_dl sdl;
 	ip_addr_t ipaddr;
 	unsigned int flags;
 	uint8_t byte;
@@ -697,7 +700,8 @@ pktsock_put_ctl(struct pktsock * pkt, const struct sockdriver_data * ctl,
 
 	flags = ipsock_get_flags(&pkt->pkt_ipsock);
 
-	if (!(flags & (PKTF_RECVINFO | PKTF_RECVTOS | PKTF_RECVTTL)))
+	if (!(flags & (PKTF_RECVINFO | PKTF_RECVTOS | PKTF_RECVTTL |
+	    PKTF_RECVIF)))
 		return 0;
 
 	/*
@@ -770,6 +774,23 @@ pktsock_put_ctl(struct pktsock * pkt, const struct sockdriver_data * ctl,
 
 			off += pktsock_add_ctl(IPPROTO_IP, IP_PKTINFO, &ipi,
 			    sizeof(ipi), off);
+		}
+
+		if (flags & PKTF_RECVIF) {
+			/*
+			 * The BSD IP_RECVIF ancillary data is a sockaddr_dl
+			 * identifying the receiving interface.  Consumers
+			 * (e.g. dhcpcd in master mode) only need sdl_index, so
+			 * emit a minimal link-layer sockaddr with the index of
+			 * the interface the packet arrived on.
+			 */
+			memset(&sdl, 0, sizeof(sdl));
+			sdl.sdl_len = sizeof(sdl);
+			sdl.sdl_family = AF_LINK;
+			sdl.sdl_index = pkthdr->dstif;
+
+			off += pktsock_add_ctl(IPPROTO_IP, IP_RECVIF, &sdl,
+			    sizeof(sdl), off);
 		}
 	}
 
@@ -960,6 +981,7 @@ pktsock_setsockopt(struct pktsock * pkt, int level, int name,
 
 		case IP_RECVTTL:
 		case IP_RECVPKTINFO:
+		case IP_RECVIF:
 			if ((r = sockdriver_copyin_opt(data, &val, sizeof(val),
 			    len)) != OK)
 				return r;
@@ -967,6 +989,7 @@ pktsock_setsockopt(struct pktsock * pkt, int level, int name,
 			switch (name) {
 			case IP_RECVTTL:	flag = PKTF_RECVTTL; break;
 			case IP_RECVPKTINFO:	flag = PKTF_RECVINFO; break;
+			case IP_RECVIF:		flag = PKTF_RECVIF; break;
 			default:		flag = 0; assert(0); break;
 			}
 
@@ -1118,9 +1141,11 @@ pktsock_getsockopt(struct pktsock * pkt, int level, int name,
 		switch (name) {
 		case IP_RECVTTL:
 		case IP_RECVPKTINFO:
+		case IP_RECVIF:
 			switch (name) {
 			case IP_RECVTTL:	flag = PKTF_RECVTTL; break;
 			case IP_RECVPKTINFO:	flag = PKTF_RECVINFO; break;
+			case IP_RECVIF:		flag = PKTF_RECVIF; break;
 			default:		flag = 0; assert(0); break;
 			}
 
