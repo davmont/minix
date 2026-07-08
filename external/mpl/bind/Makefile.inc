@@ -123,7 +123,7 @@ DPADD+= ${LIBSSL} ${LIBCRYPTO} ${LIBCRYPT}
 .else
 # MINIX: OpenSSL lives under crypto/external/bsd/ here (NetBSD-current moved
 # theirs to crypto/external/apache2/ with the 3.5 relicense).
-LIBDPLIBS+=	crypto ${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
+LIBDPLIBS+=	crypto ${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
 .endif
 .endif
 

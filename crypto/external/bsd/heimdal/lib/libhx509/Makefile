@@ -9,7 +9,7 @@ NOLINT=		# defined
 
 LIB=		hx509
 
-SSLBASE=	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
+SSLBASE=	${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}
 
 LIBDPLIBS+=	asn1	${HEIMBASE}/lib/libasn1		\
 		com_err	${HEIMBASE}/lib/libcom_err	\

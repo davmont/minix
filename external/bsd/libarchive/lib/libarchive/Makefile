@@ -6,12 +6,8 @@
 
 LIB=		archive
 
-# MINIX: only one OpenSSL tree; NetBSD's bsd.own.mk picks among
-# openssl/openssl11/openssl30 via EXTERNAL_OPENSSL_SUBDIR.
-EXTERNAL_OPENSSL_SUBDIR?=	openssl
-
 LIBDPLIBS+=	bz2	${NETBSDSRCDIR}/lib/libbz2 \
-		crypto	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto \
+		crypto	${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto \
 		expat	${NETBSDSRCDIR}/external/mit/expat/lib/libexpat \
 		lzma	${NETBSDSRCDIR}/external/public-domain/xz/lib \
 		z	${NETBSDSRCDIR}/lib/libz

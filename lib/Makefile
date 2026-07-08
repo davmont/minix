@@ -188,7 +188,7 @@ SUBDIR+=	libnpf		# depends on libprop
 .endif
 
 .if (${MKCRYPTO} != "no")
-SUBDIR+=	../crypto/external/bsd/openssl/lib # depends on libcrypt
+SUBDIR+=	../crypto/external/${EXTERNAL_OPENSSL_SUBDIR}/lib # depends on libcrypt
 .endif
 
 .if (${MKISCSI} != "no")

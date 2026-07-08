@@ -37,8 +37,15 @@ MKCOVERAGE?=	no
 # tree via ${EXTERNAL_OPENSSL_SUBDIR} and test its version via
 # ${HAVE_OPENSSL} (NetBSD sets both in its own bsd.own.mk).  We ship
 # OpenSSL 3.0, so default them here for the whole tree.
-HAVE_OPENSSL?=		30
-EXTERNAL_OPENSSL_SUBDIR?=	openssl
+HAVE_OPENSSL?=		35
+
+.if ${HAVE_OPENSSL} == 35
+EXTERNAL_OPENSSL_SUBDIR=apache2/openssl
+.elif ${HAVE_OPENSSL} == 30
+EXTERNAL_OPENSSL_SUBDIR=bsd/openssl
+.else
+EXTERNAL_OPENSSL_SUBDIR=/does/not/exist
+.endif
 
 # LSC MINIX does not support these features ATM.
 USE_FORT:=	no

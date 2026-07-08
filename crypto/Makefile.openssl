@@ -1,23 +1,60 @@
-#	$NetBSD: Makefile.openssl,v 1.10 2009/09/23 04:02:28 tls Exp $
+#	$NetBSD: Makefile.openssl,v 1.23 2026/01/27 21:29:17 christos Exp $
 
 .ifndef _MAKEFILE_OPENSSL_INCLUDED
 _MAKEFILE_OPENSSL_INCLUDED=1
 
 .include <bsd.own.mk>
+WARNS=3
 
-OPENSSLSRC=	${CRYPTODIST}/external/bsd/openssl/dist
+# would require changing a lot of code
+CWARNFLAGS+= -Wno-error=cast-qual
+CWARNFLAGS+= -Wno-error=char-subscripts # XXX likely real ctype(3) missing cast bugs
+CWARNFLAGS+= -Wno-error=missing-field-initializers
+CWARNFLAGS+= -Wno-error=shadow
+
+CWARNFLAGS.gcc+= -Wno-error=discarded-qualifiers
+CWARNFLAGS.clang+= -Wno-error=ignored-qualifiers
+
+# OpenSSL extensively uses string literals as char *, which clang
+# (reasonably if not exactly rightly) objects to.
+CWARNFLAGS.clang+= -Wno-error=incompatible-pointer-types-discards-qualifiers
+
+# XXX: re-examine the below
+CWARNFLAGS.clang+= -Wno-empty-body -Wno-unused-value -Wno-parentheses
+CWARNFLAGS.clang+= -Wno-implicit-int-float-conversion
+# XXX: This warning seems to trigger incorrectly
+CWARNFLAGS.clang+=	-Wno-atomic-alignment
+
+LINTFLAGS+=	-Ac11
+LINTFLAGS+=	-X 117	# bitwise '>>' on signed value possibly nonportable
+LINTFLAGS+=	-X 129	# expression has null effect
+LINTFLAGS+=	-X 132	# conversion may lose accuracy
+LINTFLAGS+=	-X 220	# fallthrough on case statement
+LINTFLAGS+=	-X 231	# argument unused in function
+LINTFLAGS+=	-X 309	# (unsigned int)0x80000000 & (unsigned long)x
+LINTFLAGS+=	-X 275	# cast discards 'const' from pointer
+LINTFLAGS+=	-X 298	# argument conversion may lose accuracy
+
+
+.if ${HAVE_OPENSSL} <= 11
+OSSL_ENGINESDIR=/usr/lib/openssl
+.else
+.	if defined(MLIBDIR)
+OSSL_LIBDIR=/usr/lib/${MLIBDIR}/openssl
+.	else
+OSSL_LIBDIR=/usr/lib/openssl
+.	endif
+OSSL_ENGINESDIR=${OSSL_LIBDIR}/engines
+OSSL_MODULESDIR=${OSSL_LIBDIR}/modules
+.endif
+
+OPENSSLSRC=	${CRYPTODIST}/external/${EXTERNAL_OPENSSL_SUBDIR}/dist
 CPPFLAGS+=	-DOPENSSLDIR=\"/etc/openssl\"
-CPPFLAGS+=	-DENGINESDIR=\"/usr/lib/openssl\"
-# OSSL_MODULESDIR is the install dir for loadable provider modules (legacy.so,
-# ...); liblegacy/libdefault use it as LIBDIR.  It was never defined here, so
-# the modules installed to the destdir root.  Define it (and derive the
-# matching -DMODULESDIR from it) so provider modules land where libcrypto's
-# loader looks for them.
-OSSL_MODULESDIR=/usr/lib/openssl/modules
+CPPFLAGS+=	-DENGINESDIR=\"${OSSL_ENGINESDIR}\"
 CPPFLAGS+=	-DMODULESDIR=\"${OSSL_MODULESDIR}\"
-# OpenSSL 3.0 sets DSO_DLFCN/HAVE_DLFCN_H itself via crypto/dso_conf.h;
-# don't double-define them here.
 
+
+# MINIX additions (carried from the 3.0 Makefile.openssl):
 .if defined(__MINIX)
 CPPFLAGS+=	-DOPENSSL_NO_SCTP
 CPPFLAGS+=	-DOPENSSL_DISABLE_OLD_DES_SUPPORT

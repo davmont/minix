@@ -3,7 +3,7 @@
 ./usr/libdata/debug/lib/libblacklist.so.0.0.debug		comp-sys-debug	debug,dynamicroot
 ./usr/libdata/debug/lib/libc.so.12.197.debug			comp-sys-debug	debug,dynamicroot
 ./usr/libdata/debug/lib/libcrypt.so.1.0.debug			comp-sys-debug	debug,dynamicroot
-./usr/libdata/debug/lib/libcrypto.so.15.0.debug			comp-sys-debug	debug,dynamicroot
+./usr/libdata/debug/lib/libcrypto.so.16.0.debug			comp-sys-debug	debug,dynamicroot
 ./usr/libdata/debug/lib/libdevmapper.so.1.0.debug		comp-sys-debug	debug,dynamicroot
 ./usr/libdata/debug/lib/libdm.so.0.0.debug 			comp-sys-debug	debug,dynamicroot
 ./usr/libdata/debug/lib/libedit.so.3.1.debug			comp-sys-debug	debug,dynamicroot
@@ -69,7 +69,7 @@
 ./usr/libdata/debug/usr/lib/libc.so.12.197.debug		comp-sys-debug	debug,compatfile
 ./usr/libdata/debug/usr/lib/libcom_err.so.7.0.debug		comp-krb5-debug	debug,compatfile,kerberos
 ./usr/libdata/debug/usr/lib/libcrypt.so.1.0.debug		comp-sys-debug	debug,compatfile
-./usr/libdata/debug/usr/lib/libcrypto.so.15.0.debug		comp-crypto-debug	debug,compatfile,crypto
+./usr/libdata/debug/usr/lib/libcrypto.so.16.0.debug		comp-crypto-debug	debug,compatfile,crypto
 ./usr/libdata/debug/usr/lib/libcrypto_idea.so.7.0.debug		comp-obsolete	debug,compatfile,obsolete
 ./usr/libdata/debug/usr/lib/libcrypto_mdc2.so.7.0.debug		comp-obsolete	debug,compatfile,obsolete
 ./usr/libdata/debug/usr/lib/libcrypto_rc5.so.7.0.debug		comp-crypto-debug	debug,compatfile,crypto,crypto_rc5
@@ -252,7 +252,7 @@
 ./usr/libdata/debug/usr/lib/libsl.so.5.0.debug			comp-krb5-debug	debug,compatfile,kerberos
 ./usr/libdata/debug/usr/lib/libsqlite3.so.1.2.debug		comp-sys-debug	debug,compatfile
 ./usr/libdata/debug/usr/lib/libssh.so.26.0.debug		comp-secsh-debug	debug,compatfile,crypto
-./usr/libdata/debug/usr/lib/libssl.so.15.0.debug		comp-crypto-debug	debug,compatfile,crypto
+./usr/libdata/debug/usr/lib/libssl.so.16.0.debug		comp-crypto-debug	debug,compatfile,crypto
 ./usr/libdata/debug/usr/lib/libstdc++.so.7.3.debug		comp-sys-debug	debug,compatfile,gcc,cxx,libstdcxx
 ./usr/libdata/debug/usr/lib/libterminfo.so.1.0.debug		comp-sys-debug	debug,compatfile
 ./usr/libdata/debug/usr/lib/libtpm_unseal.so.1.0.debug		comp-tpm-debug	debug,compatfile,tpm

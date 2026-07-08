@@ -20,7 +20,7 @@ EXTDIST=${.CURDIR}/../../dist
 INCS+= netpgp.h
 INCSDIR=/usr/include
 
-OPENSSL=${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
+OPENSSL=${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}
 LIBDPLIBS+=	mj		${.CURDIR}/../../libmj
 LIBDPLIBS+=	crypto		${OPENSSL}/lib/libcrypto
 LIBDPLIBS+=	z		${NETBSDSRCDIR}/lib/libz

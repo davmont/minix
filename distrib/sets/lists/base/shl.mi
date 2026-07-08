@@ -23,8 +23,8 @@
 ./lib/libcrypt.so.1				base-sys-shlib		dynamicroot
 ./lib/libcrypt.so.1.0				base-sys-shlib		dynamicroot
 ./lib/libcrypto.so				base-crypto-shlib	dynamicroot
-./lib/libcrypto.so.15				base-crypto-shlib	dynamicroot
-./lib/libcrypto.so.15.0				base-crypto-shlib	dynamicroot
+./lib/libcrypto.so.16				base-crypto-shlib	dynamicroot
+./lib/libcrypto.so.16.0				base-crypto-shlib	dynamicroot
 ./lib/libdevmapper.so				base-lvm-shlib		dynamicroot
 ./lib/libdevmapper.so.1				base-lvm-shlib		dynamicroot
 ./lib/libdevmapper.so.1.0			base-lvm-shlib		dynamicroot
@@ -215,8 +215,8 @@
 ./usr/lib/libcrypt.so.1				base-sys-shlib		compatfile
 ./usr/lib/libcrypt.so.1.0			base-sys-shlib		compatfile
 ./usr/lib/libcrypto.so				base-crypto-shlib	compatfile,crypto
-./usr/lib/libcrypto.so.15			base-crypto-shlib	compatfile,crypto
-./usr/lib/libcrypto.so.15.0			base-crypto-shlib	compatfile,crypto
+./usr/lib/libcrypto.so.16			base-crypto-shlib	compatfile,crypto
+./usr/lib/libcrypto.so.16.0			base-crypto-shlib	compatfile,crypto
 ./usr/lib/libcrypto_idea.so.7			base-obsolete		compatfile,obsolete
 ./usr/lib/libcrypto_idea.so.7.0			base-obsolete		compatfile,obsolete
 ./usr/lib/libcrypto_mdc2.so.7			base-obsolete		compatfile,obsolete
@@ -749,8 +749,8 @@
 ./usr/lib/libssh.so.26				base-secsh-shlib	compatfile,crypto
 ./usr/lib/libssh.so.26.0			base-secsh-shlib	compatfile,crypto
 ./usr/lib/libssl.so				base-crypto-shlib	compatfile,crypto
-./usr/lib/libssl.so.15				base-crypto-shlib	compatfile,crypto
-./usr/lib/libssl.so.15.0			base-crypto-shlib	compatfile,crypto
+./usr/lib/libssl.so.16				base-crypto-shlib	compatfile,crypto
+./usr/lib/libssl.so.16.0			base-crypto-shlib	compatfile,crypto
 ./usr/lib/libstdc++.so				base-sys-shlib		compatfile,gcc,cxx,libstdcxx
 ./usr/lib/libstdc++.so.7			base-sys-shlib		compatfile,gcc,cxx,libstdcxx
 ./usr/lib/libstdc++.so.7.3			base-sys-shlib		compatfile,gcc,cxx,libstdcxx

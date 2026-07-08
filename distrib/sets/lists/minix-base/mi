@@ -1357,7 +1357,7 @@
 ./usr/share/examples/lutok                              minix-base      kyua
 ./usr/share/examples/openssl                            minix-base
 ./usr/share/examples/openssl/CA.pl                      minix-base      crypto
-./usr/share/examples/openssl/CA.sh                      minix-base      crypto
+./usr/share/examples/openssl/CA.sh                      minix-base      crypto,obsolete
 ./usr/share/examples/openssl/openssl.cnf                minix-base      crypto
 ./usr/share/examples/rtadvd                             minix-base
 ./usr/share/examples/rtadvd/rtadvd.conf                 minix-base      use_inet6

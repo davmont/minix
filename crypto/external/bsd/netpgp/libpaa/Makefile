@@ -11,7 +11,7 @@ CPPFLAGS+=	-I${.CURDIR}/../dist/include -I${.CURDIR}/../dist/src/pgp2ssh
 
 LIBDPLIBS+=	mj	${.CURDIR}/../libmj
 LIBDPLIBS+=	netpgp	${.CURDIR}/../lib
-LIBDPLIBS+=	crypto	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
+LIBDPLIBS+=	crypto	${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}/lib/libcrypto
 LIBDPLIBS+=	z	${NETBSDSRCDIR}/lib/libz
 LIBDPLIBS+=	bz2	${NETBSDSRCDIR}/lib/libbz2
 

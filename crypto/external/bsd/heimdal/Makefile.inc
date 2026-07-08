@@ -27,7 +27,7 @@ LDSTATIC=
 NO_VERSION_SCRIPT=	yes
 .endif
 
-SSLBASE?=	${NETBSDSRCDIR}/crypto/external/bsd/${EXTERNAL_OPENSSL_SUBDIR}
+SSLBASE?=	${NETBSDSRCDIR}/crypto/external/${EXTERNAL_OPENSSL_SUBDIR}
 
 DPLIBASN1=	asn1 ${HEIMBASE}/lib/libasn1
 DPLIBCOM_ERR=	com_err ${HEIMBASE}/lib/libcom_err

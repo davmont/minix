@@ -4,7 +4,7 @@
 
 .if (${MKCRYPTO} != "no")
 #MINIX: Not yet imported: cpl
-SUBDIR+= bsd
+SUBDIR+= apache2 bsd
 .endif
 
 .include <bsd.subdir.mk>
