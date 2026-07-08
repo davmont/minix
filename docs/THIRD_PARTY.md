@@ -13,7 +13,9 @@ to them listing `SRCS`, and curated config headers outside `dist/`.
 | Location | Contents |
 |---|---|
 | `external/{apache2,bsd,gpl2,gpl3,historical,lgpl3,mit,mpl,public-domain}/` | userland packages by license |
-| `crypto/external/bsd/` | OpenSSL, Heimdal, netpgp, libsaslc |
+| `crypto/external/apache2/` | OpenSSL 3.5 LTS |
+| `crypto/external/bsd/` | Heimdal, netpgp, libsaslc |
+| `external/lgpl2/userspace-rcu/` | liburcu (BIND 9.20 dependency) |
 | `minix/lib/liblwip/dist/` | lwIP (the MINIX network stack) |
 | `sys/external/bsd/compiler_rt/` | LLVM runtime |
 
@@ -44,15 +46,15 @@ to them listing `SRCS`, and curated config headers outside `dist/`.
 ## Version status (2026-07 audit)
 
 Current after the 2026-07 upgrade batch: LLVM/clang 22.1.7, OpenSSL
-3.0.21, expat 2.8.2, zlib 1.3.1, sqlite 3.53.3, less 668, tmux 3.6a,
+3.5.7 LTS, expat 2.8.2, zlib 1.3.1, sqlite 3.53.3, less 668, tmux 3.6a,
 libevent 2.1.13, xz 5.8.3, libarchive 3.8.8, lua 5.4.8, file 5.46,
 tz 2026a, libpcap 1.10.6, tcpdump 4.99.6 (both resynced from
 NetBSD-current; ndp vendors gmt2local.c, netstat's bpf_dump renamed
-nsbpf_dump), BIND 9.18.24 (external/mpl), dhcpcd 9.4.1, bzip2 1.0.8.
+nsbpf_dump), BIND 9.20.24 + liburcu 0.15.0, dhcpcd 9.4.1, bzip2 1.0.8.
 The batch was validated with a full amd64 release build and a QEMU
 boot of the ISO to login, running the upgraded binaries in-system.
 
-Known-stale, deliberately deferred (each needs its own effort):
+Landed since the audit, with notes:
 
 - **OpenSSL 3.5.7 LTS landed 2026-07** (resync from NetBSD-current's
   crypto/external/apache2/openssl; the 3.0 tree is gone).  All nine
@@ -78,6 +80,9 @@ Known-stale, deliberately deferred (each needs its own effort):
   fresh HD image stall — suspected lo0/network bring-up rather than
   named itself; needs an interactive session with the lwIP service
   configured.  named is not part of the default boot (`named=NO`).
+
+Known-stale, deliberately deferred (each needs its own effort):
+
 - **ISC DHCP 4.3.0 is EOL upstream (no fixed release exists)** — retire
   server/relay, keep dhcpcd as the client story (10.x upgrade separate).
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
