@@ -57,8 +57,18 @@ Known-stale, deliberately deferred (each needs its own effort):
 - **OpenSSL 3.0 branch leaves security support 2026-09-07** — plan the
   3.5 LTS migration (API-compatible, but providers/deprecations need a
   sweep of heimdal/netpgp/libsaslc consumers).
-- **BIND 9.18 is EOL (June 2026)** — 9.20.x requires libuv >= 1.48;
-  the libuv 1.52.1 upgrade unblocks this.
+- **BIND 9.20.24 landed 2026-07** (resync from NetBSD-current, with the
+  new liburcu 0.15.0 dependency imported at external/lgpl2 and ported
+  to MINIX).  Build and packaging are fully validated; the DNS client
+  tools (dig/host/delv/nsupdate) work in-system.  **Known issue:** the
+  named(8) *server* is runtime-unstable on MINIX — with the default
+  multi-worker netmgr it segfaults at startup, with `-n 1` it serves
+  queries but aborts intermittently.  This is a MINIX
+  pthread/TLS/RCU interaction needing a dedicated debugging effort;
+  named is not part of the default boot (`named=NO` in rc.conf), so
+  releases are unaffected.  Track: whether 9.18 named ever worked on
+  MINIX is unknown (it was never smoke-tested), so this may not be a
+  regression.
 - **ISC DHCP 4.3.0 is EOL upstream (no fixed release exists)** — retire
   server/relay, keep dhcpcd as the client story (10.x upgrade separate).
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
