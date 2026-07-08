@@ -54,21 +54,30 @@ boot of the ISO to login, running the upgraded binaries in-system.
 
 Known-stale, deliberately deferred (each needs its own effort):
 
-- **OpenSSL 3.0 branch leaves security support 2026-09-07** — plan the
-  3.5 LTS migration (API-compatible, but providers/deprecations need a
-  sweep of heimdal/netpgp/libsaslc consumers).
+- **OpenSSL 3.5.7 LTS landed 2026-07** (resync from NetBSD-current's
+  crypto/external/apache2/openssl; the 3.0 tree is gone).  All nine
+  consumers build unchanged.  MINIX specifics: POSIX thread backend
+  with a __minix guard making thread-spawn report unavailable (libc
+  pthread stubs carry the provider/RCU machinery in static binaries;
+  see the "fix 3.5 crypto on MINIX" commit for the failure mode),
+  RSAZ/AVX-IFMA asm excluded, QUIC safe-math macro rename for the
+  NetBSD uint64_t macro collision.  Verified in-system: provider
+  loads, RAND/EVP work.
 - **BIND 9.20.24 landed 2026-07** (resync from NetBSD-current, with the
   new liburcu 0.15.0 dependency imported at external/lgpl2 and ported
   to MINIX).  Build and packaging are fully validated; the DNS client
-  tools (dig/host/delv/nsupdate) work in-system.  **Known issue:** the
-  named(8) *server* is runtime-unstable on MINIX — with the default
-  multi-worker netmgr it segfaults at startup, with `-n 1` it serves
-  queries but aborts intermittently.  This is a MINIX
-  pthread/TLS/RCU interaction needing a dedicated debugging effort;
-  named is not part of the default boot (`named=NO` in rc.conf), so
-  releases are unaffected.  Track: whether 9.18 named ever worked on
-  MINIX is unknown (it was never smoke-tested), so this may not be a
-  regression.
+  tools (dig/host/delv/nsupdate) work in-system.  **Runtime status
+  (revised after investigation):** the initially observed named(8)
+  crashes had two environmental causes, both resolved — the install-CD
+  ramdisk (128 KB /tmp) contaminated early tests, and the OpenSSL 3.5
+  THREADS_NONE bug (see the openssl fix commit) caused the
+  "PRNG not seeded" aborts of both dig and named.  With those fixed,
+  multi-worker `named -n 2` starts and stays up on the HD image.
+  Dedicated pthread/TLS/urcu-mb torture tests all pass on MINIX.
+  Remaining open item: local queries against the running named on a
+  fresh HD image stall — suspected lo0/network bring-up rather than
+  named itself; needs an interactive session with the lwIP service
+  configured.  named is not part of the default boot (`named=NO`).
 - **ISC DHCP 4.3.0 is EOL upstream (no fixed release exists)** — retire
   server/relay, keep dhcpcd as the client story (10.x upgrade separate).
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
