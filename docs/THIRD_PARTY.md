@@ -92,12 +92,12 @@ Landed since the audit, with notes:
 Known-stale, deliberately deferred (each needs its own effort):
 
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
-  minix/net/lwip.  Note the lwIP BPF device is the current ceiling for
-  a few things: it does not perform dhcpcd's raw-ARP DAD send
-  (dhcpcd ships `noarp`) or an all-interfaces master-mode socket
-  (dhcpcd runs per-interface, no `-M`), and named's local-query stall
-  is suspected to live here too.  A BPF-send / socket-option audit of
-  minix/net/lwip/bpfdev.c would unblock all three.
+  minix/net/lwip.  (The 2026-07 bpfdev/sockopt audit that this note
+  used to flag is done: the BPF send path was never the problem - it
+  sends ARP frames fine - and the real dhcpcd master-mode blocker was
+  a missing IP_RECVIF sockopt, now implemented in pktsock.c.  named's
+  local-query stall is a separate BIND/libuv-over-loopback issue, not
+  a bpfdev limitation.)
 - Bootstrap-entangled and left alone: gmake 3.81, texinfo 4.8,
   binutils 2.34, flex, nvi, elftoolchain, heimdal 7.8.0, netpgp.
 
