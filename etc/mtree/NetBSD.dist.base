@@ -223,6 +223,7 @@
 ./usr/lib/lua/5.4
 ./usr/lib/named
 ./usr/lib/openssl
+./usr/lib/openssl/engines
 ./usr/lib/openssl/modules
 ./usr/lib/pkgconfig
 ./usr/lib/security
