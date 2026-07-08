@@ -127,8 +127,12 @@ ARM).  Roadmap:
    kernel surface); validated under OVMF with a gradient-write test and
    screendump pixel verification.  See the fb backend commit for the
    coexistence model with the TTY console and noted follow-ups.
-2. Input: surface PS/2 aux bytes already reaching `pckbd` as
-   `/dev/mouse`; raw keyboard event mode beside the TTY path.
+2. **DONE 2026-07 (validated, no code needed)**: the full input stack
+   already exists on amd64 — pckbd handles the PS/2 aux port (IRQ 12,
+   packet assembly) and the input server multiplexes to
+   `/dev/mouse0-3`/`/dev/mousemux`; verified with QEMU-injected
+   motion/button events and a keyboard regression check.  Note for a
+   future GUI: `/dev/mousemux` is root-only 0600.
 3. Minimal graphics userland on `/dev/fb0`: pixman as pixel library plus
    a micro-GUI (Microwindows/Nano-X-class) — graphics without a display
    server.
