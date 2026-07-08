@@ -17,15 +17,7 @@
 #include <windows.h>
 #endif
 
-/*
- * MINIX: no weak-pthread stubs for pthread_create in libc, and native
- * thread spawning is unwanted anyway; use the none backend for the
- * thread-pool layer.  Lock primitives elsewhere still use the libc
- * pthread mutex stubs, as with OpenSSL 3.0.
- */
-#if defined(__minix)
-#define OPENSSL_THREADS_NONE
-#elif defined(OPENSSL_THREADS) && defined(OPENSSL_SYS_UNIX)
+#if defined(OPENSSL_THREADS) && defined(OPENSSL_SYS_UNIX)
 #define OPENSSL_THREADS_POSIX
 #elif defined(OPENSSL_THREADS) && defined(OPENSSL_SYS_VMS)
 #define OPENSSL_THREADS_POSIX

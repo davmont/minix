@@ -38,6 +38,18 @@ int ossl_crypto_thread_native_spawn(CRYPTO_THREAD *thread)
     pthread_attr_t attr;
     pthread_t *handle;
 
+#if defined(__minix)
+    /*
+     * MINIX: base programs link statically against libc, whose pthread
+     * stubs cover mutexes/condvars/keys (enough for the provider and
+     * RCU machinery) but not pthread_create.  Report thread spawning
+     * as unavailable instead of dragging libpthread into every static
+     * consumer of libcrypto.
+     */
+    thread->handle = NULL;
+    return 0;
+#endif
+
     handle = OPENSSL_zalloc(sizeof(*handle));
     if (handle == NULL)
         goto fail;
