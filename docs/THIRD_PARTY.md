@@ -77,17 +77,24 @@ Landed since the audit, with notes:
   "PRNG not seeded" aborts of both dig and named.  With those fixed,
   multi-worker `named -n 2` starts and stays up on the HD image.
   Dedicated pthread/TLS/urcu-mb torture tests all pass on MINIX.
-  Remaining open item, further narrowed: lo0 is up and loopback works
-  (ping 127.0.0.1 fine), and foreground `named -g -n 2` starts, stays
-  up and dies cleanly on kill; but (a) `dig @127.0.0.1` against the
-  local named intermittently hangs past its own `+time` limit (its
-  libuv timer never fires), and (b) `named` without `-g` can block
-  before daemonizing.  Both point at an lwIP-service interaction with
-  named's listener sockets (UDP/nonblocking semantics) rather than
-  named, liburcu or pthreads — dedicated torture tests for those all
-  pass.  Needs interactive lwIP-side debugging; scripted serial QEMU
-  sessions lose output to console repaints and are unreliable for
-  this.  named is not part of the default boot (`named=NO`).
+  **Root cause found (2026-07-09):** the "stall" is a multi-worker
+  issue, not a general lwIP failure.  With **one worker** (`named -g
+  -n 1`) named is flawless — an authoritative zone answers 10/10
+  rapid queries correctly, NXDOMAIN and REFUSED behave right, and a
+  minimal UDP request/reply over lo0 also passes, so lwIP loopback UDP
+  is fine.  With **two or more workers** queries stall.  BIND 9.20's
+  netmgr binds one UDP socket per worker on the same address and
+  relies on `SO_REUSEPORT` to spread packets across them
+  (lib/isc/netmgr/socket.c); MINIX advertises `SO_REUSEPORT` in its
+  headers but lwIP does not implement it, and BIND's load-balancing
+  paths are Linux/FreeBSD-only, so the per-worker listeners do not
+  receive traffic correctly.  Earlier "intermittent hang" reports were
+  compounded by querying `. NS` with recursion off (a correct REFUSED,
+  not a hang) and by serial-console repaints garbling scripted output.
+  **Workaround:** run named single-worker (`-n 1`) on MINIX.  **Real
+  fix:** implement `SO_REUSEPORT` in the lwIP UDP layer (delivery
+  semantics need care — deferred as its own network-stack task).
+  named is not part of the default boot (`named=NO`).
 
 Known-stale, deliberately deferred (each needs its own effort):
 
