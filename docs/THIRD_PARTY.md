@@ -76,10 +76,17 @@ Landed since the audit, with notes:
   "PRNG not seeded" aborts of both dig and named.  With those fixed,
   multi-worker `named -n 2` starts and stays up on the HD image.
   Dedicated pthread/TLS/urcu-mb torture tests all pass on MINIX.
-  Remaining open item: local queries against the running named on a
-  fresh HD image stall — suspected lo0/network bring-up rather than
-  named itself; needs an interactive session with the lwIP service
-  configured.  named is not part of the default boot (`named=NO`).
+  Remaining open item, further narrowed: lo0 is up and loopback works
+  (ping 127.0.0.1 fine), and foreground `named -g -n 2` starts, stays
+  up and dies cleanly on kill; but (a) `dig @127.0.0.1` against the
+  local named intermittently hangs past its own `+time` limit (its
+  libuv timer never fires), and (b) `named` without `-g` can block
+  before daemonizing.  Both point at an lwIP-service interaction with
+  named's listener sockets (UDP/nonblocking semantics) rather than
+  named, liburcu or pthreads — dedicated torture tests for those all
+  pass.  Needs interactive lwIP-side debugging; scripted serial QEMU
+  sessions lose output to console repaints and are unreliable for
+  this.  named is not part of the default boot (`named=NO`).
 
 Known-stale, deliberately deferred (each needs its own effort):
 
