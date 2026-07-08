@@ -1,4 +1,4 @@
-/*	$NetBSD: dnstap.h,v 1.8.2.1 2024/02/25 15:46:56 martin Exp $	*/
+/*	$NetBSD: dnstap.h,v 1.11 2026/04/08 00:16:14 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -41,6 +41,7 @@ struct fstrm_iothr_options;
 #include <dns/name.h>
 #include <dns/rdataclass.h>
 #include <dns/rdatatype.h>
+#include <dns/transport.h>
 #include <dns/types.h>
 
 /*%
@@ -56,6 +57,8 @@ struct fstrm_iothr_options;
  * RESOLVER RESPONSE: RR
  * FORWARDER QUERY: FQ
  * FORWARDER RESPONSE: FR
+ * UPDATE QUERY: UQ
+ * UPDATE RESPONSE: UR
  */
 
 #define DNS_DTTYPE_SQ 0x0001
@@ -95,9 +98,9 @@ struct dns_dtdata {
 
 	void *frame;
 
-	bool		query;
-	bool		tcp;
-	dns_dtmsgtype_t type;
+	bool		     query;
+	dns_dtmsgtype_t	     type;
+	dns_transport_type_t transport;
 
 	isc_time_t qtime;
 	isc_time_t rtime;
@@ -117,9 +120,24 @@ struct dns_dtdata {
 };
 #endif /* HAVE_DNSTAP */
 
+#if DNS_DTENV_TRACE
+#define dns_dtenv_ref(ptr)   dns_dtenv__ref(ptr, __func__, __FILE__, __LINE__)
+#define dns_dtenv_unref(ptr) dns_dtenv__unref(ptr, __func__, __FILE__, __LINE__)
+#define dns_dtenv_attach(ptr, ptrp) \
+	dns_dtenv__attach(ptr, ptrp, __func__, __FILE__, __LINE__)
+#define dns_dtenv_detach(ptrp) \
+	dns_dtenv__detach(ptrp, __func__, __FILE__, __LINE__)
+ISC_REFCOUNT_TRACE_DECL(dns_dtenv);
+#else
+ISC_REFCOUNT_DECL(dns_dtenv);
+#endif /* DNS_DTENV_TRACE */
+/*%
+ * Reference counting for dns_dtenv
+ */
+
 isc_result_t
 dns_dt_create(isc_mem_t *mctx, dns_dtmode_t mode, const char *path,
-	      struct fstrm_iothr_options **foptp, isc_task_t *reopen_task,
+	      struct fstrm_iothr_options **foptp, isc_loop_t *loop,
 	      dns_dtenv_t **envp);
 /*%<
  * Create and initialize the dnstap environment.
@@ -140,10 +158,10 @@ dns_dt_create(isc_mem_t *mctx, dns_dtmode_t mode, const char *path,
  *	should also be set.  Other options may be set if desired.
  *	If dns_dt_create succeeds the *foptp is set to NULL.
  *
- *\li	'reopen_task' needs to be set to the task in the context of which
+ *\li	'loop' needs to be set to the loop in which
  *	dns_dt_reopen() will be called.  This is not an optional parameter:
- *	using dns_dt_create() (which sets 'reopen_task' to NULL) is only
- *	allowed in unit tests.
+ *	using dns_dt_create() with 'loop' set to NULL is only allowed in
+ *	unit tests.
  *
  * Requires:
  *
@@ -214,36 +232,6 @@ dns_dt_setversion(dns_dtenv_t *env, const char *version);
  *\li	'env' is a valid dnstap environment.
  */
 
-void
-dns_dt_attach(dns_dtenv_t *source, dns_dtenv_t **destp);
-/*%<
- * Attach '*destp' to 'source', incrementing the reference counter.
- *
- * Requires:
- *
- *\li	'source' is a valid dnstap environment.
- *
- *\li	'destp' is not NULL and '*destp' is NULL.
- *
- *\li	*destp is attached to source.
- */
-
-void
-dns_dt_detach(dns_dtenv_t **envp);
-/*%<
- * Detach '*envp', decrementing the reference counter.
- *
- * Requires:
- *
- *\li	'*envp' is a valid dnstap environment.
- *
- * Ensures:
- *
- *\li	'*envp' will be destroyed when the number of references reaches zero.
- *
- *\li	'*envp' is NULL.
- */
-
 isc_result_t
 dns_dt_getstats(dns_dtenv_t *env, isc_stats_t **statsp);
 /*%<
@@ -264,8 +252,9 @@ dns_dt_getstats(dns_dtenv_t *env, isc_stats_t **statsp);
 
 void
 dns_dt_send(dns_view_t *view, dns_dtmsgtype_t msgtype, isc_sockaddr_t *qaddr,
-	    isc_sockaddr_t *dstaddr, bool tcp, isc_region_t *zone,
-	    isc_time_t *qtime, isc_time_t *rtime, isc_buffer_t *buf);
+	    isc_sockaddr_t *dstaddr, dns_transport_type_t transport,
+	    isc_region_t *zone, isc_time_t *qtime, isc_time_t *rtime,
+	    isc_buffer_t *buf);
 /*%<
  * Sends a dnstap message to the log, if 'msgtype' is one of the message
  * types represented in 'view->dttypes'.

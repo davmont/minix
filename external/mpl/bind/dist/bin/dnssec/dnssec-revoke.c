@@ -1,4 +1,4 @@
-/*	$NetBSD: dnssec-revoke.c,v 1.7.2.2 2024/02/25 15:43:04 martin Exp $	*/
+/*	$NetBSD: dnssec-revoke.c,v 1.12 2026/01/29 18:36:26 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -26,7 +26,6 @@
 #include <isc/file.h>
 #include <isc/hash.h>
 #include <isc/mem.h>
-#include <isc/print.h>
 #include <isc/result.h>
 #include <isc/string.h>
 #include <isc/util.h>
@@ -42,10 +41,10 @@ const char *program = "dnssec-revoke";
 static isc_mem_t *mctx = NULL;
 
 noreturn static void
-usage(void);
+usage(int ret);
 
 static void
-usage(void) {
+usage(int ret) {
 	fprintf(stderr, "Usage:\n");
 	fprintf(stderr, "    %s [options] keyfile\n\n", program);
 	fprintf(stderr, "Version: %s\n", PACKAGE_VERSION);
@@ -61,7 +60,7 @@ usage(void) {
 	fprintf(stderr, "     K<name>+<alg>+<new id>.key, "
 			"K<name>+<alg>+<new id>.private\n");
 
-	exit(-1);
+	exit(ret);
 }
 
 int
@@ -82,7 +81,7 @@ main(int argc, char **argv) {
 	bool id = false;
 
 	if (argc == 1) {
-		usage();
+		usage(EXIT_FAILURE);
 	}
 
 	isc_mem_create(&mctx);
@@ -121,10 +120,12 @@ main(int argc, char **argv) {
 				fprintf(stderr, "%s: invalid argument -%c\n",
 					program, isc_commandline_option);
 			}
-			FALLTHROUGH;
+			/* Does not return. */
+			usage(EXIT_FAILURE);
+
 		case 'h':
 			/* Does not return. */
-			usage();
+			usage(EXIT_SUCCESS);
 
 		case 'V':
 			/* Does not return. */
@@ -133,7 +134,7 @@ main(int argc, char **argv) {
 		default:
 			fprintf(stderr, "%s: unhandled option -%c\n", program,
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -193,7 +194,7 @@ main(int argc, char **argv) {
 
 	flags = dst_key_flags(key);
 	if ((flags & DNS_KEYFLAG_REVOKE) == 0) {
-		isc_stdtime_t now;
+		isc_stdtime_t now = isc_stdtime_now();
 
 		if ((flags & DNS_KEYFLAG_KSK) == 0) {
 			fprintf(stderr,
@@ -203,7 +204,6 @@ main(int argc, char **argv) {
 				program);
 		}
 
-		isc_stdtime_get(&now);
 		dst_key_settime(key, DST_TIME_REVOKE, now);
 
 		dst_key_setflags(key, flags | DNS_KEYFLAG_REVOKE);
@@ -261,5 +261,5 @@ cleanup:
 	}
 	isc_mem_destroy(&mctx);
 
-	return (0);
+	return 0;
 }

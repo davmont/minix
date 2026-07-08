@@ -2035,7 +2035,6 @@
 ./usr/lib/bc/libaudiodriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libbdev.a                                  minix-comp      bitcode
 ./usr/lib/bc/libbfd.a                                   minix-comp      bitcode,binutils
-./usr/lib/bc/libbind9.a                                 minix-comp      bitcode
 ./usr/lib/bc/libblacklist.a                             minix-comp      bitcode
 ./usr/lib/bc/libblockdriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libbz2.a                                   minix-comp      bitcode
@@ -2067,7 +2066,6 @@
 ./usr/lib/bc/libiberty.a                                minix-comp      bitcode,binutils
 ./usr/lib/bc/libinputdriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libintl.a                                  minix-comp      bitcode
-./usr/lib/bc/libirs.a                                   minix-comp      bitcode
 ./usr/lib/bc/libisc.a                                   minix-comp      bitcode
 ./usr/lib/bc/libisccc.a                                 minix-comp      bitcode
 ./usr/lib/bc/libisccfg.a                                minix-comp      bitcode

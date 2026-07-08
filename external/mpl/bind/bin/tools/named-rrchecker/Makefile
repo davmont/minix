@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile,v 1.1.2.2 2024/02/25 15:42:55 martin Exp $
+#	$NetBSD: Makefile,v 1.1 2024/02/22 00:59:45 christos Exp $
 
 BASE=	${.CURDIR:T}
 BINDIR=	/usr/sbin

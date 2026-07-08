@@ -1,4 +1,4 @@
-/*	$NetBSD: dst.h,v 1.9.2.1 2024/02/25 15:46:59 martin Exp $	*/
+/*	$NetBSD: dst.h,v 1.14 2026/01/29 18:37:51 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -84,7 +84,7 @@ typedef enum dst_algorithm {
 	DST_ALG_UNKNOWN = 0,
 	DST_ALG_RSA = 1, /* Used for parsing RSASHA1, RSASHA256 and RSASHA512 */
 	DST_ALG_RSAMD5 = 1,
-	DST_ALG_DH = 2,
+	DST_ALG_DH = 2, /* Deprecated */
 	DST_ALG_DSA = 3,
 	DST_ALG_ECC = 4,
 	DST_ALG_RSASHA1 = 5,
@@ -135,44 +135,58 @@ typedef enum dst_algorithm {
 #define DST_TYPE_TEMPLATE 0x10000000
 
 /* Key timing metadata definitions */
-#define DST_TIME_CREATED     0
-#define DST_TIME_PUBLISH     1
-#define DST_TIME_ACTIVATE    2
-#define DST_TIME_REVOKE	     3
-#define DST_TIME_INACTIVE    4
-#define DST_TIME_DELETE	     5
-#define DST_TIME_DSPUBLISH   6
-#define DST_TIME_SYNCPUBLISH 7
-#define DST_TIME_SYNCDELETE  8
-#define DST_TIME_DNSKEY	     9
-#define DST_TIME_ZRRSIG	     10
-#define DST_TIME_KRRSIG	     11
-#define DST_TIME_DS	     12
-#define DST_TIME_DSDELETE    13
-#define DST_MAX_TIMES	     13
+enum {
+	DST_TIME_CREATED = 0,
+	DST_TIME_PUBLISH = 1,
+	DST_TIME_ACTIVATE = 2,
+	DST_TIME_REVOKE = 3,
+	DST_TIME_INACTIVE = 4,
+	DST_TIME_DELETE = 5,
+	DST_TIME_DSPUBLISH = 6,
+	DST_TIME_SYNCPUBLISH = 7,
+	DST_TIME_SYNCDELETE = 8,
+	DST_TIME_DNSKEY = 9,
+	DST_TIME_ZRRSIG = 10,
+	DST_TIME_KRRSIG = 11,
+	DST_TIME_DS = 12,
+	DST_TIME_DSDELETE = 13,
+	DST_TIME_SIGPUBLISH = 14,
+	DST_TIME_SIGDELETE = 15,
+
+	DST_MAX_TIMES = 16 /* MUST BE LAST */
+};
 
 /* Numeric metadata definitions */
-#define DST_NUM_PREDECESSOR 0
-#define DST_NUM_SUCCESSOR   1
-#define DST_NUM_MAXTTL	    2
-#define DST_NUM_ROLLPERIOD  3
-#define DST_NUM_LIFETIME    4
-#define DST_NUM_DSPUBCOUNT  5
-#define DST_NUM_DSDELCOUNT  6
-#define DST_MAX_NUMERIC	    6
+enum {
+	DST_NUM_PREDECESSOR = 0,
+	DST_NUM_SUCCESSOR = 1,
+	DST_NUM_MAXTTL = 2,
+	DST_NUM_ROLLPERIOD = 3,
+	DST_NUM_LIFETIME = 4,
+	DST_NUM_DSPUBCOUNT = 5,
+	DST_NUM_DSDELCOUNT = 6,
+
+	DST_MAX_NUMERIC = 7 /* MUST BE LAST */
+};
 
 /* Boolean metadata definitions */
-#define DST_BOOL_KSK	0
-#define DST_BOOL_ZSK	1
-#define DST_MAX_BOOLEAN 1
+enum {
+	DST_BOOL_KSK = 0,
+	DST_BOOL_ZSK = 1,
+
+	DST_MAX_BOOLEAN = 2 /* MUST BE LAST */
+};
 
 /* Key state metadata definitions */
-#define DST_KEY_DNSKEY	  0
-#define DST_KEY_ZRRSIG	  1
-#define DST_KEY_KRRSIG	  2
-#define DST_KEY_DS	  3
-#define DST_KEY_GOAL	  4
-#define DST_MAX_KEYSTATES 4
+enum {
+	DST_KEY_DNSKEY = 0,
+	DST_KEY_ZRRSIG = 1,
+	DST_KEY_KRRSIG = 2,
+	DST_KEY_DS = 3,
+	DST_KEY_GOAL = 4,
+
+	DST_MAX_KEYSTATES = 5 /* MUST BE LAST */
+};
 
 /*
  * Current format version number of the private key parser.
@@ -635,8 +649,8 @@ dst_key_fromlabel(const dns_name_t *name, int alg, unsigned int flags,
 isc_result_t
 dst_key_generate(const dns_name_t *name, unsigned int alg, unsigned int bits,
 		 unsigned int param, unsigned int flags, unsigned int protocol,
-		 dns_rdataclass_t rdclass, isc_mem_t *mctx, dst_key_t **keyp,
-		 void (*callback)(int));
+		 dns_rdataclass_t rdclass, const char *label, isc_mem_t *mctx,
+		 dst_key_t **keyp, void (*callback)(int));
 
 /*%<
  * Generate a DST key (or keypair) with the supplied parameters.  The
@@ -645,10 +659,6 @@ dst_key_generate(const dns_name_t *name, unsigned int alg, unsigned int bits,
  * 	RSA:	exponent
  * 		0	use exponent 3
  * 		!0	use Fermat4 (2^16 + 1)
- * 	DH:	generator
- * 		0	default - use well known prime if bits == 768 or 1024,
- * 			otherwise use 2 as the generator.
- * 		!0	use this value as the generator.
  * 	DSA:	unused
  * 	HMACMD5: entropy
  *		0	default - require good entropy
@@ -775,6 +785,9 @@ dst_key_rid(const dst_key_t *key);
 dns_rdataclass_t
 dst_key_class(const dst_key_t *key);
 
+const char *
+dst_key_directory(const dst_key_t *key);
+
 bool
 dst_key_isprivate(const dst_key_t *key);
 
@@ -783,6 +796,25 @@ dst_key_iszonekey(const dst_key_t *key);
 
 bool
 dst_key_isnullkey(const dst_key_t *key);
+
+bool
+dst_key_have_ksk_and_zsk(dst_key_t **keys, unsigned int nkeys, unsigned int i,
+			 bool check_offline, bool ksk, bool zsk, bool *have_ksk,
+			 bool *have_zsk);
+/*%<
+ *
+ * Check the list of 'keys' to see if both a KSK and ZSK are present, given key
+ * 'i'. The values stored in 'ksk' and 'zsk' tell whether key 'i' is a KSK, ZSK,
+ * or both (CSK). If 'check_offline' is true, don't consider KSKs that are
+ * currently offline (e.g. their private key file is not available).
+ *
+ * Requires:
+ *\li	"keys" is not NULL.
+ *
+ * Returns:
+ *\li	true if there is one or more keys such that both the KSK and ZSK roles
+ *are covered, false otherwise.
+ */
 
 isc_result_t
 dst_key_buildfilename(const dst_key_t *key, int type, const char *directory,
@@ -818,23 +850,6 @@ dst_key_sigsize(const dst_key_t *key, unsigned int *n);
  *
  * Ensures:
  *\li	"n" stores the size of a generated signature
- */
-
-isc_result_t
-dst_key_secretsize(const dst_key_t *key, unsigned int *n);
-/*%<
- * Computes the size of a shared secret generated by the given key.
- *
- * Requires:
- *\li	"key" is a valid key.
- *\li	"n" is not NULL
- *
- * Returns:
- *\li	#ISC_R_SUCCESS
- *\li	DST_R_UNSUPPORTEDALG
- *
- * Ensures:
- *\li	"n" stores the size of a generated shared secret
  */
 
 uint16_t
@@ -906,7 +921,7 @@ dst_key_getbool(const dst_key_t *key, int type, bool *valuep);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_BOOLEAN
+ *	"type" is smaller than DST_MAX_BOOLEAN
  *	"valuep" is not null.
  */
 
@@ -917,7 +932,7 @@ dst_key_setbool(dst_key_t *key, int type, bool value);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_BOOLEAN
+ *	"type" is smaller than DST_MAX_BOOLEAN
  */
 
 void
@@ -927,7 +942,7 @@ dst_key_unsetbool(dst_key_t *key, int type);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_BOOLEAN
+ *	"type" is smaller than DST_MAX_BOOLEAN
  */
 
 isc_result_t
@@ -937,7 +952,7 @@ dst_key_getnum(const dst_key_t *key, int type, uint32_t *valuep);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_NUMERIC
+ *	"type" is smaller than DST_MAX_NUMERIC
  *	"valuep" is not null.
  */
 
@@ -948,7 +963,7 @@ dst_key_setnum(dst_key_t *key, int type, uint32_t value);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_NUMERIC
+ *	"type" is smaller than DST_MAX_NUMERIC
  */
 
 void
@@ -958,7 +973,7 @@ dst_key_unsetnum(dst_key_t *key, int type);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_NUMERIC
+ *	"type" is smaller than DST_MAX_NUMERIC
  */
 
 isc_result_t
@@ -968,7 +983,7 @@ dst_key_gettime(const dst_key_t *key, int type, isc_stdtime_t *timep);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_TIMES
+ *	"type" is smaller than DST_MAX_TIMES
  *	"timep" is not null.
  */
 
@@ -979,7 +994,7 @@ dst_key_settime(dst_key_t *key, int type, isc_stdtime_t when);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_TIMES
+ *	"type" is smaller than DST_MAX_TIMES
  */
 
 void
@@ -989,7 +1004,7 @@ dst_key_unsettime(dst_key_t *key, int type);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_TIMES
+ *	"type" is smaller than DST_MAX_TIMES
  */
 
 isc_result_t
@@ -999,7 +1014,7 @@ dst_key_getstate(const dst_key_t *key, int type, dst_key_state_t *statep);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_KEYSTATES
+ *	"type" is smaller than DST_MAX_KEYSTATES
  *	"statep" is not null.
  */
 
@@ -1011,7 +1026,7 @@ dst_key_setstate(dst_key_t *key, int type, dst_key_state_t state);
  * Requires:
  *	"key" is a valid key.
  *	"state" is a valid state.
- *	"type" is no larger than DST_MAX_KEYSTATES
+ *	"type" is smaller than DST_MAX_KEYSTATES
  */
 
 void
@@ -1021,7 +1036,7 @@ dst_key_unsetstate(dst_key_t *key, int type);
  *
  * Requires:
  *	"key" is a valid key.
- *	"type" is no larger than DST_MAX_KEYSTATES
+ *	"type" is smaller than DST_MAX_KEYSTATES
  */
 
 isc_result_t
@@ -1156,7 +1171,7 @@ dst_key_haskasp(dst_key_t *key);
  */
 
 bool
-dst_key_is_unused(dst_key_t *key);
+dst_key_is_unused(const dst_key_t *key);
 /*%<
  * Check if this key is unused.
  *
@@ -1213,7 +1228,7 @@ dst_key_is_removed(dst_key_t *key, isc_stdtime_t now, isc_stdtime_t *remove);
  */
 
 dst_key_state_t
-dst_key_goal(dst_key_t *key);
+dst_key_goal(const dst_key_t *key);
 /*%<
  * Get the key goal. Should be OMNIPRESENT or HIDDEN.
  * This can be used to determine if the key is being introduced or
@@ -1239,6 +1254,15 @@ dst_key_copy_metadata(dst_key_t *to, dst_key_t *from);
  *
  * Requires:
  *	'to' and 'from' to be valid.
+ */
+
+void
+dst_key_setdirectory(dst_key_t *key, const char *dir);
+/*%<
+ * Set the directory where to store key files for this key.
+ *
+ * Requires:
+ *	'key' to be valid.
  */
 
 const char *

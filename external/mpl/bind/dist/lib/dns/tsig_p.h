@@ -1,4 +1,4 @@
-/*	$NetBSD: tsig_p.h,v 1.6.2.1 2024/02/25 15:46:53 martin Exp $	*/
+/*	$NetBSD: tsig_p.h,v 1.8 2025/01/26 16:25:25 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -32,11 +32,7 @@ ISC_LANG_BEGINDECLS
 
 bool
 dns__tsig_algvalid(unsigned int alg);
-unsigned int
+dst_algorithm_t
 dns__tsig_algfromname(const dns_name_t *algorithm);
-const dns_name_t *
-dns__tsig_algnamefromname(const dns_name_t *algorithm);
-bool
-dns__tsig_algallocated(const dns_name_t *algorithm);
 
 ISC_LANG_ENDDECLS

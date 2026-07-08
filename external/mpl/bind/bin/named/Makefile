@@ -1,4 +1,4 @@
-#	$NetBSD: Makefile,v 1.5.6.1 2024/02/25 15:42:53 martin Exp $
+#	$NetBSD: Makefile,v 1.7 2026/04/09 15:54:52 christos Exp $
 
 LDADD+=-lns
 DPADD+=${LIBNS}
@@ -47,5 +47,13 @@ CLEANFILES+= xsl.c
 
 main.o: ${VERSIONFILE}
 
+# MINIX: libblacklist keeps its pre-rename name here (see ../../Makefile.inc).
+.if defined(__MINIX)
+LDADD+=-lblacklist
+DPADD+=${LIBBLACKLIST}
+.else
+LDADD+=-lblocklist
+DPADD+=${LIBBLOCKLIST}
+.endif
 
 .include <bsd.prog.mk>

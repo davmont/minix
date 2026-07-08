@@ -1,4 +1,4 @@
-/*	$NetBSD: errno2result.h,v 1.2.2.2 2024/02/25 15:47:16 martin Exp $	*/
+/*	$NetBSD: errno2result.h,v 1.3 2025/01/26 16:25:37 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

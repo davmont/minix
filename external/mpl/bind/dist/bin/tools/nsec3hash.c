@@ -1,4 +1,4 @@
-/*	$NetBSD: nsec3hash.c,v 1.6.2.1 2024/02/25 15:45:48 martin Exp $	*/
+/*	$NetBSD: nsec3hash.c,v 1.10 2026/06/19 20:09:59 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <isc/attributes.h>
 #include <isc/base32.h>
@@ -24,9 +25,10 @@
 #include <isc/file.h>
 #include <isc/hex.h>
 #include <isc/iterated_hash.h>
-#include <isc/print.h>
+#include <isc/parseint.h>
 #include <isc/result.h>
 #include <isc/string.h>
+#include <isc/tls.h>
 #include <isc/types.h>
 #include <isc/util.h>
 
@@ -49,7 +51,7 @@ fatal(const char *format, ...) {
 	vfprintf(stderr, format, args);
 	va_end(args);
 	fprintf(stderr, "\n");
-	exit(1);
+	_exit(EXIT_FAILURE);
 }
 
 static void
@@ -65,12 +67,12 @@ usage(void) {
 		program);
 	fprintf(stderr, "       %s -r algorithm flags iterations salt domain\n",
 		program);
-	exit(1);
+	exit(EXIT_FAILURE);
 }
 
 typedef void
-nsec3printer(unsigned algo, unsigned flags, unsigned iters, const char *saltstr,
-	     const char *domain, const char *digest);
+nsec3printer(unsigned int algo, unsigned int flags, unsigned int iters,
+	     const char *saltstr, const char *domain, const char *digest);
 
 static void
 nsec3hash(nsec3printer *nsec3print, const char *algostr, const char *flagstr,
@@ -83,10 +85,10 @@ nsec3hash(nsec3printer *nsec3print, const char *algostr, const char *flagstr,
 	unsigned char hash[NSEC3_MAX_HASH_LENGTH];
 	unsigned char salt[DNS_NSEC3_SALTSIZE];
 	unsigned char text[1024];
-	unsigned int hash_alg;
-	unsigned int flags;
+	uint8_t hash_alg;
+	uint8_t flags;
 	unsigned int length;
-	unsigned int iterations;
+	uint16_t iterations;
 	unsigned int salt_length;
 	const char dash[] = "-";
 
@@ -105,17 +107,24 @@ nsec3hash(nsec3printer *nsec3print, const char *algostr, const char *flagstr,
 			saltstr = dash;
 		}
 	}
-	hash_alg = atoi(algostr);
-	if (hash_alg > 255U) {
-		fatal("hash algorithm too large");
+	result = isc_parse_uint8(&hash_alg, algostr, 10);
+	if (result != ISC_R_SUCCESS) {
+		fatal("invalid hash algorithm '%s': %s", algostr,
+		      isc_result_totext(result));
 	}
-	flags = flagstr == NULL ? 0 : atoi(flagstr);
-	if (flags > 255U) {
-		fatal("flags too large");
+	if (flagstr == NULL) {
+		flags = 0;
+	} else {
+		result = isc_parse_uint8(&flags, flagstr, 10);
+		if (result != ISC_R_SUCCESS) {
+			fatal("invalid flags '%s': %s", flagstr,
+			      isc_result_totext(result));
+		}
 	}
-	iterations = atoi(iterstr);
-	if (iterations > 0xffffU) {
-		fatal("iterations to large");
+	result = isc_parse_uint16(&iterations, iterstr, 10);
+	if (result != ISC_R_SUCCESS) {
+		fatal("invalid iterations '%s': %s", iterstr,
+		      isc_result_totext(result));
 	}
 
 	name = dns_fixedname_initname(&fixed);
@@ -140,7 +149,7 @@ nsec3hash(nsec3printer *nsec3print, const char *algostr, const char *flagstr,
 }
 
 static void
-nsec3hash_print(unsigned algo, unsigned flags, unsigned iters,
+nsec3hash_print(unsigned int algo, unsigned int flags, unsigned int iters,
 		const char *saltstr, const char *domain, const char *digest) {
 	UNUSED(flags);
 	UNUSED(domain);
@@ -150,7 +159,7 @@ nsec3hash_print(unsigned algo, unsigned flags, unsigned iters,
 }
 
 static void
-nsec3hash_rdata_print(unsigned algo, unsigned flags, unsigned iters,
+nsec3hash_rdata_print(unsigned int algo, unsigned int flags, unsigned int iters,
 		      const char *saltstr, const char *domain,
 		      const char *digest) {
 	fprintf(stdout, "%s NSEC3 %u %u %u %s %s\n", domain, algo, flags, iters,
@@ -192,5 +201,5 @@ skip:
 		nsec3hash(nsec3hash_print, argv[1], NULL, argv[2], argv[0],
 			  argv[3]);
 	}
-	return (0);
+	return 0;
 }

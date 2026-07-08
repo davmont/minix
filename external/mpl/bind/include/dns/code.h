@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 1998-2024  Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) 1998-2026  Internet Systems Consortium, Inc. ("ISC")
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -87,6 +87,9 @@
 #include "rdata/generic/zonemd_63.c"
 #include "rdata/in_1/svcb_64.c"
 #include "rdata/in_1/https_65.c"
+#include "rdata/generic/dsync_66.c"
+#include "rdata/generic/hhit_67.c"
+#include "rdata/generic/brid_68.c"
 #include "rdata/generic/spf_99.c"
 #include "rdata/generic/nid_104.c"
 #include "rdata/generic/l32_105.c"
@@ -101,6 +104,8 @@
 #include "rdata/generic/avc_258.c"
 #include "rdata/generic/doa_259.c"
 #include "rdata/generic/amtrelay_260.c"
+#include "rdata/generic/resinfo_261.c"
+#include "rdata/generic/wallet_262.c"
 #include "rdata/generic/ta_32768.c"
 #include "rdata/generic/dlv_32769.c"
 #include "rdata/generic/keydata_65533.c"
@@ -239,6 +244,9 @@
 		default: result = DNS_R_UNKNOWN; break; \
 		} \
 		break; \
+	case 66: result = fromtext_dsync(rdclass, type, lexer, origin, options, target, callbacks); break; \
+	case 67: result = fromtext_hhit(rdclass, type, lexer, origin, options, target, callbacks); break; \
+	case 68: result = fromtext_brid(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 99: result = fromtext_spf(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 104: result = fromtext_nid(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 105: result = fromtext_l32(rdclass, type, lexer, origin, options, target, callbacks); break; \
@@ -257,6 +265,8 @@
 	case 258: result = fromtext_avc(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 259: result = fromtext_doa(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 260: result = fromtext_amtrelay(rdclass, type, lexer, origin, options, target, callbacks); break; \
+	case 261: result = fromtext_resinfo(rdclass, type, lexer, origin, options, target, callbacks); break; \
+	case 262: result = fromtext_wallet(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 32768: result = fromtext_ta(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 32769: result = fromtext_dlv(rdclass, type, lexer, origin, options, target, callbacks); break; \
 	case 65533: result = fromtext_keydata(rdclass, type, lexer, origin, options, target, callbacks); break; \
@@ -395,6 +405,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = totext_dsync(rdata, tctx, target); break; \
+	case 67: result = totext_hhit(rdata, tctx, target); break; \
+	case 68: result = totext_brid(rdata, tctx, target); break; \
 	case 99: result = totext_spf(rdata, tctx, target); break; \
 	case 104: result = totext_nid(rdata, tctx, target); break; \
 	case 105: result = totext_l32(rdata, tctx, target); break; \
@@ -413,6 +426,8 @@
 	case 258: result = totext_avc(rdata, tctx, target); break; \
 	case 259: result = totext_doa(rdata, tctx, target); break; \
 	case 260: result = totext_amtrelay(rdata, tctx, target); break; \
+	case 261: result = totext_resinfo(rdata, tctx, target); break; \
+	case 262: result = totext_wallet(rdata, tctx, target); break; \
 	case 32768: result = totext_ta(rdata, tctx, target); break; \
 	case 32769: result = totext_dlv(rdata, tctx, target); break; \
 	case 65533: result = totext_keydata(rdata, tctx, target); break; \
@@ -422,156 +437,161 @@
 #define FROMWIRESWITCH \
 	switch (type) { \
 	case 1: switch (rdclass) { \
-		case 1: result = fromwire_in_a(rdclass, type, source, dctx, options, target); break; \
-		case 3: result = fromwire_ch_a(rdclass, type, source, dctx, options, target); break; \
-		case 4: result = fromwire_hs_a(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_a(rdclass, type, source, dctx, target); break; \
+		case 3: result = fromwire_ch_a(rdclass, type, source, dctx, target); break; \
+		case 4: result = fromwire_hs_a(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 2: result = fromwire_ns(rdclass, type, source, dctx, options, target); break; \
-	case 3: result = fromwire_md(rdclass, type, source, dctx, options, target); break; \
-	case 4: result = fromwire_mf(rdclass, type, source, dctx, options, target); break; \
-	case 5: result = fromwire_cname(rdclass, type, source, dctx, options, target); break; \
-	case 6: result = fromwire_soa(rdclass, type, source, dctx, options, target); break; \
-	case 7: result = fromwire_mb(rdclass, type, source, dctx, options, target); break; \
-	case 8: result = fromwire_mg(rdclass, type, source, dctx, options, target); break; \
-	case 9: result = fromwire_mr(rdclass, type, source, dctx, options, target); break; \
-	case 10: result = fromwire_null(rdclass, type, source, dctx, options, target); break; \
+	case 2: result = fromwire_ns(rdclass, type, source, dctx, target); break; \
+	case 3: result = fromwire_md(rdclass, type, source, dctx, target); break; \
+	case 4: result = fromwire_mf(rdclass, type, source, dctx, target); break; \
+	case 5: result = fromwire_cname(rdclass, type, source, dctx, target); break; \
+	case 6: result = fromwire_soa(rdclass, type, source, dctx, target); break; \
+	case 7: result = fromwire_mb(rdclass, type, source, dctx, target); break; \
+	case 8: result = fromwire_mg(rdclass, type, source, dctx, target); break; \
+	case 9: result = fromwire_mr(rdclass, type, source, dctx, target); break; \
+	case 10: result = fromwire_null(rdclass, type, source, dctx, target); break; \
 	case 11: switch (rdclass) { \
-		case 1: result = fromwire_in_wks(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_wks(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 12: result = fromwire_ptr(rdclass, type, source, dctx, options, target); break; \
-	case 13: result = fromwire_hinfo(rdclass, type, source, dctx, options, target); break; \
-	case 14: result = fromwire_minfo(rdclass, type, source, dctx, options, target); break; \
-	case 15: result = fromwire_mx(rdclass, type, source, dctx, options, target); break; \
-	case 16: result = fromwire_txt(rdclass, type, source, dctx, options, target); break; \
-	case 17: result = fromwire_rp(rdclass, type, source, dctx, options, target); break; \
-	case 18: result = fromwire_afsdb(rdclass, type, source, dctx, options, target); break; \
-	case 19: result = fromwire_x25(rdclass, type, source, dctx, options, target); break; \
-	case 20: result = fromwire_isdn(rdclass, type, source, dctx, options, target); break; \
-	case 21: result = fromwire_rt(rdclass, type, source, dctx, options, target); break; \
+	case 12: result = fromwire_ptr(rdclass, type, source, dctx, target); break; \
+	case 13: result = fromwire_hinfo(rdclass, type, source, dctx, target); break; \
+	case 14: result = fromwire_minfo(rdclass, type, source, dctx, target); break; \
+	case 15: result = fromwire_mx(rdclass, type, source, dctx, target); break; \
+	case 16: result = fromwire_txt(rdclass, type, source, dctx, target); break; \
+	case 17: result = fromwire_rp(rdclass, type, source, dctx, target); break; \
+	case 18: result = fromwire_afsdb(rdclass, type, source, dctx, target); break; \
+	case 19: result = fromwire_x25(rdclass, type, source, dctx, target); break; \
+	case 20: result = fromwire_isdn(rdclass, type, source, dctx, target); break; \
+	case 21: result = fromwire_rt(rdclass, type, source, dctx, target); break; \
 	case 22: switch (rdclass) { \
-		case 1: result = fromwire_in_nsap(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_nsap(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
 	case 23: switch (rdclass) { \
-		case 1: result = fromwire_in_nsap_ptr(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_nsap_ptr(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 24: result = fromwire_sig(rdclass, type, source, dctx, options, target); break; \
-	case 25: result = fromwire_key(rdclass, type, source, dctx, options, target); break; \
+	case 24: result = fromwire_sig(rdclass, type, source, dctx, target); break; \
+	case 25: result = fromwire_key(rdclass, type, source, dctx, target); break; \
 	case 26: switch (rdclass) { \
-		case 1: result = fromwire_in_px(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_px(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 27: result = fromwire_gpos(rdclass, type, source, dctx, options, target); break; \
+	case 27: result = fromwire_gpos(rdclass, type, source, dctx, target); break; \
 	case 28: switch (rdclass) { \
-		case 1: result = fromwire_in_aaaa(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_aaaa(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 29: result = fromwire_loc(rdclass, type, source, dctx, options, target); break; \
-	case 30: result = fromwire_nxt(rdclass, type, source, dctx, options, target); break; \
+	case 29: result = fromwire_loc(rdclass, type, source, dctx, target); break; \
+	case 30: result = fromwire_nxt(rdclass, type, source, dctx, target); break; \
 	case 31: switch (rdclass) { \
-		case 1: result = fromwire_in_eid(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_eid(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
 	case 32: switch (rdclass) { \
-		case 1: result = fromwire_in_nimloc(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_nimloc(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
 	case 33: switch (rdclass) { \
-		case 1: result = fromwire_in_srv(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_srv(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
 	case 34: switch (rdclass) { \
-		case 1: result = fromwire_in_atma(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_atma(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 35: result = fromwire_naptr(rdclass, type, source, dctx, options, target); break; \
+	case 35: result = fromwire_naptr(rdclass, type, source, dctx, target); break; \
 	case 36: switch (rdclass) { \
-		case 1: result = fromwire_in_kx(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_kx(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 37: result = fromwire_cert(rdclass, type, source, dctx, options, target); break; \
+	case 37: result = fromwire_cert(rdclass, type, source, dctx, target); break; \
 	case 38: switch (rdclass) { \
-		case 1: result = fromwire_in_a6(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_a6(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 39: result = fromwire_dname(rdclass, type, source, dctx, options, target); break; \
-	case 40: result = fromwire_sink(rdclass, type, source, dctx, options, target); break; \
-	case 41: result = fromwire_opt(rdclass, type, source, dctx, options, target); break; \
+	case 39: result = fromwire_dname(rdclass, type, source, dctx, target); break; \
+	case 40: result = fromwire_sink(rdclass, type, source, dctx, target); break; \
+	case 41: result = fromwire_opt(rdclass, type, source, dctx, target); break; \
 	case 42: switch (rdclass) { \
-		case 1: result = fromwire_in_apl(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_apl(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 43: result = fromwire_ds(rdclass, type, source, dctx, options, target); break; \
-	case 44: result = fromwire_sshfp(rdclass, type, source, dctx, options, target); break; \
-	case 45: result = fromwire_ipseckey(rdclass, type, source, dctx, options, target); break; \
-	case 46: result = fromwire_rrsig(rdclass, type, source, dctx, options, target); break; \
-	case 47: result = fromwire_nsec(rdclass, type, source, dctx, options, target); break; \
-	case 48: result = fromwire_dnskey(rdclass, type, source, dctx, options, target); break; \
+	case 43: result = fromwire_ds(rdclass, type, source, dctx, target); break; \
+	case 44: result = fromwire_sshfp(rdclass, type, source, dctx, target); break; \
+	case 45: result = fromwire_ipseckey(rdclass, type, source, dctx, target); break; \
+	case 46: result = fromwire_rrsig(rdclass, type, source, dctx, target); break; \
+	case 47: result = fromwire_nsec(rdclass, type, source, dctx, target); break; \
+	case 48: result = fromwire_dnskey(rdclass, type, source, dctx, target); break; \
 	case 49: switch (rdclass) { \
-		case 1: result = fromwire_in_dhcid(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_dhcid(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 50: result = fromwire_nsec3(rdclass, type, source, dctx, options, target); break; \
-	case 51: result = fromwire_nsec3param(rdclass, type, source, dctx, options, target); break; \
-	case 52: result = fromwire_tlsa(rdclass, type, source, dctx, options, target); break; \
-	case 53: result = fromwire_smimea(rdclass, type, source, dctx, options, target); break; \
-	case 55: result = fromwire_hip(rdclass, type, source, dctx, options, target); break; \
-	case 56: result = fromwire_ninfo(rdclass, type, source, dctx, options, target); break; \
-	case 57: result = fromwire_rkey(rdclass, type, source, dctx, options, target); break; \
-	case 58: result = fromwire_talink(rdclass, type, source, dctx, options, target); break; \
-	case 59: result = fromwire_cds(rdclass, type, source, dctx, options, target); break; \
-	case 60: result = fromwire_cdnskey(rdclass, type, source, dctx, options, target); break; \
-	case 61: result = fromwire_openpgpkey(rdclass, type, source, dctx, options, target); break; \
-	case 62: result = fromwire_csync(rdclass, type, source, dctx, options, target); break; \
-	case 63: result = fromwire_zonemd(rdclass, type, source, dctx, options, target); break; \
+	case 50: result = fromwire_nsec3(rdclass, type, source, dctx, target); break; \
+	case 51: result = fromwire_nsec3param(rdclass, type, source, dctx, target); break; \
+	case 52: result = fromwire_tlsa(rdclass, type, source, dctx, target); break; \
+	case 53: result = fromwire_smimea(rdclass, type, source, dctx, target); break; \
+	case 55: result = fromwire_hip(rdclass, type, source, dctx, target); break; \
+	case 56: result = fromwire_ninfo(rdclass, type, source, dctx, target); break; \
+	case 57: result = fromwire_rkey(rdclass, type, source, dctx, target); break; \
+	case 58: result = fromwire_talink(rdclass, type, source, dctx, target); break; \
+	case 59: result = fromwire_cds(rdclass, type, source, dctx, target); break; \
+	case 60: result = fromwire_cdnskey(rdclass, type, source, dctx, target); break; \
+	case 61: result = fromwire_openpgpkey(rdclass, type, source, dctx, target); break; \
+	case 62: result = fromwire_csync(rdclass, type, source, dctx, target); break; \
+	case 63: result = fromwire_zonemd(rdclass, type, source, dctx, target); break; \
 	case 64: switch (rdclass) { \
-		case 1: result = fromwire_in_svcb(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_svcb(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
 	case 65: switch (rdclass) { \
-		case 1: result = fromwire_in_https(rdclass, type, source, dctx, options, target); break; \
+		case 1: result = fromwire_in_https(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 99: result = fromwire_spf(rdclass, type, source, dctx, options, target); break; \
-	case 104: result = fromwire_nid(rdclass, type, source, dctx, options, target); break; \
-	case 105: result = fromwire_l32(rdclass, type, source, dctx, options, target); break; \
-	case 106: result = fromwire_l64(rdclass, type, source, dctx, options, target); break; \
-	case 107: result = fromwire_lp(rdclass, type, source, dctx, options, target); break; \
-	case 108: result = fromwire_eui48(rdclass, type, source, dctx, options, target); break; \
-	case 109: result = fromwire_eui64(rdclass, type, source, dctx, options, target); break; \
-	case 249: result = fromwire_tkey(rdclass, type, source, dctx, options, target); break; \
+	case 66: result = fromwire_dsync(rdclass, type, source, dctx, target); break; \
+	case 67: result = fromwire_hhit(rdclass, type, source, dctx, target); break; \
+	case 68: result = fromwire_brid(rdclass, type, source, dctx, target); break; \
+	case 99: result = fromwire_spf(rdclass, type, source, dctx, target); break; \
+	case 104: result = fromwire_nid(rdclass, type, source, dctx, target); break; \
+	case 105: result = fromwire_l32(rdclass, type, source, dctx, target); break; \
+	case 106: result = fromwire_l64(rdclass, type, source, dctx, target); break; \
+	case 107: result = fromwire_lp(rdclass, type, source, dctx, target); break; \
+	case 108: result = fromwire_eui48(rdclass, type, source, dctx, target); break; \
+	case 109: result = fromwire_eui64(rdclass, type, source, dctx, target); break; \
+	case 249: result = fromwire_tkey(rdclass, type, source, dctx, target); break; \
 	case 250: switch (rdclass) { \
-		case 255: result = fromwire_any_tsig(rdclass, type, source, dctx, options, target); break; \
+		case 255: result = fromwire_any_tsig(rdclass, type, source, dctx, target); break; \
 		default: use_default = true; break; \
 		} \
 		break; \
-	case 256: result = fromwire_uri(rdclass, type, source, dctx, options, target); break; \
-	case 257: result = fromwire_caa(rdclass, type, source, dctx, options, target); break; \
-	case 258: result = fromwire_avc(rdclass, type, source, dctx, options, target); break; \
-	case 259: result = fromwire_doa(rdclass, type, source, dctx, options, target); break; \
-	case 260: result = fromwire_amtrelay(rdclass, type, source, dctx, options, target); break; \
-	case 32768: result = fromwire_ta(rdclass, type, source, dctx, options, target); break; \
-	case 32769: result = fromwire_dlv(rdclass, type, source, dctx, options, target); break; \
-	case 65533: result = fromwire_keydata(rdclass, type, source, dctx, options, target); break; \
+	case 256: result = fromwire_uri(rdclass, type, source, dctx, target); break; \
+	case 257: result = fromwire_caa(rdclass, type, source, dctx, target); break; \
+	case 258: result = fromwire_avc(rdclass, type, source, dctx, target); break; \
+	case 259: result = fromwire_doa(rdclass, type, source, dctx, target); break; \
+	case 260: result = fromwire_amtrelay(rdclass, type, source, dctx, target); break; \
+	case 261: result = fromwire_resinfo(rdclass, type, source, dctx, target); break; \
+	case 262: result = fromwire_wallet(rdclass, type, source, dctx, target); break; \
+	case 32768: result = fromwire_ta(rdclass, type, source, dctx, target); break; \
+	case 32769: result = fromwire_dlv(rdclass, type, source, dctx, target); break; \
+	case 65533: result = fromwire_keydata(rdclass, type, source, dctx, target); break; \
 	default: use_default = true; break; \
 	}
 
@@ -707,6 +727,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = towire_dsync(rdata, cctx, target); break; \
+	case 67: result = towire_hhit(rdata, cctx, target); break; \
+	case 68: result = towire_brid(rdata, cctx, target); break; \
 	case 99: result = towire_spf(rdata, cctx, target); break; \
 	case 104: result = towire_nid(rdata, cctx, target); break; \
 	case 105: result = towire_l32(rdata, cctx, target); break; \
@@ -725,6 +748,8 @@
 	case 258: result = towire_avc(rdata, cctx, target); break; \
 	case 259: result = towire_doa(rdata, cctx, target); break; \
 	case 260: result = towire_amtrelay(rdata, cctx, target); break; \
+	case 261: result = towire_resinfo(rdata, cctx, target); break; \
+	case 262: result = towire_wallet(rdata, cctx, target); break; \
 	case 32768: result = towire_ta(rdata, cctx, target); break; \
 	case 32769: result = towire_dlv(rdata, cctx, target); break; \
 	case 65533: result = towire_keydata(rdata, cctx, target); break; \
@@ -863,6 +888,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = compare_dsync(rdata1, rdata2); break; \
+	case 67: result = compare_hhit(rdata1, rdata2); break; \
+	case 68: result = compare_brid(rdata1, rdata2); break; \
 	case 99: result = compare_spf(rdata1, rdata2); break; \
 	case 104: result = compare_nid(rdata1, rdata2); break; \
 	case 105: result = compare_l32(rdata1, rdata2); break; \
@@ -881,6 +909,8 @@
 	case 258: result = compare_avc(rdata1, rdata2); break; \
 	case 259: result = compare_doa(rdata1, rdata2); break; \
 	case 260: result = compare_amtrelay(rdata1, rdata2); break; \
+	case 261: result = compare_resinfo(rdata1, rdata2); break; \
+	case 262: result = compare_wallet(rdata1, rdata2); break; \
 	case 32768: result = compare_ta(rdata1, rdata2); break; \
 	case 32769: result = compare_dlv(rdata1, rdata2); break; \
 	case 65533: result = compare_keydata(rdata1, rdata2); break; \
@@ -1019,6 +1049,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = casecompare_dsync(rdata1, rdata2); break; \
+	case 67: result = casecompare_hhit(rdata1, rdata2); break; \
+	case 68: result = casecompare_brid(rdata1, rdata2); break; \
 	case 99: result = casecompare_spf(rdata1, rdata2); break; \
 	case 104: result = casecompare_nid(rdata1, rdata2); break; \
 	case 105: result = casecompare_l32(rdata1, rdata2); break; \
@@ -1037,6 +1070,8 @@
 	case 258: result = casecompare_avc(rdata1, rdata2); break; \
 	case 259: result = casecompare_doa(rdata1, rdata2); break; \
 	case 260: result = casecompare_amtrelay(rdata1, rdata2); break; \
+	case 261: result = casecompare_resinfo(rdata1, rdata2); break; \
+	case 262: result = casecompare_wallet(rdata1, rdata2); break; \
 	case 32768: result = casecompare_ta(rdata1, rdata2); break; \
 	case 32769: result = casecompare_dlv(rdata1, rdata2); break; \
 	case 65533: result = casecompare_keydata(rdata1, rdata2); break; \
@@ -1175,6 +1210,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = fromstruct_dsync(rdclass, type, source, target); break; \
+	case 67: result = fromstruct_hhit(rdclass, type, source, target); break; \
+	case 68: result = fromstruct_brid(rdclass, type, source, target); break; \
 	case 99: result = fromstruct_spf(rdclass, type, source, target); break; \
 	case 104: result = fromstruct_nid(rdclass, type, source, target); break; \
 	case 105: result = fromstruct_l32(rdclass, type, source, target); break; \
@@ -1193,6 +1231,8 @@
 	case 258: result = fromstruct_avc(rdclass, type, source, target); break; \
 	case 259: result = fromstruct_doa(rdclass, type, source, target); break; \
 	case 260: result = fromstruct_amtrelay(rdclass, type, source, target); break; \
+	case 261: result = fromstruct_resinfo(rdclass, type, source, target); break; \
+	case 262: result = fromstruct_wallet(rdclass, type, source, target); break; \
 	case 32768: result = fromstruct_ta(rdclass, type, source, target); break; \
 	case 32769: result = fromstruct_dlv(rdclass, type, source, target); break; \
 	case 65533: result = fromstruct_keydata(rdclass, type, source, target); break; \
@@ -1331,6 +1371,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = tostruct_dsync(rdata, target, mctx); break; \
+	case 67: result = tostruct_hhit(rdata, target, mctx); break; \
+	case 68: result = tostruct_brid(rdata, target, mctx); break; \
 	case 99: result = tostruct_spf(rdata, target, mctx); break; \
 	case 104: result = tostruct_nid(rdata, target, mctx); break; \
 	case 105: result = tostruct_l32(rdata, target, mctx); break; \
@@ -1349,6 +1392,8 @@
 	case 258: result = tostruct_avc(rdata, target, mctx); break; \
 	case 259: result = tostruct_doa(rdata, target, mctx); break; \
 	case 260: result = tostruct_amtrelay(rdata, target, mctx); break; \
+	case 261: result = tostruct_resinfo(rdata, target, mctx); break; \
+	case 262: result = tostruct_wallet(rdata, target, mctx); break; \
 	case 32768: result = tostruct_ta(rdata, target, mctx); break; \
 	case 32769: result = tostruct_dlv(rdata, target, mctx); break; \
 	case 65533: result = tostruct_keydata(rdata, target, mctx); break; \
@@ -1487,6 +1532,9 @@
 		default: break; \
 		} \
 		break; \
+	case 66: freestruct_dsync(source); break; \
+	case 67: freestruct_hhit(source); break; \
+	case 68: freestruct_brid(source); break; \
 	case 99: freestruct_spf(source); break; \
 	case 104: freestruct_nid(source); break; \
 	case 105: freestruct_l32(source); break; \
@@ -1505,6 +1553,8 @@
 	case 258: freestruct_avc(source); break; \
 	case 259: freestruct_doa(source); break; \
 	case 260: freestruct_amtrelay(source); break; \
+	case 261: freestruct_resinfo(source); break; \
+	case 262: freestruct_wallet(source); break; \
 	case 32768: freestruct_ta(source); break; \
 	case 32769: freestruct_dlv(source); break; \
 	case 65533: freestruct_keydata(source); break; \
@@ -1643,6 +1693,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = additionaldata_dsync(rdata, owner, add, arg); break; \
+	case 67: result = additionaldata_hhit(rdata, owner, add, arg); break; \
+	case 68: result = additionaldata_brid(rdata, owner, add, arg); break; \
 	case 99: result = additionaldata_spf(rdata, owner, add, arg); break; \
 	case 104: result = additionaldata_nid(rdata, owner, add, arg); break; \
 	case 105: result = additionaldata_l32(rdata, owner, add, arg); break; \
@@ -1661,6 +1714,8 @@
 	case 258: result = additionaldata_avc(rdata, owner, add, arg); break; \
 	case 259: result = additionaldata_doa(rdata, owner, add, arg); break; \
 	case 260: result = additionaldata_amtrelay(rdata, owner, add, arg); break; \
+	case 261: result = additionaldata_resinfo(rdata, owner, add, arg); break; \
+	case 262: result = additionaldata_wallet(rdata, owner, add, arg); break; \
 	case 32768: result = additionaldata_ta(rdata, owner, add, arg); break; \
 	case 32769: result = additionaldata_dlv(rdata, owner, add, arg); break; \
 	case 65533: result = additionaldata_keydata(rdata, owner, add, arg); break; \
@@ -1799,6 +1854,9 @@
 		default: use_default = true; break; \
 		} \
 		break; \
+	case 66: result = digest_dsync(rdata, digest, arg); break; \
+	case 67: result = digest_hhit(rdata, digest, arg); break; \
+	case 68: result = digest_brid(rdata, digest, arg); break; \
 	case 99: result = digest_spf(rdata, digest, arg); break; \
 	case 104: result = digest_nid(rdata, digest, arg); break; \
 	case 105: result = digest_l32(rdata, digest, arg); break; \
@@ -1817,6 +1875,8 @@
 	case 258: result = digest_avc(rdata, digest, arg); break; \
 	case 259: result = digest_doa(rdata, digest, arg); break; \
 	case 260: result = digest_amtrelay(rdata, digest, arg); break; \
+	case 261: result = digest_resinfo(rdata, digest, arg); break; \
+	case 262: result = digest_wallet(rdata, digest, arg); break; \
 	case 32768: result = digest_ta(rdata, digest, arg); break; \
 	case 32769: result = digest_dlv(rdata, digest, arg); break; \
 	case 65533: result = digest_keydata(rdata, digest, arg); break; \
@@ -1955,6 +2015,9 @@
 		default: result = true; break; \
 		} \
 		break; \
+	case 66: result = checkowner_dsync(name, rdclass, type, wildcard); break; \
+	case 67: result = checkowner_hhit(name, rdclass, type, wildcard); break; \
+	case 68: result = checkowner_brid(name, rdclass, type, wildcard); break; \
 	case 99: result = checkowner_spf(name, rdclass, type, wildcard); break; \
 	case 104: result = checkowner_nid(name, rdclass, type, wildcard); break; \
 	case 105: result = checkowner_l32(name, rdclass, type, wildcard); break; \
@@ -1973,6 +2036,8 @@
 	case 258: result = checkowner_avc(name, rdclass, type, wildcard); break; \
 	case 259: result = checkowner_doa(name, rdclass, type, wildcard); break; \
 	case 260: result = checkowner_amtrelay(name, rdclass, type, wildcard); break; \
+	case 261: result = checkowner_resinfo(name, rdclass, type, wildcard); break; \
+	case 262: result = checkowner_wallet(name, rdclass, type, wildcard); break; \
 	case 32768: result = checkowner_ta(name, rdclass, type, wildcard); break; \
 	case 32769: result = checkowner_dlv(name, rdclass, type, wildcard); break; \
 	case 65533: result = checkowner_keydata(name, rdclass, type, wildcard); break; \
@@ -2111,6 +2176,9 @@
 		default: result = true; break; \
 		} \
 		break; \
+	case 66: result = checknames_dsync(rdata, owner, bad); break; \
+	case 67: result = checknames_hhit(rdata, owner, bad); break; \
+	case 68: result = checknames_brid(rdata, owner, bad); break; \
 	case 99: result = checknames_spf(rdata, owner, bad); break; \
 	case 104: result = checknames_nid(rdata, owner, bad); break; \
 	case 105: result = checknames_l32(rdata, owner, bad); break; \
@@ -2129,6 +2197,8 @@
 	case 258: result = checknames_avc(rdata, owner, bad); break; \
 	case 259: result = checknames_doa(rdata, owner, bad); break; \
 	case 260: result = checknames_amtrelay(rdata, owner, bad); break; \
+	case 261: result = checknames_resinfo(rdata, owner, bad); break; \
+	case 262: result = checknames_wallet(rdata, owner, bad); break; \
 	case 32768: result = checknames_ta(rdata, owner, bad); break; \
 	case 32769: result = checknames_dlv(rdata, owner, bad); break; \
 	case 65533: result = checknames_keydata(rdata, owner, bad); break; \
@@ -2203,6 +2273,7 @@
 			break; \
 		case 119: \
 			RDATATYPE_COMPARE("x25", 19, _typename,  _length, _typep); \
+			RDATATYPE_COMPARE("resinfo", 261, _typename,  _length, _typep); \
 			break; \
 		case 214: \
 			RDATATYPE_COMPARE("isdn", 20, _typename,  _length, _typep); \
@@ -2329,6 +2400,15 @@
 		case 247: \
 			RDATATYPE_COMPARE("https", 65, _typename,  _length, _typep); \
 			break; \
+		case 155: \
+			RDATATYPE_COMPARE("dsync", 66, _typename,  _length, _typep); \
+			break; \
+		case 240: \
+			RDATATYPE_COMPARE("hhit", 67, _typename,  _length, _typep); \
+			break; \
+		case 216: \
+			RDATATYPE_COMPARE("brid", 68, _typename,  _length, _typep); \
+			break; \
 		case 230: \
 			RDATATYPE_COMPARE("uinfo", 100, _typename,  _length, _typep); \
 			break; \
@@ -2364,6 +2444,7 @@
 			break; \
 		case 164: \
 			RDATATYPE_COMPARE("mailb", 253, _typename,  _length, _typep); \
+			RDATATYPE_COMPARE("wallet", 262, _typename,  _length, _typep); \
 			break; \
 		case 50: \
 			RDATATYPE_COMPARE("maila", 254, _typename,  _length, _typep); \
@@ -2448,6 +2529,9 @@
 	case 63: return (RRTYPE_ZONEMD_ATTRIBUTES); \
 	case 64: return (RRTYPE_SVCB_ATTRIBUTES); \
 	case 65: return (RRTYPE_HTTPS_ATTRIBUTES); \
+	case 66: return (RRTYPE_DSYNC_ATTRIBUTES); \
+	case 67: return (RRTYPE_HHIT_ATTRIBUTES); \
+	case 68: return (RRTYPE_BRID_ATTRIBUTES); \
 	case 99: return (RRTYPE_SPF_ATTRIBUTES); \
 	case 100: return (0); \
 	case 101: return (0); \
@@ -2471,6 +2555,8 @@
 	case 258: return (RRTYPE_AVC_ATTRIBUTES); \
 	case 259: return (RRTYPE_DOA_ATTRIBUTES); \
 	case 260: return (RRTYPE_AMTRELAY_ATTRIBUTES); \
+	case 261: return (RRTYPE_RESINFO_ATTRIBUTES); \
+	case 262: return (RRTYPE_WALLET_ATTRIBUTES); \
 	case 32768: return (RRTYPE_TA_ATTRIBUTES); \
 	case 32769: return (RRTYPE_DLV_ATTRIBUTES); \
 	case 65533: return (RRTYPE_KEYDATA_ATTRIBUTES); \
@@ -2541,6 +2627,9 @@
 	case 63: return (str_totext("ZONEMD", target)); \
 	case 64: return (str_totext("SVCB", target)); \
 	case 65: return (str_totext("HTTPS", target)); \
+	case 66: return (str_totext("DSYNC", target)); \
+	case 67: return (str_totext("HHIT", target)); \
+	case 68: return (str_totext("BRID", target)); \
 	case 99: return (str_totext("SPF", target)); \
 	case 100: return (str_totext("UINFO", target)); \
 	case 101: return (str_totext("UID", target)); \
@@ -2564,6 +2653,8 @@
 	case 258: return (str_totext("AVC", target)); \
 	case 259: return (str_totext("DOA", target)); \
 	case 260: return (str_totext("AMTRELAY", target)); \
+	case 261: return (str_totext("RESINFO", target)); \
+	case 262: return (str_totext("WALLET", target)); \
 	case 32768: return (str_totext("TA", target)); \
 	case 32769: return (str_totext("DLV", target)); \
 	}

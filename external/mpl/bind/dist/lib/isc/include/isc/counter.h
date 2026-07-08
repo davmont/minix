@@ -1,4 +1,4 @@
-/*	$NetBSD: counter.h,v 1.5.2.1 2024/02/25 15:47:20 martin Exp $	*/
+/*	$NetBSD: counter.h,v 1.8 2025/05/21 14:48:05 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -68,6 +68,12 @@ void
 isc_counter_setlimit(isc_counter_t *counter, int limit);
 /*%<
  * Set the counter limit.
+ */
+
+unsigned int
+isc_counter_getlimit(isc_counter_t *counter);
+/*%<
+ * Get the counter limit.
  */
 
 void

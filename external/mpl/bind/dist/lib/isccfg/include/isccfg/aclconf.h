@@ -1,4 +1,4 @@
-/*	$NetBSD: aclconf.h,v 1.7.2.1 2024/02/25 15:47:33 martin Exp $	*/
+/*	$NetBSD: aclconf.h,v 1.10 2026/06/19 20:10:02 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -62,26 +62,15 @@ isc_result_t
 cfg_acl_fromconfig(const cfg_obj_t *caml, const cfg_obj_t *cctx,
 		   isc_log_t *lctx, cfg_aclconfctx_t *ctx, isc_mem_t *mctx,
 		   unsigned int nest_level, dns_acl_t **target);
-
-isc_result_t
-cfg_acl_fromconfig2(const cfg_obj_t *caml, const cfg_obj_t *cctx,
-		    isc_log_t *lctx, cfg_aclconfctx_t *ctx, isc_mem_t *mctx,
-		    unsigned int nest_level, uint16_t family,
-		    dns_acl_t **target);
 /*
  * Construct a new dns_acl_t from configuration data in 'caml' and
  * 'cctx'.  Memory is allocated through 'mctx'.
  *
- * Any named ACLs referred to within 'caml' will be be converted
+ * Any named ACLs referred to within 'caml' will be converted
  * into nested dns_acl_t objects.  Multiple references to the same
  * named ACLs will be converted into shared references to a single
  * nested dns_acl_t object when the referring objects were created
  * passing the same ACL configuration context 'ctx'.
- *
- * cfg_acl_fromconfig() is a backward-compatible version of
- * cfg_acl_fromconfig2(), which allows an address family to be
- * specified.  If 'family' is not zero, then only addresses/prefixes
- * of a matching family (AF_INET or AF_INET6) may be configured.
  *
  * On success, attach '*target' to the new dns_acl_t object.
  *

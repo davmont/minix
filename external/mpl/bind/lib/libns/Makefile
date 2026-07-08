@@ -1,6 +1,5 @@
-#	$NetBSD: Makefile,v 1.5.6.1 2024/02/25 15:47:58 martin Exp $
+#	$NetBSD: Makefile,v 1.8 2025/01/26 16:25:53 christos Exp $
 
-NOLINT=yes	# XXX
 LIB=ns
 #USE_SHLIBDIR=   yes
 
@@ -12,7 +11,7 @@ DIST=	${IDIST}/lib/ns
 
 .PATH.c:	${DIST}
 CPPFLAGS+=	-I${BIND_SRCDIR}/include/ns -I${DIST}
-CPPFLAGS+=	-DNAMED_PLUGINDIR=\"/usr/libexec/named\"
+CPPFLAGS+=	-DNAMED_PLUGINDIR=\"/usr/lib/named\"
 
 CWARNFLAGS.clang+=	-Wno-tautological-constant-out-of-range-compare
 

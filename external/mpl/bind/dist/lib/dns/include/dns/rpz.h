@@ -1,4 +1,4 @@
-/*	$NetBSD: rpz.h,v 1.9.2.1 2024/02/25 15:46:58 martin Exp $	*/
+/*	$NetBSD: rpz.h,v 1.13 2026/01/29 18:37:51 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -20,8 +20,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#include <isc/deprecated.h>
-#include <isc/event.h>
+#include <isc/atomic.h>
 #include <isc/ht.h>
 #include <isc/lang.h>
 #include <isc/refcount.h>
@@ -30,6 +29,7 @@
 #include <isc/timer.h>
 
 #include <dns/fixedname.h>
+#include <dns/qp.h>
 #include <dns/rdata.h>
 #include <dns/types.h>
 
@@ -91,7 +91,7 @@ typedef uint8_t dns_rpz_num_t;
  */
 typedef uint64_t dns_rpz_zbits_t;
 
-#define DNS_RPZ_ALL_ZBITS ((dns_rpz_zbits_t)-1)
+#define DNS_RPZ_ALL_ZBITS ((dns_rpz_zbits_t) - 1)
 
 #define DNS_RPZ_INVALID_NUM DNS_RPZ_MAX_ZONES
 
@@ -135,6 +135,7 @@ typedef struct dns_rpz_zones dns_rpz_zones_t;
 
 struct dns_rpz_zone {
 	unsigned int magic;
+	isc_loop_t  *loop;
 
 	dns_rpz_num_t	 num;	    /* ordinal in list of policy zones */
 	dns_name_t	 origin;    /* Policy zone name */
@@ -148,21 +149,26 @@ struct dns_rpz_zone {
 	dns_name_t	 cname;	    /* override value for ..._CNAME */
 	dns_ttl_t	 max_policy_ttl;
 	dns_rpz_policy_t policy; /* DNS_RPZ_POLICY_GIVEN or override */
+	uint16_t	 ede;	 /* Extended DNS Error */
 
-	uint32_t  min_update_interval;	/* minimal interval between updates */
-	isc_ht_t *nodes;		/* entries in zone */
+	uint32_t min_update_interval;	/* minimal interval between
+					 * updates */
+	isc_ht_t	*nodes;		/* entries in zone */
 	dns_rpz_zones_t *rpzs;		/* owner */
-	isc_time_t	 lastupdated;	/* last time the zone was processed */
+	isc_time_t	 lastupdated;	/* last time the zone was processed
+					 * */
+	bool		 processed;	/* the zone is processed. */
+	bool		 dbregistered;	/* db callback notify is registered. */
 	bool		 updatepending; /* there is an update pending */
 	bool		 updaterunning; /* there is an update running */
 	isc_result_t	 updateresult;	/* result from the offloaded work */
 	dns_db_t	*db;		/* zones database */
 	dns_dbversion_t *dbversion;	/* version we will be updating to */
 	dns_db_t	*updb;		/* zones database we're working on */
-	dns_dbversion_t *updbversion;	/* version we're working on */
-	bool		 addsoa;	/* add soa to the additional section */
-	isc_timer_t	*updatetimer;
-	isc_event_t	 updateevent;
+	dns_dbversion_t *updbversion;	/* version we're currently working
+					 * on */
+	bool	     addsoa;		/* add soa to the additional section */
+	isc_timer_t *updatetimer;
 };
 
 /*
@@ -204,6 +210,8 @@ struct dns_rpz_popt {
 	bool		qname_wait_recurse;
 	bool		nsip_wait_recurse;
 	bool		nsdname_wait_recurse;
+	bool		servfail_until_ready;
+	bool		slow_mode; /* Used for system tests with '-T rpzslow' */
 	unsigned int	min_ns_labels;
 	dns_rpz_num_t	num_zones;
 };
@@ -212,16 +220,17 @@ struct dns_rpz_popt {
  * Response policy zones known to a view.
  */
 struct dns_rpz_zones {
-	unsigned int	magic;
-	isc_refcount_t	references;
-	isc_mem_t      *mctx;
-	isc_taskmgr_t  *taskmgr;
-	isc_timermgr_t *timermgr;
-	isc_task_t     *updater;
+	unsigned int   magic;
+	isc_refcount_t references;
+	isc_mem_t     *mctx;
+	isc_loopmgr_t *loopmgr;
 
 	dns_rpz_popt_t	   p;
 	dns_rpz_zone_t	  *zones[DNS_RPZ_MAX_ZONES];
 	dns_rpz_triggers_t triggers[DNS_RPZ_MAX_ZONES];
+
+	_Atomic(dns_rpz_num_t) zones_registered;
+	_Atomic(dns_rpz_num_t) zones_processed;
 
 	/*
 	 * RPZ policy version number.
@@ -265,10 +274,11 @@ struct dns_rpz_zones {
 	isc_rwlock_t search_lock;
 	isc_mutex_t  maint_lock;
 
+	bool first_time;
 	bool shuttingdown;
 
 	dns_rpz_cidr_node_t *cidr;
-	dns_rbt_t	    *rbt;
+	dns_qpmulti_t	    *table;
 
 	/*
 	 * DNSRPZ librpz configuration string and handle on librpz connection
@@ -385,46 +395,43 @@ dns_rpz_str2policy(const char *str);
 const char *
 dns_rpz_policy2str(dns_rpz_policy_t policy);
 
+uint16_t
+dns_rpz_str2ede(const char *str);
+
 dns_rpz_policy_t
 dns_rpz_decode_cname(dns_rpz_zone_t *rpz, dns_rdataset_t *rdataset,
 		     dns_name_t *selfname);
 
 isc_result_t
-dns_rpz_new_zones(isc_mem_t *mctx, isc_taskmgr_t *taskmgr,
-		  isc_timermgr_t *timermgr, char *rps_cstr,
-		  size_t rps_cstr_size, dns_rpz_zones_t **rpzsp);
+dns_rpz_new_zones(dns_view_t *view, isc_loopmgr_t *loopmgr, char *rps_cstr,
+		  size_t rps_cstr_size, dns_rpz_zones_t **rpzsp,
+		  bool first_time);
 
 isc_result_t
 dns_rpz_new_zone(dns_rpz_zones_t *rpzs, dns_rpz_zone_t **rpzp);
 
 isc_result_t
 dns_rpz_dbupdate_callback(dns_db_t *db, void *fn_arg);
+void
+dns_rpz_dbupdate_unregister(dns_db_t *db, dns_rpz_zone_t *rpz);
+void
+dns_rpz_dbupdate_register(dns_db_t *db, dns_rpz_zone_t *rpz);
 
 void
 dns_rpz_zones_shutdown(dns_rpz_zones_t *rpzs);
 
 #ifdef DNS_RPZ_TRACE
-/* Compatibility macros */
-#define dns_rpz_detach_rpzs(rpzsp) \
+#define dns_rpz_zones_detach(rpzsp) \
 	dns_rpz_zones__detach(rpzsp, __func__, __FILE__, __LINE__)
-#define dns_rpz_attach_rpzs(rpzs, rpzsp) \
+#define dns_rpz_zones_attach(rpzs, rpzsp) \
 	dns_rpz_zones__attach(rpzs, rpzsp, __func__, __FILE__, __LINE__)
-#define dns_rpz_ref_rpzs(ptr) \
+#define dns_rpz_zones_ref(ptr) \
 	dns_rpz_zones__ref(ptr, __func__, __FILE__, __LINE__)
-#define dns_rpz_unref_rpzs(ptr) \
+#define dns_rpz_zones_unref(ptr) \
 	dns_rpz_zones__unref(ptr, __func__, __FILE__, __LINE__)
-#define dns_rpz_shutdown_rpzs(rpzs) \
-	dns_rpz_zones_shutdown(rpzs, __func__, __FILE__, __LINE__)
 
 ISC_REFCOUNT_TRACE_DECL(dns_rpz_zones);
 #else
-/* Compatibility macros */
-#define dns_rpz_detach_rpzs(rpzsp)	 dns_rpz_zones_detach(rpzsp)
-#define dns_rpz_attach_rpzs(rpzs, rpzsp) dns_rpz_zones_attach(rpzs, rpzsp)
-#define dns_rpz_shutdown_rpzs(rpzsp)	 dns_rpz_zones_shutdown(rpzsp)
-#define dns_rpz_ref_rpzs(ptr)		 dns_rpz_zones_ref(ptr)
-#define dns_rpz_unref_rpzs(ptr)		 dns_rpz_zones_unref(ptr)
-
 ISC_REFCOUNT_DECL(dns_rpz_zones);
 #endif
 

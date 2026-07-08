@@ -1,4 +1,4 @@
-/*	$NetBSD: duration.h,v 1.2.2.2 2024/02/25 15:47:33 martin Exp $	*/
+/*	$NetBSD: duration.h,v 1.3 2025/01/26 16:25:45 christos Exp $	*/
 
 
 /*

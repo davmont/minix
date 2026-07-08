@@ -1,4 +1,4 @@
-/*	$NetBSD: edns.h,v 1.5.2.1 2024/02/25 15:46:56 martin Exp $	*/
+/*	$NetBSD: edns.h,v 1.7 2025/01/26 16:25:27 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

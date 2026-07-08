@@ -1,4 +1,4 @@
-/*	$NetBSD: stdio.h,v 1.5.2.1 2024/02/25 15:47:23 martin Exp $	*/
+/*	$NetBSD: stdio.h,v 1.8 2026/06/19 20:10:02 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -20,7 +20,7 @@
 /*%
  * These functions are wrappers around the corresponding stdio functions.
  *
- * They return a detailed error code in the form of an an isc_result_t.  ANSI C
+ * They return a detailed error code in the form of an isc_result_t.  ANSI C
  * does not guarantee that stdio functions set errno, hence these functions
  * must use platform dependent methods (e.g., the POSIX errno) to construct the
  * error code.

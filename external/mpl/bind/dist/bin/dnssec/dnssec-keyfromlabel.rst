@@ -21,7 +21,7 @@ dnssec-keyfromlabel - DNSSEC key generation tool
 Synopsis
 ~~~~~~~~
 
-:program:`dnssec-keyfromlabel` {**-l** label} [**-3**] [**-a** algorithm] [**-A** date/offset] [**-c** class] [**-D** date/offset] [**-D** sync date/offset] [**-E** engine] [**-f** flag] [**-G**] [**-I** date/offset] [**-i** interval] [**-k**] [**-K** directory] [**-L** ttl] [**-n** nametype] [**-P** date/offset] [**-P** sync date/offset] [**-p** protocol] [**-R** date/offset] [**-S** key] [**-t** type] [**-v** level] [**-V**] [**-y**] {name}
+:program:`dnssec-keyfromlabel` {**-l** label} [**-3**] [**-a** algorithm] [**-A** date/offset] [**-c** class] [**-D** date/offset] [**-D** sync date/offset] [**-E** engine] [**-f** flag] [**-G**] [**-I** date/offset] [**-i** interval] [**-k**] [**-K** directory] [**-L** ttl] [**-M** tag_min:tag_max] [**-n** nametype] [**-P** date/offset] [**-P** sync date/offset] [**-p** protocol] [**-R** date/offset] [**-S** key] [**-t** type] [**-v** level] [**-V**] [**-y**] {name}
 
 Description
 ~~~~~~~~~~~
@@ -41,27 +41,31 @@ Options
 
 .. option:: -a algorithm
 
-   This option selects the cryptographic algorithm. The value of ``algorithm`` must
-   be one of RSASHA1, NSEC3RSASHA1, RSASHA256, RSASHA512,
-   ECDSAP256SHA256, ECDSAP384SHA384, ED25519, or ED448.
+   This option selects the cryptographic algorithm. The value of
+   ``algorithm`` must be one of RSASHA1 (deprecated), NSEC3RSASHA1
+   (deprecated), RSASHA256, RSASHA512, ECDSAP256SHA256, ECDSAP384SHA384,
+   ED25519, or ED448.
 
-   These values are case-insensitive. In some cases, abbreviations are
-   supported, such as ECDSA256 for ECDSAP256SHA256 and ECDSA384 for
-   ECDSAP384SHA384. If RSASHA1 is specified along with the :option:`-3`
-   option, then NSEC3RSASHA1 is used instead.
+   These values are case-insensitive. In some cases, abbreviations
+   are supported, such as ECDSA256 for ECDSAP256SHA256 and ECDSA384
+   for ECDSAP384SHA384. If RSASHA1 (deprecated) is specified along
+   with the :option:`-3` option, then NSEC3RSASHA1 (deprecated) is
+   used instead.
 
-   This option is mandatory except when using the
-   :option:`-S` option, which copies the algorithm from the predecessory key.
+   This option is mandatory except when using the :option:`-S`
+   option, which copies the algorithm from the predecessory key.
 
    .. versionchanged:: 9.12.0
-      The default value RSASHA1 for newly generated keys was removed.
+      The default value RSASHA1 (deprecated) for newly generated
+      keys was removed.
 
 .. option:: -3
 
-   This option uses an NSEC3-capable algorithm to generate a DNSSEC key. If this
-   option is used with an algorithm that has both NSEC and NSEC3
-   versions, then the NSEC3 version is used; for example,
-   ``dnssec-keygen -3a RSASHA1`` specifies the NSEC3RSASHA1 algorithm.
+   This option uses an NSEC3-capable algorithm to generate a DNSSEC
+   key. If this option is used with an algorithm that has both NSEC
+   and NSEC3 versions, then the NSEC3 version is used; for example,
+   ``dnssec-keygen -3a RSASHA1`` specifies the NSEC3RSASHA1
+   (deprecated) algorithm.
 
 .. option:: -E engine
 
@@ -132,6 +136,18 @@ Options
    unless there was already a DNSKEY RRset in
    place, in which case the existing TTL would take precedence. Setting
    the default TTL to ``0`` or ``none`` removes it.
+
+.. option:: -M tag_min:tag_max
+
+   This option sets the range of key tag values
+   that ``dnssec-keyfromlabel`` will accept. If the key tag of the new
+   key or the key tag of the revoked version of the new key is
+   outside this range, the new key will be rejected.  This is
+   designed to be used when generating keys in a multi-signer
+   scenario, where each operator is given a range of key tags to
+   prevent collisions among different operators.  The valid
+   values for ``tag_min`` and ``tag_max`` are [0..65535].  The
+   default allows all key tag values to be accepted.
 
 .. option:: -p protocol
 

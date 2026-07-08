@@ -3123,8 +3123,6 @@
 ./usr/lib/libavl.a				comp-zfs-lib		compatfile,zfs
 ./usr/lib/libavl_p.a				comp-zfs-proflib	compatfile,profile,zfs
 ./usr/lib/libbfd.a				comp-obsolete		obsolete
-./usr/lib/libbind9.a				comp-bind-lib		compatfile
-./usr/lib/libbind9_p.a				comp-bind-proflib	compatfile,profile
 ./usr/lib/libblacklist.a			comp-c-lib		compatfile
 ./usr/lib/libblacklist_p.a			comp-c-proflib		compatfile,profile
 ./usr/lib/libbluetooth.a			comp-c-lib		compatfile
@@ -3222,8 +3220,6 @@
 ./usr/lib/libintl_p.a				comp-c-proflib		compatfile,profile
 ./usr/lib/libipsec.a				comp-c-lib		compatfile
 ./usr/lib/libipsec_p.a				comp-c-proflib		compatfile,profile
-./usr/lib/libirs.a				comp-bind-lib		compatfile
-./usr/lib/libirs_p.a				comp-bind-lib		compatfile,profile
 ./usr/lib/libisc.a				comp-bind-lib		compatfile
 ./usr/lib/libisc_p.a				comp-bind-lib		compatfile,profile
 ./usr/lib/libisccc.a				comp-bind-lib		compatfile

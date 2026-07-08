@@ -1,4 +1,4 @@
-/*	$NetBSD: keygen.c,v 1.6.2.1 2024/02/25 15:43:00 martin Exp $	*/
+/*	$NetBSD: keygen.c,v 1.9 2026/05/20 16:53:43 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -22,8 +22,8 @@
 #include <isc/base64.h>
 #include <isc/buffer.h>
 #include <isc/file.h>
+#include <isc/md.h>
 #include <isc/mem.h>
-#include <isc/print.h>
 #include <isc/result.h>
 #include <isc/string.h>
 
@@ -47,24 +47,24 @@ alg_fromtext(const char *name) {
 	}
 
 	if (strcasecmp(p, "md5") == 0) {
-		return (DST_ALG_HMACMD5);
+		return DST_ALG_HMACMD5;
 	}
 	if (strcasecmp(p, "sha1") == 0) {
-		return (DST_ALG_HMACSHA1);
+		return DST_ALG_HMACSHA1;
 	}
 	if (strcasecmp(p, "sha224") == 0) {
-		return (DST_ALG_HMACSHA224);
+		return DST_ALG_HMACSHA224;
 	}
 	if (strcasecmp(p, "sha256") == 0) {
-		return (DST_ALG_HMACSHA256);
+		return DST_ALG_HMACSHA256;
 	}
 	if (strcasecmp(p, "sha384") == 0) {
-		return (DST_ALG_HMACSHA384);
+		return DST_ALG_HMACSHA384;
 	}
 	if (strcasecmp(p, "sha512") == 0) {
-		return (DST_ALG_HMACSHA512);
+		return DST_ALG_HMACSHA512;
 	}
-	return (DST_ALG_UNKNOWN);
+	return DST_ALG_UNKNOWN;
 }
 
 /*%
@@ -74,19 +74,19 @@ int
 alg_bits(dns_secalg_t alg) {
 	switch (alg) {
 	case DST_ALG_HMACMD5:
-		return (128);
+		return 128;
 	case DST_ALG_HMACSHA1:
-		return (160);
+		return 160;
 	case DST_ALG_HMACSHA224:
-		return (224);
+		return 224;
 	case DST_ALG_HMACSHA256:
-		return (256);
+		return 256;
 	case DST_ALG_HMACSHA384:
-		return (384);
+		return 384;
 	case DST_ALG_HMACSHA512:
-		return (512);
+		return 512;
 	default:
-		return (0);
+		return 0;
 	}
 }
 
@@ -99,7 +99,7 @@ generate_key(isc_mem_t *mctx, dns_secalg_t alg, int keysize,
 	isc_result_t result = ISC_R_SUCCESS;
 	isc_buffer_t key_rawbuffer;
 	isc_region_t key_rawregion;
-	char key_rawsecret[64];
+	char key_rawsecret[ISC_MAX_BLOCK_SIZE];
 	dst_key_t *key = NULL;
 
 	switch (alg) {
@@ -127,7 +127,7 @@ generate_key(isc_mem_t *mctx, dns_secalg_t alg, int keysize,
 
 	DO("generate key",
 	   dst_key_generate(dns_rootname, alg, keysize, 0, 0, DNS_KEYPROTO_ANY,
-			    dns_rdataclass_in, mctx, &key, NULL));
+			    dns_rdataclass_in, NULL, mctx, &key, NULL));
 
 	isc_buffer_init(&key_rawbuffer, &key_rawsecret, sizeof(key_rawsecret));
 

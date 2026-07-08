@@ -1,4 +1,4 @@
-/*	$NetBSD: atma_34.h,v 1.5.2.1 2024/02/25 15:47:06 martin Exp $	*/
+/*	$NetBSD: atma_34.h,v 1.7 2025/01/26 16:25:34 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

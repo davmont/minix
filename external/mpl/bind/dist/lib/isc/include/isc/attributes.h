@@ -1,4 +1,4 @@
-/*	$NetBSD: attributes.h,v 1.2.2.2 2024/02/25 15:47:19 martin Exp $	*/
+/*	$NetBSD: attributes.h,v 1.5 2026/01/29 18:37:55 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -14,6 +14,14 @@
  */
 
 #pragma once
+
+/***
+ *** Clang Compatibility Macros
+ ***/
+
+#if (!defined(__has_c_attribute) || defined(__lint__)) && !defined(__clang__)
+#define __has_c_attribute(x) 0
+#endif /* if !defined(__has_c_attribute) */
 
 #ifdef HAVE_STDNORETURN_H
 #include <stdnoreturn.h>
@@ -82,3 +90,31 @@
 #define ISC_ATTR_MALLOC_DEALLOCATOR(deallocator)
 #define ISC_ATTR_MALLOC_DEALLOCATOR_IDX(deallocator, idx)
 #endif /* HAVE_FUNC_ATTRIBUTE_MALLOC */
+
+#if __has_c_attribute(fallthrough)
+#define FALLTHROUGH [[fallthrough]]
+#elif __GNUC__ >= 7 && !defined(__clang__)
+#define FALLTHROUGH __attribute__((fallthrough))
+#else
+/* clang-format off */
+#define FALLTHROUGH do {} while (0) /* FALLTHROUGH */
+/* clang-format on */
+#endif
+
+#if __has_c_attribute(maybe_unused)
+#define ISC_ATTR_UNUSED [[maybe_unused]]
+#else
+#define ISC_ATTR_UNUSED __attribute__((__unused__))
+#endif
+
+#if __STDC_VERSION__ >= 202311L
+#define ISC_CONSTEXPR constexpr
+#else
+#define ISC_CONSTEXPR static const
+#endif
+
+#if __has_attribute(__nonnull__)
+#define ISC_ATTR_NONNULL(...) __attribute__((__nonnull__(__VA_ARGS__)))
+#else
+#define ISC_ATTR_NONNULL(...)
+#endif

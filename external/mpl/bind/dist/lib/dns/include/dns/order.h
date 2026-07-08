@@ -1,4 +1,4 @@
-/*	$NetBSD: order.h,v 1.5.2.1 2024/02/25 15:46:57 martin Exp $	*/
+/*	$NetBSD: order.h,v 1.7 2025/01/26 16:25:28 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

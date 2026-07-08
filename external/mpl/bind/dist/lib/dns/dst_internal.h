@@ -1,4 +1,4 @@
-/*	$NetBSD: dst_internal.h,v 1.8.2.1 2024/02/25 15:46:49 martin Exp $	*/
+/*	$NetBSD: dst_internal.h,v 1.11 2026/01/29 18:37:48 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -34,7 +34,6 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#include <openssl/dh.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>
@@ -94,31 +93,33 @@ struct dst_key {
 	dns_rdataclass_t key_class; /*%< class of the key record */
 	dns_ttl_t key_ttl;	    /*%< default/initial dnskey ttl */
 	isc_mem_t *mctx;	    /*%< memory context */
+	char *directory;	    /*%< key directory */
 	char *engine;		    /*%< engine name (HSM) */
 	char *label;		    /*%< engine label (HSM) */
 	union {
 		void *generic;
 		dns_gss_ctx_id_t gssctx;
-		DH *dh;
-		EVP_PKEY *pkey;
 		dst_hmac_key_t *hmac_key;
+		struct {
+			EVP_PKEY *pub;
+			EVP_PKEY *priv;
+		} pkeypair;
 	} keydata; /*%< pointer to key in crypto pkg fmt */
 
-	isc_stdtime_t times[DST_MAX_TIMES + 1]; /*%< timing metadata */
-	bool timeset[DST_MAX_TIMES + 1];	/*%< data set? */
+	isc_stdtime_t times[DST_MAX_TIMES]; /*%< timing metadata */
+	bool timeset[DST_MAX_TIMES];	    /*%< data set? */
 
-	uint32_t nums[DST_MAX_NUMERIC + 1]; /*%< numeric metadata
-					     * */
-	bool numset[DST_MAX_NUMERIC + 1];   /*%< data set? */
+	uint32_t nums[DST_MAX_NUMERIC]; /*%< numeric metadata
+					 * */
+	bool numset[DST_MAX_NUMERIC];	/*%< data set? */
 
-	bool bools[DST_MAX_BOOLEAN + 1];   /*%< boolean metadata
-					    * */
-	bool boolset[DST_MAX_BOOLEAN + 1]; /*%< data set? */
+	bool bools[DST_MAX_BOOLEAN];   /*%< boolean metadata
+					* */
+	bool boolset[DST_MAX_BOOLEAN]; /*%< data set? */
 
-	dst_key_state_t keystates[DST_MAX_KEYSTATES + 1]; /*%< key states
-							   * */
-	bool keystateset[DST_MAX_KEYSTATES + 1];	  /*%< data
-							   * set? */
+	dst_key_state_t keystates[DST_MAX_KEYSTATES]; /*%< key states
+						       * */
+	bool keystateset[DST_MAX_KEYSTATES];	      /*%< data set? */
 
 	bool kasp;     /*%< key has kasp state */
 	bool inactive; /*%< private key not present as it is
@@ -211,14 +212,12 @@ dst__hmacsha384_init(struct dst_func **funcp);
 isc_result_t
 dst__hmacsha512_init(struct dst_func **funcp);
 isc_result_t
-dst__openssldh_init(struct dst_func **funcp);
-isc_result_t
 dst__opensslrsa_init(struct dst_func **funcp, unsigned char algorithm);
 isc_result_t
 dst__opensslecdsa_init(struct dst_func **funcp);
 #if HAVE_OPENSSL_ED25519 || HAVE_OPENSSL_ED448
 isc_result_t
-dst__openssleddsa_init(struct dst_func **funcp);
+dst__openssleddsa_init(struct dst_func **funcp, unsigned char algorithm);
 #endif /* HAVE_OPENSSL_ED25519 || HAVE_OPENSSL_ED448 */
 #if HAVE_GSSAPI
 isc_result_t

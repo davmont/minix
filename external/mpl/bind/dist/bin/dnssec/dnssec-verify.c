@@ -1,4 +1,4 @@
-/*	$NetBSD: dnssec-verify.c,v 1.6.2.1 2024/02/25 15:43:04 martin Exp $	*/
+/*	$NetBSD: dnssec-verify.c,v 1.11 2026/05/20 16:53:43 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -19,18 +19,15 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include <isc/app.h>
 #include <isc/attributes.h>
 #include <isc/base32.h>
 #include <isc/commandline.h>
-#include <isc/event.h>
 #include <isc/file.h>
 #include <isc/hash.h>
 #include <isc/hex.h>
 #include <isc/mem.h>
 #include <isc/mutex.h>
 #include <isc/os.h>
-#include <isc/print.h>
 #include <isc/random.h>
 #include <isc/result.h>
 #include <isc/rwlock.h>
@@ -38,6 +35,7 @@
 #include <isc/stdio.h>
 #include <isc/string.h>
 #include <isc/time.h>
+#include <isc/urcu.h>
 #include <isc/util.h>
 
 #include <dns/db.h>
@@ -72,10 +70,10 @@ const char *program = "dnssec-verify";
 static isc_stdtime_t now;
 static isc_mem_t *mctx = NULL;
 static dns_masterformat_t inputformat = dns_masterformat_text;
-static dns_db_t *gdb;		  /* The database */
-static dns_dbversion_t *gversion; /* The database version */
-static dns_rdataclass_t gclass;	  /* The class */
-static dns_name_t *gorigin;	  /* The database origin */
+static dns_db_t *gdb = NULL;		 /* The database */
+static dns_dbversion_t *gversion = NULL; /* The database version */
+static dns_rdataclass_t gclass;		 /* The class */
+static dns_name_t *gorigin = NULL;	 /* The database origin */
 static bool ignore_kskflag = false;
 static bool keyset_kskonly = false;
 
@@ -96,7 +94,8 @@ report(const char *format, ...) {
  * Load the zone file from disk
  */
 static void
-loadzone(char *file, char *origin, dns_rdataclass_t rdclass, dns_db_t **db) {
+loadzone(char *file, const char *origin, bool origin_is_file,
+	 dns_rdataclass_t rdclass, dns_db_t **db) {
 	isc_buffer_t b;
 	int len;
 	dns_fixedname_t fname;
@@ -104,7 +103,7 @@ loadzone(char *file, char *origin, dns_rdataclass_t rdclass, dns_db_t **db) {
 	isc_result_t result;
 
 	len = strlen(origin);
-	isc_buffer_init(&b, origin, len);
+	isc_buffer_constinit(&b, origin, len);
 	isc_buffer_add(&b, len);
 
 	name = dns_fixedname_initname(&fname);
@@ -114,8 +113,8 @@ loadzone(char *file, char *origin, dns_rdataclass_t rdclass, dns_db_t **db) {
 		      isc_result_totext(result));
 	}
 
-	result = dns_db_create(mctx, "rbt", name, dns_dbtype_zone, rdclass, 0,
-			       NULL, db);
+	result = dns_db_create(mctx, ZONEDB_DEFAULT, name, dns_dbtype_zone,
+			       rdclass, 0, NULL, db);
 	check_result(result, "dns_db_create()");
 
 	result = dns_db_load(*db, file, inputformat, 0);
@@ -124,12 +123,7 @@ loadzone(char *file, char *origin, dns_rdataclass_t rdclass, dns_db_t **db) {
 	case ISC_R_SUCCESS:
 		break;
 	case DNS_R_NOTZONETOP:
-		/*
-		 * Comparing pointers (vs. using strcmp()) is intentional: we
-		 * want to check whether -o was supplied on the command line,
-		 * not whether origin and file contain the same string.
-		 */
-		if (origin == file) {
+		if (origin_is_file) {
 			fatal("failed loading zone '%s' from file '%s': "
 			      "use -o to specify a different zone origin",
 			      origin, file);
@@ -142,10 +136,10 @@ loadzone(char *file, char *origin, dns_rdataclass_t rdclass, dns_db_t **db) {
 }
 
 noreturn static void
-usage(void);
+usage(int ret);
 
 static void
-usage(void) {
+usage(int ret) {
 	fprintf(stderr, "Usage:\n");
 	fprintf(stderr, "\t%s [options] zonefile [keys]\n", program);
 
@@ -167,12 +161,13 @@ usage(void) {
 	fprintf(stderr, "\t-x:\tDNSKEY record signed with KSKs only, "
 			"not ZSKs\n");
 	fprintf(stderr, "\t-z:\tAll records signed with KSKs\n");
-	exit(0);
+	exit(ret);
 }
 
 int
 main(int argc, char *argv[]) {
-	char *origin = NULL, *file = NULL;
+	const char *origin = NULL;
+	char *file = NULL;
 	char *inputformatstr = NULL;
 	isc_result_t result;
 	isc_log_t *log = NULL;
@@ -181,8 +176,9 @@ main(int argc, char *argv[]) {
 	dns_rdataclass_t rdclass;
 	char *endp;
 	int ch;
+	bool origin_is_file = false;
 
-#define CMDLINE_FLAGS "c:E:hm:o:I:qv:Vxz"
+#define CMDLINE_FLAGS "c:E:hJ:m:o:I:qv:Vxz"
 
 	/*
 	 * Process memory debugging argument first.
@@ -208,7 +204,6 @@ main(int argc, char *argv[]) {
 		}
 	}
 	isc_commandline_reset = true;
-	check_result(isc_app_start(), "isc_app_start");
 
 	isc_mem_create(&mctx);
 
@@ -226,6 +221,10 @@ main(int argc, char *argv[]) {
 
 		case 'I':
 			inputformatstr = isc_commandline_argument;
+			break;
+
+		case 'J':
+			journal = isc_commandline_argument;
 			break;
 
 		case 'm':
@@ -260,11 +259,12 @@ main(int argc, char *argv[]) {
 				fprintf(stderr, "%s: invalid argument -%c\n",
 					program, isc_commandline_option);
 			}
-			FALLTHROUGH;
+			/* Does not return. */
+			usage(EXIT_FAILURE);
 
 		case 'h':
 			/* Does not return. */
-			usage();
+			usage(EXIT_SUCCESS);
 
 		case 'V':
 			/* Does not return. */
@@ -273,7 +273,7 @@ main(int argc, char *argv[]) {
 		default:
 			fprintf(stderr, "%s: unhandled option -%c\n", program,
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -283,7 +283,7 @@ main(int argc, char *argv[]) {
 		      isc_result_totext(result));
 	}
 
-	isc_stdtime_get(&now);
+	now = isc_stdtime_now();
 
 	rdclass = strtoclass(classname);
 
@@ -293,7 +293,7 @@ main(int argc, char *argv[]) {
 	argv += isc_commandline_index;
 
 	if (argc < 1) {
-		usage();
+		usage(EXIT_FAILURE);
 	}
 
 	file = argv[0];
@@ -305,7 +305,8 @@ main(int argc, char *argv[]) {
 	POST(argv);
 
 	if (origin == NULL) {
-		origin = file;
+		origin = isc_file_basename(file);
+		origin_is_file = true;
 	}
 
 	if (inputformatstr != NULL) {
@@ -320,7 +321,10 @@ main(int argc, char *argv[]) {
 
 	gdb = NULL;
 	report("Loading zone '%s' from file '%s'\n", origin, file);
-	loadzone(file, origin, rdclass, &gdb);
+	loadzone(file, origin, origin_is_file, rdclass, &gdb);
+	if (journal != NULL) {
+		loadjournal(mctx, gdb, journal);
+	}
 	gorigin = dns_db_origin(gdb);
 	gclass = dns_db_class(gdb);
 
@@ -341,7 +345,7 @@ main(int argc, char *argv[]) {
 	}
 	isc_mem_destroy(&mctx);
 
-	(void)isc_app_finish();
+	rcu_barrier();
 
-	return (result == ISC_R_SUCCESS ? 0 : 1);
+	return result == ISC_R_SUCCESS ? 0 : 1;
 }

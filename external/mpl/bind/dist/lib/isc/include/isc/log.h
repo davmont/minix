@@ -1,4 +1,4 @@
-/*	$NetBSD: log.h,v 1.7.2.1 2024/02/25 15:47:21 martin Exp $	*/
+/*	$NetBSD: log.h,v 1.10 2026/01/29 18:37:55 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <syslog.h> /* XXXDCL NT */
+#include <unistd.h>
 
 #include <isc/formatcheck.h>
 #include <isc/lang.h>
@@ -140,8 +141,8 @@ typedef struct isc_logfile {
 	 * anyone would want).  st_size returned by fstat should be typedef'd
 	 * to a size large enough for the largest possible file on a system.
 	 */
-	isc_offset_t maximum_size;
-	bool	     maximum_reached; /*%< Private. */
+	off_t maximum_size;
+	bool  maximum_reached; /*%< Private. */
 } isc_logfile_t;
 
 /*%

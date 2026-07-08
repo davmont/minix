@@ -1,4 +1,4 @@
-/*	$NetBSD: net.c,v 1.2.2.2 2024/02/25 15:47:17 martin Exp $	*/
+/*	$NetBSD: net.c,v 1.5 2026/04/08 00:16:15 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -24,12 +24,12 @@
 #endif /* if defined(HAVE_SYS_SYSCTL_H) && !defined(__linux__) */
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
 #include <isc/log.h>
 #include <isc/net.h>
-#include <isc/netdb.h>
 #include <isc/once.h>
 #include <isc/strerr.h>
 #include <isc/string.h>
@@ -82,14 +82,10 @@
 
 #ifdef __OpenBSD__
 #define USE_SYSCTL_PORTRANGE
-#define SYSCTL_V4PORTRANGE_LOW                                         \
-	{                                                              \
-		CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HIFIRSTAUTO \
-	}
-#define SYSCTL_V4PORTRANGE_HIGH                                       \
-	{                                                             \
-		CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HILASTAUTO \
-	}
+#define SYSCTL_V4PORTRANGE_LOW \
+	{ CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HIFIRSTAUTO }
+#define SYSCTL_V4PORTRANGE_HIGH \
+	{ CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HILASTAUTO }
 /* Same for IPv6 */
 #define SYSCTL_V6PORTRANGE_LOW	SYSCTL_V4PORTRANGE_LOW
 #define SYSCTL_V6PORTRANGE_HIGH SYSCTL_V4PORTRANGE_HIGH
@@ -114,7 +110,6 @@ static isc_once_t once = ISC_ONCE_INIT;
 
 static isc_result_t ipv4_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6_result = ISC_R_NOTFOUND;
-static isc_result_t unix_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6only_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6pktinfo_result = ISC_R_NOTFOUND;
 
@@ -138,10 +133,10 @@ try_proto(int domain) {
 #ifdef EINVAL
 		case EINVAL:
 #endif /* ifdef EINVAL */
-			return (ISC_R_NOTFOUND);
+			return ISC_R_NOTFOUND;
 		default:
 			UNEXPECTED_SYSERROR(errno, "socket()");
-			return (ISC_R_UNEXPECTED);
+			return ISC_R_UNEXPECTED;
 		}
 	}
 
@@ -183,37 +178,30 @@ try_proto(int domain) {
 
 	(void)close(s);
 
-	return (result);
+	return result;
 }
 
 static void
 initialize_action(void) {
 	ipv4_result = try_proto(PF_INET);
 	ipv6_result = try_proto(PF_INET6);
-	unix_result = try_proto(PF_UNIX);
 }
 
 static void
 initialize(void) {
-	RUNTIME_CHECK(isc_once_do(&once, initialize_action) == ISC_R_SUCCESS);
+	isc_once_do(&once, initialize_action);
 }
 
 isc_result_t
 isc_net_probeipv4(void) {
 	initialize();
-	return (ipv4_result);
+	return ipv4_result;
 }
 
 isc_result_t
 isc_net_probeipv6(void) {
 	initialize();
-	return (ipv6_result);
-}
-
-isc_result_t
-isc_net_probeunix(void) {
-	initialize();
-	return (unix_result);
+	return ipv6_result;
 }
 
 static void
@@ -273,8 +261,7 @@ close:
 
 static void
 initialize_ipv6only(void) {
-	RUNTIME_CHECK(isc_once_do(&once_ipv6only, try_ipv6only) ==
-		      ISC_R_SUCCESS);
+	isc_once_do(&once_ipv6only, try_ipv6only);
 }
 
 #ifdef __notyet__
@@ -318,15 +305,14 @@ close:
 
 static void
 initialize_ipv6pktinfo(void) {
-	RUNTIME_CHECK(isc_once_do(&once_ipv6pktinfo, try_ipv6pktinfo) ==
-		      ISC_R_SUCCESS);
+	isc_once_do(&once_ipv6pktinfo, try_ipv6pktinfo);
 }
 #endif /* ifdef __notyet__ */
 
 isc_result_t
 isc_net_probe_ipv6only(void) {
 	initialize_ipv6only();
-	return (ipv6only_result);
+	return ipv6only_result;
 }
 
 isc_result_t
@@ -343,13 +329,13 @@ isc_net_probe_ipv6pktinfo(void) {
 #ifdef __notyet__
 	initialize_ipv6pktinfo();
 #endif /* ifdef __notyet__ */
-	return (ipv6pktinfo_result);
+	return ipv6pktinfo_result;
 }
 
 #if defined(USE_SYSCTL_PORTRANGE)
 #if defined(HAVE_SYSCTLBYNAME)
 static isc_result_t
-getudpportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
+getportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
 	int port_low, port_high;
 	size_t portlen;
 	const char *sysctlname_lowport, *sysctlname_hiport;
@@ -364,25 +350,25 @@ getudpportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
 	portlen = sizeof(port_low);
 	if (sysctlbyname(sysctlname_lowport, &port_low, &portlen, NULL, 0) < 0)
 	{
-		return (ISC_R_FAILURE);
+		return ISC_R_FAILURE;
 	}
 	portlen = sizeof(port_high);
 	if (sysctlbyname(sysctlname_hiport, &port_high, &portlen, NULL, 0) < 0)
 	{
-		return (ISC_R_FAILURE);
+		return ISC_R_FAILURE;
 	}
 	if ((port_low & ~0xffff) != 0 || (port_high & ~0xffff) != 0) {
-		return (ISC_R_RANGE);
+		return ISC_R_RANGE;
 	}
 
 	*low = (in_port_t)port_low;
 	*high = (in_port_t)port_high;
 
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 #else  /* !HAVE_SYSCTLBYNAME */
 static isc_result_t
-getudpportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
+getportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
 	int mib_lo4[4] = SYSCTL_V4PORTRANGE_LOW;
 	int mib_hi4[4] = SYSCTL_V4PORTRANGE_HIGH;
 	int mib_lo6[4] = SYSCTL_V6PORTRANGE_LOW;
@@ -403,38 +389,38 @@ getudpportrange_sysctl(int af, in_port_t *low, in_port_t *high) {
 
 	portlen = sizeof(port_low);
 	if (sysctl(mib_lo, miblen, &port_low, &portlen, NULL, 0) < 0) {
-		return (ISC_R_FAILURE);
+		return ISC_R_FAILURE;
 	}
 
 	portlen = sizeof(port_high);
 	if (sysctl(mib_hi, miblen, &port_high, &portlen, NULL, 0) < 0) {
-		return (ISC_R_FAILURE);
+		return ISC_R_FAILURE;
 	}
 
 	if ((port_low & ~0xffff) != 0 || (port_high & ~0xffff) != 0) {
-		return (ISC_R_RANGE);
+		return ISC_R_RANGE;
 	}
 
 	*low = (in_port_t)port_low;
 	*high = (in_port_t)port_high;
 
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 #endif /* HAVE_SYSCTLBYNAME */
 #endif /* USE_SYSCTL_PORTRANGE */
 
-isc_result_t
-isc_net_getudpportrange(int af, in_port_t *low, in_port_t *high) {
+void
+isc_net_getportrange(int af, in_port_t *low, in_port_t *high) {
 	int result = ISC_R_FAILURE;
-#if !defined(USE_SYSCTL_PORTRANGE) && defined(__linux)
+#if !defined(USE_SYSCTL_PORTRANGE) && defined(__linux__)
 	FILE *fp;
-#endif /* if !defined(USE_SYSCTL_PORTRANGE) && defined(__linux) */
+#endif /* if !defined(USE_SYSCTL_PORTRANGE) && defined(__linux__) */
 
 	REQUIRE(low != NULL && high != NULL);
 
 #if defined(USE_SYSCTL_PORTRANGE)
-	result = getudpportrange_sysctl(af, low, high);
-#elif defined(__linux)
+	result = getportrange_sysctl(af, low, high);
+#elif defined(__linux__)
 
 	UNUSED(af);
 
@@ -462,8 +448,6 @@ isc_net_getudpportrange(int af, in_port_t *low, in_port_t *high) {
 		*low = ISC_NET_PORTRANGELOW;
 		*high = ISC_NET_PORTRANGEHIGH;
 	}
-
-	return (ISC_R_SUCCESS); /* we currently never fail in this function */
 }
 
 void

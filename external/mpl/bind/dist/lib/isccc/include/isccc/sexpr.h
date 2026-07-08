@@ -1,4 +1,4 @@
-/*	$NetBSD: sexpr.h,v 1.6.2.1 2024/02/25 15:47:31 martin Exp $	*/
+/*	$NetBSD: sexpr.h,v 1.8 2025/01/26 16:25:44 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

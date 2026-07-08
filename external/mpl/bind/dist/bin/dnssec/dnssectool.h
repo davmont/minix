@@ -1,4 +1,4 @@
-/*	$NetBSD: dnssectool.h,v 1.6.2.1 2024/02/25 15:43:04 martin Exp $	*/
+/*	$NetBSD: dnssectool.h,v 1.9 2026/01/29 18:36:26 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -22,9 +22,17 @@
 #include <isc/log.h>
 #include <isc/stdtime.h>
 
+#include <dns/kasp.h>
 #include <dns/rdatastruct.h>
 
 #include <dst/dst.h>
+
+#include <isccfg/cfg.h>
+#include <isccfg/kaspconf.h>
+#include <isccfg/namedconf.h>
+
+#define MAX_RSA 4096 /* should be long enough... */
+#define MAX_DH	4096 /* should be long enough... */
 
 /*! verbosity: set by -v and -q option in each program, defined in dnssectool.c
  */
@@ -33,6 +41,9 @@ extern bool quiet;
 
 /*! program name, statically initialized in each program */
 extern const char *program;
+
+/*! journal file */
+extern const char *journal;
 
 /*!
  * List of DS digest types used by dnssec-cds and dnssec-dsfromkey,
@@ -99,8 +110,16 @@ void
 set_keyversion(dst_key_t *key);
 
 bool
-key_collision(dst_key_t *key, dns_name_t *name, const char *dir,
-	      isc_mem_t *mctx, bool *exact);
+key_collision(dst_key_t *dstkey, dns_name_t *name, const char *dir,
+	      isc_mem_t *mctx, uint16_t min, uint16_t max, bool *exact);
 
 bool
-isoptarg(const char *arg, char **argv, void (*usage)(void));
+isoptarg(const char *arg, char **argv, void (*usage)(int ret));
+
+void
+loadjournal(isc_mem_t *mctx, dns_db_t *db, const char *journal);
+
+void
+kasp_from_conf(cfg_obj_t *config, isc_mem_t *mctx, isc_log_t *lctx,
+	       const char *name, const char *keydir, const char *engine,
+	       dns_kasp_t **kaspp);

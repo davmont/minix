@@ -1,4 +1,4 @@
-/*	$NetBSD: nimloc_32.h,v 1.5.2.1 2024/02/25 15:47:07 martin Exp $	*/
+/*	$NetBSD: nimloc_32.h,v 1.7 2025/01/26 16:25:35 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

@@ -1,4 +1,4 @@
-/*	$NetBSD: string.h,v 1.6.2.2 2024/02/25 15:47:23 martin Exp $	*/
+/*	$NetBSD: string.h,v 1.9 2025/01/26 16:25:42 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")

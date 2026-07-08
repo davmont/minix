@@ -1,4 +1,4 @@
-/*	$NetBSD: dnssec-settime.c,v 1.6.2.2 2024/02/25 15:43:04 martin Exp $	*/
+/*	$NetBSD: dnssec-settime.c,v 1.11 2026/01/29 18:36:26 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -28,7 +28,6 @@
 #include <isc/file.h>
 #include <isc/hash.h>
 #include <isc/mem.h>
-#include <isc/print.h>
 #include <isc/result.h>
 #include <isc/string.h>
 #include <isc/time.h>
@@ -46,10 +45,10 @@ const char *program = "dnssec-settime";
 static isc_mem_t *mctx = NULL;
 
 noreturn static void
-usage(void);
+usage(int ret);
 
 static void
-usage(void) {
+usage(int ret) {
 	fprintf(stderr, "Usage:\n");
 	fprintf(stderr, "    %s [options] keyfile\n\n", program);
 	fprintf(stderr, "Version: %s\n", PACKAGE_VERSION);
@@ -104,7 +103,7 @@ usage(void) {
 	fprintf(stderr, "     K<name>+<alg>+<new id>.key, "
 			"K<name>+<alg>+<new id>.private\n");
 
-	exit(-1);
+	exit(ret);
 }
 
 static void
@@ -205,7 +204,6 @@ main(int argc, char **argv) {
 	int prepub = -1;
 	int options;
 	dns_ttl_t ttl = 0;
-	isc_stdtime_t now;
 	isc_stdtime_t dstime = 0, dnskeytime = 0;
 	isc_stdtime_t krrsigtime = 0, zrrsigtime = 0;
 	isc_stdtime_t pub = 0, act = 0, rev = 0, inact = 0, del = 0;
@@ -241,11 +239,12 @@ main(int argc, char **argv) {
 	bool unsetdsadd = false, setdsadd = false;
 	bool unsetdsdel = false, setdsdel = false;
 	bool printdsadd = false, printdsdel = false;
+	isc_stdtime_t now = isc_stdtime_now();
 
 	options = DST_TYPE_PUBLIC | DST_TYPE_PRIVATE | DST_TYPE_STATE;
 
 	if (argc == 1) {
-		usage();
+		usage(EXIT_FAILURE);
 	}
 
 	isc_mem_create(&mctx);
@@ -253,8 +252,6 @@ main(int argc, char **argv) {
 	setup_logging(mctx, &log);
 
 	isc_commandline_errprint = false;
-
-	isc_stdtime_get(&now);
 
 #define CMDLINE_FLAGS "A:D:d:E:fg:hI:i:K:k:L:P:p:R:r:S:suv:Vz:"
 	while ((ch = isc_commandline_parse(argc, argv, CMDLINE_FLAGS)) != -1) {
@@ -344,10 +341,13 @@ main(int argc, char **argv) {
 				fprintf(stderr, "%s: invalid argument -%c\n",
 					program, isc_commandline_option);
 			}
-			FALLTHROUGH;
+			/* Does not return. */
+			usage(EXIT_FAILURE);
+
 		case 'h':
 			/* Does not return. */
-			usage();
+			usage(EXIT_SUCCESS);
+
 		case 'I':
 			if (setinact || unsetinact) {
 				fatal("-I specified more than once");
@@ -481,7 +481,7 @@ main(int argc, char **argv) {
 				case ' ':
 					break;
 				default:
-					usage();
+					usage(EXIT_FAILURE);
 					break;
 				}
 			} while (*p != '\0');
@@ -541,7 +541,7 @@ main(int argc, char **argv) {
 		default:
 			fprintf(stderr, "%s: unhandled option -%c\n", program,
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -965,5 +965,5 @@ main(int argc, char **argv) {
 	isc_mem_free(mctx, directory);
 	isc_mem_destroy(&mctx);
 
-	return (0);
+	return 0;
 }

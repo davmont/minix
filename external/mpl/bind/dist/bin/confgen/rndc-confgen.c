@@ -1,4 +1,4 @@
-/*	$NetBSD: rndc-confgen.c,v 1.6.2.1 2024/02/25 15:43:00 martin Exp $	*/
+/*	$NetBSD: rndc-confgen.c,v 1.9 2025/01/26 16:24:32 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -36,7 +36,6 @@
 #include <isc/file.h>
 #include <isc/mem.h>
 #include <isc/net.h>
-#include <isc/print.h>
 #include <isc/result.h>
 #include <isc/string.h>
 #include <isc/time.h>
@@ -149,7 +148,8 @@ main(int argc, char **argv) {
 			keyfile = isc_commandline_argument;
 			break;
 		case 'h':
-			usage(0);
+			usage(EXIT_SUCCESS);
+			break;
 		case 'k':
 		case 'y': /* Compatible with rndc -y. */
 			keyname = isc_commandline_argument;
@@ -195,15 +195,15 @@ main(int argc, char **argv) {
 			if (isc_commandline_option != '?') {
 				fprintf(stderr, "%s: invalid argument -%c\n",
 					program, isc_commandline_option);
-				usage(1);
+				usage(EXIT_FAILURE);
 			} else {
-				usage(0);
+				usage(EXIT_SUCCESS);
 			}
 			break;
 		default:
 			fprintf(stderr, "%s: unhandled option -%c\n", program,
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -212,7 +212,7 @@ main(int argc, char **argv) {
 	POST(argv);
 
 	if (argc > 0) {
-		usage(1);
+		usage(EXIT_FAILURE);
 	}
 
 	if (alg == DST_ALG_HMACMD5) {
@@ -292,5 +292,5 @@ options {\n\
 
 	isc_mem_destroy(&mctx);
 
-	return (0);
+	return 0;
 }

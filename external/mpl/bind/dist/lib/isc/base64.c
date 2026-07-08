@@ -1,4 +1,4 @@
-/*	$NetBSD: base64.c,v 1.8 2022/09/23 12:15:33 christos Exp $	*/
+/*	$NetBSD: base64.c,v 1.11 2026/04/08 00:16:15 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -22,13 +22,6 @@
 #include <isc/lex.h>
 #include <isc/string.h>
 #include <isc/util.h>
-
-#define RETERR(x)                        \
-	do {                             \
-		isc_result_t _r = (x);   \
-		if (_r != ISC_R_SUCCESS) \
-			return ((_r));   \
-	} while (0)
 
 /*@{*/
 /*!
@@ -88,7 +81,7 @@ isc_base64_totext(isc_region_t *source, int wordlength, const char *wordbreak,
 		RETERR(str_totext(buf, target));
 		isc_region_consume(source, 1);
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 /*%
@@ -115,33 +108,33 @@ base64_decode_char(base64_decode_ctx_t *ctx, int c) {
 	const char *s;
 
 	if (ctx->seen_end) {
-		return (ISC_R_BADBASE64);
+		return ISC_R_BADBASE64;
 	}
 	if ((s = strchr(base64, c)) == NULL) {
-		return (ISC_R_BADBASE64);
+		return ISC_R_BADBASE64;
 	}
 	ctx->val[ctx->digits++] = (int)(s - base64);
 	if (ctx->digits == 4) {
 		int n;
 		unsigned char buf[3];
 		if (ctx->val[0] == 64 || ctx->val[1] == 64) {
-			return (ISC_R_BADBASE64);
+			return ISC_R_BADBASE64;
 		}
 		if (ctx->val[2] == 64 && ctx->val[3] != 64) {
-			return (ISC_R_BADBASE64);
+			return ISC_R_BADBASE64;
 		}
 		/*
 		 * Check that bits that should be zero are.
 		 */
 		if (ctx->val[2] == 64 && (ctx->val[1] & 0xf) != 0) {
-			return (ISC_R_BADBASE64);
+			return ISC_R_BADBASE64;
 		}
 		/*
 		 * We don't need to test for ctx->val[2] != 64 as
 		 * the bottom two bits of 64 are zero.
 		 */
 		if (ctx->val[3] == 64 && (ctx->val[2] & 0x3) != 0) {
-			return (ISC_R_BADBASE64);
+			return ISC_R_BADBASE64;
 		}
 		n = (ctx->val[2] == 64) ? 1 : (ctx->val[3] == 64) ? 2 : 3;
 		if (n != 3) {
@@ -159,25 +152,25 @@ base64_decode_char(base64_decode_ctx_t *ctx, int c) {
 		RETERR(mem_tobuffer(ctx->target, buf, n));
 		if (ctx->length >= 0) {
 			if (n > ctx->length) {
-				return (ISC_R_BADBASE64);
+				return ISC_R_BADBASE64;
 			} else {
 				ctx->length -= n;
 			}
 		}
 		ctx->digits = 0;
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
 base64_decode_finish(base64_decode_ctx_t *ctx) {
 	if (ctx->length > 0) {
-		return (ISC_R_UNEXPECTEDEND);
+		return ISC_R_UNEXPECTEDEND;
 	}
 	if (ctx->digits != 0) {
-		return (ISC_R_BADBASE64);
+		return ISC_R_BADBASE64;
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 isc_result_t
@@ -188,7 +181,7 @@ isc_base64_tobuffer(isc_lex_t *lexer, isc_buffer_t *target, int length) {
 	isc_token_t token;
 	bool eol;
 
-	REQUIRE(length >= -2);
+	REQUIRE(length >= isc_one_or_more);
 
 	base64_decode_init(&ctx, length, target);
 
@@ -216,17 +209,17 @@ isc_base64_tobuffer(isc_lex_t *lexer, isc_buffer_t *target, int length) {
 		isc_lex_ungettoken(lexer, &token);
 	}
 	RETERR(base64_decode_finish(&ctx));
-	if (length == -2 && before == after) {
-		return (ISC_R_UNEXPECTEDEND);
+	if (length == isc_one_or_more && before == after) {
+		return ISC_R_UNEXPECTEDEND;
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 isc_result_t
 isc_base64_decodestring(const char *cstr, isc_buffer_t *target) {
 	base64_decode_ctx_t ctx;
 
-	base64_decode_init(&ctx, -1, target);
+	base64_decode_init(&ctx, isc_zero_or_more, target);
 	for (;;) {
 		int c = *cstr++;
 		if (c == '\0') {
@@ -238,7 +231,7 @@ isc_base64_decodestring(const char *cstr, isc_buffer_t *target) {
 		RETERR(base64_decode_char(&ctx, c));
 	}
 	RETERR(base64_decode_finish(&ctx));
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
@@ -250,12 +243,12 @@ str_totext(const char *source, isc_buffer_t *target) {
 	l = strlen(source);
 
 	if (l > region.length) {
-		return (ISC_R_NOSPACE);
+		return ISC_R_NOSPACE;
 	}
 
 	memmove(region.base, source, l);
 	isc_buffer_add(target, l);
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
@@ -264,9 +257,9 @@ mem_tobuffer(isc_buffer_t *target, void *base, unsigned int length) {
 
 	isc_buffer_availableregion(target, &tr);
 	if (length > tr.length) {
-		return (ISC_R_NOSPACE);
+		return ISC_R_NOSPACE;
 	}
 	memmove(tr.base, base, length);
 	isc_buffer_add(target, length);
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }

@@ -21,7 +21,7 @@ named-checkconf - named configuration file syntax checking tool
 Synopsis
 ~~~~~~~~
 
-:program:`named-checkconf` [**-chjlvz**] [**-p** [**-x** ]] [**-t** directory] {filename}
+:program:`named-checkconf` [**-achjklvz**] [**-p** [**-x** ]] [**-t** directory] {filename}
 
 Description
 ~~~~~~~~~~~
@@ -32,13 +32,21 @@ errors. If no file is specified,
 |named_conf| is read by default.
 
 Note: files that :iscman:`named` reads in separate parser contexts, such as
-``rndc.key`` and ``bind.keys``, are not automatically read by
-:program:`named-checkconf`. Configuration errors in these files may cause
-:iscman:`named` to fail to run, even if :program:`named-checkconf` was successful.
-However, :program:`named-checkconf` can be run on these files explicitly.
+``rndc.conf`` or ``rndc.key``, are not automatically read by
+:program:`named-checkconf`.  Configuration errors in these files may cause
+:iscman:`named` to fail to run, even if :program:`named-checkconf` was
+successful.  However, :program:`named-checkconf` can be run on these files
+explicitly.
 
 Options
 ~~~~~~~
+
+.. option:: -a
+
+   Don't check the `dnssec-policy`'s DNSSEC key algorithms against
+   those supported by the crypto provider.  This is useful when checking
+   a `named.conf` intended to be run on another machine with possibly a
+   different set of supported DNSSEC key algorithms.
 
 .. option:: -h
 
@@ -47,6 +55,12 @@ Options
 .. option:: -j
 
    When loading a zonefile, this option instructs :iscman:`named` to read the journal if it exists.
+
+.. option:: -k
+
+   Check the `dnssec-policy`'s DNSSEC keys against the key files in
+   the `key-directory`.  This is useful when checking a `named.conf`
+   to ensure a DNSSEC policy matches the existing keys.
 
 .. option:: -l
 

@@ -1,4 +1,4 @@
-/*	$NetBSD: ssu.h,v 1.6.2.1 2024/02/25 15:46:58 martin Exp $	*/
+/*	$NetBSD: ssu.h,v 1.9 2026/06/19 20:10:01 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -157,7 +157,7 @@ dns_ssutable_checkrules(dns_ssutable_t *table, const dns_name_t *signer,
  *		In dns_ssutable_checkrules(), 'addr' should only be
  *		set if the request received via TCP.  This provides a
  *		weak assurance that the request was not spoofed.
- *		'addr' is to to validate dns_ssumatchtype_tcpself
+ *		'addr' is to validate dns_ssumatchtype_tcpself
  *		and dns_ssumatchtype_6to4self rules.
  *
  *		In dns_ssutable_checkrules2(), 'addr' can also be passed for

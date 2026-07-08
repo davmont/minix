@@ -1,4 +1,4 @@
-/*	$NetBSD: os.h,v 1.5.2.1 2024/02/25 15:47:22 martin Exp $	*/
+/*	$NetBSD: os.h,v 1.8 2026/04/08 00:16:16 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -16,10 +16,10 @@
 #pragma once
 
 /*! \file isc/os.h */
+#include <sys/stat.h>
+
 #include <isc/lang.h>
 #include <isc/types.h>
-
-#include <sys/stat.h>
 
 ISC_LANG_BEGINDECLS
 
@@ -49,6 +49,13 @@ mode_t
 isc_os_umask(void);
 /*%<
  * Return umask of the current process as initialized at the program start
+ */
+
+void
+isc_os_kernel(char **name, int *major, int *minor, int *patch);
+/*%<
+ * Fill the running kernel version into major, minor and patch.
+ * If any of these are not available then -1 is returned.
  */
 
 ISC_LANG_ENDDECLS

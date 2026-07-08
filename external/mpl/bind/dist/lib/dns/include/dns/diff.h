@@ -1,4 +1,4 @@
-/*	$NetBSD: diff.h,v 1.6.2.1 2024/02/25 15:46:55 martin Exp $	*/
+/*	$NetBSD: diff.h,v 1.10 2026/06/19 20:10:01 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -28,6 +28,8 @@
 /***
  *** Imports
  ***/
+
+#include <stddef.h>
 
 #include <isc/lang.h>
 #include <isc/magic.h>
@@ -60,14 +62,6 @@
  * timeexpire.
  */
 
-typedef enum {
-	DNS_DIFFOP_ADD = 0,	  /*%< Add an RR. */
-	DNS_DIFFOP_DEL = 1,	  /*%< Delete an RR. */
-	DNS_DIFFOP_EXISTS = 2,	  /*%< Assert RR existence. */
-	DNS_DIFFOP_ADDRESIGN = 4, /*%< ADD + RESIGN. */
-	DNS_DIFFOP_DELRESIGN = 5  /*%< DEL + RESIGN. */
-} dns_diffop_t;
-
 typedef struct dns_difftuple dns_difftuple_t;
 typedef ISC_LIST(dns_difftuple_t) dns_difftuplelist_t;
 
@@ -99,6 +93,7 @@ struct dns_diff {
 	unsigned int	    magic;
 	isc_mem_t	   *mctx;
 	dns_difftuplelist_t tuples;
+	size_t		    size;
 };
 
 /* Type of comparison function for sorting diffs. */
@@ -192,12 +187,22 @@ dns_diff_append(dns_diff_t *diff, dns_difftuple_t **tuple);
 /*%<
  * Append a single tuple to a diff.
  *
- *\li	'diff' is a valid diff.
+ * Requires:
+ * \li	'diff' is a valid diff.
  * \li	'*tuple' is a valid tuple.
  *
  * Ensures:
- *\li	*tuple is NULL.
- *\li	The tuple has been freed, or will be freed when the diff is cleared.
+ * \li	*tuple is NULL.
+ * \li	The tuple has been freed, or will be freed when the diff is cleared.
+ */
+
+size_t
+dns_diff_size(const dns_diff_t *diff);
+/*%<
+ * Returns the number of elements in the diff.
+ *
+ * Requires:
+ * \li	'diff' is a valid diff.
  */
 
 void
@@ -224,9 +229,10 @@ dns_diff_sort(dns_diff_t *diff, dns_diff_compare_func *compare);
  */
 
 isc_result_t
-dns_diff_apply(dns_diff_t *diff, dns_db_t *db, dns_dbversion_t *ver);
+dns_diff_apply(const dns_diff_t *diff, dns_db_t *db, dns_dbversion_t *ver);
 isc_result_t
-dns_diff_applysilently(dns_diff_t *diff, dns_db_t *db, dns_dbversion_t *ver);
+dns_diff_applysilently(const dns_diff_t *diff, dns_db_t *db,
+		       dns_dbversion_t *ver);
 /*%<
  * Apply 'diff' to the database 'db'.
  *
@@ -239,29 +245,56 @@ dns_diff_applysilently(dns_diff_t *diff, dns_db_t *db, dns_dbversion_t *ver);
  *
  * Requires:
  *\li	*diff is a valid diff (possibly empty), containing
- *   	tuples of type #DNS_DIFFOP_ADD and/or
- *  	For #DNS_DIFFOP_DEL tuples, the TTL is ignored.
+ *	tuples of type #DNS_DIFFOP_ADD and/or
+ *	For #DNS_DIFFOP_DEL tuples, the TTL is ignored.
  *
  */
 
+typedef struct {
+	dns_db_t	*db;
+	dns_dbversion_t *ver;
+	bool		 warn;
+} dns_updatectx_t;
+
 isc_result_t
-dns_diff_load(dns_diff_t *diff, dns_addrdatasetfunc_t addfunc,
-	      void *add_private);
+dns_diff_apply_with_callbacks(const dns_diff_t	   *diff,
+			      dns_rdatacallbacks_t *callbacks);
+/*%<
+ * Apply 'diff' to the database using the provided callbacks and context.
+ * The context contains the database, version, and warning flag.
+ * This allows for custom callback implementations.
+ *
+ * Requires:
+ *\li	'callbacks' points to a valid dns_rdatacallbacks_t structure
+ *\li	'callbacks->update' is not NULL
+ */
+
+isc_result_t
+update_callback(void *arg, const dns_name_t *name, dns_rdataset_t *rds,
+		dns_diffop_t op DNS__DB_FLARG);
+/*%<
+ * Standard update callback for dns_rdatacallbacks_t.
+ * Updates a database version by applying DNS record operations.
+ * Used with dns_updatectx_t context.
+ *
+ * Requires:
+ *\li	'arg' is a valid dns_updatectx_t pointer
+ */
+
+isc_result_t
+dns_diff_load(const dns_diff_t *diff, dns_rdatacallbacks_t *callbacks);
 /*%<
  * Like dns_diff_apply, but for use when loading a new database
  * instead of modifying an existing one.  This bypasses the
  * database transaction mechanisms.
  *
  * Requires:
- *\li 	'addfunc' is a valid dns_addradatasetfunc_t obtained from
- * 	dns_db_beginload()
- *
- *\li	'add_private' points to a corresponding dns_dbload_t *
- *      (XXX why is it a void pointer, then?)
+ *\li	'callbacks' points to a dns_rdatacallbacks_t structure obtained
+ *	from dns_db_beginload()
  */
 
 isc_result_t
-dns_diff_print(dns_diff_t *diff, FILE *file);
+dns_diff_print(const dns_diff_t *diff, FILE *file);
 
 /*%<
  * Print the differences to 'file' or if 'file' is NULL via the

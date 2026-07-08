@@ -1,4 +1,4 @@
-/*	$NetBSD: apl_42.c,v 1.8.2.1 2024/02/25 15:47:06 martin Exp $	*/
+/*	$NetBSD: apl_42.c,v 1.12 2026/04/08 00:16:15 christos Exp $	*/
 
 /*
  * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
@@ -113,7 +113,7 @@ fromtext_in_apl(ARGS_FROMTEXT) {
 	 */
 	isc_lex_ungettoken(lexer, &token);
 
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
@@ -170,7 +170,7 @@ totext_in_apl(ARGS_TOTEXT) {
 			break;
 
 		default:
-			return (ISC_R_NOTIMPLEMENTED);
+			return ISC_R_NOTIMPLEMENTED;
 		}
 		n = snprintf(txt, sizeof(txt), "/%u", prefix);
 		INSIST(n < (int)sizeof(txt));
@@ -178,7 +178,7 @@ totext_in_apl(ARGS_TOTEXT) {
 		isc_region_consume(&sr, len);
 		sep = " ";
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
@@ -195,19 +195,18 @@ fromwire_in_apl(ARGS_FROMWIRE) {
 	UNUSED(type);
 	UNUSED(dctx);
 	UNUSED(rdclass);
-	UNUSED(options);
 
 	isc_buffer_activeregion(source, &sr);
 	isc_buffer_availableregion(target, &tr);
 	if (sr.length > tr.length) {
-		return (ISC_R_NOSPACE);
+		return ISC_R_NOSPACE;
 	}
 	sr2 = sr;
 
 	/* Zero or more items */
 	while (sr.length > 0) {
 		if (sr.length < 4) {
-			return (ISC_R_UNEXPECTEDEND);
+			return ISC_R_UNEXPECTEDEND;
 		}
 		afi = uint16_fromregion(&sr);
 		isc_region_consume(&sr, 2);
@@ -216,26 +215,26 @@ fromwire_in_apl(ARGS_FROMWIRE) {
 		len = (*sr.base & 0x7f);
 		isc_region_consume(&sr, 1);
 		if (len > sr.length) {
-			return (ISC_R_UNEXPECTEDEND);
+			return ISC_R_UNEXPECTEDEND;
 		}
 		switch (afi) {
 		case 1:
 			if (prefix > 32 || len > 4) {
-				return (ISC_R_RANGE);
+				return ISC_R_RANGE;
 			}
 			break;
 		case 2:
 			if (prefix > 128 || len > 16) {
-				return (ISC_R_RANGE);
+				return ISC_R_RANGE;
 			}
 		}
 		if (len > 0 && sr.base[len - 1] == 0) {
-			return (DNS_R_FORMERR);
+			return DNS_R_FORMERR;
 		}
 		isc_region_consume(&sr, len);
 	}
 	isc_buffer_forward(source, sr2.length);
-	return (mem_tobuffer(target, sr2.base, sr2.length));
+	return mem_tobuffer(target, sr2.base, sr2.length);
 }
 
 static isc_result_t
@@ -245,7 +244,7 @@ towire_in_apl(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_apl);
 	REQUIRE(rdata->rdclass == dns_rdataclass_in);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return mem_tobuffer(target, rdata->data, rdata->length);
 }
 
 static int
@@ -260,7 +259,7 @@ compare_in_apl(ARGS_COMPARE) {
 
 	dns_rdata_toregion(rdata1, &r1);
 	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
+	return isc_region_compare(&r1, &r2);
 }
 
 static isc_result_t
@@ -278,7 +277,8 @@ fromstruct_in_apl(ARGS_FROMSTRUCT) {
 	isc_buffer_init(&b, apl->apl, apl->apl_len);
 	isc_buffer_add(&b, apl->apl_len);
 	isc_buffer_setactive(&b, apl->apl_len);
-	return (fromwire_in_apl(rdclass, type, &b, NULL, false, target));
+	return fromwire_in_apl(rdclass, type, &b, DNS_DECOMPRESS_DEFAULT,
+			       target);
 }
 
 static isc_result_t
@@ -290,20 +290,14 @@ tostruct_in_apl(ARGS_TOSTRUCT) {
 	REQUIRE(rdata->type == dns_rdatatype_apl);
 	REQUIRE(rdata->rdclass == dns_rdataclass_in);
 
-	apl->common.rdclass = rdata->rdclass;
-	apl->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&apl->common, link);
+	DNS_RDATACOMMON_INIT(apl, rdata->type, rdata->rdclass);
 
 	dns_rdata_toregion(rdata, &r);
 	apl->apl_len = r.length;
 	apl->apl = mem_maybedup(mctx, r.base, r.length);
-	if (apl->apl == NULL) {
-		return (ISC_R_NOMEMORY);
-	}
-
 	apl->offset = 0;
 	apl->mctx = mctx;
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static void
@@ -335,9 +329,11 @@ dns_rdata_apl_first(dns_rdata_in_apl_t *apl) {
 	/*
 	 * If no APL return ISC_R_NOMORE.
 	 */
-	if (apl->apl == NULL) {
-		return (ISC_R_NOMORE);
+	if (apl->apl == NULL || apl->apl_len == 0) {
+		return ISC_R_NOMORE;
 	}
+
+	apl->offset = 0;
 
 	/*
 	 * Sanity check data.
@@ -346,8 +342,7 @@ dns_rdata_apl_first(dns_rdata_in_apl_t *apl) {
 	length = apl->apl[apl->offset + 3] & 0x7f;
 	INSIST(4 + length <= apl->apl_len);
 
-	apl->offset = 0;
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 isc_result_t
@@ -363,7 +358,7 @@ dns_rdata_apl_next(dns_rdata_in_apl_t *apl) {
 	 * No APL or have already reached the end return ISC_R_NOMORE.
 	 */
 	if (apl->apl == NULL || apl->offset == apl->apl_len) {
-		return (ISC_R_NOMORE);
+		return ISC_R_NOMORE;
 	}
 
 	/*
@@ -380,7 +375,7 @@ dns_rdata_apl_next(dns_rdata_in_apl_t *apl) {
 	INSIST(4 + length + apl->offset <= apl->apl_len);
 
 	apl->offset += 4 + length;
-	return ((apl->offset < apl->apl_len) ? ISC_R_SUCCESS : ISC_R_NOMORE);
+	return (apl->offset < apl->apl_len) ? ISC_R_SUCCESS : ISC_R_NOMORE;
 }
 
 isc_result_t
@@ -395,7 +390,7 @@ dns_rdata_apl_current(dns_rdata_in_apl_t *apl, dns_rdata_apl_ent_t *ent) {
 	REQUIRE(apl->offset <= apl->apl_len);
 
 	if (apl->offset == apl->apl_len) {
-		return (ISC_R_NOMORE);
+		return ISC_R_NOMORE;
 	}
 
 	/*
@@ -419,12 +414,12 @@ dns_rdata_apl_current(dns_rdata_in_apl_t *apl, dns_rdata_apl_ent_t *ent) {
 	} else {
 		ent->data = NULL;
 	}
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 unsigned int
 dns_rdata_apl_count(const dns_rdata_in_apl_t *apl) {
-	return (apl->apl_len);
+	return apl->apl_len;
 }
 
 static isc_result_t
@@ -437,7 +432,7 @@ additionaldata_in_apl(ARGS_ADDLDATA) {
 	UNUSED(add);
 	UNUSED(arg);
 
-	return (ISC_R_SUCCESS);
+	return ISC_R_SUCCESS;
 }
 
 static isc_result_t
@@ -449,7 +444,7 @@ digest_in_apl(ARGS_DIGEST) {
 
 	dns_rdata_toregion(rdata, &r);
 
-	return ((digest)(arg, &r));
+	return (digest)(arg, &r);
 }
 
 static bool
@@ -462,7 +457,7 @@ checkowner_in_apl(ARGS_CHECKOWNER) {
 	UNUSED(rdclass);
 	UNUSED(wildcard);
 
-	return (true);
+	return true;
 }
 
 static bool
@@ -474,12 +469,12 @@ checknames_in_apl(ARGS_CHECKNAMES) {
 	UNUSED(owner);
 	UNUSED(bad);
 
-	return (true);
+	return true;
 }
 
 static int
 casecompare_in_apl(ARGS_COMPARE) {
-	return (compare_in_apl(rdata1, rdata2));
+	return compare_in_apl(rdata1, rdata2);
 }
 
 #endif /* RDATA_IN_1_APL_42_C */
