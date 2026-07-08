@@ -115,8 +115,11 @@ Chosen direction: modernize the framebuffer path, which already works
 TTY driver from `kinfo.fb_*`; VGA text on legacy BIOS; OMAP fb driver on
 ARM).  Roadmap:
 
-1. x86_64 backend for `minix/drivers/video/fb` exposing the GOP
-   framebuffer as `/dev/fb0` (userspace driver, no new kernel surface).
+1. **DONE 2026-07**: x86_64 backend for `minix/drivers/video/fb`
+   exposing the GOP framebuffer as `/dev/fb0` (userspace driver, no new
+   kernel surface); validated under OVMF with a gradient-write test and
+   screendump pixel verification.  See the fb backend commit for the
+   coexistence model with the TTY console and noted follow-ups.
 2. Input: surface PS/2 aux bytes already reaching `pckbd` as
    `/dev/mouse`; raw keyboard event mode beside the TTY path.
 3. Minimal graphics userland on `/dev/fb0`: pixman as pixel library plus
