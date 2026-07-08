@@ -514,9 +514,11 @@ out:
 	while (*cp == '/')
 		cp++;
 
-	/* XXX: Check for empty path here? */
-
-	error = nfs_lookupfh(&nfs_root_node, cp, strlen(cp), currfd);
+	if (*cp == '\0') {
+		error = ENOENT;
+	} else {
+		error = nfs_lookupfh(&nfs_root_node, cp, strlen(cp), currfd);
+	}
 #endif
 	if (!error) {
 		f->f_fsdata = (void *)currfd;
