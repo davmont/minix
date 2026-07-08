@@ -9,7 +9,7 @@
 # list of known ones here: this is the list of network-related rc.d scripts.
 # FIXME: since we are not yet done importing etc/rc.d from NetBSD, this list is
 # still incomplete and should be extended as more scripts are imported!
-RC_SCRIPTS="dhclient dhcpcd dhcpd dhcrelay ftpd inetd named network rtadvd \
+RC_SCRIPTS="dhcpcd ftpd inetd named network rtadvd \
     sshd staticroute syslogd"
 
 exec < /dev/console
