@@ -108,8 +108,18 @@ u32_t tsc_get_khz(void)
 	return calib_mhz * 1000;
 }
 
-#define frclock_64_to_micros tsc_64_to_micros
-#define read_frclock_64 read_tsc_64
+/* MINIX: the frclock API (used by e.g. the fb driver) maps onto the TSC
+ * on x86.  These used to be TU-local macro aliases, which emit no symbols
+ * and left read_frclock_64/frclock_64_to_micros undefined at link time. */
+u32_t frclock_64_to_micros(u64_t tsc)
+{
+        return tsc_64_to_micros(tsc);
+}
+
+void read_frclock_64(u64_t *frclk)
+{
+        read_tsc_64(frclk);
+}
 
 u64_t delta_frclock_64(u64_t base, u64_t cur)
 {

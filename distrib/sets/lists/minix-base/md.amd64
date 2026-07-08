@@ -44,6 +44,7 @@
 ./service/e1000                                         minix-base
 ./service/es1370                                        minix-base
 ./service/es1371                                        minix-base
+./service/fb                                            minix-base
 ./service/fbd                                           minix-base
 ./service/filter                                        minix-base
 ./service/fxp                                           minix-base

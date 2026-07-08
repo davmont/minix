@@ -370,7 +370,7 @@ paint_centered(int minor, char *data, int width, int height)
 	/* Paint on a white canvas */
 	bytespp = fbvs.bits_per_pixel / 8;
 	for (i = 0; i < fbvs.xres * fbvs.yres * bytespp; i+= bytespp)
-		*((u32_t *)((u32_t) dev.dv_base + i)) = 0x00FFFFFF;
+		*((u32_t *)(dev.dv_base + i)) = 0x00FFFFFF;
 
 	/* First seek to start */
 	min_x = fbvs.xres / 2 - width / 2;
@@ -383,10 +383,10 @@ paint_centered(int minor, char *data, int width, int height)
 	for (i = ((min_y * fbvs.xres) + min_x) * bytespp; rows < height;) {
 		GET_PIXEL(data, pixel);
 
-		((unsigned char *)((u32_t) dev.dv_base + i))[0] = pixel[2];
-		((unsigned char *)((u32_t) dev.dv_base + i))[1] = pixel[1];
-                ((unsigned char *)((u32_t) dev.dv_base + i))[2] = pixel[0];
-		((unsigned char *)((u32_t) dev.dv_base + i))[3] = 0;
+		((unsigned char *)(dev.dv_base + i))[0] = pixel[2];
+		((unsigned char *)(dev.dv_base + i))[1] = pixel[1];
+                ((unsigned char *)(dev.dv_base + i))[2] = pixel[0];
+		((unsigned char *)(dev.dv_base + i))[3] = 0;
 
 		x_painted++;/* Keep tab of how many row pixels we've painted */
 		if (x_painted == width) {
