@@ -2619,6 +2619,8 @@
 ./usr/include/pcap/namedb.h			comp-c-include
 ./usr/include/pcap/pcap.h			comp-c-include
 ./usr/include/pci.h				comp-c-include
+./usr/include/pixman-1/pixman.h		comp-c-include
+./usr/include/pixman-1/pixman-version.h	comp-c-include
 ./usr/include/perfuse.h				comp-c-include
 ./usr/include/poll.h				comp-c-include
 ./usr/include/ppath/ppath.h			comp-c-include
@@ -3378,6 +3380,7 @@
 ./usr/lib/libperfuse.a				comp-perfuse-lib	compatfile
 ./usr/lib/libperfuse_p.a			comp-perfuse-proflib	compatfile,profile
 ./usr/lib/libposix.a				comp-c-lib		compatfile
+./usr/lib/libpixman-1.a			comp-c-lib		compatfile
 ./usr/lib/libposix_p.a				comp-c-proflib		compatfile,profile
 ./usr/lib/libppath.a				comp-c-lib		compatfile
 ./usr/lib/libppath_p.a				comp-c-proflib		compatfile,profile

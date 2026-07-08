@@ -420,6 +420,9 @@
 ./usr/lib/libperfuse.so.0			base-perfuse-shlib	compatfile
 ./usr/lib/libperfuse.so.0.0			base-perfuse-shlib	compatfile
 ./usr/lib/libposix.so				base-sys-shlib		compatfile
+./usr/lib/libpixman-1.so			base-sys-shlib		compatfile
+./usr/lib/libpixman-1.so.1			base-sys-shlib		compatfile
+./usr/lib/libpixman-1.so.1.0			base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0				base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0.1			base-sys-shlib		compatfile
 ./usr/lib/libppath.so				base-sys-shlib		compatfile

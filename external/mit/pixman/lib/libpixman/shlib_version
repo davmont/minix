@@ -1,0 +1,4 @@
+# MINIX: pixman ABI soname is libpixman-1.  Track upstream's libtool
+# versioning loosely: 0.46 -> current interface 1.
+major=1
+minor=0
