@@ -56,23 +56,29 @@ file_os2_apptype(struct magic_set *ms, const char *fn, const void *buf,
 			fname[_MAX_FNAME], ext[_MAX_EXT];
 	char           *filename;
 	FILE           *fp;
+	char            tname[] = "./tmpXXXXXX";
+	int             tfd;
 
 	if (fn)
 		filename = strdup(fn);
-	else if ((filename = tempnam("./", "tmp")) == NULL) {
-		file_error(ms, errno, "cannot create tempnam");
-		return -1;
+	else {
+		if ((tfd = mkstemp(tname)) == -1) {
+			file_error(ms, errno, "cannot create tmp file");
+			return -1;
+		}
+		filename = strdup(tname);
 	}
 	/* qualify the filename to prevent extraneous searches */
 	_splitpath(filename, drive, dir, fname, ext);
-	(void)sprintf(path, "%s%s%s%s", drive,
+	(void)snprintf(path, sizeof(path), "%s%s%s%s", drive,
 		(*dir == '\0') ? "./" : dir,
 		fname,
 		(*ext == '\0') ? "." : ext);
 
 	if (fn == NULL) {
-		if ((fp = fopen(path, "wb")) == NULL) {
+		if ((fp = fdopen(tfd, "wb")) == NULL) {
 			file_error(ms, errno, "cannot open tmp file `%s'", path);
+			close(tfd);
 			return -1;
 		}
 		if (fwrite(buf, 1, nb, fp) != nb) {
