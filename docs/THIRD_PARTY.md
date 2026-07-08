@@ -63,10 +63,13 @@ Known-stale, deliberately deferred (each needs its own effort):
   server/relay, keep dhcpcd as the client story (10.x upgrade separate).
 - **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
   minix/net/lwip.
-- **GCC 4.8.5 + gmp/mpfr/mpc** (272 MB + 40 MB, `MKGCC=no`): removal
-  candidate; forecloses `MKGCC=yes`, needs owner sign-off.
 - Bootstrap-entangled and left alone: gmake 3.81, texinfo 4.8,
   binutils 2.34, flex, nvi, elftoolchain, heimdal 7.8.0, netpgp.
+
+Removed 2026-07 with owner sign-off: GCC 4.8.5 and its gmp/mpfr/mpc
+dependencies (~312 MB; the trees were never even tracked by git —
+untracked files on disk plus MKGCC-gated build hooks).  The toolchain
+is clang/LLVM-only; `MKGCC=yes` is no longer supported.
 
 ## Display stack decision (2026-07)
 

@@ -142,24 +142,8 @@ SUBDIR+=	../external/public-domain/sqlite/lib
 
 #SUBDIR+=	../gnu/lib/libmalloc
 
-.if (${MKGCC} != "no")
-. if !defined(__MINIX) || ${MKLIBSTDCXX} == "yes"
-SUBDIR+=	../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libobjc
-SUBDIR+=	../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libgomp
-#SUBDIR+=	../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libmudflap
-#SUBDIR+=	../external/gpl3/${EXTERNAL_GCC_SUBDIR}/lib/libmudflapth
-. endif # !defined(__MINIX) || ${MKLIBSTDCXX} == "yes"
-. if !defined(__MINIX) || ${MKLIBSTDCXX} == "yes"
-# Should probably move GMP, MPFR and MPC builds into the GCC >= 4.5
-# specific build area, but we get better parallelism this way.
-# We don't build compat versions of these.
-. if !defined(MLIBDIR)
-SUBDIR+=	../external/lgpl3/gmp/lib/libgmp
-SUBDIR+=	../external/lgpl3/mpfr/lib/libmpfr
-SUBDIR+=	../external/lgpl3/mpc/lib/libmpc
-.   endif # !defined(__MINIX) || ${MKLIBSTDCXX} == "yes"
-. endif
-.endif
+# MINIX: GCC 4.8.5 and its gmp/mpfr/mpc dependencies were removed from
+# the tree (clang/LLVM-only toolchain); see docs/THIRD_PARTY.md.
 
 #
 # Libraries that depend upon any listed previously
