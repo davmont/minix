@@ -280,6 +280,8 @@
 ./usr/share/calendar
 ./usr/share/dhcpd
 ./usr/share/doc
+./usr/share/doc/fonts
+./usr/share/doc/fonts/dejavu
 ./usr/share/doc/psd
 ./usr/share/doc/reference
 ./usr/share/doc/reference/ref1
@@ -309,6 +311,8 @@
 ./usr/share/examples/openssl
 ./usr/share/examples/rtadvd
 ./usr/share/examples/tmux
+./usr/share/fonts
+./usr/share/fonts/TTF
 ./usr/share/games
 ./usr/share/games/fortune
 ./usr/share/i18n

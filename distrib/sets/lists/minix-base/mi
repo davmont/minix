@@ -1257,6 +1257,9 @@
 ./usr/share/calendar/calendar.netbsd                    minix-base
 ./usr/share/calendar/calendar.usholiday                 minix-base
 ./usr/share/doc                                         minix-base
+./usr/share/doc/fonts					minix-base
+./usr/share/doc/fonts/dejavu				minix-base
+./usr/share/doc/fonts/dejavu/LICENSE			minix-base
 ./usr/share/doc/html                                    minix-base      obsolete
 ./usr/share/doc/html/bzip2                              minix-base      obsolete
 ./usr/share/doc/html/bzip2/manual.html                  minix-base      obsolete
@@ -1352,6 +1355,10 @@
 ./usr/share/examples/rtadvd/rtadvd.conf                 minix-base      use_inet6
 ./usr/share/examples/tmux                               minix-base
 ./usr/share/examples/tmux/screen-keys.conf              minix-base
+./usr/share/fonts					minix-base
+./usr/share/fonts/TTF					minix-base
+./usr/share/fonts/TTF/DejaVuSans.ttf			minix-base
+./usr/share/fonts/TTF/DejaVuSansMono.ttf		minix-base
 ./usr/share/i18n                                        minix-base      nls
 ./usr/share/i18n/csmapper                               minix-base      nls
 ./usr/share/i18n/csmapper/APPLE                         minix-base      nls

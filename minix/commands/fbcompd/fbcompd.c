@@ -225,7 +225,7 @@ drop_client(int slot)
  * compositor runs without title text; override with argv[1] or the
  * FBCOMPD_FONT environment variable to get titles.
  */
-#define FBCOMPD_FONT_DEFAULT	"/usr/share/fonts/TTF/font.ttf"
+#define FBCOMPD_FONT_DEFAULT	"/usr/share/fonts/TTF/DejaVuSansMono.ttf"
 
 int
 main(int argc, char **argv)

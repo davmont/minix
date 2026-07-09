@@ -63,12 +63,14 @@ UEFI-booted MINIX, bring up the framebuffer and run the compositor:
 
 ```
 minix-service up /service/fb -dev /dev/fb0
-FBCOMPD_FONT=/path/to/font.ttf /usr/bin/fbcompd &   # font optional
+/usr/bin/fbcompd &
 ```
 
-`fbcompd` takes an optional font path as `argv[1]` or from
-`$FBCOMPD_FONT`; base ships no TTF, so without one it runs with
-titleless windows.
+`fbcompd` renders window titles with
+`/usr/share/fonts/TTF/DejaVuSansMono.ttf` (installed by the
+`external/bsd/dejavu` font package) by default; pass a different font
+as `argv[1]` or via `$FBCOMPD_FONT`.  If no font is found it still
+runs, just with titleless windows.
 
 ## The example clients
 

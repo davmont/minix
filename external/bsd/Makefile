@@ -3,7 +3,7 @@
 .include <bsd.own.mk>
 
 #MINIX: BIND 9.10 retired in favor of BIND 9.18 at external/mpl/bind.
-SUBDIR=	byacc dhcpcd \
+SUBDIR=	byacc dejavu dhcpcd \
 	fetch file flex less \
 	libarchive libevent libpcap mdocml \
 	openresolv tcpdump tmux top
