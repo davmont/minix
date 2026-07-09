@@ -68,32 +68,29 @@ file_os2_apptype(struct magic_set *ms, const char *fn, const void *buf,
 		}
 		filename = strdup(tname);
 	}
-	/* qualify the filename to prevent extraneous searches */
-	_splitpath(filename, drive, dir, fname, ext);
-	(void)snprintf(path, sizeof(path), "%s%s%s%s", drive,
-		(*dir == '\0') ? "./" : dir,
-		fname,
-		(*ext == '\0') ? "." : ext);
-
 	if (fn == NULL) {
 		if ((fp = fdopen(tfd, "wb")) == NULL) {
-			file_error(ms, errno, "cannot open tmp file `%s'", path);
+			file_error(ms, errno, "cannot open tmp file `%s'", filename);
 			close(tfd);
 			return -1;
 		}
 		if (fwrite(buf, 1, nb, fp) != nb) {
-			file_error(ms, errno, "cannot write tmp file `%s'",
-			    path);
+			file_error(ms, errno, "cannot write tmp file `%s'", filename);
 			(void)fclose(fp);
 			return -1;
 		}
 		(void)fclose(fp);
-	}
-	rc = DosQueryAppType((unsigned char *)path, &type);
-
-	if (fn == NULL) {
-		unlink(path);
+		rc = DosQueryAppType((unsigned char *)filename, &type);
+		unlink(filename);
 		free(filename);
+	} else {
+		/* qualify the filename to prevent extraneous searches */
+		_splitpath(filename, drive, dir, fname, ext);
+		(void)snprintf(path, sizeof(path), "%s%s%s%s", drive,
+			(*dir == '\0') ? "./" : dir,
+			fname,
+			(*ext == '\0') ? "." : ext);
+		rc = DosQueryAppType((unsigned char *)path, &type);
 	}
 #if 0
 	if (rc == ERROR_INVALID_EXE_SIGNATURE)
