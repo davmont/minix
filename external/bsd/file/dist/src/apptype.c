@@ -72,11 +72,15 @@ file_os2_apptype(struct magic_set *ms, const char *fn, const void *buf,
 		if ((fp = fdopen(tfd, "wb")) == NULL) {
 			file_error(ms, errno, "cannot open tmp file `%s'", filename);
 			close(tfd);
+			unlink(filename);
+			free(filename);
 			return -1;
 		}
 		if (fwrite(buf, 1, nb, fp) != nb) {
 			file_error(ms, errno, "cannot write tmp file `%s'", filename);
 			(void)fclose(fp);
+			unlink(filename);
+			free(filename);
 			return -1;
 		}
 		(void)fclose(fp);
