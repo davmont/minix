@@ -687,8 +687,8 @@ fork+COW / self-overcommit, not b1_val, to gauge the compressor.
 # Phase C: disk-backed swap (compressed-blob writeback)
 
 Status: **C0 (swap-store substrate, PR #299) merged; C1 (async block
-I/O + device config) done and round-trip validated at -smp 2/4.** Design
-below.
+I/O + device config, PR #300) merged; C2+C3 (write-back + read-in) done
+in `swappage.c`.** Design below.
 
 ## Goal
 
@@ -778,13 +778,28 @@ a device offset -- no filesystem in the path.
   slot 0 and reads it back (round-trip correctness).  De-risked the
   hardest part.  Validated at -smp 2/4: `swaptest`==1 (byte-exact
   round-trip on a real IDE disk), no VM wedge.
-- **C2: writeback.**  Below a deep pool watermark (or when a full RAM
-  pool would otherwise reject a store), pick cold RAM blobs and write
-  them to swap slots (async), converting their handle RAM->disk and
-  freeing the RAM pool slot.  Reuses B2 coldness.
-- **C3: read-in.**  `anon_pagefault` on a disk-tagged compressed block
-  issues an async swap read (SUSPEND + callback, like `mem_file`), then
-  decompresses and materializes; frees the swap slot.
+- **C2 + C3 (done together): writeback + read-in.**  These ship as one
+  unit because a written-back page is unusable without read-in (a fault
+  on a disk-tagged handle must resolve).  Both live in `swappage.c`, a
+  small scheduler over the single `swapio` channel with a fixed pool of
+  pre-reserved staging frames (jobs), so write-back and several read-ins
+  can queue and complete in turn without ever allocating on the hot path.
+  - **Write-back (C2):** `swapout_tick()` (called from the proactive
+    reclaim path in `alloc.c`, i.e. only while below the low free-memory
+    watermark) spills when the RAM pool exceeds `WB_POOL_HIGH` pages.
+    `map_find_compressed_ram_page()` picks a RAM-resident compressed
+    block; its blob is staged and written async; on completion the RAM
+    slot is freed and the handle flipped RAM->disk.  A page faulted or
+    freed mid-write cancels the write-back (`swapout_cancel_pb`); an
+    in-flight block is never re-selected (`swapout_pb_busy`).
+  - **Read-in (C3):** `anon_pagefault` on a disk-tagged block calls
+    `anon_swapin_start`, which queues an async read and returns SUSPEND;
+    the completion decompresses into the fault's frame, re-looks-up the
+    block by `(ep,vaddr)` and commits it (dropping the read if the
+    process died), frees the swap slot, and resumes the faulter via the
+    saved callback (`pf_cont` -> retry -> resident -> wake).  A
+    synchronous internal fault (`cb == NULL`) on a disk page returns
+    EFAULT (rare; the retry after a read-in sees the page resident).
 - **C4: tooling + validation.**  `swapon`/`swapoff` (configure a
   partition as swap); validate that an unbounded-anon workload that
   OOM-panics today now survives by swapping until swap is also

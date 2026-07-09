@@ -258,7 +258,12 @@ do_swapon(message *m)
 	int r;
 
 	r = swapio_configure_ep(drv, minor, nslots);
-	if (r == OK)
+	if (r == OK) {
+		/* Reserve the write-back / read-in staging frames now, while
+		 * the system is healthy -- never under memory pressure. */
+		if ((r = swappage_init()) != OK)
+			return r;
 		swapio_selftest_start();
+	}
 	return r;
 }

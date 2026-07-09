@@ -60,9 +60,17 @@ static int anon_unreference(struct phys_region *pr)
 	if(pr->ph->phys != MAP_NONE)
 		free_mem(ABS2CLICK(pr->ph->phys), 1);
 	else if(pr->ph->flags & PBF_COMPRESSED) {
-		/* Contents live in the zstore; the process is going away
-		 * (exit/unmap), so just drop the blob. */
-		zstore_free(pr->ph->pb_zref);
+		/* Contents live in the store; the process is going away
+		 * (exit/unmap), so just drop the blob - from disk (phase C)
+		 * or RAM.  For a RAM blob, cancel any in-flight write-back of
+		 * it first so its completion does not touch the freed slot. */
+		if(swapstore_handle_is_disk(pr->ph->pb_zref)) {
+			swapstore_slot_free(
+				swapstore_handle_to_slot(pr->ph->pb_zref));
+		} else {
+			swapout_cancel_pb(pr->ph);
+			zstore_free(pr->ph->pb_zref);
+		}
 		USE(pr->ph,
 			pr->ph->flags &= ~PBF_COMPRESSED;
 			pr->ph->pb_zref = NULL;);
@@ -93,10 +101,30 @@ static int anon_pagefault(struct vmproc *vmp, struct vir_region *region,
 	 */
 	if(ph->ph->phys == MAP_NONE) {
 		if(ph->ph->flags & PBF_COMPRESSED) {
-			/* Decompress the blob straight into the freshly
+			/* On the swap disk (phase C3)?  Read it back
+			 * asynchronously: suspend the fault now and resume it
+			 * from the swapio completion.  A synchronous caller
+			 * (cb == NULL, e.g. the fault-retry) cannot suspend -
+			 * but after a read-in the page is resident, so the
+			 * retry never reaches here. */
+			if(swapstore_handle_is_disk(ph->ph->pb_zref)) {
+				if(cb == NULL) {
+					free_mem(new_page_cl, 1);
+					printf("anon_pagefault: swap-in needs "
+						"async callback\n");
+					return EFAULT;
+				}
+				return anon_swapin_start(vmp, region, ph, write,
+					cb, state, len, io, new_page,
+					new_page_cl);
+			}
+
+			/* RAM blob: cancel any in-flight write-back of this
+			 * page, then decompress straight into the freshly
 			 * allocated frame via sys_abscopy (inside
 			 * zstore_get_phys) - no per-fault VM mapping or
 			 * TLB flush. */
+			swapout_cancel_pb(ph->ph);
 			zstore_get_phys(ph->ph->pb_zref, new_page);
 			USE(ph->ph,
 				ph->ph->flags &= ~PBF_COMPRESSED;

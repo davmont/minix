@@ -268,16 +268,15 @@ int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 	assert(!(pr->offset % VM_PAGE_SIZE));
 	assert(pb->refcount > 0);
 
-	/* A block whose contents live in the zstore (compressed out;
-	 * phase B) has no physical page: there is nothing to map, and
-	 * writing a PTE for MAP_NONE would create a present mapping to
-	 * a bogus frame.  The page faults in (and decompresses) on
-	 * first access, exactly like a never-materialized page.
+	/* A block with no physical page: nothing to map, and writing a PTE
+	 * for MAP_NONE would create a present mapping to a bogus frame.  It
+	 * faults in on first access - decompressing from the zstore if it was
+	 * compressed out (phase B), or zero-filling if the reclaimer dropped
+	 * an all-zero page back to demand-zero (ZSTORE_ZERO), exactly like a
+	 * never-materialized page.  Both are handled by anon_pagefault().
 	 */
-	if(pb->phys == MAP_NONE) {
-		assert(pb->flags & PBF_COMPRESSED);
+	if(pb->phys == MAP_NONE)
 		return OK;
-	}
 
 	if(pr_writable(vr, pr))
 		flags |= PTF_WRITE;
@@ -1819,4 +1818,75 @@ int map_compress_anon_pages(int target, int cold_only)
 	nextproc = (nextproc + 1) % VMP_NR;
 
 	return freed;
+}
+
+/*===========================================================================*
+ *				map_find_compressed_ram_page		     *
+ *===========================================================================*/
+/*
+ * Find one anonymous page whose contents are a RAM-resident compressed
+ * blob (PBF_COMPRESSED, not resident, handle not yet on disk), for the
+ * phase-C2 writeback path to spill to the swap device.  Returns its
+ * phys_block (whose pb_zref is the RAM blob handle), or NULL if none.
+ * Bounded round-robin walk, like map_compress_anon_pages().  No PTE work
+ * here: the page is already non-resident, so writeback is a pure store
+ * migration (RAM blob -> disk slot) and shared (refcount > 1) blobs are
+ * fine.
+ */
+struct phys_block *
+map_find_compressed_ram_page(void)
+{
+	static int nextproc = 0;
+	int p, i, visited = 0;
+	const int maxvisit = 4096;
+
+	for (p = 0; p < VMP_NR; p++) {
+		struct vmproc *vmp = &vmproc[(nextproc + p) % VMP_NR];
+		region_iter r_iter;
+		struct vir_region *region;
+
+		if (!(vmp->vm_flags & VMF_INUSE))
+			continue;
+		if (vmp->vm_flags & VMF_EXITING)
+			continue;
+		if (!acl_is_user_proc(vmp))
+			continue;
+
+		region_start_iter_least(&vmp->vm_regions_avl, &r_iter);
+		while ((region = region_get_iter(&r_iter)) != NULL &&
+		    visited < maxvisit) {
+			int slots = phys_slot(region->length);
+
+			region_incr_iter(&r_iter);
+
+			if (region->def_memtype != &mem_type_anon)
+				continue;
+
+			for (i = 0; i < slots && visited < maxvisit; i++) {
+				struct phys_region *pr;
+				struct phys_block *pb;
+
+				if (!(pr = physblock_get(region,
+				    i * VM_PAGE_SIZE)))
+					continue;
+				visited++;
+				pb = pr->ph;
+				if (pb->phys != MAP_NONE)
+					continue;
+				if (!(pb->flags & PBF_COMPRESSED))
+					continue;
+				if (swapstore_handle_is_disk(pb->pb_zref))
+					continue;
+				if (swapout_pb_busy(pb))
+					continue;	/* write-back in flight */
+
+				/* Advance the cursor so the next call starts
+				 * past this process, spreading the walk. */
+				nextproc = ((nextproc + p) % VMP_NR + 1) % VMP_NR;
+				return pb;
+			}
+		}
+	}
+
+	return NULL;
 }

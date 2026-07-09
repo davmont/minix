@@ -135,6 +135,11 @@ swapstore_get_stats(unsigned long *total, unsigned long *used,
 	*out = swap_out_total;
 }
 
+/* Accounting: bumped when a blob is written to (C2) or read back from (C3)
+ * the swap device, on I/O completion. */
+void swapstore_count_out(void) { swap_out_total++; }
+void swapstore_count_in(void)  { swap_in_total++; }
+
 /*
  * Configure the swap area with 'nslots' 4 KB slots (phase C1): allocate
  * and zero the slot bitmap.  Called once at swapon time.  Returns OK or

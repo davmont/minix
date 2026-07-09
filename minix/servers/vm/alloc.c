@@ -83,6 +83,16 @@ static int below_low_watermark = 0;		/* hysteresis state */
 #define RECLAIM_WATER_LOW \
 	((unsigned long)(total_pages / 100 > 512 ? total_pages / 100 : 512))
 #define RECLAIM_WATER_HIGH	(2 * RECLAIM_WATER_LOW)
+/* Critical watermark: below this, free is about to hit zero and the
+ * hard-failure compressor can no longer bootstrap (storing a compressed
+ * blob needs a zstore pool page, and growing the pool needs a free page).
+ * While critical we proactively compress ANY anonymous page - not just
+ * cold ones - on every allocation, unlatched, so the pool grows and RAM
+ * frees while pages still remain.  Each compressed page nets positive
+ * (frees ~4 KB, spends ~1 KB of pool), so free recovers above the
+ * critical band and never reaches the deadlock point.  This is what makes
+ * anonymous overcommit reach disk swap (phase C2/C3) instead of ENOMEM. */
+#define RECLAIM_WATER_CRIT	(RECLAIM_WATER_LOW / 2)
 #define RECLAIM_BATCH_MAX	4096	/* pages (16 MB) per reclaim batch */
 #define RECLAIM_COMPRESS_MAX	512	/* cap for a proactive compress batch
 					 * (B2): compression costs CPU per
@@ -616,7 +626,24 @@ static phys_bytes alloc_pages(int pages, int memflags)
 				batch = RECLAIM_COMPRESS_MAX;
 			cache_freepages(batch, 2 /*compress cold*/);
 		}
+
 	}
+
+	/* Critical watermark (RECLAIM_DESIGN.md, phase C forward progress):
+	 * when free is critically low, compress ANY anonymous page into the
+	 * zstore now, regardless of the accessed bit and regardless of the
+	 * once-per-episode low-watermark latch.  Unlike the cold-only
+	 * proactive pass above, this guarantees the pool is populated and RAM
+	 * is freed while pages still remain to grow the pool - so a large
+	 * MAP_PREALLOC / sustained anonymous allocation never reaches the
+	 * free==0 point where the hard-failure compressor cannot bootstrap.
+	 * cache_freepages()'s busy guard makes the nested pool-page
+	 * allocations here safe against recursion; mode 1 (evict + compress
+	 * cold-then-any) takes hot pages in its second pass.  The batch is
+	 * bounded and the branch self-limits: one batch frees more than it
+	 * spends, lifting free back above the critical band. */
+	if(free_page_count < RECLAIM_WATER_CRIT)
+		cache_freepages(RECLAIM_COMPRESS_MAX, 1 /*evict + compress any*/);
 
 	if(memflags & PAF_CLEAR) {
 		int s;
@@ -626,6 +653,17 @@ static phys_bytes alloc_pages(int pages, int memflags)
 	}
 
 	return mem;
+}
+
+/*===========================================================================*
+ *				vm_reclaim_active			     *
+ *===========================================================================*/
+/* True while free memory is below the low watermark (a reclaim episode is in
+ * progress).  VM's main loop uses this to drive phase-C2 swap write-back off
+ * the hot allocation path. */
+int vm_reclaim_active(void)
+{
+	return below_low_watermark;
 }
 
 /*===========================================================================*

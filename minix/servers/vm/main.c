@@ -132,6 +132,14 @@ int main(void)
 		alloc_cycle();	/* mem alloc code wants to be called */
 	}
 
+	/* C2 (RECLAIM_DESIGN.md): while under memory pressure, spill cold
+	 * compressed blobs from the RAM pool to the swap device.  Driven from
+	 * the main loop -- a clean context for issuing async block I/O -- not
+	 * from inside the allocator.  A no-op without a swap device or below
+	 * the write-back watermark. */
+	if(vm_reclaim_active())
+		swapout_tick();
+
   	if ((r=sef_receive_status(ANY, &msg, &rcv_sts)) != OK)
 		panic("sef_receive_status() error: %d", r);
 

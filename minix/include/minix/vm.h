@@ -58,6 +58,9 @@ struct vm_stats_info {
   unsigned long vsi_zin;	     /* pages compressed out (total) */
   unsigned long vsi_zout;	     /* pages decompressed back (total) */
   unsigned long vsi_swaptest;	     /* C1 swap round-trip self-test result */
+  unsigned long vsi_swapused;	     /* swap slots in use (blobs on disk) */
+  unsigned long vsi_swapin;	     /* blobs read back from disk (total) */
+  unsigned long vsi_swapout;	     /* blobs written to disk (total) */
 };
 
 struct vm_usage_info {
