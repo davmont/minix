@@ -3381,6 +3381,62 @@
 ./usr/lib/libperfuse_p.a			comp-perfuse-proflib	compatfile,profile
 ./usr/lib/libposix.a				comp-c-lib		compatfile
 ./usr/lib/libpixman-1.a			comp-c-lib		compatfile
+./usr/include/freetype2/ft2build.h			comp-c-include
+./usr/include/freetype2/freetype/freetype.h		comp-c-include
+./usr/include/freetype2/freetype/ftadvanc.h		comp-c-include
+./usr/include/freetype2/freetype/ftbbox.h		comp-c-include
+./usr/include/freetype2/freetype/ftbdf.h		comp-c-include
+./usr/include/freetype2/freetype/ftbitmap.h		comp-c-include
+./usr/include/freetype2/freetype/ftbzip2.h		comp-c-include
+./usr/include/freetype2/freetype/ftcache.h		comp-c-include
+./usr/include/freetype2/freetype/ftchapters.h		comp-c-include
+./usr/include/freetype2/freetype/ftcid.h		comp-c-include
+./usr/include/freetype2/freetype/ftcolor.h		comp-c-include
+./usr/include/freetype2/freetype/ftdriver.h		comp-c-include
+./usr/include/freetype2/freetype/fterrdef.h		comp-c-include
+./usr/include/freetype2/freetype/fterrors.h		comp-c-include
+./usr/include/freetype2/freetype/ftfntfmt.h		comp-c-include
+./usr/include/freetype2/freetype/ftgasp.h		comp-c-include
+./usr/include/freetype2/freetype/ftglyph.h		comp-c-include
+./usr/include/freetype2/freetype/ftgxval.h		comp-c-include
+./usr/include/freetype2/freetype/ftgzip.h		comp-c-include
+./usr/include/freetype2/freetype/ftimage.h		comp-c-include
+./usr/include/freetype2/freetype/ftincrem.h		comp-c-include
+./usr/include/freetype2/freetype/ftlcdfil.h		comp-c-include
+./usr/include/freetype2/freetype/ftlist.h		comp-c-include
+./usr/include/freetype2/freetype/ftlogging.h		comp-c-include
+./usr/include/freetype2/freetype/ftlzw.h		comp-c-include
+./usr/include/freetype2/freetype/ftmac.h		comp-c-include
+./usr/include/freetype2/freetype/ftmm.h		comp-c-include
+./usr/include/freetype2/freetype/ftmodapi.h		comp-c-include
+./usr/include/freetype2/freetype/ftmoderr.h		comp-c-include
+./usr/include/freetype2/freetype/ftotval.h		comp-c-include
+./usr/include/freetype2/freetype/ftoutln.h		comp-c-include
+./usr/include/freetype2/freetype/ftparams.h		comp-c-include
+./usr/include/freetype2/freetype/ftpfr.h		comp-c-include
+./usr/include/freetype2/freetype/ftrender.h		comp-c-include
+./usr/include/freetype2/freetype/ftsizes.h		comp-c-include
+./usr/include/freetype2/freetype/ftsnames.h		comp-c-include
+./usr/include/freetype2/freetype/ftstroke.h		comp-c-include
+./usr/include/freetype2/freetype/ftsynth.h		comp-c-include
+./usr/include/freetype2/freetype/ftsystem.h		comp-c-include
+./usr/include/freetype2/freetype/fttrigon.h		comp-c-include
+./usr/include/freetype2/freetype/fttypes.h		comp-c-include
+./usr/include/freetype2/freetype/ftwinfnt.h		comp-c-include
+./usr/include/freetype2/freetype/otsvg.h		comp-c-include
+./usr/include/freetype2/freetype/t1tables.h		comp-c-include
+./usr/include/freetype2/freetype/ttnameid.h		comp-c-include
+./usr/include/freetype2/freetype/tttables.h		comp-c-include
+./usr/include/freetype2/freetype/tttags.h		comp-c-include
+./usr/include/freetype2/freetype/config/ftconfig.h	comp-c-include
+./usr/include/freetype2/freetype/config/ftheader.h	comp-c-include
+./usr/include/freetype2/freetype/config/ftmodule.h	comp-c-include
+./usr/include/freetype2/freetype/config/ftoption.h	comp-c-include
+./usr/include/freetype2/freetype/config/ftstdlib.h	comp-c-include
+./usr/include/freetype2/freetype/config/integer-types.h	comp-c-include
+./usr/include/freetype2/freetype/config/mac-support.h	comp-c-include
+./usr/include/freetype2/freetype/config/public-macros.h	comp-c-include
+./usr/lib/libfreetype.a				comp-c-lib		compatfile
 ./usr/lib/libposix_p.a				comp-c-proflib		compatfile,profile
 ./usr/lib/libppath.a				comp-c-lib		compatfile
 ./usr/lib/libppath_p.a				comp-c-proflib		compatfile,profile

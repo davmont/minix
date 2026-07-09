@@ -1,0 +1,3 @@
+# MINIX: freetype ABI soname is libfreetype.so.6 (stable since 2.x).
+major=6
+minor=0

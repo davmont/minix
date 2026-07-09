@@ -178,6 +178,9 @@
 ./usr/include/dev
 ./usr/include/dev/pci
 ./usr/include/event2
+./usr/include/freetype2
+./usr/include/freetype2/freetype
+./usr/include/freetype2/freetype/config
 ./usr/include/fs
 ./usr/include/g++
 ./usr/include/gssapi

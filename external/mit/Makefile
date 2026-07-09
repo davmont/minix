@@ -2,6 +2,6 @@
 
 .include <bsd.own.mk>
 
-SUBDIR+=	expat lua pixman
+SUBDIR+=	expat lua pixman freetype
 
 .include <bsd.subdir.mk>

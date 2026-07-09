@@ -2211,6 +2211,7 @@
 ./usr/lib/libexpat.a                                    minix-comp
 ./usr/lib/libexpat_pic.a                                minix-comp
 ./usr/lib/libpixman-1_pic.a                             minix-comp
+./usr/lib/libfreetype_pic.a                             minix-comp
 ./usr/lib/libfetch.a                                    minix-comp
 ./usr/lib/libfetch_pic.a                                minix-comp
 ./usr/lib/libfl.a                                       minix-comp
