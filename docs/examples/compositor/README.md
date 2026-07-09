@@ -25,18 +25,22 @@ proof that MINIX can run a Wayland-style compositor without X.
   works out of the box.
 - **Protocol over an AF_UNIX socket** (`/tmp/fbcomp.sock`): fixed-size
   `struct fbc_msg` (`fbcomp_proto.h`). Client→server: CREATE_WINDOW,
-  COMMIT (damaged sub-rect), SET_TITLE, DESTROY. Server→client:
-  CONFIGURE (new position), MOUSE (window-relative pointer + buttons).
+  COMMIT (damaged sub-rect), SET_SURFACE (replacement shmid after a
+  resize), DESTROY. Server→client: CONFIGURE (new position and current
+  size — a changed size asks the client to reallocate its surface),
+  MOUSE (window-relative pointer + buttons), CLOSED.
 - **Compositor** (`fbcompd.c`): `select()`s over the listen socket, all
   client fds, and `/dev/mousemux`. Each frame it composites the desktop,
   every window (title bar + title text via FreeType, then the client's
   shm surface), and the cursor into the `libfbgui` back buffer, and
   presents with damage tracking so only changed rows hit the
   framebuffer. Left-button-down on a title bar raises and drags that
-  window; clicks inside a window forward MOUSE events to its client.
+  window; dragging the bottom-right grip resizes it; clicks inside a
+  window forward MOUSE events to its client.
 - **Client helper** (`fbclient.c/.h`): `fbc_connect`, `fbc_create_window`
   (shmget+shmat+CREATE_WINDOW → a pixel buffer to draw into),
-  `fbc_commit`, `fbc_poll`.
+  `fbc_commit`, `fbc_resize` (reallocate the surface on a resize
+  CONFIGURE), `fbc_poll`.
 
 ## Validated
 
@@ -100,6 +104,12 @@ processes.
   each surface, refreshed only when the client `FBC_COMMIT`s — a client
   redrawing mid-frame cannot tear.
 - **Drag**: left-drag on a title bar moves a window.
+- **Resize**: each window has a small grip at its bottom-right corner;
+  left-drag it to resize. The compositor sends the target size in an
+  `FBC_CONFIGURE`; the client reallocates its shm surface via
+  `fbc_resize()`, repaints, and replies with `FBC_SET_SURFACE` carrying
+  the new shmid — the compositor adopts it (classic request/ack, no
+  pixels on the socket). Both example clients repaint at the new size.
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 
@@ -109,6 +119,6 @@ processes.
   console TTY owns the keyboard (`pckbd` → input server → kbdmux → TTY),
   so a GUI grabbing it needs TTY/input-server changes, not a userland
   fix.
-- Window resize and minimise; damage-limited recomposite (today a
-  commit recomposites the whole scene).
+- Minimise/maximise; damage-limited recomposite (today a commit
+  recomposites the whole scene).
 - A resource/font story (base ships no TTF — a font package is needed).

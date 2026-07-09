@@ -20,8 +20,10 @@ enum {
 	FBC_CREATE_WINDOW = 1,	/* w,h,shmid,title -> a new window */
 	FBC_COMMIT,		/* x,y,w,h = damaged sub-rect of the surface */
 	FBC_DESTROY,
+	FBC_SET_SURFACE,	/* shmid,w,h = replacement surface after a resize */
 	/* server -> client */
-	FBC_CONFIGURE = 100,	/* x,y = new top-left of the window on screen */
+	FBC_CONFIGURE = 100,	/* x,y = position; w,h = current size (client
+				 * reallocates its surface if w,h changed) */
 	FBC_MOUSE,		/* x,y = pointer in window coords, buttons bitmap */
 	FBC_CLOSED
 };

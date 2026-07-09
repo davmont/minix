@@ -22,8 +22,15 @@ int  fbc_create_window(int fd, int w, int h, const char *title, fbc_win_t *win);
 /* Push a damaged sub-rectangle (x,y,w,h in surface coords) to the screen. */
 void fbc_commit(fbc_win_t *win, int x, int y, int w, int h);
 
+/* Reallocate the surface to w*h after the compositor asked for a resize (a
+ * FBC_CONFIGURE whose w,h differ from win->w,h).  Allocates a fresh shm
+ * segment, updates win->{shmid,pixels,w,h}, and notifies the compositor.
+ * The new surface is blank - redraw into win->pixels and fbc_commit(). 0/-1. */
+int  fbc_resize(fbc_win_t *win, int w, int h);
+
 /* Non-blocking: if an event is pending, fills *out and returns 1, else 0.
- * out->type is FBC_MOUSE (x,y,buttons) or FBC_CLOSED. */
+ * out->type is FBC_MOUSE (x,y,buttons), FBC_CONFIGURE (x,y,w,h) or
+ * FBC_CLOSED. */
 struct fbc_msg;
 int  fbc_poll(fbc_win_t *win, struct fbc_msg *out);
 

@@ -274,7 +274,7 @@
 ./usr/lib/libexpat.so.2.1			base-sys-shlib		compatfile
 ./usr/lib/libfbclient.so			base-sys-shlib		compatfile
 ./usr/lib/libfbclient.so.1			base-sys-shlib		compatfile
-./usr/lib/libfbclient.so.1.0			base-sys-shlib		compatfile
+./usr/lib/libfbclient.so.1.1			base-sys-shlib		compatfile
 ./usr/lib/libfbgui.so				base-sys-shlib		compatfile
 ./usr/lib/libfbgui.so.1				base-sys-shlib		compatfile
 ./usr/lib/libfbgui.so.1.0			base-sys-shlib		compatfile

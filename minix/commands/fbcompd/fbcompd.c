@@ -4,11 +4,12 @@
  * socket.  Each client draws x8r8g8b8 pixels into a SysV shm segment and
  * commits; the compositor attaches the segment, composites all windows
  * (with a title bar + title) plus a cursor into the libfbgui back buffer,
- * and presents.  Left-drag on a title bar moves a window; a click in a
- * window body is forwarded to that client.
+ * and presents.  Left-drag on a title bar moves a window; left-drag on the
+ * bottom-right grip resizes it (the client reallocates its surface); a click
+ * in a window body is forwarded to that client.
  *
- * Proof of concept, not a service: single back buffer, no resize, no
- * keyboard routing.  See README.md.
+ * Proof of concept, not a service: single back buffer, no keyboard routing.
+ * See README.md.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -29,6 +30,9 @@
 #define MAXCLI		16
 #define TITLEH		22
 #define CLOSEW		TITLEH		/* square close box at the title-bar right */
+#define RESIZEW		14		/* square resize grip at the bottom-right */
+#define MINW		80		/* smallest window the grip can shrink to */
+#define MINH		48
 #define CURW		12
 #define CURH		19
 
@@ -56,6 +60,7 @@ static const pixman_color_t c_tbar  = { 0x2000, 0x3000, 0x6000, 0xffff }; /* unf
 static const pixman_color_t c_tfocus= { 0x2800, 0x5000, 0xf000, 0xffff }; /* focused */
 static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_close = { 0xd000, 0x2800, 0x2800, 0xffff }; /* close box */
+static const pixman_color_t c_grip  = { 0xa000, 0xa000, 0xb000, 0xffff }; /* resize grip */
 static const pixman_color_t c_cur   = { 0xf000, 0xf000, 0xf000, 0xffff };
 
 static void
@@ -80,6 +85,9 @@ recomposite(void)
 		    &c_ttext, 14);
 		pixman_image_composite32(PIXMAN_OP_SRC, w->img, NULL, back,
 		    0, 0, 0, 0, w->x, w->y + TITLEH, w->w, w->h);
+		/* Resize grip at the bottom-right corner of the surface. */
+		fbgui_fill_rect(G, &c_grip, w->x + w->w - RESIZEW,
+		    w->y + TITLEH + w->h - RESIZEW, RESIZEW, RESIZEW);
 	}
 	fbgui_fill_rect(G, &c_cur, cx, cy, CURW, CURH);
 }
@@ -197,6 +205,65 @@ in_close_box(const struct win *w, int sx, int sy)
 	    sy >= w->y && sy < w->y + TITLEH;
 }
 
+/* True if (sx,sy) is inside a window's bottom-right resize grip. */
+static int
+in_grip(const struct win *w, int sx, int sy)
+{
+	int gx = w->x + w->w - RESIZEW;
+	int gy = w->y + TITLEH + w->h - RESIZEW;
+	return sx >= gx && sx < w->x + w->w &&
+	    sy >= gy && sy < w->y + TITLEH + w->h;
+}
+
+/* Adopt a client's replacement surface after a resize (FBC_SET_SURFACE). The
+ * new shm segment is attached read-only and our buffered copy is grown to fit;
+ * geometry (x,y) is preserved.  Leaves the window intact on any failure. */
+static void
+resize_surface(int fd, const struct fbc_msg *m)
+{
+	struct win *w = win_by_fd(fd);
+	void *p;
+	uint32_t *nbuf;
+	pixman_image_t *nimg;
+	size_t bytes;
+
+	if (w == NULL || m->w <= 0 || m->h <= 0 ||
+	    m->w > 4096 || m->h > 4096)
+		return;
+	bytes = (size_t)m->w * m->h * 4;
+	if ((p = shmat(m->shmid, NULL, SHM_RDONLY)) == (void *)-1) {
+		fprintf(lg, "resize shmat(%d): %s\n", m->shmid, strerror(errno));
+		return;
+	}
+	if ((nbuf = malloc(bytes)) == NULL) {
+		(void)shmdt(p);
+		fprintf(lg, "resize oom\n");
+		return;
+	}
+	memcpy(nbuf, p, bytes);
+	nimg = pixman_image_create_bits(PIXMAN_x8r8g8b8, m->w, m->h, nbuf,
+	    m->w * 4);
+	if (nimg == NULL) {
+		free(nbuf);
+		(void)shmdt(p);
+		return;
+	}
+	/* Swap in the new surface, releasing the old one. */
+	if (w->img != NULL)
+		pixman_image_unref(w->img);
+	if (w->pix != NULL)
+		(void)shmdt(w->pix);
+	free(w->buf);
+	w->pix = (uint32_t *)p;
+	w->buf = nbuf;
+	w->img = nimg;
+	w->shmid = m->shmid;
+	w->w = m->w;
+	w->h = m->h;
+	fprintf(lg, "resize '%s' -> %dx%d shmid=%d\n", w->title, m->w, m->h,
+	    m->shmid);
+}
+
 /* Tell the client its window is gone, then drop it. */
 static void
 close_win(struct win *w)
@@ -232,7 +299,7 @@ main(int argc, char **argv)
 {
 	struct sockaddr_un sa;
 	const char *font;
-	int lfd, mfd, i, dragging = -1, btn = 0;
+	int lfd, mfd, i, dragging = -1, resizing = -1, btn = 0;
 	fd_set rf;
 
 	lg = fopen("/tmp/COMP", "w");
@@ -312,6 +379,9 @@ main(int argc, char **argv)
 			case FBC_DESTROY:
 				drop_client(i);
 				recomposite(); present_scene(); break;
+			case FBC_SET_SURFACE:
+				resize_surface(fd, &m);
+				recomposite(); present_scene(); break;
 			}
 		}
 
@@ -327,13 +397,18 @@ main(int argc, char **argv)
 			if (ncy > fbgui_height(G)-2) ncy = fbgui_height(G)-2;
 
 			if (btn & 1) {
-				if (dragging < 0) {
+				if (dragging < 0 && resizing < 0) {
 					w = win_at(ncx, ncy, &topbar);
 					fprintf(lg, "btn-down at %d,%d -> %s topbar=%d\n",
 					    ncx, ncy, w?w->title:"(none)", w?topbar:0);
 					if (w != NULL && in_close_box(w, ncx, ncy)) {
 						fprintf(lg, "CLOSE '%s'\n", w->title);
 						close_win(w);
+						changed = 1;
+					} else if (w != NULL && in_grip(w, ncx, ncy)) {
+						raise_win(win_index(w));
+						resizing = nwin-1;
+						fprintf(lg,"GRAB resize '%s'\n",wins[nwin-1].title);
 						changed = 1;
 					} else if (w != NULL) {
 						raise_win(win_index(w));
@@ -362,12 +437,39 @@ main(int argc, char **argv)
 					cm.type = FBC_CONFIGURE;
 					cm.x = wins[dragging].x;
 					cm.y = wins[dragging].y;
+					/* Send current size so the client does
+					 * not mistake a move for a resize. */
+					cm.w = wins[dragging].w;
+					cm.h = wins[dragging].h;
 					(void)write(wins[dragging].fd, &cm,
 					    sizeof cm);
+					changed = 1;
+				} else if (resizing >= 0 && resizing < nwin) {
+					struct fbc_msg cm;
+					struct win *rw = &wins[resizing];
+					int nw = ncx - rw->x;
+					int nh = ncy - rw->y - TITLEH;
+					if (nw < MINW) nw = MINW;
+					if (nh < MINH) nh = MINH;
+					if (nw > 4096) nw = 4096;
+					if (nh > 4096) nh = 4096;
+					/* Only ask the client to reallocate when
+					 * the target size actually changed. */
+					if (nw != rw->w || nh != rw->h) {
+						memset(&cm, 0, sizeof cm);
+						cm.type = FBC_CONFIGURE;
+						cm.x = rw->x; cm.y = rw->y;
+						cm.w = nw; cm.h = nh;
+						(void)write(rw->fd, &cm,
+						    sizeof cm);
+						fprintf(lg, "RESIZE '%s' -> %dx%d\n",
+						    rw->title, nw, nh);
+					}
 					changed = 1;
 				}
 			} else {
 				dragging = -1;
+				resizing = -1;
 			}
 			if (ncx != cx || ncy != cy || changed) {
 				cx = ncx; cy = ncy;
