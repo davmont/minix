@@ -3,8 +3,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
-#include "fbcomp_proto.h"
-#include "fbclient.h"
+#include <fbcomp_proto.h>
+#include <fbclient.h>
 
 #define W 300
 #define H 180

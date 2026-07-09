@@ -49,25 +49,44 @@ client's window (≈3.8% of the screen changes between before/after
 screendumps) while the other stays put. Cross-process shm attach
 reports `SHM-OK`.
 
-## Building / running
+## Installed components
 
-Not wired into the system build (a PoC). Cross-compile each program
-statically against the in-tree libraries:
+The compositor and its client library are now part of the system:
+
+- **`/usr/bin/fbcompd`** — the compositor program (`minix/commands/fbcompd`).
+- **`libfbclient`** — the client library (`minix/lib/libfbclient`),
+  installed as `/usr/lib/libfbclient.*` with `<fbclient.h>` and
+  `<fbcomp_proto.h>` in `/usr/include`.
+
+Applications link `-lfbclient` and talk to `/usr/bin/fbcompd`. On a
+UEFI-booted MINIX, bring up the framebuffer and run the compositor:
+
+```
+minix-service up /service/fb -dev /dev/fb0
+FBCOMPD_FONT=/path/to/font.ttf /usr/bin/fbcompd &   # font optional
+```
+
+`fbcompd` takes an optional font path as `argv[1]` or from
+`$FBCOMPD_FONT`; base ships no TTF, so without one it runs with
+titleless windows.
+
+## The example clients
+
+`client_hello.c` and `client_clock.c` here are tiny apps written
+against the installed `libfbclient`. Cross-compile them and run against
+the installed compositor:
 
 ```
 CC=<objdir>/ext-tc/bin/x86_64-elf64-minix-clang
 D=<destdir.amd64>
-$CC -O1 -static -D__minix=3 -D_MINIX_SYSTEM=1 -I$D/usr/include/pixman-1 \
-    -I$D/usr/include/freetype2 -I<minix>/minix/lib/libfbgui \
-    -o fbcompd fbcompd.c $D/usr/lib/libfbgui.a $D/usr/lib/libfreetype.a \
-    $D/usr/lib/libpixman-1.a -lm
-# clients link fbclient.c (no fbgui/pixman needed if they plot pixels directly)
-$CC -O1 -static -D__minix=3 -o client_hello client_hello.c fbclient.c
-$CC -O1 -static -D__minix=3 -o client_clock client_clock.c fbclient.c ...
+$CC -O1 -static -D__minix=3 -I$D/usr/include -o client_hello \
+    client_hello.c $D/usr/lib/libfbclient.a
+$CC -O1 -static -D__minix=3 -I$D/usr/include -o client_clock \
+    client_clock.c $D/usr/lib/libfbclient.a
 ```
 
-Ship the binaries + a `.ttf` font to a UEFI-booted MINIX, bring up
-`/service/fb`, and run `run.sh`.
+`run.sh` starts `/usr/bin/fbcompd` and both clients as separate
+processes.
 
 ## Window management
 
@@ -82,8 +101,8 @@ Ship the binaries + a `.ttf` font to a UEFI-booted MINIX, bring up
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 
-- Promote `fbcompd` to a real system service and `fbclient` to an
-  installed `libfbclient` (this is examples-only for now).
+- Start `fbcompd` from an rc script / service so it comes up at boot
+  (it installs to `/usr/bin` now, but nothing launches it yet).
 - Keyboard input + focus routing. This is the one hard piece: the text
   console TTY owns the keyboard (`pckbd` → input server → kbdmux → TTY),
   so a GUI grabbing it needs TTY/input-server changes, not a userland

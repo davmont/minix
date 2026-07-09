@@ -12,6 +12,7 @@ SUBDIR+=	libchardriver
 SUBDIR+=	libddekit
 SUBDIR+=	libdevman
 SUBDIR+=	libexec
+SUBDIR+=	libfbclient
 SUBDIR+=	libfsdriver
 SUBDIR+=	libinputdriver
 SUBDIR+=	liblwip

@@ -281,6 +281,7 @@
 ./usr/libdata/debug/usr/bin/elfedit.debug               minix-debug     debug
 ./usr/libdata/debug/usr/bin/env.debug                   minix-debug     debug
 ./usr/libdata/debug/usr/bin/expand.debug                minix-debug     debug
+./usr/libdata/debug/usr/bin/fbcompd.debug		minix-debug	debug
 ./usr/libdata/debug/usr/bin/fdisk.debug                 minix-debug     debug
 ./usr/libdata/debug/usr/bin/fetch.debug                 minix-debug     debug
 ./usr/libdata/debug/usr/bin/file.debug                  minix-debug     debug

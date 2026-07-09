@@ -374,6 +374,7 @@
 ./usr/bin/ex                                            minix-base
 ./usr/bin/expand                                        minix-base
 ./usr/bin/false                                         minix-base
+./usr/bin/fbcompd					minix-base
 ./usr/bin/fbdctl                                        minix-base      obsolete
 ./usr/bin/fdisk                                         minix-base
 ./usr/bin/fetch                                         minix-base

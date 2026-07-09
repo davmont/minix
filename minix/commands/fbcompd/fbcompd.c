@@ -23,8 +23,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pixman.h>
-#include "fbgui.h"
-#include "fbcomp_proto.h"
+#include <fbgui.h>
+#include <fbcomp_proto.h>
 
 #define MAXCLI		16
 #define TITLEH		22
@@ -220,10 +220,18 @@ drop_client(int slot)
 	fprintf(lg, "client fd=%d gone\n", fd);
 }
 
+/*
+ * Default font path.  MINIX base ships no TTF, so out of the box the
+ * compositor runs without title text; override with argv[1] or the
+ * FBCOMPD_FONT environment variable to get titles.
+ */
+#define FBCOMPD_FONT_DEFAULT	"/usr/share/fonts/TTF/font.ttf"
+
 int
-main(void)
+main(int argc, char **argv)
 {
 	struct sockaddr_un sa;
+	const char *font;
 	int lfd, mfd, i, dragging = -1, btn = 0;
 	fd_set rf;
 
@@ -235,8 +243,13 @@ main(void)
 	if ((G = fbgui_open()) == NULL) {
 		fprintf(lg, "fbgui_open failed (no /dev/fb0?)\n"); return 1;
 	}
-	if (fbgui_load_font(G, "/mnt/font.ttf") != 0)
-		fprintf(lg, "warning: no font\n");
+	if (argc > 1)
+		font = argv[1];
+	else if ((font = getenv("FBCOMPD_FONT")) == NULL)
+		font = FBCOMPD_FONT_DEFAULT;
+	if (fbgui_load_font(G, font) != 0)
+		fprintf(lg, "warning: no font (%s) - windows will be "
+		    "titleless\n", font);
 	cx = fbgui_width(G) / 2; cy = fbgui_height(G) / 2;
 
 	unlink(FBCOMP_SOCK);

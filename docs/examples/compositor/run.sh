@@ -1,10 +1,12 @@
 #!/bin/sh
-# Start the compositor and two independent client processes.
+# Start the installed compositor and two client processes.  A TTF font
+# passed to fbcompd (or via FBCOMPD_FONT) gives window titles; without
+# one the compositor still runs, just titleless.
 minix-service up /service/fb -dev /dev/fb0 >/dev/null 2>&1
-echo "shm check:"; /mnt/shmtest
-/mnt/fbcompd &
+echo "shm check:"; ./shmtest
+FBCOMPD_FONT=${FBCOMPD_FONT:-/mnt/font.ttf} /usr/bin/fbcompd &
 sleep 2
-/mnt/client_hello &
+./client_hello &
 sleep 1
-/mnt/client_clock &
-echo "compositor + 2 clients started"
+./client_clock &
+echo "compositor (/usr/bin/fbcompd) + 2 clients started"

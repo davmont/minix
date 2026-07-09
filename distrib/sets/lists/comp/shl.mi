@@ -41,6 +41,7 @@
 ./usr/lib/libevent_pthreads_pic.a		comp-c-piclib		compatfile,picinstall
 ./usr/lib/libexecinfo_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libexpat_pic.a			comp-c-piclib		compatfile,picinstall
+./usr/lib/libfbclient_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libpixman-1_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfbgui_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfreetype_pic.a			comp-c-piclib		compatfile,picinstall

@@ -9,6 +9,7 @@ SUBDIR=	at backup \
 	DESCRIBE devmand devsize \
 	dhrystone \
 	eject \
+	fbcompd \
 	fix format fsck.mfs \
 	gcov-pull \
 	ifdef \
