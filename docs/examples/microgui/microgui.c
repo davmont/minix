@@ -1,158 +1,237 @@
-/* MINIX micro-GUI PoC: /dev/fb0 + pixman + freetype + /dev/mouse.
- * Desktop with two draggable windows (freetype titles/body), an arrow
- * cursor driven by /dev/mouse relative motion, title-bar drag. Headless-
- * validated: logs input+state to /tmp/GUI and recomposites for screendump. */
-#include <sys/types.h>
-#include <sys/ioctl.h>
+/* MINIX micro-GUI PoC, built on libfbgui.
+ *
+ * A desktop with two draggable windows (FreeType titles/body), an arrow
+ * cursor driven by /dev/mouse relative motion, and title-bar drag.  Uses
+ * libfbgui for the framebuffer, pixman surface, text and mouse input.
+ *
+ * Performance note: the whole scene is recomposited into the off-screen
+ * back buffer on every change (cheap - RAM), but only the changed
+ * rectangles are pushed to /dev/fb0 via fbgui_present() (the expensive
+ * part is the framebuffer device I/O, so minimising it removes the lag).
+ * Each frame logs its bytes-written; compare to a full frame (W*H*4).
+ */
 #include <sys/select.h>
 #include <sys/time.h>
-#include <minix/fb.h>
-#include <sys/ioc_fb.h>
-#include <minix/input.h>
 #include <fcntl.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
-#include <pixman.h>
-#include <ft2build.h>
-#include FT_FREETYPE_H
 
+#include <fbgui.h>
+
+static fbgui_t *G;
+static int W, H;
 static FILE *lg;
-static int W,H,line,fbfd;
-static uint32_t *fbuf; static int stride;
-static pixman_image_t *scene;
-static FT_Library ftlib; static FT_Face face;
 
-/* ---- 12x19 arrow cursor, 1=opaque ---- */
-static const char *arrow[19] = {
+/* ---- 12x19 arrow cursor, X=opaque ---- */
+#define CURW 12
+#define CURH 19
+static const char *arrow[CURH] = {
 "X...........","XX..........","X.X.........","X..X........","X...X.......",
 "X....X......","X.....X.....","X......X....","X.......X...","X........X..",
 "X.....XXXXX.","X..X..X.....","X.X.X.X.....",".XX..X.X....",".X...X.X....",
 "....X...X...","....X...X...",".....X.X....",".....XXX...."};
 
-static void fill_rect(pixman_image_t *d, pixman_color_t *c, int x,int y,int w,int h){
-    pixman_box32_t b={x,y,x+w,y+h};
-    pixman_region32_t r; pixman_region32_init_rects(&r,&b,1);
-    pixman_image_set_clip_region32(d,&r);
-    pixman_image_t *s=pixman_image_create_solid_fill(c);
-    pixman_image_composite32(PIXMAN_OP_SRC,s,NULL,d,0,0,0,0,0,0,W,H);
-    pixman_image_unref(s); pixman_image_set_clip_region32(d,NULL);
-    pixman_region32_fini(&r);
-}
-static void draw_str(pixman_image_t *d,int px,int py,const char*s,pixman_color_t*col,int sz){
-    FT_Set_Pixel_Sizes(face,0,sz);
-    pixman_image_t *fg=pixman_image_create_solid_fill(col);
-    for(const char*p=s;*p;p++){
-        if(FT_Load_Char(face,(unsigned char)*p,FT_LOAD_RENDER))continue;
-        FT_GlyphSlot g=face->glyph; FT_Bitmap*bm=&g->bitmap;
-        if(bm->width&&bm->rows&&bm->buffer){
-            int ms=(bm->pitch>0)?bm->pitch:-bm->pitch;
-            pixman_image_t*m=pixman_image_create_bits(PIXMAN_a8,bm->width,bm->rows,(uint32_t*)bm->buffer,ms);
-            if(m){pixman_image_composite32(PIXMAN_OP_OVER,fg,m,d,0,0,0,0,px+g->bitmap_left,py-g->bitmap_top,bm->width,bm->rows);pixman_image_unref(m);}
-        }
-        px+=g->advance.x>>6;
-    }
-    pixman_image_unref(fg);
-}
-static void draw_cursor(pixman_image_t*d,int cx,int cy){
-    pixman_color_t wht={0xffff,0xffff,0xffff,0xffff},blk={0,0,0,0xffff};
-    for(int r=0;r<19;r++)for(int c=0;c<12;c++)if(arrow[r][c]=='X'){
-        /* black outline then white core: draw white, 1px black border via neighbors */
-        pixman_color_t*col=&wht; (void)blk;
-        fill_rect(d,col,cx+c,cy+r,1,1);
-    }
-}
-
-typedef struct{int x,y,w,h;pixman_color_t title,body;const char*name;const char*l1;const char*l2;}Win;
+typedef struct { int x, y, w, h; pixman_color_t title, body;
+    const char *name, *l1, *l2; } Win;
 static Win wins[2];
-static int order[2]={0,1}; /* order[1]=front */
+static int order[2] = { 0, 1 };		/* order[1] = front-most */
 
-static void composite(int cx,int cy){
-    pixman_color_t desk={0x1010,0x2020,0x3838,0xffff};
-    pixman_image_t*s=pixman_image_create_solid_fill(&desk);
-    pixman_image_composite32(PIXMAN_OP_SRC,s,NULL,scene,0,0,0,0,0,0,W,H);
-    pixman_image_unref(s);
-    pixman_color_t wht={0xffff,0xffff,0xffff,0xffff},dark={0x1818,0x1818,0x2020,0xffff};
-    pixman_color_t bord={0x8080,0x8080,0x9090,0xffff};
-    for(int i=0;i<2;i++){Win*w=&wins[order[i]];
-        fill_rect(scene,&bord,w->x-2,w->y-2,w->w+4,w->h+4);
-        fill_rect(scene,&w->body,w->x,w->y,w->w,w->h);
-        fill_rect(scene,&w->title,w->x,w->y,w->w,28);
-        draw_str(scene,w->x+10,w->y+20,w->name,&wht,18);
-        draw_str(scene,w->x+12,w->y+58,w->l1,&wht,16);
-        draw_str(scene,w->x+12,w->y+82,w->l2,&dark,16);
-    }
-    draw_cursor(scene,cx,cy);
+#define WINBORDER 2
+#define TITLEH 28
+
+static void
+draw_cursor(int cx, int cy)
+{
+	pixman_color_t wht = { 0xffff, 0xffff, 0xffff, 0xffff };
+	int r, c;
+
+	for (r = 0; r < CURH; r++)
+		for (c = 0; c < CURW; c++)
+			if (arrow[r][c] == 'X')
+				fbgui_fill_rect(G, &wht, cx + c, cy + r, 1, 1);
 }
-static void blit(void){
-    uint32_t*pix=pixman_image_get_data(scene);
-    for(int y=0;y<H;y++){lseek(fbfd,(off_t)y*line,SEEK_SET);
-        if(write(fbfd,(char*)pix+(size_t)y*stride,stride)!=stride)return;}
+
+/* Recomposite the entire scene into the back buffer. */
+static void
+compose(int cx, int cy)
+{
+	pixman_color_t desk = { 0x1010, 0x2020, 0x3838, 0xffff };
+	pixman_color_t wht = { 0xffff, 0xffff, 0xffff, 0xffff };
+	pixman_color_t dark = { 0x1818, 0x1818, 0x2020, 0xffff };
+	pixman_color_t bord = { 0x8080, 0x8080, 0x9090, 0xffff };
+	int i;
+
+	fbgui_fill_rect(G, &desk, 0, 0, W, H);
+	for (i = 0; i < 2; i++) {
+		Win *w = &wins[order[i]];
+		fbgui_fill_rect(G, &bord, w->x - WINBORDER, w->y - WINBORDER,
+		    w->w + 2 * WINBORDER, w->h + 2 * WINBORDER);
+		fbgui_fill_rect(G, &w->body, w->x, w->y, w->w, w->h);
+		fbgui_fill_rect(G, &w->title, w->x, w->y, w->w, TITLEH);
+		fbgui_draw_text(G, w->x + 10, w->y + 20, w->name, &wht, 18);
+		fbgui_draw_text(G, w->x + 12, w->y + 58, w->l1, &wht, 16);
+		fbgui_draw_text(G, w->x + 12, w->y + 82, w->l2, &dark, 16);
+	}
+	draw_cursor(cx, cy);
 }
-static int in_title(Win*w,int x,int y){return x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+28;}
 
-int main(void){
-    lg=fopen("/tmp/GUI","w"); if(!lg)lg=stdout; setvbuf(lg,NULL,_IONBF,0);
-    fbfd=open("/dev/fb0",O_RDWR);
-    if(fbfd<0){fprintf(lg,"open /dev/fb0: %s\n",strerror(errno));return 1;}
-    struct fb_var_screeninfo var; struct fb_fix_screeninfo fix;
-    if(ioctl(fbfd,FBIOGET_VSCREENINFO,&var)<0){fprintf(lg,"VSCREEN:%s\n",strerror(errno));return 1;}
-    if(ioctl(fbfd,FBIOGET_FSCREENINFO,&fix)<0){fprintf(lg,"FSCREEN:%s\n",strerror(errno));return 1;}
-    W=var.xres;H=var.yres;line=fix.line_length;stride=W*4;
-    fprintf(lg,"fb %dx%d %dbpp line=%d\n",W,H,var.bits_per_pixel,line);
-    if(var.bits_per_pixel!=32){fprintf(lg,"need 32bpp\n");return 1;}
-    fbuf=malloc((size_t)stride*H);
-    scene=pixman_image_create_bits(PIXMAN_x8r8g8b8,W,H,fbuf,stride);
-    if(FT_Init_FreeType(&ftlib)||FT_New_Face(ftlib,"/mnt/font.ttf",0,&face)){fprintf(lg,"freetype init fail\n");return 1;}
+/* Damage the bounding box of a window including its border. */
+static void
+damage_win(const Win *w)
+{
+	fbgui_damage(G, w->x - WINBORDER, w->y - WINBORDER,
+	    w->w + 2 * WINBORDER, w->h + 2 * WINBORDER);
+}
 
-    pixman_color_t tblue={0x2020,0x4040,0xd0d0,0xffff}, bwhite={0xf0f0,0xf0f0,0xf8f8,0xffff};
-    pixman_color_t tgreen={0x2020,0xa0a0,0x3030,0xffff}, bgrey={0xd8d8,0xdcdc,0xe0e0,0xffff};
-    wins[0]=(Win){200,150,360,180,tblue,bwhite,"Terminal","MINIX 3 amd64 graphics stack","pixman + FreeType + /dev/fb0"};
-    wins[1]=(Win){430,260,340,170,tgreen,bgrey,"About","No X11, no display server.","Framebuffer + mouse input."};
+static int
+in_title(const Win *w, int x, int y)
+{
+	return x >= w->x && x < w->x + w->w && y >= w->y && y < w->y + TITLEH;
+}
 
-    int cx=W/2,cy=H/2, drag=-1;
-    int mfd=open("/dev/mousemux",O_RDONLY|O_NONBLOCK);
-    if(mfd<0)mfd=open("/dev/mouse0",O_RDONLY|O_NONBLOCK);
-    fprintf(lg,"mouse fd=%d\n",mfd);
-    composite(cx,cy);blit();
-    fprintf(lg,"MICROGUI READY cursor=%d,%d\n",cx,cy);
+int
+main(void)
+{
+	int cx, cy, drag = -1, buttons = 0, obuttons = 0;
+	int mfd;
+	struct timeval start, now;
+	int evtotal = 0;
+	long total_bytes = 0, frames = 0;
 
-    struct timeval start,now; gettimeofday(&start,NULL);
-    struct input_event ev; int evcount=0, changed=1;
-    for(;;){
-        gettimeofday(&now,NULL);
-        if((now.tv_sec-start.tv_sec)>75)break;
-        fd_set rf;FD_ZERO(&rf);if(mfd>=0)FD_SET(mfd,&rf);
-        struct timeval tv={0,40000};
-        int n=(mfd>=0)?select(mfd+1,&rf,NULL,NULL,&tv):(usleep(40000),0);
-        if(n>0&&FD_ISSET(mfd,&rf)){
-            while(read(mfd,&ev,sizeof ev)==sizeof ev){
-                int ocx=cx,ocy=cy;
-                if(ev.page==INPUT_PAGE_GD&&ev.code==INPUT_GD_X){cx+=ev.value;}
-                else if(ev.page==INPUT_PAGE_GD&&ev.code==INPUT_GD_Y){cy+=ev.value;}
-                else if(ev.page==INPUT_PAGE_BUTTON&&ev.code==INPUT_BUTTON_1){
-                    if(ev.value){ /* down: pick front-most window whose title is under cursor */
-                        for(int i=1;i>=0;i--){Win*w=&wins[order[i]];
-                            if(in_title(w,cx,cy)){drag=order[i];
-                                int t=order[i];order[i]=order[1];order[1]=t; /*raise*/
-                                fprintf(lg,"BTN down: drag win %d (%s) raised\n",drag,w->name);break;}}
-                    } else { if(drag>=0)fprintf(lg,"BTN up: drop win %d\n",drag); drag=-1; }
-                    changed=1;
-                }
-                if(cx<0)cx=0;if(cx>=W)cx=W-1;if(cy<0)cy=0;if(cy>=H)cy=H-1;
-                if(drag>=0&&(cx!=ocx||cy!=ocy)){wins[drag].x+=cx-ocx;wins[drag].y+=cy-ocy;}
-                if(cx!=ocx||cy!=ocy)changed=1;
-                evcount++;
-                if(evcount<=40||changed)fprintf(lg,"ev p=%x c=%x v=%d -> cur=%d,%d drag=%d win0=%d,%d win1=%d,%d\n",
-                    ev.page,ev.code,ev.value,cx,cy,drag,wins[0].x,wins[0].y,wins[1].x,wins[1].y);
-            }
-        }
-        if(changed){composite(cx,cy);blit();changed=0;}
-    }
-    fprintf(lg,"MICROGUI DONE events=%d final cursor=%d,%d win0=%d,%d win1=%d,%d\n",
-        evcount,cx,cy,wins[0].x,wins[0].y,wins[1].x,wins[1].y);
-    fprintf(lg,"MICROGUI PASS\n");
-    return 0;
+	lg = fopen("/tmp/GUI", "w");
+	if (lg == NULL)
+		lg = stdout;
+	setvbuf(lg, NULL, _IONBF, 0);
+
+	if ((G = fbgui_open()) == NULL) {
+		fprintf(lg, "fbgui_open failed (no /dev/fb0?)\n");
+		return 1;
+	}
+	W = fbgui_width(G);
+	H = fbgui_height(G);
+	fprintf(lg, "fb %dx%d full-frame=%d bytes\n", W, H, W * H * 4);
+
+	if (fbgui_load_font(G, "/mnt/font.ttf") != 0) {
+		fprintf(lg, "font load failed\n");
+		return 1;
+	}
+
+	{
+		pixman_color_t tblue = { 0x2020, 0x4040, 0xd0d0, 0xffff };
+		pixman_color_t bwhite = { 0xf0f0, 0xf0f0, 0xf8f8, 0xffff };
+		pixman_color_t tgreen = { 0x2020, 0xa0a0, 0x3030, 0xffff };
+		pixman_color_t bgrey = { 0xd8d8, 0xdcdc, 0xe0e0, 0xffff };
+		wins[0] = (Win){ 200, 150, 360, 180, tblue, bwhite, "Terminal",
+		    "MINIX 3 amd64 graphics stack", "libfbgui: pixman + FreeType" };
+		wins[1] = (Win){ 430, 260, 340, 170, tgreen, bgrey, "About",
+		    "No X11, no display server.", "Damage-tracked framebuffer." };
+	}
+
+	cx = W / 2;
+	cy = H / 2;
+	mfd = fbgui_open_mouse();
+	fprintf(lg, "mouse fd=%d\n", mfd);
+
+	compose(cx, cy);
+	total_bytes += fbgui_present_full(G);
+	frames++;
+	fprintf(lg, "MICROGUI READY cursor=%d,%d\n", cx, cy);
+
+	gettimeofday(&start, NULL);
+	for (;;) {
+		fd_set rf;
+		struct timeval tv = { 0, 40000 };
+		int ocx = cx, ocy = cy, owx = 0, owy = 0, changed = 0;
+		int dx = 0, dy = 0, n;
+
+		gettimeofday(&now, NULL);
+		if (now.tv_sec - start.tv_sec > 75)
+			break;
+
+		FD_ZERO(&rf);
+		if (mfd >= 0)
+			FD_SET(mfd, &rf);
+		n = (mfd >= 0) ? select(mfd + 1, &rf, NULL, NULL, &tv)
+		    : (usleep(40000), 0);
+		if (n <= 0 || !(mfd >= 0 && FD_ISSET(mfd, &rf)))
+			continue;
+
+		evtotal += fbgui_read_mouse(mfd, &dx, &dy, &buttons);
+		if (drag >= 0) {
+			owx = wins[drag].x;
+			owy = wins[drag].y;
+		}
+
+		/* Cursor motion. */
+		if (dx != 0 || dy != 0) {
+			cx += dx;
+			cy += dy;
+			if (cx < 0) cx = 0;
+			if (cx >= W) cx = W - 1;
+			if (cy < 0) cy = 0;
+			if (cy >= H) cy = H - 1;
+			changed = 1;
+		}
+
+		/* Button press: grab a title bar under the cursor and raise. */
+		if ((buttons & 1) && !(obuttons & 1)) {
+			int i;
+			for (i = 1; i >= 0; i--) {
+				Win *w = &wins[order[i]];
+				if (in_title(w, cx, cy)) {
+					drag = order[i];
+					order[i] = order[1];
+					order[1] = drag;
+					damage_win(&wins[0]);
+					damage_win(&wins[1]);
+					fprintf(lg, "grab win %d (%s)\n",
+					    drag, w->name);
+					changed = 1;
+					break;
+				}
+			}
+		} else if (!(buttons & 1) && (obuttons & 1)) {
+			if (drag >= 0)
+				fprintf(lg, "drop win %d\n", drag);
+			drag = -1;
+		}
+		obuttons = buttons;
+
+		/* Drag: move the window and damage old+new footprints. */
+		if (drag >= 0 && (cx != ocx || cy != ocy)) {
+			wins[drag].x += cx - ocx;
+			wins[drag].y += cy - ocy;
+			fbgui_damage(G, owx - WINBORDER, owy - WINBORDER,
+			    wins[drag].w + 2 * WINBORDER,
+			    wins[drag].h + 2 * WINBORDER);
+			damage_win(&wins[drag]);
+			changed = 1;
+		}
+
+		/* Cursor damage: old and new positions. */
+		if (cx != ocx || cy != ocy) {
+			fbgui_damage(G, ocx, ocy, CURW, CURH);
+			fbgui_damage(G, cx, cy, CURW, CURH);
+		}
+
+		if (changed) {
+			long b;
+			compose(cx, cy);
+			b = fbgui_present(G);
+			total_bytes += b;
+			frames++;
+			if (frames <= 60)
+				fprintf(lg, "frame %ld: %ld bytes (cur=%d,%d "
+				    "drag=%d)\n", frames, b, cx, cy, drag);
+		}
+	}
+
+	fprintf(lg, "MICROGUI DONE events=%d frames=%ld total_bytes=%ld "
+	    "avg=%ld\n", evtotal, frames, total_bytes,
+	    frames ? total_bytes / frames : 0);
+	fprintf(lg, "  (a single full frame would be %d bytes)\n", W * H * 4);
+	fprintf(lg, "MICROGUI PASS\n");
+	fbgui_close(G);
+	return 0;
 }

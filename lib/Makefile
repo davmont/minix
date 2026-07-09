@@ -140,6 +140,14 @@ SUBDIR+=	../external/mit/expat/lib
 
 SUBDIR+=	../external/public-domain/sqlite/lib
 
+# MINIX: framebuffer graphics userland (libfbgui) and the 2D libraries it
+# builds on.  Build pixman and freetype here (in the do-lib phase) so the
+# shared libfbgui can link against them.
+SUBDIR+=	../external/mit/pixman/lib
+SUBDIR+=	../external/mit/freetype/lib
+SUBDIR+=	.WAIT
+SUBDIR+=	../minix/lib/libfbgui
+
 #SUBDIR+=	../gnu/lib/libmalloc
 
 # MINIX: GCC 4.8.5 and its gmp/mpfr/mpc dependencies were removed from
