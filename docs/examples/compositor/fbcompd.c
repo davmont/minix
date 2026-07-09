@@ -28,6 +28,7 @@
 
 #define MAXCLI		16
 #define TITLEH		22
+#define CLOSEW		TITLEH		/* square close box at the title-bar right */
 #define CURW		12
 #define CURH		19
 
@@ -35,8 +36,9 @@ struct win {
 	int		used;
 	int		fd;		/* owning client, -1 if none */
 	int		shmid;
-	uint32_t       *pix;
-	pixman_image_t *img;
+	uint32_t       *pix;		/* client's shm surface (read-only) */
+	uint32_t       *buf;		/* our copy, refreshed on COMMIT only */
+	pixman_image_t *img;		/* pixman view over buf, never over shm */
 	int		w, h;
 	int		x, y;		/* title-bar top-left on screen */
 	char		title[FBCOMP_TITLE_MAX];
@@ -50,8 +52,10 @@ static int	cx, cy;
 static FILE    *lg;
 
 static const pixman_color_t c_desk  = { 0x1000, 0x2000, 0x3800, 0xffff };
-static const pixman_color_t c_tbar  = { 0x2000, 0x4000, 0xd000, 0xffff };
+static const pixman_color_t c_tbar  = { 0x2000, 0x3000, 0x6000, 0xffff }; /* unfocused */
+static const pixman_color_t c_tfocus= { 0x2800, 0x5000, 0xf000, 0xffff }; /* focused */
 static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
+static const pixman_color_t c_close = { 0xd000, 0x2800, 0x2800, 0xffff }; /* close box */
 static const pixman_color_t c_cur   = { 0xf000, 0xf000, 0xf000, 0xffff };
 
 static void
@@ -63,9 +67,17 @@ recomposite(void)
 	fbgui_fill_rect(G, &c_desk, 0, 0, fbgui_width(G), fbgui_height(G));
 	for (i = 0; i < nwin; i++) {
 		struct win *w = &wins[i];
+		const pixman_color_t *tb;
 		if (!w->used) continue;
-		fbgui_fill_rect(G, &c_tbar, w->x, w->y, w->w, TITLEH);
+		/* The top window (highest index) has focus - brighter bar. */
+		tb = (i == nwin - 1) ? &c_tfocus : &c_tbar;
+		fbgui_fill_rect(G, tb, w->x, w->y, w->w, TITLEH);
 		fbgui_draw_text(G, w->x + 8, w->y + 16, w->title, &c_ttext, 14);
+		/* Close box at the title-bar right, with an X. */
+		fbgui_fill_rect(G, &c_close, w->x + w->w - CLOSEW, w->y,
+		    CLOSEW, TITLEH);
+		fbgui_draw_text(G, w->x + w->w - CLOSEW + 6, w->y + 16, "x",
+		    &c_ttext, 14);
 		pixman_image_composite32(PIXMAN_OP_SRC, w->img, NULL, back,
 		    0, 0, 0, 0, w->x, w->y + TITLEH, w->w, w->h);
 	}
@@ -139,8 +151,16 @@ add_window(int fd, const struct fbc_msg *m)
 	w->pix = (uint32_t *)p; w->w = m->w; w->h = m->h;
 	w->x = 60 + nwin * 48; w->y = 60 + nwin * 40;
 	strlcpy(w->title, m->title, sizeof w->title);
+	/*
+	 * Composite from our own copy, not the live shm, so a client
+	 * redrawing mid-frame cannot tear.  The copy is refreshed only
+	 * when the client COMMITs.
+	 */
+	w->buf = malloc((size_t)w->w * w->h * 4);
+	if (w->buf == NULL) { (void)shmdt(p); fprintf(lg, "oom\n"); return; }
+	memcpy(w->buf, w->pix, (size_t)w->w * w->h * 4);
 	w->img = pixman_image_create_bits(PIXMAN_x8r8g8b8, w->w, w->h,
-	    w->pix, w->w * 4);
+	    w->buf, w->w * 4);
 	nwin++;
 	fprintf(lg, "window '%s' %dx%d shmid=%d at %d,%d nwin=%d\n",
 	    w->title, w->w, w->h, w->shmid, w->x, w->y, nwin);
@@ -155,8 +175,38 @@ drop_window_by_fd(int fd)
 	idx = win_index(w);
 	if (w->img) pixman_image_unref(w->img);
 	if (w->pix) (void)shmdt(w->pix);
+	if (w->buf) free(w->buf);
 	for (i = idx; i < nwin - 1; i++) wins[i] = wins[i + 1];
 	nwin--;
+}
+
+/* Refresh our copy of a window's surface from its shm (called on COMMIT). */
+static void
+commit_win(int fd)
+{
+	struct win *w = win_by_fd(fd);
+	if (w == NULL || w->buf == NULL) return;
+	memcpy(w->buf, w->pix, (size_t)w->w * w->h * 4);
+}
+
+/* True if (sx,sy) is inside a window's title-bar close box. */
+static int
+in_close_box(const struct win *w, int sx, int sy)
+{
+	return sx >= w->x + w->w - CLOSEW && sx < w->x + w->w &&
+	    sy >= w->y && sy < w->y + TITLEH;
+}
+
+/* Tell the client its window is gone, then drop it. */
+static void
+close_win(struct win *w)
+{
+	struct fbc_msg cm;
+	int fd = w->fd;
+	memset(&cm, 0, sizeof cm);
+	cm.type = FBC_CLOSED;
+	(void)write(fd, &cm, sizeof cm);
+	drop_window_by_fd(fd);
 }
 
 static void
@@ -244,6 +294,7 @@ main(void)
 				add_window(fd, &m);
 				recomposite(); present_scene(); break;
 			case FBC_COMMIT:
+				commit_win(fd);
 				recomposite(); present_scene(); break;
 			case FBC_DESTROY:
 				drop_client(i);
@@ -267,7 +318,11 @@ main(void)
 					w = win_at(ncx, ncy, &topbar);
 					fprintf(lg, "btn-down at %d,%d -> %s topbar=%d\n",
 					    ncx, ncy, w?w->title:"(none)", w?topbar:0);
-					if (w != NULL) {
+					if (w != NULL && in_close_box(w, ncx, ncy)) {
+						fprintf(lg, "CLOSE '%s'\n", w->title);
+						close_win(w);
+						changed = 1;
+					} else if (w != NULL) {
 						raise_win(win_index(w));
 						if (topbar) { dragging = nwin-1;
 						    fprintf(lg,"GRAB drag '%s'\n",wins[nwin-1].title); }

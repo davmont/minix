@@ -69,13 +69,25 @@ $CC -O1 -static -D__minix=3 -o client_clock client_clock.c fbclient.c ...
 Ship the binaries + a `.ttf` font to a UEFI-booted MINIX, bring up
 `/service/fb`, and run `run.sh`.
 
+## Window management
+
+- **Click-to-raise / focus**: clicking any window raises it to the top
+  and gives it focus; the focused window's title bar is drawn brighter.
+- **Close box**: each title bar has an `x` box at its right; clicking it
+  sends `FBC_CLOSED` to the client and removes the window.
+- **Tear-free commits**: the compositor composites from its own copy of
+  each surface, refreshed only when the client `FBC_COMMIT`s — a client
+  redrawing mid-frame cannot tear.
+- **Drag**: left-drag on a title bar moves a window.
+
 ## What a usable WM still needs (roadmap step 4 remainder)
 
 - Promote `fbcompd` to a real system service and `fbclient` to an
   installed `libfbclient` (this is examples-only for now).
-- Keyboard input + focus routing (the text console still owns the
-  keyboard).
-- Window resize, close/minimise controls, z-order UI, proper decoration.
-- Redraw throttling / frame callbacks (clients currently commit freely).
-- Double-buffered surfaces to avoid tearing while a client redraws.
+- Keyboard input + focus routing. This is the one hard piece: the text
+  console TTY owns the keyboard (`pckbd` → input server → kbdmux → TTY),
+  so a GUI grabbing it needs TTY/input-server changes, not a userland
+  fix.
+- Window resize and minimise; damage-limited recomposite (today a
+  commit recomposites the whole scene).
 - A resource/font story (base ships no TTF — a font package is needed).
