@@ -287,6 +287,7 @@ swapout_complete(struct swapjob *j, int status)
 	 * phys_block stays PBF_COMPRESSED; its contents now live on disk. */
 	zstore_free(j->ram_handle);
 	USE(j->pb, j->pb->pb_zref = swapstore_slot_to_handle(j->slot););
+	swapstore_count_out();		/* a blob is now on disk (C2) */
 }
 
 /*===========================================================================*
@@ -384,6 +385,7 @@ swapin_commit(struct swapjob *j)
 		pb->phys = j->new_page;);
 
 	swapstore_slot_free(j->slot);
+	swapstore_count_in();		/* a blob was read back from disk (C3) */
 	return 1;
 }
 

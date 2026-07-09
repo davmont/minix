@@ -268,16 +268,15 @@ int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 	assert(!(pr->offset % VM_PAGE_SIZE));
 	assert(pb->refcount > 0);
 
-	/* A block whose contents live in the zstore (compressed out;
-	 * phase B) has no physical page: there is nothing to map, and
-	 * writing a PTE for MAP_NONE would create a present mapping to
-	 * a bogus frame.  The page faults in (and decompresses) on
-	 * first access, exactly like a never-materialized page.
+	/* A block with no physical page: nothing to map, and writing a PTE
+	 * for MAP_NONE would create a present mapping to a bogus frame.  It
+	 * faults in on first access - decompressing from the zstore if it was
+	 * compressed out (phase B), or zero-filling if the reclaimer dropped
+	 * an all-zero page back to demand-zero (ZSTORE_ZERO), exactly like a
+	 * never-materialized page.  Both are handled by anon_pagefault().
 	 */
-	if(pb->phys == MAP_NONE) {
-		assert(pb->flags & PBF_COMPRESSED);
+	if(pb->phys == MAP_NONE)
 		return OK;
-	}
 
 	if(pr_writable(vr, pr))
 		flags |= PTF_WRITE;

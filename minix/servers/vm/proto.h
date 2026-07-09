@@ -255,6 +255,8 @@ void *swapstore_slot_to_handle(unsigned long slot);
 unsigned long swapstore_handle_to_slot(void *handle);
 void swapstore_get_stats(unsigned long *total, unsigned long *used,
 	unsigned long *in, unsigned long *out);
+void swapstore_count_out(void);
+void swapstore_count_in(void);
 int swapstore_selftest(void);
 int swapstore_configure(unsigned long nslots);
 
