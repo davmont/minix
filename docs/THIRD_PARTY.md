@@ -144,8 +144,18 @@ ARM).  Roadmap:
    `/dev/mouse0-3`/`/dev/mousemux`; verified with QEMU-injected
    motion/button events and a keyboard regression check.  Note for a
    future GUI: `/dev/mousemux` is root-only 0600.
-3. Minimal graphics userland on `/dev/fb0`: pixman as pixel library plus
-   a micro-GUI (Microwindows/Nano-X-class) — graphics without a display
-   server.
+3. Minimal graphics userland on `/dev/fb0` — graphics without a display
+   server.  **In progress 2026-07:**
+   - **DONE**: pixman 0.46.4 vendored (external/mit/pixman) — 2D pixel
+     compositing; validated rendering to the GOP framebuffer via
+     /dev/fb0 (screendump: real alpha compositing).
+   - **DONE**: FreeType 2.14.3 vendored (external/mit/freetype) — text;
+     validated anti-aliased glyph rendering composited through pixman
+     onto /dev/fb0.
+   - With pixman + freetype + /dev/fb0 + /dev/mouse, the amd64 graphics
+     stack has every core piece for a windowed GUI; an interactive
+     desktop PoC (composite + drag with mouse input) demonstrates it.
+   - Follow-ups: pixman SSE2 fast paths; freetype system-zlib/HarfBuzz;
+     a font package (base ships no TTF); a reusable fb toolkit lib.
 4. Optional research milestone once shm-mmap and a poll-based event shim
    exist: minimal libwayland + custom fb-backend compositor.
