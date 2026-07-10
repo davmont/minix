@@ -56,6 +56,11 @@ struct win {
 
 static fbgui_t *G;
 static int	cli[MAXCLI];		/* connected client fds, -1 = free */
+/* Per-client input buffer: the socket is a byte stream, so a message can
+ * arrive in pieces (or several at once).  Accumulate bytes here until a whole
+ * fbc_msg is present rather than assuming every read yields exactly one. */
+static char	cbuf[MAXCLI][sizeof(struct fbc_msg)];
+static int	cblen[MAXCLI];
 static struct win wins[MAXCLI];		/* index order = stacking, high = top */
 static int	nwin;
 static int	cx, cy;
@@ -342,6 +347,13 @@ drop_window_by_fd(int fd)
 	idx = win_index(w);
 	if (w->img) pixman_image_unref(w->img);
 	if (w->pix) (void)shmdt(w->pix);
+	/*
+	 * Reclaim the SysV segment.  A client that exits gracefully IPC_RMIDs
+	 * its own surface, but one that crashes never does; RMID here frees it
+	 * (once we and the dead client have both detached) so segments do not
+	 * leak.  A double RMID on the graceful path just fails harmlessly.
+	 */
+	if (w->shmid >= 0) (void)shmctl(w->shmid, IPC_RMID, NULL);
 	if (w->buf) free(w->buf);
 	for (i = idx; i < nwin - 1; i++) wins[i] = wins[i + 1];
 	nwin--;
@@ -504,6 +516,7 @@ drop_client(int slot)
 	drop_window_by_fd(fd);
 	close(fd);
 	cli[slot] = -1;
+	cblen[slot] = 0;
 	fprintf(lg, "client fd=%d gone\n", fd);
 }
 
@@ -599,6 +612,46 @@ route_key(int code, int press)
 		fprintf(lg, "KEY code=%d -> '%s'\n", code, fw->title);
 }
 
+/* Act on one complete client message and repaint what it changed. */
+static void
+handle_msg(int slot, int fd, const struct fbc_msg *m)
+{
+	switch (m->type) {
+	case FBC_CREATE_WINDOW:
+		add_window(fd, m);
+		dmg_reset();
+		if (nwin > 0) dmg_add_win(&wins[nwin - 1]);
+		recomposite(); present_scene();
+		break;
+	case FBC_COMMIT: {
+		struct win *cw = win_by_fd(fd);
+		commit_win(fd);
+		dmg_reset();
+		if (cw != NULL && !cw->mini) {	/* minimised: off screen */
+			int dw = (m->w > 0) ? m->w : cw->w;
+			int dh = (m->h > 0) ? m->h : cw->h;
+			dmg_add(cw->x + m->x, cw->y + TITLEH + m->y, dw, dh);
+		}
+		recomposite(); present_scene();
+		break;
+	    }
+	case FBC_DESTROY:
+		drop_client(slot);
+		dmg_reset(); dmg_add_all();
+		recomposite(); present_scene();
+		break;
+	case FBC_SET_SURFACE: {
+		struct win *rw = win_by_fd(fd);
+		dmg_reset();
+		if (rw != NULL) dmg_add_win(rw);
+		resize_surface(fd, m);
+		if (rw != NULL) dmg_add_win(rw);
+		recomposite(); present_scene();
+		break;
+	    }
+	}
+}
+
 /*
  * Default font path.  MINIX base ships no TTF, so out of the box the
  * compositor runs without title text; override with argv[1] or the
@@ -679,43 +732,28 @@ main(int argc, char **argv)
 		}
 
 		for (i = 0; i < MAXCLI; i++) {
-			struct fbc_msg m;
-			int fd = cli[i], r;
+			int fd = cli[i];
+			ssize_t r;
 			if (fd < 0 || !FD_ISSET(fd, &rf)) continue;
-			r = (int)read(fd, &m, sizeof m);
-			if (r != (int)sizeof m) { drop_client(i);
-			    dmg_reset(); dmg_add_all();
-			    recomposite(); present_scene(); continue; }
-			switch (m.type) {
-			case FBC_CREATE_WINDOW:
-				add_window(fd, &m);
-				dmg_reset();
-				if (nwin > 0) dmg_add_win(&wins[nwin - 1]);
-				recomposite(); present_scene(); break;
-			case FBC_COMMIT: {
-				struct win *cw = win_by_fd(fd);
-				commit_win(fd);
-				dmg_reset();
-				if (cw != NULL && !cw->mini) {	/* minimised: buffer stays fresh, off screen */
-					int dw = (m.w > 0) ? m.w : cw->w;
-					int dh = (m.h > 0) ? m.h : cw->h;
-					dmg_add(cw->x + m.x,
-					    cw->y + TITLEH + m.y, dw, dh);
-				}
-				recomposite(); present_scene(); break;
-			    }
-			case FBC_DESTROY:
+			/* Read into the client's buffer, then act on each whole
+			 * message.  A short read just leaves a partial message
+			 * buffered for next time instead of dropping the client. */
+			r = read(fd, cbuf[i] + cblen[i],
+			    sizeof(struct fbc_msg) - cblen[i]);
+			if (r < 0 && (errno == EINTR || errno == EAGAIN))
+				continue;
+			if (r <= 0) {		/* EOF or error: client gone */
 				drop_client(i);
 				dmg_reset(); dmg_add_all();
-				recomposite(); present_scene(); break;
-			case FBC_SET_SURFACE: {
-				struct win *rw = win_by_fd(fd);
-				dmg_reset();
-				if (rw != NULL) dmg_add_win(rw);
-				resize_surface(fd, &m);
-				if (rw != NULL) dmg_add_win(rw);
-				recomposite(); present_scene(); break;
-			    }
+				recomposite(); present_scene();
+				continue;
+			}
+			cblen[i] += (int)r;
+			if (cblen[i] == (int)sizeof(struct fbc_msg)) {
+				struct fbc_msg m;
+				memcpy(&m, cbuf[i], sizeof m);
+				cblen[i] = 0;
+				handle_msg(i, fd, &m);
 			}
 		}
 
@@ -777,12 +815,14 @@ main(int argc, char **argv)
 						dmg_add_win(w); dmg_add_win(&wins[nwin-1]);
 						raise_win(win_index(w));
 						resizing = nwin-1;
+						wins[nwin-1].maxed = 0;	/* now a free resize */
 						fprintf(lg,"GRAB resize '%s'\n",wins[nwin-1].title);
 						changed = 1;
 					} else if (w != NULL) {
 						dmg_add_win(w); dmg_add_win(&wins[nwin-1]);
 						raise_win(win_index(w));
 						if (topbar) { dragging = nwin-1;
+						    wins[nwin-1].maxed = 0;	/* moving un-maximises */
 						    fprintf(lg,"GRAB drag '%s'\n",wins[nwin-1].title); }
 						else {
 						    struct fbc_msg em;

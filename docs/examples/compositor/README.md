@@ -119,6 +119,11 @@ processes.
 - **Tear-free commits**: the compositor composites from its own copy of
   each surface, refreshed only when the client `FBC_COMMIT`s — a client
   redrawing mid-frame cannot tear.
+- **Robust to client crashes**: each client's messages are reassembled from
+  a per-connection buffer (a stream socket may split or coalesce them), so a
+  partial read never drops a client; when a client exits or crashes the
+  compositor removes its window and `IPC_RMID`s the surface segment so SysV
+  shm does not leak.
 - **Drag**: left-drag on a title bar moves a window.
 - **Resize**: each window has a small grip at its bottom-right corner;
   left-drag it to resize. The compositor sends the target size in an
