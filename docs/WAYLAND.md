@@ -91,14 +91,50 @@ needs a resurrected fbdev backend, xkbcommon, and full meson). The
 compositor teaches an `fbcompd`-derived server the Wayland wire protocol for
 `wl_compositor` / `wl_shm` / `wl_surface` / `xdg_shell` / `wl_seat`.
 
+## shm_open design — how deep the blocker really is
+
+A closer look shows `shm_open` is **not a libc addition; it is a core
+VM/VFS feature**, because the file-mmap path cannot share writable pages:
+
+- `minix/servers/vm/mem_file.c`: `mappedfile_writable()` returns *"never
+  writable"*, and a write to a file-backed page triggers **copy-on-write
+  into private anonymous memory** (`mappedfile_pagefault`). So even if the
+  `MAP_SHARED && PROT_WRITE` rejection in `mmap.c` were removed, two
+  processes mapping the same file would get **private** copies — no sharing.
+- The **only** mechanism that shares writable pages across unrelated
+  processes is `vm_remap` / `mem_shared` — precisely what SysV `shmat` uses:
+  the `ipc` server holds a `MAP_ANON` region and `vm_remap`s those physical
+  pages into each attacher (`minix/servers/ipc/shm.c`,
+  `minix/servers/vm/mmap.c:do_remap`).
+- There is no chardriver mmap shortcut (`/dev/fb0` is written with
+  `write()`/`lseek()`, not mmapped), and `libvtreefs` exposes no mmap/peek
+  hook.
+
+So a working `shm_open` needs three cooperating pieces:
+
+1. **A holder + fd source.** A small service holds one `MAP_ANON` region per
+   shm object (as `ipc/shm.c` already does) and mints a real fd for it —
+   either a new `shmfs`, or reusing the anonymous-inode path VFS already has
+   (`req_newnode(PFS_PROC_NR, ...)`, used by `pipe()`/`socketpair()`).
+2. **mmap routing.** `mmap(shm_fd)` must reach `vm_remap` of the holder's
+   region, not the COW `mappedfile` path. Cleanest: VM's `do_mmap`, when the
+   `FDLOOKUP` resolves to the shm object's device, asks the holder to remap
+   its region into the caller (a localized VM/VFS change) rather than a
+   generic libc mmap shim.
+3. **libc + plumbing** — `shm_open`/`shm_unlink`, message protocol, service
+   config, `/dev/shm`, set lists.
+
+This is genuinely core-kernel work (a service + VM/VFS routing), tested by
+rebuilding the boot image each iteration. It is tractable and reuses the
+proven `vm_remap`, but it is much larger and higher-risk than "add a libc
+function".
+
 ## Prerequisite roadmap (ordered)
 
-1. **Shared memory (the blocker).** Implement `shm_open` (and/or
-   `memfd_create`) returning an fd backed by writable anonymous shared
-   memory, so `mmap(MAP_SHARED, PROT_WRITE)` on it works and the fd can be
-   passed via `SCM_RIGHTS`. Build on the VM's existing `VR_ANON |
-   VR_WRITABLE` support. Validate with the same fd-pass + shared-write probe
-   used here.
+1. **Shared memory (the blocker).** Implement `shm_open` per the design
+   above: a holder service + fd source + `mmap`→`vm_remap` routing, reusing
+   the SysV-shm `vm_remap` mechanism. Validate with the fd-pass +
+   cross-process shared-write probe (`wlprobe`).
 2. **libffi** — port/build for MINIX.
 3. **libwayland** — build `libwayland-server`/`-client` (poll or kqueue
    event loop); reachover Makefile or bootstrapped meson.
