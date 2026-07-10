@@ -28,9 +28,11 @@ proof that MINIX can run a Wayland-style compositor without X.
   COMMIT (damaged sub-rect), SET_SURFACE (replacement shmid after a
   resize), DESTROY. Server→client: CONFIGURE (new position and current
   size — a changed size asks the client to reallocate its surface),
-  MOUSE (window-relative pointer + buttons), CLOSED.
+  MOUSE (window-relative pointer + buttons), CLOSED, KEY (focused-window
+  key: HID code + ASCII char + modifiers + press/release).
 - **Compositor** (`fbcompd.c`): `select()`s over the listen socket, all
-  client fds, and `/dev/mousemux`. Each frame it composites the desktop,
+  client fds, `/dev/mousemux`, and `/dev/kbdmux`. Each frame it composites
+  the desktop,
   every window (title bar + title text via FreeType, then the client's
   shm surface), and the cursor into the `libfbgui` back buffer, and
   presents with damage tracking so only changed rows hit the
@@ -91,7 +93,7 @@ $CC -O1 -static -D__minix=3 -I$D/usr/include -o client_clock \
     client_clock.c $D/usr/lib/libfbclient.a
 ```
 
-`run.sh` starts `/usr/bin/fbcompd` and both clients as separate
+`run.sh` starts `/usr/bin/fbcompd` and the three clients as separate
 processes.
 
 ## Window management
@@ -118,15 +120,23 @@ processes.
   stays smooth and no stale surface hand-off can race. The compositor
   also tolerates a stale hand-off gracefully: if a superseded shmid can
   no longer be attached it logs and keeps the current surface.
+- **Keyboard**: the compositor opens `/dev/kbdmux`. MINIX's input server
+  delivers key events to whoever has that device open and forwards to TTY
+  only when nobody does (`input.c`), so opening it cleanly **grabs** the
+  keyboard from the console; closing it (on exit) hands it back — no
+  kernel/TTY/input-server changes needed. The compositor decodes the raw
+  USB-HID `struct input_event`s, tracks Shift/Ctrl/Alt, maps to ASCII with
+  the US layout, and routes an `FBC_KEY` (code + char + modifiers +
+  press/release) to the **focused** (topmost) window. Focus follows the
+  same click-to-raise model, so clicking a window redirects the keyboard
+  to it. `client_keys.c` demonstrates text entry. The serial console keeps
+  working while the keyboard is grabbed, since serial input does not flow
+  through the input server.
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 
 - Start `fbcompd` from an rc script / service so it comes up at boot
   (it installs to `/usr/bin` now, but nothing launches it yet).
-- Keyboard input + focus routing. This is the one hard piece: the text
-  console TTY owns the keyboard (`pckbd` → input server → kbdmux → TTY),
-  so a GUI grabbing it needs TTY/input-server changes, not a userland
-  fix.
 - Minimise/maximise; damage-limited recomposite (today a commit
   recomposites the whole scene).
 - A resource/font story (base ships no TTF — a font package is needed).

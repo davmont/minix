@@ -25,8 +25,17 @@ enum {
 	FBC_CONFIGURE = 100,	/* x,y = position; w,h = current size (client
 				 * reallocates its surface if w,h changed) */
 	FBC_MOUSE,		/* x,y = pointer in window coords, buttons bitmap */
-	FBC_CLOSED
+	FBC_CLOSED,
+	FBC_KEY			/* keyboard event for the focused window:
+				 * x = USB HID key code, y = ASCII char (0 if
+				 * none), w = 1 press / 0 release, buttons =
+				 * modifier mask (FBC_MOD_*) */
 };
+
+/* Modifier bits reported in FBC_KEY's buttons field. */
+#define FBC_MOD_SHIFT	0x01
+#define FBC_MOD_CTRL	0x02
+#define FBC_MOD_ALT	0x04
 
 struct fbc_msg {
 	uint32_t type;

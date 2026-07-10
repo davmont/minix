@@ -9,4 +9,6 @@ sleep 2
 ./client_hello &
 sleep 1
 ./client_clock &
-echo "compositor (/usr/bin/fbcompd) + 2 clients started"
+sleep 1
+./client_keys &		# started last, so it is topmost and has keyboard focus
+echo "compositor (/usr/bin/fbcompd) + 3 clients started"

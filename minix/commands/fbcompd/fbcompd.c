@@ -6,10 +6,10 @@
  * (with a title bar + title) plus a cursor into the libfbgui back buffer,
  * and presents.  Left-drag on a title bar moves a window; left-drag on the
  * bottom-right grip resizes it (the client reallocates its surface); a click
- * in a window body is forwarded to that client.
+ * in a window body is forwarded to that client.  Keyboard input is grabbed
+ * from /dev/kbdmux and routed to the focused (topmost) window.
  *
- * Proof of concept, not a service: single back buffer, no keyboard routing.
- * See README.md.
+ * Proof of concept, not a service: single back buffer.  See README.md.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -26,6 +26,7 @@
 #include <pixman.h>
 #include <fbgui.h>
 #include <fbcomp_proto.h>
+#include <minix/input.h>
 
 #define MAXCLI		16
 #define TITLEH		22
@@ -288,6 +289,97 @@ drop_client(int slot)
 }
 
 /*
+ * Keyboard.  We open /dev/kbdmux, which makes the input server deliver key
+ * events to us instead of TTY (it forwards to TTY only when no reader has the
+ * device open); closing it hands the console keyboard back.  Events arrive as
+ * raw USB HID `struct input_event`s, exactly like the mouse via mousemux.
+ */
+static int	kmods;			/* live modifier mask (FBC_MOD_*) */
+
+static int
+open_keyboard(void)
+{
+	int fd = open("/dev/kbdmux", O_RDONLY | O_NONBLOCK);
+	if (fd < 0) fd = open("/dev/kbd0", O_RDONLY | O_NONBLOCK);
+	return fd;
+}
+
+/* Translate a USB HID key code to an ASCII character (0 if none). */
+static char
+key_ascii(int code, int shift)
+{
+	static const char row_lo[] = "1234567890";
+	static const char row_hi[] = "!@#$%^&*()";
+
+	if (code >= INPUT_KEY_A && code <= INPUT_KEY_Z)
+		return (shift ? 'A' : 'a') + (code - INPUT_KEY_A);
+	if (code >= INPUT_KEY_1 && code <= INPUT_KEY_0)
+		return (shift ? row_hi : row_lo)[code - INPUT_KEY_1];
+	switch (code) {
+	case INPUT_KEY_SPACEBAR:	return ' ';
+	case INPUT_KEY_ENTER:		return '\n';
+	case INPUT_KEY_TAB:		return '\t';
+	case INPUT_KEY_BACKSPACE:	return '\b';
+	case INPUT_KEY_DASH:		return shift ? '_' : '-';
+	case INPUT_KEY_EQUAL:		return shift ? '+' : '=';
+	case INPUT_KEY_OPEN_BRACKET:	return shift ? '{' : '[';
+	case INPUT_KEY_CLOSE_BRACKET:	return shift ? '}' : ']';
+	case INPUT_KEY_BACKSLASH:	return shift ? '|' : '\\';
+	case INPUT_KEY_SEMICOLON:	return shift ? ':' : ';';
+	case INPUT_KEY_APOSTROPH:	return shift ? '"' : '\'';
+	case INPUT_KEY_GRAVE_ACCENT:	return shift ? '~' : '`';
+	case INPUT_KEY_COMMA:		return shift ? '<' : ',';
+	case INPUT_KEY_PERIOD:		return shift ? '>' : '.';
+	case INPUT_KEY_SLASH:		return shift ? '?' : '/';
+	default:			return 0;
+	}
+}
+
+/* Update the modifier mask for a modifier key; returns 1 if it was one. */
+static int
+key_modifier(int code, int press)
+{
+	int bit;
+	switch (code) {
+	case INPUT_KEY_LEFT_SHIFT: case INPUT_KEY_RIGHT_SHIFT:
+		bit = FBC_MOD_SHIFT; break;
+	case INPUT_KEY_LEFT_CTRL: case INPUT_KEY_RIGHT_CTRL:
+		bit = FBC_MOD_CTRL; break;
+	case INPUT_KEY_LEFT_ALT: case INPUT_KEY_RIGHT_ALT:
+		bit = FBC_MOD_ALT; break;
+	default:
+		return 0;
+	}
+	if (press) kmods |= bit; else kmods &= ~bit;
+	return 1;
+}
+
+/* Route one key transition to the focused (topmost) window, if any. */
+static void
+route_key(int code, int press)
+{
+	struct fbc_msg km;
+	struct win *fw;
+
+	if (key_modifier(code, press))
+		return;			/* modifiers only update state */
+	if (nwin <= 0)
+		return;
+	fw = &wins[nwin - 1];
+	memset(&km, 0, sizeof km);
+	km.type = FBC_KEY;
+	km.x = code;
+	km.y = key_ascii(code, (kmods & FBC_MOD_SHIFT) != 0);
+	km.w = press;
+	km.buttons = kmods;
+	(void)write(fw->fd, &km, sizeof km);
+	if (press && km.y > ' ')
+		fprintf(lg, "KEY '%c' -> '%s'\n", (char)km.y, fw->title);
+	else if (press)
+		fprintf(lg, "KEY code=%d -> '%s'\n", code, fw->title);
+}
+
+/*
  * Default font path.  MINIX base ships no TTF, so out of the box the
  * compositor runs without title text; override with argv[1] or the
  * FBCOMPD_FONT environment variable to get titles.
@@ -299,7 +391,7 @@ main(int argc, char **argv)
 {
 	struct sockaddr_un sa;
 	const char *font;
-	int lfd, mfd, i, dragging = -1, resizing = -1, btn = 0;
+	int lfd, mfd, kfd, i, dragging = -1, resizing = -1, btn = 0;
 	fd_set rf;
 
 	lg = fopen("/tmp/COMP", "w");
@@ -328,11 +420,13 @@ main(int argc, char **argv)
 		fprintf(lg, "socket setup: %s\n", strerror(errno)); return 1;
 	}
 	mfd = fbgui_open_mouse();
+	kfd = open_keyboard();
 
 	recomposite();
 	fbgui_present_full(G);
-	fprintf(lg, "COMPOSITOR READY fb=%dx%d sock=%s\n",
-	    fbgui_width(G), fbgui_height(G), FBCOMP_SOCK);
+	fprintf(lg, "COMPOSITOR READY fb=%dx%d sock=%s kbd=%s\n",
+	    fbgui_width(G), fbgui_height(G), FBCOMP_SOCK,
+	    kfd >= 0 ? "grabbed" : "none");
 
 	for (;;) {
 		struct timeval tv = { 0, 30000 };
@@ -341,6 +435,7 @@ main(int argc, char **argv)
 		FD_ZERO(&rf);
 		FD_SET(lfd, &rf);
 		if (mfd >= 0) { FD_SET(mfd, &rf); if (mfd > maxfd) maxfd = mfd; }
+		if (kfd >= 0) { FD_SET(kfd, &rf); if (kfd > maxfd) maxfd = kfd; }
 		for (i = 0; i < MAXCLI; i++)
 			if (cli[i] >= 0) {
 				FD_SET(cli[i], &rf);
@@ -383,6 +478,17 @@ main(int argc, char **argv)
 				resize_surface(fd, &m);
 				recomposite(); present_scene(); break;
 			}
+		}
+
+		if (kfd >= 0 && FD_ISSET(kfd, &rf)) {
+			struct input_event ev;
+			/* Drain all pending key transitions and route each to
+			 * the focused window (the client redraws itself, so no
+			 * recomposite is needed here). */
+			while (read(kfd, &ev, sizeof ev) == (ssize_t)sizeof ev)
+				if (ev.page == INPUT_PAGE_KEY)
+					route_key(ev.code,
+					    ev.value != INPUT_RELEASE);
 		}
 
 		if (mfd >= 0 && FD_ISSET(mfd, &rf)) {
