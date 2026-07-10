@@ -36,6 +36,9 @@ obj.*
 tools/**/build/
 tools/**/obj/
 **/obj*/
+# ...but OpenSSL's crypto/objects/ is a SOURCE directory, not build output;
+# the **/obj*/ rule above would wrongly drop its sources from the import.
+!crypto/external/apache2/openssl/dist/crypto/objects/
 **/.deps/
 external/*/dist/
 external/*/dist-*/
