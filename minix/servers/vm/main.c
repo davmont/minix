@@ -582,6 +582,7 @@ void init_vm(void)
 	CALLMAP(VM_EXIT, do_exit);
 	CALLMAP(VM_FORK, do_fork);
 	CALLMAP(VM_BRK, do_brk);
+	CALLMAP(VM_RLIMIT, do_rlimit);
 	CALLMAP(VM_WILLEXIT, do_willexit);
 
 	CALLMAP(VM_PROCCTL, do_procctl_notrans);

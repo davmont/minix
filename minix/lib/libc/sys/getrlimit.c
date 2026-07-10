@@ -8,16 +8,18 @@
  
 #include <sys/cdefs.h>
 #include "namespace.h"
+#include <lib.h>
 
 #include <errno.h>
 #include <limits.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
 int getrlimit(int resource, struct rlimit *rlp)
 {
 	rlim_t limit;
-	
+
 	switch (resource)
 	{
 		case RLIMIT_STACK:
@@ -32,15 +34,29 @@ int getrlimit(int resource, struct rlimit *rlp)
 			rlp->rlim_max = (rlim_t) 64 * 1024 * 1024;
 			return 0;
 
+		case RLIMIT_AS:
+		/* case RLIMIT_VMEM: Same as RLIMIT_AS */
+		case RLIMIT_DATA:
+			/* Enforced by VM; report the stored soft limit so
+			 * get/set are consistent (VM uses 0 = unlimited). */
+			{
+				message m;
+				memset(&m, 0, sizeof(m));
+				m.m_lc_vm_rlimit.which = resource;
+				m.m_lc_vm_rlimit.op = VMRL_GET;
+				if (_syscall(VM_PROC_NR, VM_RLIMIT, &m) < 0)
+					return -1;
+				limit = (m.m_lc_vm_rlimit.limit == 0) ?
+				    RLIM_INFINITY : (rlim_t) m.m_lc_vm_rlimit.limit;
+			}
+			break;
+
 		case RLIMIT_CPU:
 		case RLIMIT_FSIZE:
-		case RLIMIT_DATA:
 		case RLIMIT_CORE:
 		case RLIMIT_RSS:
 		case RLIMIT_MEMLOCK:
 		case RLIMIT_SBSIZE:
-		case RLIMIT_AS:
-		/* case RLIMIT_VMEM: Same as RLIMIT_AS */
 		case RLIMIT_NTHR:
 			/* no limit enforced (however architectural limits
 			 * may apply)

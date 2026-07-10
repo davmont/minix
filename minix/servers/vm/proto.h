@@ -68,6 +68,9 @@ int do_fork(message *msg);
 /* break.c */
 int do_brk(message *msg);
 int real_brk(struct vmproc *vmp, vir_bytes v);
+int do_rlimit(message *msg);
+vir_bytes vm_as_bytes(struct vmproc *vmp);
+int vm_rlimit_exceeded(struct vmproc *vmp, vir_bytes add, int check_data);
 
 /* map_mem.c */
 int map_memory(endpoint_t sour, endpoint_t dest, vir_bytes virt_s,

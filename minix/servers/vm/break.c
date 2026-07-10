@@ -29,6 +29,7 @@
 #include <minix/bitmap.h>
 
 #include <errno.h>
+#include <sys/resource.h>
 
 #include "glo.h"
 #include "vm.h"
@@ -37,6 +38,56 @@
 
 #define DATA_CHANGED       1    /* flag value when data segment size changed */
 #define STACK_CHANGED      2    /* flag value when stack size changed */
+
+/*===========================================================================*
+ *				vm_rlimit_exceeded			     *
+ *===========================================================================*/
+/* Would growing the address space by 'add' bytes exceed the process's
+ * RLIMIT_AS (always) or RLIMIT_DATA (when check_data) soft limit?  Both are
+ * measured against total mapped address space; a zero limit means unlimited,
+ * so processes that never call setrlimit() are unaffected. */
+int vm_rlimit_exceeded(struct vmproc *vmp, vir_bytes add, int check_data)
+{
+	u64_t as;
+
+	if(!vmp->vm_as_limit && !(check_data && vmp->vm_data_limit))
+		return 0;			/* no applicable limit */
+
+	as = (u64_t) vm_as_bytes(vmp) + add;
+	if(vmp->vm_as_limit && as > vmp->vm_as_limit)
+		return 1;
+	if(check_data && vmp->vm_data_limit && as > vmp->vm_data_limit)
+		return 1;
+	return 0;
+}
+
+/*===========================================================================*
+ *				do_rlimit				     *
+ *===========================================================================*/
+/* Get or set a process's RLIMIT_AS / RLIMIT_DATA soft limit (libc
+ * setrlimit/getrlimit).  Stored per-process and enforced at mmap()/brk(). */
+int do_rlimit(message *msg)
+{
+	int proc;
+	struct vmproc *vmp;
+	u64_t *slot;
+
+	if (vm_isokendpt(msg->m_source, &proc) != OK)
+		return EINVAL;
+	vmp = &vmproc[proc];
+
+	switch(msg->m_lc_vm_rlimit.which) {
+	case RLIMIT_AS:		slot = &vmp->vm_as_limit;   break;
+	case RLIMIT_DATA:	slot = &vmp->vm_data_limit; break;
+	default:		return EINVAL;
+	}
+
+	if(msg->m_lc_vm_rlimit.op == VMRL_SET)
+		*slot = msg->m_lc_vm_rlimit.limit;
+	else
+		msg->m_lc_vm_rlimit.limit = *slot;	/* VMRL_GET */
+	return OK;
+}
 
 /*===========================================================================*
  *				do_brk					     *
@@ -61,6 +112,13 @@ int do_brk(message *msg)
  *===========================================================================*/
 int real_brk(struct vmproc *vmp, vir_bytes v)
 {
+	/* Enforce RLIMIT_AS / RLIMIT_DATA on data-segment growth: if the
+	 * address space is already at the limit, refuse to grow it further so
+	 * the process's own brk()/malloc() fails gracefully with ENOMEM rather
+	 * than driving the system toward OOM. */
+	if(vm_rlimit_exceeded(vmp, 0, 1 /*check_data*/))
+		return(ENOMEM);
+
 	if(map_region_extend_upto_v(vmp, v) == OK) {
 		return OK;
 	}

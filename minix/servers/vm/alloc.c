@@ -719,21 +719,44 @@ int vm_oom_wanted(void)
 	return oom_kill_wanted;
 }
 
+/* Minimum footprint (pages) for a process to be an OOM victim: killing a tiny
+ * process frees almost nothing and is more likely to hit something innocent,
+ * so hold out for a real hog. */
+#define OOM_MIN_VICTIM	256			/* 1 MB */
+/* A process counts as "actively growing" if it gained a resident page within
+ * the last OOM_GROW_WINDOW growth ticks (system-wide).  Such a hog gets a
+ * badness bonus so a transient balloon is preferred over an equally large but
+ * quiescent long-running program. */
+#define OOM_GROW_WINDOW	4096
+
 void vm_oom_kill(void)
 {
 	int p, victim = -1, s;
-	vir_bytes maxrss = 0;
+	unsigned long best = 0;
 
 	oom_kill_wanted = 0;
 	oom_pressure = 0;		/* cooldown: let the kill free memory */
 
 	for(p = 0; p < VMP_NR; p++) {
 		struct vmproc *vmp = &vmproc[p];
+		unsigned long pages, badness;
+
 		if(!(vmp->vm_flags & VMF_INUSE)) continue;
 		if(vmp->vm_flags & VMF_EXITING) continue;
 		if(!acl_is_user_proc(vmp)) continue;	/* protect system procs */
-		if(vmp->vm_total > maxrss) {
-			maxrss = vmp->vm_total;
+
+		pages = vmp->vm_total / VM_PAGE_SIZE;
+		if(pages < OOM_MIN_VICTIM) continue;	/* too small to matter */
+
+		/* Badness is dominated by committed footprint (killing the
+		 * biggest frees the most RAM + pool + swap), with a bonus for
+		 * a hog that is actively ballooning right now. */
+		badness = pages;
+		if(oom_grow_clock - vmp->vm_oom_grow < OOM_GROW_WINDOW)
+			badness += pages / 2;		/* +50% for active growth */
+
+		if(badness > best) {
+			best = badness;
 			victim = p;
 		}
 	}

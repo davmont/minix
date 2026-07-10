@@ -1005,6 +1005,14 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_vm_brk);
 
 typedef struct {
+	int		which;		/* RLIMIT_AS / RLIMIT_DATA */
+	int		op;		/* VMRL_GET / VMRL_SET */
+	uint64_t	limit;		/* soft limit in bytes (0 = unlimited) */
+	uint8_t		padding[80];
+} mess_lc_vm_rlimit;
+_ASSERT_MSG_SIZE(mess_lc_vm_rlimit);
+
+typedef struct {
 	endpoint_t	endpt;
 	void		*addr;
 	void		*ret_addr;
@@ -2651,6 +2659,7 @@ typedef struct noxfer_message {
 		mess_lc_vfs_umask	m_lc_vfs_umask;
 		mess_lc_vfs_umount	m_lc_vfs_umount;
 		mess_lc_vm_brk		m_lc_vm_brk;
+		mess_lc_vm_rlimit	m_lc_vm_rlimit;
 		mess_lc_vm_getphys	m_lc_vm_getphys;
 		mess_lc_vm_shm_unmap	m_lc_vm_shm_unmap;
 		mess_lchardriver_vfs_reply m_lchardriver_vfs_reply;

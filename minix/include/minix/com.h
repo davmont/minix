@@ -732,6 +732,12 @@
 #	define VMSW_ENDPT		m1_i1	/* swap driver endpoint */
 #	define VMSW_MINOR		m1_i2	/* swap minor device */
 #	define VMSW_NSLOTS		m1_i3	/* number of 4 KB slots */
+
+/* Per-process address-space resource limit (RLIMIT_AS / RLIMIT_DATA),
+ * enforced by VM at mmap()/brk().  Uses m_lc_vm_rlimit. */
+#define VM_RLIMIT		(VM_RQ_BASE+50)
+#	define VMRL_GET			0	/* read current limit */
+#	define VMRL_SET			1	/* set soft limit */
 #	define VMV_DEV			m10_i4
 #	define VMV_INO			m10_l1
 #	define VMV_FD			m10_l2
@@ -789,8 +795,10 @@
 
 #define VM_RS_PREPARE		(VM_RQ_BASE+48)
 
-/* Total. */
-#define NR_VM_CALLS				49
+/* Total.  Must exceed the highest CALLMAP()ed call index: VM_RLIMIT is
+ * VM_RQ_BASE+50, so the vm_calls[] table needs 51 entries.  (VM_SWAPON at
+ * +49 is dispatched directly from VM's main loop, not through CALLMAP.) */
+#define NR_VM_CALLS				51
 #define VM_CALL_MASK_SIZE			BITMAP_CHUNKS(NR_VM_CALLS)
 
 /* not handled as a normal VM call, thus at the end of the reserved rage */
@@ -801,6 +809,7 @@
 /* Basic vm calls allowed to every process. */
 #define VM_BASIC_CALLS \
     VM_BRK, VM_MMAP, VM_MUNMAP, VM_MAP_PHYS, VM_UNMAP_PHYS, VM_INFO, \
+    VM_RLIMIT, /* every process may get/set its own RLIMIT_AS/DATA */ \
     VM_GETRUSAGE /* VM_GETRUSAGE is to be removed from this list ASAP */
 
 /*===========================================================================*
