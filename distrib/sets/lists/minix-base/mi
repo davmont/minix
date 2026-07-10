@@ -128,6 +128,7 @@
 ./etc/rc.d/bootconf.sh                                  minix-base
 ./etc/rc.d/dhcpcd                                       minix-base
 ./etc/rc.d/downinterfaces                               minix-base
+./etc/rc.d/fbcompd                                      minix-base
 ./etc/rc.d/fsck                                         minix-base
 ./etc/rc.d/ftpd                                         minix-base
 ./etc/rc.d/inetd                                        minix-base

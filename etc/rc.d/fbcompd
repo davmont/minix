@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# MINIX: start the framebuffer compositor (/usr/bin/fbcompd) at boot.
+#
+# Opt-in: disabled by default (fbcompd=NO in /etc/defaults/minix.rc.conf).
+# The compositor grabs the keyboard from /dev/kbdmux, so enabling it turns
+# the framebuffer into the primary console; set fbcompd=YES in /etc/rc.conf
+# to use it.  The serial console keeps working regardless.
+#
+
+# PROVIDE: fbcompd
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+
+$_rc_subr_loaded . /etc/rc.subr
+
+name="fbcompd"
+rcvar=$name
+command="/usr/bin/fbcompd"
+pidfile="/var/run/fbcompd.pid"
+start_cmd="fbcompd_start"
+
+fbcompd_start()
+{
+	# The compositor needs /dev/fb0, which the framebuffer driver provides.
+	# Bring the driver up if it is not already running (harmless if it is).
+	minix-service up /service/fb -dev /dev/fb0 >/dev/null 2>&1
+	echo "Starting fbcompd."
+	# fbcompd does not daemonize, so run it in the background and record
+	# its pid so rc.subr can stop it.
+	${command} ${fbcompd_flags} &
+	echo $! > ${pidfile}
+}
+
+load_rc_config $name
+run_rc_command "$1"

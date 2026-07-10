@@ -133,10 +133,24 @@ processes.
   working while the keyboard is grabbed, since serial input does not flow
   through the input server.
 
+## Auto-start at boot
+
+An `rc.d` script (`etc/rc.d/fbcompd`) can bring the compositor up at boot.
+It is **opt-in**: the default `fbcompd=NO` (`etc/defaults/minix.rc.conf`)
+keeps it off, because enabling it starts the fb driver and grabs the
+keyboard, making the framebuffer the primary console. To enable it, add
+
+    fbcompd=YES
+
+to `/etc/rc.conf` and reboot (or run `/etc/rc.d/fbcompd start`). The script
+brings up the fb driver (`minix-service up /service/fb -dev /dev/fb0`) and
+launches `/usr/bin/fbcompd`; `fbcompd_flags` can pass a font path. The
+serial console keeps working, so a headless/serial setup stays reachable.
+
 ## What a usable WM still needs (roadmap step 4 remainder)
 
-- Start `fbcompd` from an rc script / service so it comes up at boot
-  (it installs to `/usr/bin` now, but nothing launches it yet).
 - Minimise/maximise; damage-limited recomposite (today a commit
   recomposites the whole scene).
 - A resource/font story (base ships no TTF — a font package is needed).
+- Auto-start currently launches only the bare compositor; a real session
+  would also start a launcher/clients.

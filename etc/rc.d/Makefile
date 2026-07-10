@@ -56,7 +56,7 @@ CONFIGFILES=\
 .if defined(__MINIX)
 # MINIX: we will gradually switch over to the NetBSD rc system.  For conflict
 # avoidance, all MINIX-specific scripts should have "minix" in their name.
-CONFIGFILES+=	minixrc
+CONFIGFILES+=	minixrc fbcompd
 .endif
 
 FILESDIR=	/etc/rc.d
