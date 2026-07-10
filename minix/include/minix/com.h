@@ -828,6 +828,12 @@
 #define IPC_SEMCTL	(IPC_BASE+6)
 #define IPC_SEMOP	(IPC_BASE+7)
 
+/* POSIX shared memory (shm_open): fd-backed, writable, cross-process shared
+ * memory keyed by the (dev, ino) of a token file, mapped with vm_remap. */
+#define IPC_SHM_OPEN	(IPC_BASE+8)	/* register a (dev,ino) as a shm object */
+#define IPC_SHM_MAP	(IPC_BASE+9)	/* vm_remap the object into the caller */
+#define IPC_SHM_UNLINK	(IPC_BASE+10)	/* mark object for destruction */
+
 /*===========================================================================*
  *                Messages for Scheduling				     *
  *===========================================================================*/

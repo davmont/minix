@@ -53,6 +53,12 @@ ssize_t get_shm_mib_info(struct rmib_oldp *);
 int is_shm_nil(void);
 void update_refcount_and_destroy(void);
 
+/* posix_shm.c */
+int do_shm_open(message *);
+int do_shm_map(message *);
+int do_shm_unlink(message *);
+void posix_shm_update(void);
+
 /* sem.c */
 int do_semget(message *);
 int do_semctl(message *);

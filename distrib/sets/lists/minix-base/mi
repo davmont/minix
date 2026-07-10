@@ -4015,6 +4015,7 @@
 ./var/run/heimdal                                       minix-base      crypto
 ./var/run/lwresd                                        minix-base
 ./var/run/named                                         minix-base
+./var/shm                                               minix-base
 ./var/spool                                             minix-base
 ./var/spool/ftp                                         minix-base
 ./var/spool/ftp/bin                                     minix-base

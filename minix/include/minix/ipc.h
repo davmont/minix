@@ -431,6 +431,16 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_ipc_shmget);
 
 typedef struct {
+	uint64_t	dev;		/* token file device */
+	uint64_t	ino;		/* token file inode number */
+	uint64_t	size;		/* object size (bytes), for MAP */
+	int		flag;		/* IPC_SHM_MAP: nonzero = read-only */
+	void		*retaddr;	/* IPC_SHM_MAP: mapped address out */
+	uint8_t		padding[24];
+} mess_lc_ipc_shm;
+_ASSERT_MSG_SIZE(mess_lc_ipc_shm);
+
+typedef struct {
 	vir_bytes	oldp;
 	size_t		oldlen;
 	vir_bytes	newp;
@@ -2598,6 +2608,7 @@ typedef struct noxfer_message {
 		mess_lc_ipc_shmctl	m_lc_ipc_shmctl;
 		mess_lc_ipc_shmdt	m_lc_ipc_shmdt;
 		mess_lc_ipc_shmget	m_lc_ipc_shmget;
+		mess_lc_ipc_shm		m_lc_ipc_shm;
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;

@@ -420,6 +420,7 @@
 ./var/run/mdnsd			type=dir  mode=0755 gname=_mdnsd uname=_mdnsd optional
 ./var/run/utmp			type=file mode=0664 gname=utmp tags=exclude
 ./var/run/utmpx			type=file mode=0664 gname=utmp tags=exclude
+./var/shm			type=dir  mode=1777
 ./var/spool			type=dir  mode=0755
 ./var/spool/ftp			type=dir  mode=0755 optional
 ./var/spool/ftp/bin		type=dir  mode=0755 optional
