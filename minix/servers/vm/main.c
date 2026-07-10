@@ -140,6 +140,13 @@ int main(void)
 	if(vm_reclaim_active())
 		swapout_tick();
 
+	/* OOM killer: a working set larger than RAM + swap has kept memory
+	 * critically low despite reclaim (thrashing).  Kill the largest user
+	 * hog here, in a safe context outside any allocation/reclaim path, to
+	 * bring demand back under capacity. */
+	if(vm_oom_wanted())
+		vm_oom_kill();
+
   	if ((r=sef_receive_status(ANY, &msg, &rcv_sts)) != OK)
 		panic("sef_receive_status() error: %d", r);
 

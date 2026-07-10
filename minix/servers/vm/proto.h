@@ -276,6 +276,8 @@ int swapio_selftest_result(void);
 
 /* swappage.c (phase C2 writeback + C3 read-in) */
 int vm_reclaim_active(void);
+int vm_oom_wanted(void);
+void vm_oom_kill(void);
 int swappage_init(void);
 void swapout_tick(void);
 void swapout_cancel_pb(struct phys_block *pb);
