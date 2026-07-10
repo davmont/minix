@@ -31,14 +31,17 @@ proof that MINIX can run a Wayland-style compositor without X.
   MOUSE (window-relative pointer + buttons), CLOSED, KEY (focused-window
   key: HID code + ASCII char + modifiers + press/release).
 - **Compositor** (`fbcompd.c`): `select()`s over the listen socket, all
-  client fds, `/dev/mousemux`, and `/dev/kbdmux`. Each frame it composites
-  the desktop,
-  every window (title bar + title text via FreeType, then the client's
-  shm surface), and the cursor into the `libfbgui` back buffer, and
-  presents with damage tracking so only changed rows hit the
-  framebuffer. Left-button-down on a title bar raises and drags that
-  window; dragging the bottom-right grip resizes it; clicks inside a
-  window forward MOUSE events to its client.
+  client fds, `/dev/mousemux`, and `/dev/kbdmux`. Each event accumulates a
+  **damage box** (the committed sub-rect, the old+new cursor, a moved
+  window's swept area, ...) and recomposites *only* that box: the desktop
+  fill, per-window title bar + FreeType text + shm surface, and the cursor
+  are each clipped to it, and windows that do not touch it are skipped
+  entirely. `libfbgui` then presents just those rows. So a client redraw or
+  a cursor move no longer repaints - or blits - the whole multi-megabyte
+  screen (measured: an average frame writes ~1.4% of a full-screen blit).
+  Left-button-down on a title bar raises and drags that window; dragging
+  the bottom-right grip resizes it; clicks inside a window forward MOUSE
+  events to its client.
 - **Client helper** (`fbclient.c/.h`): `fbc_connect`, `fbc_create_window`
   (shmget+shmat+CREATE_WINDOW → a pixel buffer to draw into),
   `fbc_commit`, `fbc_resize` (reallocate the surface on a resize
@@ -149,8 +152,7 @@ serial console keeps working, so a headless/serial setup stays reachable.
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 
-- Minimise/maximise; damage-limited recomposite (today a commit
-  recomposites the whole scene).
+- Minimise/maximise.
 - A resource/font story (base ships no TTF — a font package is needed).
 - Auto-start currently launches only the bare compositor; a real session
   would also start a launcher/clients.

@@ -64,39 +64,132 @@ static const pixman_color_t c_close = { 0xd000, 0x2800, 0x2800, 0xffff }; /* clo
 static const pixman_color_t c_grip  = { 0xa000, 0xa000, 0xb000, 0xffff }; /* resize grip */
 static const pixman_color_t c_cur   = { 0xf000, 0xf000, 0xf000, 0xffff };
 
+/*
+ * Damage box (screen coords) accumulated for the current frame.  recomposite()
+ * only redraws inside it and present_scene() only pushes those rows, so a small
+ * change (a client commit, the cursor moving) no longer repaints - and blits -
+ * the whole multi-megabyte screen.  Empty when dmg_x1 <= dmg_x0.
+ */
+static int dmg_x0, dmg_y0, dmg_x1, dmg_y1;
+
+static void
+dmg_reset(void)
+{
+	dmg_x0 = dmg_y0 = 0x7fffffff;
+	dmg_x1 = dmg_y1 = -0x7fffffff;
+}
+
+static void
+dmg_add(int x, int y, int w, int h)
+{
+	if (w <= 0 || h <= 0) return;
+	if (x < dmg_x0) dmg_x0 = x;
+	if (y < dmg_y0) dmg_y0 = y;
+	if (x + w > dmg_x1) dmg_x1 = x + w;
+	if (y + h > dmg_y1) dmg_y1 = y + h;
+}
+
+static void dmg_add_all(void) { dmg_add(0, 0, fbgui_width(G), fbgui_height(G)); }
+
+/* A window's full on-screen extent (title bar + surface; the grip is within). */
+static void dmg_add_win(const struct win *w) { dmg_add(w->x, w->y, w->w, TITLEH + w->h); }
+
+static void dmg_add_cursor(int x, int y) { dmg_add(x, y, CURW, CURH); }
+
+/* Clamp the damage box to the screen; returns 0 if empty. */
+static int
+dmg_box(int *x0, int *y0, int *x1, int *y1)
+{
+	int W = fbgui_width(G), H = fbgui_height(G);
+	*x0 = dmg_x0 < 0 ? 0 : dmg_x0;
+	*y0 = dmg_y0 < 0 ? 0 : dmg_y0;
+	*x1 = dmg_x1 > W ? W : dmg_x1;
+	*y1 = dmg_y1 > H ? H : dmg_y1;
+	return (*x1 > *x0 && *y1 > *y0);
+}
+
+/* Fill the intersection of an element rect with the damage box. */
+static void
+fill_clip(const pixman_color_t *c, int ex, int ey, int ew, int eh,
+    int x0, int y0, int x1, int y1)
+{
+	int ix0 = ex < x0 ? x0 : ex, iy0 = ey < y0 ? y0 : ey;
+	int ix1 = ex + ew > x1 ? x1 : ex + ew, iy1 = ey + eh > y1 ? y1 : ey + eh;
+	if (ix1 > ix0 && iy1 > iy0)
+		fbgui_fill_rect(G, c, ix0, iy0, ix1 - ix0, iy1 - iy0);
+}
+
+/* Bound the back buffer to the damage box (fbgui_draw_text has no clip of its
+ * own, so glyphs would otherwise spill outside the box). */
+static void
+clip_set(pixman_image_t *back, int x0, int y0, int x1, int y1)
+{
+	pixman_box32_t b = { x0, y0, x1, y1 };
+	pixman_region32_t r;
+	pixman_region32_init_rects(&r, &b, 1);
+	pixman_image_set_clip_region32(back, &r);
+	pixman_region32_fini(&r);
+}
+
 static void
 recomposite(void)
 {
 	pixman_image_t *back = fbgui_surface(G);
-	int i;
+	int x0, y0, x1, y1, i;
 
-	fbgui_fill_rect(G, &c_desk, 0, 0, fbgui_width(G), fbgui_height(G));
+	if (!dmg_box(&x0, &y0, &x1, &y1))
+		return;
+
+	/* Desktop, only within the damage box. */
+	fbgui_fill_rect(G, &c_desk, x0, y0, x1 - x0, y1 - y0);
+
 	for (i = 0; i < nwin; i++) {
 		struct win *w = &wins[i];
 		const pixman_color_t *tb;
+		int bx0, by0, bx1, by1;		/* surface rect clipped to box */
 		if (!w->used) continue;
+		/* Skip windows that do not touch the damage box. */
+		if (w->x >= x1 || w->x + w->w <= x0 ||
+		    w->y >= y1 || w->y + TITLEH + w->h <= y0)
+			continue;
 		/* The top window (highest index) has focus - brighter bar. */
 		tb = (i == nwin - 1) ? &c_tfocus : &c_tbar;
-		fbgui_fill_rect(G, tb, w->x, w->y, w->w, TITLEH);
+		fill_clip(tb, w->x, w->y, w->w, TITLEH, x0, y0, x1, y1);
+		clip_set(back, x0, y0, x1, y1);
 		fbgui_draw_text(G, w->x + 8, w->y + 16, w->title, &c_ttext, 14);
+		pixman_image_set_clip_region32(back, NULL);
 		/* Close box at the title-bar right, with an X. */
-		fbgui_fill_rect(G, &c_close, w->x + w->w - CLOSEW, w->y,
-		    CLOSEW, TITLEH);
+		fill_clip(&c_close, w->x + w->w - CLOSEW, w->y, CLOSEW, TITLEH,
+		    x0, y0, x1, y1);
+		clip_set(back, x0, y0, x1, y1);
 		fbgui_draw_text(G, w->x + w->w - CLOSEW + 6, w->y + 16, "x",
 		    &c_ttext, 14);
-		pixman_image_composite32(PIXMAN_OP_SRC, w->img, NULL, back,
-		    0, 0, 0, 0, w->x, w->y + TITLEH, w->w, w->h);
+		pixman_image_set_clip_region32(back, NULL);
+		/* Surface, only the part inside the damage box. */
+		bx0 = w->x < x0 ? x0 : w->x;
+		by0 = w->y + TITLEH < y0 ? y0 : w->y + TITLEH;
+		bx1 = w->x + w->w > x1 ? x1 : w->x + w->w;
+		by1 = w->y + TITLEH + w->h > y1 ? y1 : w->y + TITLEH + w->h;
+		if (bx1 > bx0 && by1 > by0)
+			pixman_image_composite32(PIXMAN_OP_SRC, w->img, NULL,
+			    back, bx0 - w->x, by0 - (w->y + TITLEH), 0, 0,
+			    bx0, by0, bx1 - bx0, by1 - by0);
 		/* Resize grip at the bottom-right corner of the surface. */
-		fbgui_fill_rect(G, &c_grip, w->x + w->w - RESIZEW,
-		    w->y + TITLEH + w->h - RESIZEW, RESIZEW, RESIZEW);
+		fill_clip(&c_grip, w->x + w->w - RESIZEW,
+		    w->y + TITLEH + w->h - RESIZEW, RESIZEW, RESIZEW,
+		    x0, y0, x1, y1);
 	}
-	fbgui_fill_rect(G, &c_cur, cx, cy, CURW, CURH);
+	fill_clip(&c_cur, cx, cy, CURW, CURH, x0, y0, x1, y1);
 }
 
 static void
 present_scene(void)
 {
-	fbgui_damage_all(G);
+	int x0, y0, x1, y1;
+
+	if (!dmg_box(&x0, &y0, &x1, &y1))
+		return;
+	fbgui_damage(G, x0, y0, x1 - x0, y1 - y0);
 	fbgui_present(G);
 }
 
@@ -422,6 +515,7 @@ main(int argc, char **argv)
 	mfd = fbgui_open_mouse();
 	kfd = open_keyboard();
 
+	dmg_reset(); dmg_add_all();
 	recomposite();
 	fbgui_present_full(G);
 	fprintf(lg, "COMPOSITOR READY fb=%dx%d sock=%s kbd=%s\n",
@@ -463,20 +557,38 @@ main(int argc, char **argv)
 			if (fd < 0 || !FD_ISSET(fd, &rf)) continue;
 			r = (int)read(fd, &m, sizeof m);
 			if (r != (int)sizeof m) { drop_client(i);
+			    dmg_reset(); dmg_add_all();
 			    recomposite(); present_scene(); continue; }
 			switch (m.type) {
 			case FBC_CREATE_WINDOW:
 				add_window(fd, &m);
+				dmg_reset();
+				if (nwin > 0) dmg_add_win(&wins[nwin - 1]);
 				recomposite(); present_scene(); break;
-			case FBC_COMMIT:
+			case FBC_COMMIT: {
+				struct win *cw = win_by_fd(fd);
 				commit_win(fd);
+				dmg_reset();
+				if (cw != NULL) {
+					int dw = (m.w > 0) ? m.w : cw->w;
+					int dh = (m.h > 0) ? m.h : cw->h;
+					dmg_add(cw->x + m.x,
+					    cw->y + TITLEH + m.y, dw, dh);
+				}
 				recomposite(); present_scene(); break;
+			    }
 			case FBC_DESTROY:
 				drop_client(i);
+				dmg_reset(); dmg_add_all();
 				recomposite(); present_scene(); break;
-			case FBC_SET_SURFACE:
+			case FBC_SET_SURFACE: {
+				struct win *rw = win_by_fd(fd);
+				dmg_reset();
+				if (rw != NULL) dmg_add_win(rw);
 				resize_surface(fd, &m);
+				if (rw != NULL) dmg_add_win(rw);
 				recomposite(); present_scene(); break;
+			    }
 			}
 		}
 
@@ -502,6 +614,9 @@ main(int argc, char **argv)
 			if (ncx > fbgui_width(G)-2) ncx = fbgui_width(G)-2;
 			if (ncy > fbgui_height(G)-2) ncy = fbgui_height(G)-2;
 
+			dmg_reset();
+			dmg_add_cursor(cx, cy);		/* erase old cursor */
+
 			if (btn & 1) {
 				if (dragging < 0 && resizing < 0) {
 					w = win_at(ncx, ncy, &topbar);
@@ -509,14 +624,17 @@ main(int argc, char **argv)
 					    ncx, ncy, w?w->title:"(none)", w?topbar:0);
 					if (w != NULL && in_close_box(w, ncx, ncy)) {
 						fprintf(lg, "CLOSE '%s'\n", w->title);
+						dmg_add_win(w);
 						close_win(w);
 						changed = 1;
 					} else if (w != NULL && in_grip(w, ncx, ncy)) {
+						dmg_add_win(w); dmg_add_win(&wins[nwin-1]);
 						raise_win(win_index(w));
 						resizing = nwin-1;
 						fprintf(lg,"GRAB resize '%s'\n",wins[nwin-1].title);
 						changed = 1;
 					} else if (w != NULL) {
+						dmg_add_win(w); dmg_add_win(&wins[nwin-1]);
 						raise_win(win_index(w));
 						if (topbar) { dragging = nwin-1;
 						    fprintf(lg,"GRAB drag '%s'\n",wins[nwin-1].title); }
@@ -534,8 +652,10 @@ main(int argc, char **argv)
 					}
 				} else if (dragging >= 0 && dragging < nwin) {
 					struct fbc_msg cm;
+					dmg_add_win(&wins[dragging]);	/* old */
 					wins[dragging].x += ncx - cx;
 					wins[dragging].y += ncy - cy;
+					dmg_add_win(&wins[dragging]);	/* new */
 					fprintf(lg, "DRAG '%s' to %d,%d\n",
 					    wins[dragging].title,
 					    wins[dragging].x, wins[dragging].y);
@@ -578,6 +698,7 @@ main(int argc, char **argv)
 				resizing = -1;
 			}
 			if (ncx != cx || ncy != cy || changed) {
+				dmg_add_cursor(ncx, ncy);	/* draw new cursor */
 				cx = ncx; cy = ncy;
 				recomposite(); present_scene();
 			}
