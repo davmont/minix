@@ -47,17 +47,25 @@ main(void)
 	/* Stay alive so the window persists; repaint on resize, quit on close. */
 	for (;;) {
 		struct fbc_msg ev;
-		if (fbc_poll(&win, &ev)) {
-			if (ev.type == FBC_CLOSED)
-				break;
-			if (ev.type == FBC_CONFIGURE &&
-			    (ev.w != win.w || ev.h != win.h)) {
-				if (fbc_resize(&win, ev.w, ev.h) == 0)
-					redraw(&win);
-			}
-			continue;
+		int rw = 0, rh = 0, got = 0, closed = 0;
+
+		/* Drain every pending event, coalescing a burst of resize
+		 * CONFIGUREs (a fast grip-drag) down to just the latest target
+		 * size.  Reallocating once per batch instead of once per event
+		 * keeps the surface from churning and the drag from flickering. */
+		while (fbc_poll(&win, &ev)) {
+			got = 1;
+			if (ev.type == FBC_CLOSED) { closed = 1; break; }
+			if (ev.type == FBC_CONFIGURE) { rw = ev.w; rh = ev.h; }
 		}
-		sleep(1);
+		if (closed)
+			break;
+		if (rw > 0 && (rw != win.w || rh != win.h)) {
+			if (fbc_resize(&win, rw, rh) == 0)
+				redraw(&win);
+		}
+		if (!got)
+			sleep(1);
 	}
 	fbc_destroy(&win);
 	return 0;

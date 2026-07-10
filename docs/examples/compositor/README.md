@@ -110,6 +110,14 @@ processes.
   `fbc_resize()`, repaints, and replies with `FBC_SET_SURFACE` carrying
   the new shmid — the compositor adopts it (classic request/ack, no
   pixels on the socket). Both example clients repaint at the new size.
+  A fast drag emits a burst of `FBC_CONFIGURE`s; the clients **coalesce**
+  them by draining all pending events and reallocating only to the last
+  size in each batch (the same way X11/Wayland toolkits collapse a
+  configure burst). This keeps the surface from churning — one
+  reallocation per redraw instead of one per pointer step — so the drag
+  stays smooth and no stale surface hand-off can race. The compositor
+  also tolerates a stale hand-off gracefully: if a superseded shmid can
+  no longer be attached it logs and keeps the current surface.
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 

@@ -50,15 +50,19 @@ main(void)
 
 	for (t = 0; t < 90; t++) {
 		struct fbc_msg ev;
+		int rw = 0, rh = 0;
 		draw(&win, t);
+		/* Drain pending events, coalescing a burst of resize CONFIGUREs
+		 * (a fast grip-drag) down to the latest target size so we
+		 * reallocate the surface once per batch, not once per event. */
 		while (fbc_poll(&win, &ev)) {
 			if (ev.type == FBC_CLOSED)
 				goto done;
-			if (ev.type == FBC_CONFIGURE &&
-			    (ev.w != win.w || ev.h != win.h)) {
-				if (fbc_resize(&win, ev.w, ev.h) == 0)
-					draw(&win, t);
-			}
+			if (ev.type == FBC_CONFIGURE) { rw = ev.w; rh = ev.h; }
+		}
+		if (rw > 0 && (rw != win.w || rh != win.h)) {
+			if (fbc_resize(&win, rw, rh) == 0)
+				draw(&win, t);
 		}
 		sleep(1);
 	}
