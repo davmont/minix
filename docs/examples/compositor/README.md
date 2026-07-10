@@ -102,9 +102,20 @@ processes.
 ## Window management
 
 - **Click-to-raise / focus**: clicking any window raises it to the top
-  and gives it focus; the focused window's title bar is drawn brighter.
-- **Close box**: each title bar has an `x` box at its right; clicking it
-  sends `FBC_CLOSED` to the client and removes the window.
+  and gives it focus (the topmost non-minimised window); the focused
+  window's title bar is drawn brighter, and keystrokes route to it.
+- **Title-bar boxes**: at the right of each title bar are three boxes —
+  minimise (`−`), maximise (`□`) and close (`x`).
+- **Close box**: clicking `x` sends `FBC_CLOSED` to the client and removes
+  the window.
+- **Maximise / restore**: clicking `□` toggles the window between its
+  size and full-screen. Like an interactive resize it asks the client to
+  reallocate (`FBC_CONFIGURE` → `fbc_resize` → `FBC_SET_SURFACE`); the
+  pre-maximise geometry is saved and restored on the next click.
+- **Minimise**: clicking `−` hides the window and adds a button for it to
+  a **taskbar** along the bottom of the screen; clicking that button
+  restores and raises the window. A minimised window keeps running (its
+  buffer stays fresh) but is not composited and takes no input.
 - **Tear-free commits**: the compositor composites from its own copy of
   each surface, refreshed only when the client `FBC_COMMIT`s — a client
   redrawing mid-frame cannot tear.
@@ -152,7 +163,6 @@ serial console keeps working, so a headless/serial setup stays reachable.
 
 ## What a usable WM still needs (roadmap step 4 remainder)
 
-- Minimise/maximise.
 - A resource/font story (base ships no TTF — a font package is needed).
 - Auto-start currently launches only the bare compositor; a real session
   would also start a launcher/clients.

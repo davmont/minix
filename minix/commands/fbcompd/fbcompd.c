@@ -36,6 +36,8 @@
 #define MINH		48
 #define CURW		12
 #define CURH		19
+#define TASKH		TITLEH		/* height of the bottom taskbar */
+#define TASKW		150		/* width of each minimised-window button */
 
 struct win {
 	int		used;
@@ -46,6 +48,9 @@ struct win {
 	pixman_image_t *img;		/* pixman view over buf, never over shm */
 	int		w, h;
 	int		x, y;		/* title-bar top-left on screen */
+	int		maxed;		/* maximised; sx..sh hold pre-max geometry */
+	int		sx, sy, sw, sh;	/* geometry to restore on un-maximise */
+	int		mini;		/* minimised: hidden, shown in the taskbar */
 	char		title[FBCOMP_TITLE_MAX];
 };
 
@@ -61,8 +66,33 @@ static const pixman_color_t c_tbar  = { 0x2000, 0x3000, 0x6000, 0xffff }; /* unf
 static const pixman_color_t c_tfocus= { 0x2800, 0x5000, 0xf000, 0xffff }; /* focused */
 static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_close = { 0xd000, 0x2800, 0x2800, 0xffff }; /* close box */
+static const pixman_color_t c_max   = { 0x2800, 0x9000, 0x3800, 0xffff }; /* maximise box */
+static const pixman_color_t c_min   = { 0xc000, 0x9000, 0x2000, 0xffff }; /* minimise box */
 static const pixman_color_t c_grip  = { 0xa000, 0xa000, 0xb000, 0xffff }; /* resize grip */
 static const pixman_color_t c_cur   = { 0xf000, 0xf000, 0xf000, 0xffff };
+static const pixman_color_t c_task  = { 0x0c00, 0x1400, 0x2400, 0xffff }; /* taskbar bg */
+static const pixman_color_t c_taskb = { 0x2800, 0x3800, 0x5000, 0xffff }; /* taskbar button */
+
+/* The focused window is the topmost one that is not minimised (-1 if none). */
+static int
+focus_index(void)
+{
+	int i;
+	for (i = nwin - 1; i >= 0; i--)
+		if (!wins[i].mini)
+			return i;
+	return -1;
+}
+
+static int
+any_mini(void)
+{
+	int i;
+	for (i = 0; i < nwin; i++)
+		if (wins[i].mini)
+			return 1;
+	return 0;
+}
 
 /*
  * Damage box (screen coords) accumulated for the current frame.  recomposite()
@@ -147,13 +177,13 @@ recomposite(void)
 		struct win *w = &wins[i];
 		const pixman_color_t *tb;
 		int bx0, by0, bx1, by1;		/* surface rect clipped to box */
-		if (!w->used) continue;
+		if (!w->used || w->mini) continue;	/* minimised = hidden */
 		/* Skip windows that do not touch the damage box. */
 		if (w->x >= x1 || w->x + w->w <= x0 ||
 		    w->y >= y1 || w->y + TITLEH + w->h <= y0)
 			continue;
-		/* The top window (highest index) has focus - brighter bar. */
-		tb = (i == nwin - 1) ? &c_tfocus : &c_tbar;
+		/* The focused window (topmost non-minimised) gets a brighter bar. */
+		tb = (i == focus_index()) ? &c_tfocus : &c_tbar;
 		fill_clip(tb, w->x, w->y, w->w, TITLEH, x0, y0, x1, y1);
 		clip_set(back, x0, y0, x1, y1);
 		fbgui_draw_text(G, w->x + 8, w->y + 16, w->title, &c_ttext, 14);
@@ -165,6 +195,24 @@ recomposite(void)
 		fbgui_draw_text(G, w->x + w->w - CLOSEW + 6, w->y + 16, "x",
 		    &c_ttext, 14);
 		pixman_image_set_clip_region32(back, NULL);
+		/* Maximise box (left of close): a hollow white square icon. */
+		{
+			int mx = w->x + w->w - 2 * CLOSEW;
+			fill_clip(&c_max, mx, w->y, CLOSEW, TITLEH,
+			    x0, y0, x1, y1);
+			fill_clip(&c_ttext, mx + 6, w->y + 6, 10, 10,
+			    x0, y0, x1, y1);
+			fill_clip(&c_max, mx + 8, w->y + 8, 6, 6,
+			    x0, y0, x1, y1);
+		}
+		/* Minimise box (left of maximise): a white underscore. */
+		{
+			int mnx = w->x + w->w - 3 * CLOSEW;
+			fill_clip(&c_min, mnx, w->y, CLOSEW, TITLEH,
+			    x0, y0, x1, y1);
+			fill_clip(&c_ttext, mnx + 6, w->y + TITLEH - 7, 10, 3,
+			    x0, y0, x1, y1);
+		}
 		/* Surface, only the part inside the damage box. */
 		bx0 = w->x < x0 ? x0 : w->x;
 		by0 = w->y + TITLEH < y0 ? y0 : w->y + TITLEH;
@@ -178,6 +226,23 @@ recomposite(void)
 		fill_clip(&c_grip, w->x + w->w - RESIZEW,
 		    w->y + TITLEH + w->h - RESIZEW, RESIZEW, RESIZEW,
 		    x0, y0, x1, y1);
+	}
+	/* Taskbar along the bottom, one button per minimised window. */
+	if (any_mini()) {
+		int ty = fbgui_height(G) - TASKH, j = 0;
+		fill_clip(&c_task, 0, ty, fbgui_width(G), TASKH, x0, y0, x1, y1);
+		for (i = 0; i < nwin; i++) {
+			int tx;
+			if (!wins[i].mini) continue;
+			tx = j * TASKW;
+			fill_clip(&c_taskb, tx + 2, ty + 2, TASKW - 4, TASKH - 4,
+			    x0, y0, x1, y1);
+			clip_set(back, x0, y0, x1, y1);
+			fbgui_draw_text(G, tx + 8, ty + 16, wins[i].title,
+			    &c_ttext, 14);
+			pixman_image_set_clip_region32(back, NULL);
+			j++;
+		}
 	}
 	fill_clip(&c_cur, cx, cy, CURW, CURH, x0, y0, x1, y1);
 }
@@ -199,7 +264,7 @@ win_at(int sx, int sy, int *topbar)
 	int i;
 	for (i = nwin - 1; i >= 0; i--) {
 		struct win *w = &wins[i];
-		if (!w->used) continue;
+		if (!w->used || w->mini) continue;	/* minimised = not on screen */
 		if (sx >= w->x && sx < w->x + w->w &&
 		    sy >= w->y && sy < w->y + w->h + TITLEH) {
 			*topbar = (sy < w->y + TITLEH);
@@ -299,6 +364,39 @@ in_close_box(const struct win *w, int sx, int sy)
 	    sy >= w->y && sy < w->y + TITLEH;
 }
 
+/* True if (sx,sy) is inside a window's title-bar maximise box. */
+static int
+in_max_box(const struct win *w, int sx, int sy)
+{
+	return sx >= w->x + w->w - 2 * CLOSEW && sx < w->x + w->w - CLOSEW &&
+	    sy >= w->y && sy < w->y + TITLEH;
+}
+
+/* True if (sx,sy) is inside a window's title-bar minimise box. */
+static int
+in_min_box(const struct win *w, int sx, int sy)
+{
+	return sx >= w->x + w->w - 3 * CLOSEW && sx < w->x + w->w - 2 * CLOSEW &&
+	    sy >= w->y && sy < w->y + TITLEH;
+}
+
+/* If (sx,sy) hits a taskbar button, return that minimised window's index. */
+static int
+taskbar_hit(int sx, int sy)
+{
+	int i, j = 0, ty = fbgui_height(G) - TASKH;
+
+	if (!any_mini() || sy < ty)
+		return -1;
+	for (i = 0; i < nwin; i++) {
+		if (!wins[i].mini) continue;
+		if (sx >= j * TASKW && sx < (j + 1) * TASKW)
+			return i;
+		j++;
+	}
+	return -1;
+}
+
 /* True if (sx,sy) is inside a window's bottom-right resize grip. */
 static int
 in_grip(const struct win *w, int sx, int sy)
@@ -307,6 +405,34 @@ in_grip(const struct win *w, int sx, int sy)
 	int gy = w->y + TITLEH + w->h - RESIZEW;
 	return sx >= gx && sx < w->x + w->w &&
 	    sy >= gy && sy < w->y + TITLEH + w->h;
+}
+
+/* Toggle maximise: fill the screen (saving the old geometry) or restore it.
+ * Like an interactive resize, this asks the client to reallocate to the new
+ * size via FBC_CONFIGURE; the surface is adopted when its SET_SURFACE lands. */
+static void
+toggle_max(struct win *w)
+{
+	struct fbc_msg cm;
+	int nx, ny, nw, nh;
+
+	if (!w->maxed) {
+		w->sx = w->x; w->sy = w->y; w->sw = w->w; w->sh = w->h;
+		nx = 0; ny = 0;
+		nw = fbgui_width(G);
+		nh = fbgui_height(G) - TITLEH;
+		w->maxed = 1;
+	} else {
+		nx = w->sx; ny = w->sy; nw = w->sw; nh = w->sh;
+		w->maxed = 0;
+	}
+	w->x = nx; w->y = ny;		/* position takes effect now */
+	memset(&cm, 0, sizeof cm);
+	cm.type = FBC_CONFIGURE;
+	cm.x = nx; cm.y = ny; cm.w = nw; cm.h = nh;
+	(void)write(w->fd, &cm, sizeof cm);
+	fprintf(lg, "%s '%s' -> %dx%d at %d,%d\n",
+	    w->maxed ? "MAXIMISE" : "RESTORE", w->title, nw, nh, nx, ny);
 }
 
 /* Adopt a client's replacement surface after a resize (FBC_SET_SURFACE). The
@@ -454,11 +580,12 @@ route_key(int code, int press)
 	struct fbc_msg km;
 	struct win *fw;
 
+	int fi;
 	if (key_modifier(code, press))
 		return;			/* modifiers only update state */
-	if (nwin <= 0)
-		return;
-	fw = &wins[nwin - 1];
+	if ((fi = focus_index()) < 0)
+		return;			/* no visible window to type into */
+	fw = &wins[fi];
 	memset(&km, 0, sizeof km);
 	km.type = FBC_KEY;
 	km.x = code;
@@ -569,7 +696,7 @@ main(int argc, char **argv)
 				struct win *cw = win_by_fd(fd);
 				commit_win(fd);
 				dmg_reset();
-				if (cw != NULL) {
+				if (cw != NULL && !cw->mini) {	/* minimised: buffer stays fresh, off screen */
 					int dw = (m.w > 0) ? m.w : cw->w;
 					int dh = (m.h > 0) ? m.h : cw->h;
 					dmg_add(cw->x + m.x,
@@ -619,13 +746,32 @@ main(int argc, char **argv)
 
 			if (btn & 1) {
 				if (dragging < 0 && resizing < 0) {
-					w = win_at(ncx, ncy, &topbar);
+					int th = taskbar_hit(ncx, ncy);
+					w = th >= 0 ? NULL : win_at(ncx, ncy, &topbar);
 					fprintf(lg, "btn-down at %d,%d -> %s topbar=%d\n",
 					    ncx, ncy, w?w->title:"(none)", w?topbar:0);
-					if (w != NULL && in_close_box(w, ncx, ncy)) {
+					if (th >= 0) {
+						/* Restore a minimised window. */
+						wins[th].mini = 0;
+						raise_win(th);
+						fprintf(lg, "RESTORE '%s'\n",
+						    wins[nwin-1].title);
+						dmg_add_all();
+						changed = 1;
+					} else if (w != NULL && in_close_box(w, ncx, ncy)) {
 						fprintf(lg, "CLOSE '%s'\n", w->title);
 						dmg_add_win(w);
 						close_win(w);
+						changed = 1;
+					} else if (w != NULL && in_min_box(w, ncx, ncy)) {
+						fprintf(lg, "MINIMISE '%s'\n", w->title);
+						w->mini = 1;
+						dmg_add_all();
+						changed = 1;
+					} else if (w != NULL && in_max_box(w, ncx, ncy)) {
+						raise_win(win_index(w));
+						toggle_max(&wins[nwin-1]);
+						dmg_add_all();
 						changed = 1;
 					} else if (w != NULL && in_grip(w, ncx, ncy)) {
 						dmg_add_win(w); dmg_add_win(&wins[nwin-1]);
