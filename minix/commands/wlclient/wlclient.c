@@ -40,6 +40,8 @@ static struct wl_compositor	*compositor;
 static struct wl_shm		*shm;
 static struct xdg_wm_base	*wm_base;
 static struct wl_seat		*seat;
+static struct wl_subcompositor	*subcompositor;
+static struct wl_pointer	*pointer;
 static struct wl_surface	*surface;
 static struct xdg_surface	*xdg_surface;
 
@@ -76,6 +78,9 @@ registry_global(void *data, struct wl_registry *reg, uint32_t name,
 		wm_base = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
 	else if (strcmp(iface, "wl_seat") == 0)
 		seat = wl_registry_bind(reg, name, &wl_seat_interface, 5);
+	else if (strcmp(iface, "wl_subcompositor") == 0)
+		subcompositor = wl_registry_bind(reg, name,
+		    &wl_subcompositor_interface, 1);
 
 	printf("  global: %s v%u\n", iface, version);
 }
@@ -352,6 +357,208 @@ draw_frame(int w, int h)
 	return 0;
 }
 
+/* ------------------------------------- popups, subsurfaces, cursors ---- */
+
+static struct wl_surface	*sub_surface;
+static struct wl_subsurface	*subsurface;
+
+static struct wl_surface	*popup_surface;
+static struct xdg_surface	*popup_xdg;
+static struct xdg_popup		*popup;
+static int			 popup_done;
+static int			 popup_configured;
+
+static struct wl_surface	*cursor_surface;
+static int			 cursor_set;
+
+/*
+ * A self-contained buffer: its own pool, filled with one colour.  A real client
+ * would sub-allocate one pool; for a test this is clearer and exercises the
+ * same shm path once per surface.
+ */
+static struct wl_buffer *
+solid_buffer(int w, int h, uint32_t colour)
+{
+	static int seq;
+	char name[32];
+	size_t size = (size_t)w * 4 * h;
+	struct wl_shm_pool *p;
+	struct wl_buffer *b;
+	uint32_t *px;
+	void *data;
+	int fd, i;
+
+	snprintf(name, sizeof(name), "/wlclient-aux%d", seq++);
+	(void)shm_unlink(name);
+	if ((fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600)) < 0)
+		return NULL;
+	(void)shm_unlink(name);
+
+	if (ftruncate(fd, size) != 0) {
+		close(fd);
+		return NULL;
+	}
+	data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (data == MAP_FAILED) {
+		close(fd);
+		return NULL;
+	}
+
+	px = data;
+	for (i = 0; i < w * h; i++)
+		px[i] = colour;
+
+	p = wl_shm_create_pool(shm, fd, (int32_t)size);
+	b = wl_shm_pool_create_buffer(p, 0, w, h, w * 4,
+	    WL_SHM_FORMAT_ARGB8888);
+	wl_shm_pool_destroy(p);
+	close(fd);
+	(void)munmap(data, size);
+	return b;
+}
+
+static void
+popup_configure(void *data, struct xdg_popup *pp, int32_t x, int32_t y,
+    int32_t w, int32_t h)
+{
+	(void)data; (void)pp;
+	printf("wlclient: popup configured at %+d%+d %dx%d\n", x, y, w, h);
+	popup_configured = 1;
+}
+
+static void
+popup_done_cb(void *data, struct xdg_popup *pp)
+{
+	(void)data; (void)pp;
+	printf("wlclient: popup dismissed by the compositor\n");
+	popup_done = 1;
+}
+
+static const struct xdg_popup_listener popup_listener = {
+	.configure	= popup_configure,
+	.popup_done	= popup_done_cb,
+};
+
+static void
+popup_xdg_configure(void *data, struct xdg_surface *xs, uint32_t serial)
+{
+	(void)data;
+	xdg_surface_ack_configure(xs, serial);
+}
+
+static const struct xdg_surface_listener popup_xdg_listener = {
+	.configure = popup_xdg_configure,
+};
+
+/* ---- pointer: set our own cursor on enter ----------------------------- */
+
+static void
+ptr_enter(void *data, struct wl_pointer *p, uint32_t serial,
+    struct wl_surface *surf, wl_fixed_t sx, wl_fixed_t sy)
+{
+	struct wl_buffer *b;
+
+	(void)data; (void)surf; (void)sx; (void)sy;
+
+	if (cursor_surface == NULL || cursor_set)
+		return;
+
+	/* A client cursor: a small opaque square with a hotspot at its corner. */
+	if ((b = solid_buffer(16, 16, 0xff00ff00)) != NULL) {
+		wl_surface_attach(cursor_surface, b, 0, 0);
+		wl_surface_damage(cursor_surface, 0, 0, 16, 16);
+		wl_surface_commit(cursor_surface);
+	}
+	wl_pointer_set_cursor(p, serial, cursor_surface, 2, 2);
+	cursor_set = 1;
+	printf("wlclient: set a client cursor (16x16, hotspot 2,2)\n");
+}
+
+static void ptr_leave(void *d, struct wl_pointer *p, uint32_t s,
+    struct wl_surface *surf) { (void)d; (void)p; (void)s; (void)surf; }
+static void ptr_motion(void *d, struct wl_pointer *p, uint32_t t,
+    wl_fixed_t x, wl_fixed_t y) { (void)d; (void)p; (void)t; (void)x; (void)y; }
+static void ptr_button(void *d, struct wl_pointer *p, uint32_t s, uint32_t t,
+    uint32_t b, uint32_t st) { (void)d; (void)p; (void)s; (void)t; (void)b; (void)st; }
+static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t a,
+    wl_fixed_t v) { (void)d; (void)p; (void)t; (void)a; (void)v; }
+static void ptr_frame(void *d, struct wl_pointer *p) { (void)d; (void)p; }
+static void ptr_axis_src(void *d, struct wl_pointer *p, uint32_t s)
+{ (void)d; (void)p; (void)s; }
+static void ptr_axis_stop(void *d, struct wl_pointer *p, uint32_t t, uint32_t a)
+{ (void)d; (void)p; (void)t; (void)a; }
+static void ptr_axis_disc(void *d, struct wl_pointer *p, uint32_t a, int32_t v)
+{ (void)d; (void)p; (void)a; (void)v; }
+
+static const struct wl_pointer_listener pointer_listener = {
+	.enter			= ptr_enter,
+	.leave			= ptr_leave,
+	.motion			= ptr_motion,
+	.button			= ptr_button,
+	.axis			= ptr_axis,
+	.frame			= ptr_frame,
+	.axis_source		= ptr_axis_src,
+	.axis_stop		= ptr_axis_stop,
+	.axis_discrete		= ptr_axis_disc,
+};
+
+/* Build a subsurface inside the window, and a popup hanging off it. */
+static void
+make_subsurface(void)
+{
+	struct wl_buffer *b;
+
+	if (subcompositor == NULL) {
+		printf("wlclient: no wl_subcompositor\n");
+		return;
+	}
+
+	sub_surface = wl_compositor_create_surface(compositor);
+	subsurface = wl_subcompositor_get_subsurface(subcompositor, sub_surface,
+	    surface);
+	wl_subsurface_set_position(subsurface, 24, 24);
+	wl_subsurface_set_desync(subsurface);
+
+	if ((b = solid_buffer(64, 48, 0xffcc3366)) != NULL) {
+		wl_surface_attach(sub_surface, b, 0, 0);
+		wl_surface_damage(sub_surface, 0, 0, 64, 48);
+		wl_surface_commit(sub_surface);
+		wl_surface_commit(surface);	/* subsurfaces apply with parent */
+		printf("wlclient: subsurface 64x48 at +24+24\n");
+	}
+}
+
+static void
+make_popup(void)
+{
+	struct xdg_positioner *pos;
+	struct wl_buffer *b;
+
+	pos = xdg_wm_base_create_positioner(wm_base);
+	xdg_positioner_set_size(pos, 120, 80);
+	xdg_positioner_set_anchor_rect(pos, 10, 10, 40, 20);
+	xdg_positioner_set_anchor(pos, XDG_POSITIONER_ANCHOR_BOTTOM_LEFT);
+	xdg_positioner_set_gravity(pos, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT);
+
+	popup_surface = wl_compositor_create_surface(compositor);
+	popup_xdg = xdg_wm_base_get_xdg_surface(wm_base, popup_surface);
+	xdg_surface_add_listener(popup_xdg, &popup_xdg_listener, NULL);
+
+	popup = xdg_surface_get_popup(popup_xdg, xdg_surface, pos);
+	xdg_popup_add_listener(popup, &popup_listener, NULL);
+	xdg_positioner_destroy(pos);
+
+	wl_surface_commit(popup_surface);	/* ask to be configured */
+	wl_display_roundtrip(display);
+
+	if ((b = solid_buffer(120, 80, 0xff33aa55)) != NULL) {
+		wl_surface_attach(popup_surface, b, 0, 0);
+		wl_surface_damage(popup_surface, 0, 0, 120, 80);
+		wl_surface_commit(popup_surface);
+		printf("wlclient: popup 120x80 committed\n");
+	}
+}
+
 /* ------------------------------------------------------------------ main */
 
 int
@@ -389,6 +596,11 @@ main(int argc, char **argv)
 		kbd = wl_seat_get_keyboard(seat);
 		if (kbd != NULL)
 			wl_keyboard_add_listener(kbd, &keyboard_listener, NULL);
+
+		pointer = wl_seat_get_pointer(seat);
+		if (pointer != NULL)
+			wl_pointer_add_listener(pointer, &pointer_listener,
+			    NULL);
 	}
 
 	surface = wl_compositor_create_surface(compositor);
@@ -425,6 +637,17 @@ main(int argc, char **argv)
 	printf("wlclient: keymap %s\n",
 	    kbd == NULL ? "not requested"
 	    : got_keymap ? "received and valid" : "MISSING/INVALID");
+
+	/*
+	 * The pieces a real toolkit needs: a subsurface (Qt and GTK both use
+	 * them), a popup (every menu is one), and a client-supplied cursor.
+	 */
+	if (compositor != NULL)
+		cursor_surface = wl_compositor_create_surface(compositor);
+
+	make_subsurface();
+	make_popup();
+	wl_display_roundtrip(display);
 
 	/*
 	 * Stay up for a while, honouring configures.  This is where an

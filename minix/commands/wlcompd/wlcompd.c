@@ -1,35 +1,42 @@
 /*	wlcompd - a Wayland compositor for MINIX
  *
- * The display end of the stack the rest of this branch was built for.  It owns
- * /dev/fb0 through libfbgui (pixman for compositing, FreeType for the title
- * bars) and speaks Wayland to its clients: wl_compositor, wl_shm, wl_seat,
- * wl_output and xdg_shell.
+ * Owns /dev/fb0 through libfbgui (pixman to composite, FreeType for the title
+ * bars) and speaks Wayland to its clients: wl_compositor, wl_subcompositor,
+ * wl_shm, wl_seat, wl_output, wl_data_device_manager and xdg_shell.
  *
- * Everything underneath it has been proved separately, on-target, and the shape
- * of this file follows from that:
+ * Everything underneath it has been proved separately, on-target: a client's
+ * pixels arrive as a POSIX shm pool (wlprobe), every request is dispatched
+ * through libffi (ffiprobe), the event loop runs on MINIX's poll(2) emulation
+ * of epoll/timerfd/signalfd/eventfd (wlcoreprobe), and keys are translated with
+ * libxkbcommon against the keymap we ship (xkbprobe).
  *
- *   - a client's pixels arrive as a POSIX shm pool (wlprobe: shm_open, a
- *     writable MAP_SHARED mapping, and an fd passed over SCM_RIGHTS that the
- *     receiver really shares rather than copies),
- *   - every request it makes is dispatched through libffi (ffiprobe),
- *   - the event loop runs on MINIX's poll(2) emulation of epoll/timerfd/
- *     signalfd/eventfd (wlcoreprobe), and
- *   - keys are translated with libxkbcommon against the keymap we ship
- *     (xkbprobe).
+ * ---------------------------------------------------------------------------
+ * Surfaces are a TREE, not a list.  This is the shape a real toolkit needs and
+ * the reason for most of what follows:
  *
- * Two things are worth knowing before reading further.
+ *   - a toplevel is a window; it has an absolute position on screen,
+ *   - a popup (a menu, a tooltip) hangs off a parent at an offset its
+ *     xdg_positioner works out, and
+ *   - a subsurface (Qt and GTK both use them, for decorations and for video
+ *     panes) hangs off a parent at an offset the client sets.
+ *
+ * So position is relative to the parent and resolved by walking up, rendering
+ * is a depth-first walk in z-order, and hit-testing is the same walk backwards.
+ * A flat list cannot express any of that.
+ *
+ * ---------------------------------------------------------------------------
+ * Two MINIX-specific things worth knowing before reading further.
  *
  * Keycodes.  MINIX's input server speaks USB HID usages; Wayland speaks evdev.
  * They are not the same and not a fixed offset apart (HID orders letters
  * alphabetically, evdev by QWERTY position), so every key goes through
- * hid_evdev.h.  Get this wrong and the keymap silently produces the wrong
- * letters.
+ * hid_evdev.h.  Get this wrong and the keymap silently produces wrong letters.
  *
  * Client buffers.  A committed buffer is copied into memory of our own before
- * it is composited, and released immediately.  Compositing straight out of the
- * client's pool would mean rendering from memory another process can rewrite
- * underneath us -- and, on MINIX, could not be defended with the usual SIGBUS
- * trick, which needs SA_SIGINFO (see the note in wayland-shm.c).
+ * it is composited.  Compositing straight out of the client's pool would mean
+ * rendering from memory another process can rewrite underneath us -- and, on
+ * MINIX, that could not be defended with the usual SIGBUS guard, which needs
+ * SA_SIGINFO (see the note in wayland-shm.c).
  */
 
 #include <sys/types.h>
@@ -37,7 +44,6 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -73,19 +79,41 @@
 #define RESIZEW		14		/* square resize grip, bottom-right */
 #define MINW		80		/* smallest we will configure a window */
 #define MINH		48
-#define CURW		12		/* cursor */
+#define CURW		12		/* our fallback cursor */
 #define CURH		19
-#define MAXSURF		32
 #define REPAINT_MS	16		/* ~60 Hz cap on recompositing */
 
 #define FONT_DEFAULT	"/usr/share/fonts/TTF/DejaVuSans.ttf"
 
 /* ------------------------------------------------------------------ state */
 
+enum role {
+	ROLE_NONE = 0,
+	ROLE_TOPLEVEL,
+	ROLE_POPUP,
+	ROLE_SUBSURFACE,
+	ROLE_CURSOR,		/* a client's pointer cursor */
+};
+
+struct positioner {
+	int	w, h;			/* size of the popup */
+	int	ax, ay, aw, ah;		/* anchor rect, in the parent */
+	uint32_t anchor;
+	uint32_t gravity;
+	int	ox, oy;			/* offset */
+};
+
 struct surface {
 	struct wl_resource	*resource;
 	struct wl_resource	*xdg_surface;
 	struct wl_resource	*xdg_toplevel;
+	struct wl_resource	*xdg_popup;
+	struct wl_resource	*subsurface;
+
+	enum role		 role;
+	struct surface		*parent;
+	struct wl_list		 children;	/* struct surface, by sibling */
+	struct wl_list		 sibling;	/* link in parent->children */
 
 	/* Pending (attached but not yet committed) buffer. */
 	struct wl_resource	*pending_buffer;
@@ -96,22 +124,24 @@ struct surface {
 	pixman_image_t		*img;
 	int			 w, h;
 
+	/* Damage the client named since its last commit, surface-local. */
+	pixman_region32_t	 damage;
+
+	int			 cfg_w, cfg_h;	/* last size we configured */
+
 	/*
-	 * Damage the client accumulated with wl_surface.damage since its last
-	 * commit, in surface-local coordinates.  Empty (x1 <= x0) means it named
-	 * none, which xdg_shell takes to mean the whole surface.
+	 * Position.  A toplevel's is absolute (its title bar's top-left); a
+	 * popup's and a subsurface's is relative to the parent's content origin.
 	 */
-	int			 dx0, dy0, dx1, dy1;
+	int			 x, y;
 
-	/* The size we last told the client to be (xdg_toplevel.configure). */
-	int			 cfg_w, cfg_h;
+	int			 hx, hy;	/* cursor hotspot (ROLE_CURSOR) */
 
-	int			 x, y;		/* title-bar top-left */
 	int			 mapped;
 	char			 title[64];
 
-	struct wl_list		 frame_callbacks;	/* wl_resource link */
-	struct wl_list		 link;			/* comp.surfaces */
+	struct wl_list		 frame_callbacks;
+	struct wl_list		 link;		/* C.toplevels, if a toplevel */
 };
 
 static struct {
@@ -119,32 +149,38 @@ static struct {
 	struct wl_event_loop	*loop;
 	fbgui_t			*fb;
 
-	struct wl_list		 surfaces;	/* bottom-to-top */
+	struct wl_list		 toplevels;	/* bottom-to-top */
 	struct surface		*focus;
 
 	/* Seat */
-	struct wl_list		 pointers;	/* wl_resource link */
+	struct wl_list		 pointers;
 	struct wl_list		 keyboards;
-	int			 cx, cy;	/* cursor position */
+	struct wl_list		 data_devices;
+	int			 cx, cy;
 	int			 buttons;
 	struct surface		*ptr_focus;
 
-	/* Keyboard state */
+	/* The client's cursor, if it set one; otherwise we draw our own. */
+	struct surface		*cursor;
+
+	/* Selection (the clipboard): the offering client's data source. */
+	struct wl_resource	*selection;
+
+	/* Keyboard */
 	struct xkb_context	*xkb;
 	struct xkb_keymap	*keymap;
 	struct xkb_state	*xkb_state;
 	int			 keymap_fd;
 	size_t			 keymap_size;
 
-	/* Window drag */
 	struct surface		*dragging;
 	int			 drag_dx, drag_dy;
 
-	/* Interactive resize: the grip, or an xdg_toplevel.resize request. */
 	struct surface		*resizing;
-	int			 rz_cx0, rz_cy0;	/* cursor when it began */
-	int			 rz_w0, rz_h0;		/* size when it began */
+	int			 rz_cx0, rz_cy0;
+	int			 rz_w0, rz_h0;
 
+	pixman_region32_t	 damage;	/* screen damage for this frame */
 	struct wl_event_source	*repaint;
 } C;
 
@@ -170,6 +206,26 @@ now_ms(void)
 	return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+/* --------------------------------------------------------------- geometry */
+
+/*
+ * Where a surface's *content* starts on screen.  A toplevel's content sits
+ * below its title bar; a popup's and a subsurface's is an offset from the
+ * parent's content origin, so this walks up the tree.
+ */
+static void
+surface_origin(const struct surface *s, int *ox, int *oy)
+{
+	if (s->role == ROLE_TOPLEVEL || s->parent == NULL) {
+		*ox = s->x;
+		*oy = s->y + TITLEH;
+		return;
+	}
+	surface_origin(s->parent, ox, oy);
+	*ox += s->x;
+	*oy += s->y;
+}
+
 /* ------------------------------------------------------------- rendering */
 
 static const pixman_color_t c_desk  = { 0x1c1c, 0x2222, 0x2a2a, 0xffff };
@@ -179,45 +235,17 @@ static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_cur   = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_grip  = { 0x8888, 0x9999, 0xaaaa, 0xffff };
 
-static struct surface *
-top_surface(void)
-{
-	struct surface *s, *top = NULL;
-
-	wl_list_for_each(s, &C.surfaces, link)
-		if (s->mapped)
-			top = s;		/* list is bottom-to-top */
-	return top;
-}
-
 /*
- * Damage, in screen coordinates, accumulated for the frame we are about to
- * draw.  recomposite() redraws only inside it and only pushes those rows to the
- * framebuffer, so moving the cursor no longer costs a full-screen blit -- at
- * 1280x800 that is four megabytes per frame, and it is what made the naive
- * version repaint the entire screen sixty times a second.
- *
- * A bounding box rather than a region: cheap, and for one window plus a cursor
- * it is very nearly as tight.  Empty when x1 <= x0.
+ * Damage is a region, not a bounding box.  A box is fine for one window and a
+ * cursor, but a menu opening across the screen from a blinking caret would
+ * union into a box covering both -- and everything between.
  */
-static int dmg_x0, dmg_y0, dmg_x1, dmg_y1;
-
-static void
-dmg_reset(void)
-{
-	dmg_x0 = dmg_y0 = 0x7fffffff;
-	dmg_x1 = dmg_y1 = -0x7fffffff;
-}
-
 static void
 dmg_add(int x, int y, int w, int h)
 {
 	if (w <= 0 || h <= 0)
 		return;
-	if (x < dmg_x0) dmg_x0 = x;
-	if (y < dmg_y0) dmg_y0 = y;
-	if (x + w > dmg_x1) dmg_x1 = x + w;
-	if (y + h > dmg_y1) dmg_y1 = y + h;
+	pixman_region32_union_rect(&C.damage, &C.damage, x, y, w, h);
 }
 
 static void
@@ -226,169 +254,231 @@ dmg_add_all(void)
 	dmg_add(0, 0, fbgui_width(C.fb), fbgui_height(C.fb));
 }
 
-/* A window's whole on-screen extent: title bar plus content (grip included). */
+/* A surface's whole on-screen extent, itself and everything hanging off it. */
 static void
 dmg_add_surface(const struct surface *s)
 {
-	dmg_add(s->x, s->y, s->w, TITLEH + s->h);
+	const struct surface *c;
+	int ox, oy;
+
+	if (s->w <= 0 || s->h <= 0)
+		return;
+
+	surface_origin(s, &ox, &oy);
+	if (s->role == ROLE_TOPLEVEL)
+		dmg_add(s->x, s->y, s->w, TITLEH + s->h);	/* with the bar */
+	else
+		dmg_add(ox, oy, s->w, s->h);
+
+	wl_list_for_each(c, &s->children, sibling)
+		if (c->mapped)
+			dmg_add_surface(c);
 }
 
 static void
 dmg_add_cursor(int x, int y)
 {
-	dmg_add(x, y, CURW, CURH);
-}
-
-/* Clamp to the screen; 0 if there is nothing to redraw. */
-static int
-dmg_box(int *x0, int *y0, int *x1, int *y1)
-{
-	int W = fbgui_width(C.fb), H = fbgui_height(C.fb);
-
-	*x0 = dmg_x0 < 0 ? 0 : dmg_x0;
-	*y0 = dmg_y0 < 0 ? 0 : dmg_y0;
-	*x1 = dmg_x1 > W ? W : dmg_x1;
-	*y1 = dmg_y1 > H ? H : dmg_y1;
-	return (*x1 > *x0 && *y1 > *y0);
-}
-
-/* Fill the part of a rectangle that falls inside the damage box. */
-static void
-fill_clip(const pixman_color_t *c, int ex, int ey, int ew, int eh,
-    int x0, int y0, int x1, int y1)
-{
-	int ix0 = ex < x0 ? x0 : ex, iy0 = ey < y0 ? y0 : ey;
-	int ix1 = ex + ew > x1 ? x1 : ex + ew;
-	int iy1 = ey + eh > y1 ? y1 : ey + eh;
-
-	if (ix1 > ix0 && iy1 > iy0)
-		fbgui_fill_rect(C.fb, c, ix0, iy0, ix1 - ix0, iy1 - iy0);
+	if (C.cursor != NULL && C.cursor->mapped && C.cursor->w > 0)
+		dmg_add(x - C.cursor->hx, y - C.cursor->hy,
+		    C.cursor->w, C.cursor->h);
+	else
+		dmg_add(x, y, CURW, CURH);
 }
 
 /*
- * Bound the back buffer to the damage box.  pixman honours a destination clip
- * region, which is what keeps the composited surface inside the box; text needs
- * it too, since fbgui_draw_text() has no clipping of its own and a glyph would
- * otherwise spill outside and be left behind when the box is presented.
+ * Fill a rectangle, but only the parts of it that are damaged.
+ *
+ * This cannot simply set a clip region and let fbgui_fill_rect() run: that
+ * function installs a clip of its own and then clears it, so any clip we had
+ * set would be silently dropped.  Intersect explicitly and fill the pieces.
  */
 static void
-clip_set(pixman_image_t *back, int x0, int y0, int x1, int y1)
+fill_damaged(const pixman_color_t *c, int x, int y, int w, int h)
 {
-	pixman_box32_t b = { x0, y0, x1, y1 };
 	pixman_region32_t r;
+	pixman_box32_t *boxes;
+	int i, n;
 
-	pixman_region32_init_rects(&r, &b, 1);
-	pixman_image_set_clip_region32(back, &r);
+	if (w <= 0 || h <= 0)
+		return;
+
+	pixman_region32_init_rect(&r, x, y, w, h);
+	pixman_region32_intersect(&r, &r, &C.damage);
+
+	boxes = pixman_region32_rectangles(&r, &n);
+	for (i = 0; i < n; i++)
+		fbgui_fill_rect(C.fb, c, boxes[i].x1, boxes[i].y1,
+		    boxes[i].x2 - boxes[i].x1, boxes[i].y2 - boxes[i].y1);
+
 	pixman_region32_fini(&r);
 }
 
+/*
+ * Bound the back buffer to the damage region.  pixman honours a destination
+ * clip, which is what keeps a composited surface and its text inside the
+ * damaged area -- fbgui_draw_text() has no clipping of its own, and a glyph
+ * would otherwise be drawn outside and then never presented, leaving a stale
+ * pixel behind on the next frame that does cover it.
+ *
+ * Must be re-applied after any fbgui_fill_rect(), which clears it.
+ */
 static void
-recomposite(void)
+clip_to_damage(void)
 {
-	pixman_image_t *back;
-	struct surface *s;
-	int x0, y0, x1, y1;
+	pixman_image_set_clip_region32(fbgui_surface(C.fb), &C.damage);
+}
 
-	if (!dmg_box(&x0, &y0, &x1, &y1))
-		return;			/* nothing changed this frame */
+static void
+clip_off(void)
+{
+	pixman_image_set_clip_region32(fbgui_surface(C.fb), NULL);
+}
 
-	back = fbgui_surface(C.fb);
-	clip_set(back, x0, y0, x1, y1);
+static void render_surface(struct surface *s);
 
-	fill_clip(&c_desk, x0, y0, x1 - x0, y1 - y0, x0, y0, x1, y1);
+/* Draw a surface's content and then everything hanging off it, in order. */
+static void
+render_children(struct surface *s)
+{
+	struct surface *c;
 
-	wl_list_for_each(s, &C.surfaces, link) {
-		const pixman_color_t *tc;
+	wl_list_for_each(c, &s->children, sibling)
+		if (c->mapped)
+			render_surface(c);
+}
 
-		if (!s->mapped || s->img == NULL)
-			continue;
-		/* Skip windows that fall entirely outside the box. */
-		if (s->x >= x1 || s->y >= y1 ||
-		    s->x + s->w <= x0 || s->y + TITLEH + s->h <= y0)
-			continue;
+static void
+render_surface(struct surface *s)
+{
+	int ox, oy;
 
-		tc = (s == C.focus) ? &c_tfoc : &c_title;
-		fill_clip(tc, s->x, s->y, s->w, TITLEH, x0, y0, x1, y1);
+	if (s->img == NULL || s->role == ROLE_CURSOR)
+		return;
+
+	surface_origin(s, &ox, &oy);
+
+	if (s->role == ROLE_TOPLEVEL) {
+		const pixman_color_t *tc =
+		    (s == C.focus) ? &c_tfoc : &c_title;
+
+		fill_damaged(tc, s->x, s->y, s->w, TITLEH);
+
+		clip_to_damage();
 		if (s->title[0] != '\0')
 			fbgui_draw_text(C.fb, s->x + 8, s->y + 16, s->title,
 			    &c_ttext, 14);
 		fbgui_draw_text(C.fb, s->x + s->w - CLOSEW + 6, s->y + 16, "x",
 		    &c_ttext, 14);
-
-		pixman_image_composite32(PIXMAN_OP_SRC, s->img, NULL, back,
-		    0, 0, 0, 0, s->x, s->y + TITLEH, s->w, s->h);
-
-		/* The resize grip, over the bottom-right of the content. */
-		fill_clip(&c_grip, s->x + s->w - RESIZEW,
-		    s->y + TITLEH + s->h - RESIZEW, RESIZEW, RESIZEW,
-		    x0, y0, x1, y1);
+	} else {
+		clip_to_damage();
 	}
 
-	fill_clip(&c_cur, C.cx, C.cy, CURW, CURH, x0, y0, x1, y1);
+	pixman_image_composite32(PIXMAN_OP_SRC, s->img, NULL,
+	    fbgui_surface(C.fb), 0, 0, 0, 0, ox, oy, s->w, s->h);
+	clip_off();
 
-	pixman_image_set_clip_region32(back, NULL);
+	if (s->role == ROLE_TOPLEVEL)
+		fill_damaged(&c_grip, s->x + s->w - RESIZEW,
+		    s->y + TITLEH + s->h - RESIZEW, RESIZEW, RESIZEW);
 
-	fbgui_damage(C.fb, x0, y0, x1 - x0, y1 - y0);
+	render_children(s);
+}
 
-	/*
-	 * fbgui_present() returns the bytes it actually pushed.  Keep a running
-	 * average against what a full-screen frame would have cost, so the
-	 * saving is a measured number rather than an assertion.
-	 */
+static void
+render_cursor(void)
+{
+	struct surface *cur = C.cursor;
+
+	if (cur != NULL && cur->mapped && cur->img != NULL) {
+		clip_to_damage();
+		pixman_image_composite32(PIXMAN_OP_OVER, cur->img, NULL,
+		    fbgui_surface(C.fb), 0, 0, 0, 0,
+		    C.cx - cur->hx, C.cy - cur->hy, cur->w, cur->h);
+		clip_off();
+	} else {
+		fill_damaged(&c_cur, C.cx, C.cy, CURW, CURH);
+	}
+}
+
+static void
+recomposite(void)
+{
+	struct surface *s;
+	pixman_box32_t *boxes;
+	int i, n;
+
+	if (!pixman_region32_not_empty(&C.damage))
+		return;			/* nothing changed this frame */
+
+	/* Clamp to the screen: a window dragged off the edge would otherwise
+	 * damage coordinates the framebuffer does not have. */
+	pixman_region32_intersect_rect(&C.damage, &C.damage, 0, 0,
+	    fbgui_width(C.fb), fbgui_height(C.fb));
+	if (!pixman_region32_not_empty(&C.damage))
+		return;
+
+	fill_damaged(&c_desk, 0, 0, fbgui_width(C.fb), fbgui_height(C.fb));
+
+	wl_list_for_each(s, &C.toplevels, link)
+		if (s->mapped)
+			render_surface(s);
+
+	render_cursor();
+
+	boxes = pixman_region32_rectangles(&C.damage, &n);
+	for (i = 0; i < n; i++)
+		fbgui_damage(C.fb, boxes[i].x1, boxes[i].y1,
+		    boxes[i].x2 - boxes[i].x1, boxes[i].y2 - boxes[i].y1);
+
 	{
 		static long frames, bytes;
 		long full = (long)fbgui_width(C.fb) * fbgui_height(C.fb) * 4;
 
 		bytes += fbgui_present(C.fb);
 		if (++frames % 20 == 0)
-			wlog("damage: %ld frames, last box %dx%d, avg %ld KB/"
-			    "frame (a full screen is %ld KB)\n", frames,
-			    x1 - x0, y1 - y0, (bytes / frames) / 1024,
-			    full / 1024);
+			wlog("damage: %ld frames, %d rect(s), avg %ld KB/frame "
+			    "(a full screen is %ld KB)\n", frames, n,
+			    (bytes / frames) / 1024, full / 1024);
 	}
 
-	dmg_reset();
+	pixman_region32_clear(&C.damage);
 }
 
-/*
- * Frame callbacks tell a client it may draw again.  Firing them is what keeps
- * an animating client running, so they are sent every repaint whether or not
- * anything of ours changed.
- */
 static void
-send_frame_callbacks(void)
+send_frame_callbacks_for(struct surface *s, uint32_t t)
 {
-	struct surface *s;
-	uint32_t t = now_ms();
+	struct wl_resource *cb, *tmp;
+	struct surface *c;
 
-	wl_list_for_each(s, &C.surfaces, link) {
-		struct wl_resource *cb, *tmp;
-
-		wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks) {
-			wl_callback_send_done(cb, t);
-			wl_resource_destroy(cb);
-		}
+	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks) {
+		wl_callback_send_done(cb, t);
+		wl_resource_destroy(cb);
 	}
+	wl_list_for_each(c, &s->children, sibling)
+		send_frame_callbacks_for(c, t);
 }
 
 static int
 on_repaint(void *data)
 {
+	struct surface *s;
+	uint32_t t = now_ms();
+
 	(void)data;
 
-	recomposite();			/* no-op when nothing is damaged */
-	send_frame_callbacks();
+	recomposite();
+
+	wl_list_for_each(s, &C.toplevels, link)
+		send_frame_callbacks_for(s, t);
+	if (C.cursor != NULL)
+		send_frame_callbacks_for(C.cursor, t);
 
 	wl_event_source_timer_update(C.repaint, REPAINT_MS);
 	return 0;
 }
 
-/*
- * Tell a client what size to be.  xdg_shell requires the pair: the toplevel's
- * size, then a configure on the xdg_surface that the client must ack before it
- * draws.  A width or height of zero means "you choose", which is what a client
- * gets on its first configure.
- */
+/* ------------------------------------------------------------- xdg config */
+
 static void
 send_configure(struct surface *s, int w, int h, int resizing)
 {
@@ -416,10 +506,6 @@ send_configure(struct surface *s, int w, int h, int resizing)
 
 /* -------------------------------------------------------------- wl_buffer */
 
-/*
- * Take a private copy of the client's committed buffer.  See the note at the
- * top: we never composite out of the client's pool.
- */
 static int
 surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 {
@@ -450,7 +536,12 @@ surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 		s->pix = np;
 		s->w = w;
 		s->h = h;
-		s->img = pixman_image_create_bits(PIXMAN_x8r8g8b8, w, h,
+		/*
+		 * a8r8g8b8, not x8r8g8b8: a cursor and a subsurface are
+		 * composited OVER what is beneath them, so their alpha has to
+		 * mean something.  A client using XRGB simply sets it to 0xff.
+		 */
+		s->img = pixman_image_create_bits(PIXMAN_a8r8g8b8, w, h,
 		    s->pix, w * 4);
 		if (s->img == NULL)
 			return -1;
@@ -472,12 +563,16 @@ surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 	}
 
 	/*
-	 * Report a checksum of exactly what we received.  The client prints the
-	 * checksum of what it painted; if the two agree, its pixels crossed the
-	 * process boundary through the shm pool intact -- which is the whole
-	 * point of the wl_shm path, and the one thing a screenshot could not
-	 * tell us on a headless machine.
+	 * An XRGB buffer carries no alpha; force it opaque, or PIXMAN_OP_OVER
+	 * would treat the whole surface as fully transparent and draw nothing.
 	 */
+	if (wl_shm_buffer_get_format(shm) == WL_SHM_FORMAT_XRGB8888) {
+		int i, n = w * h;
+
+		for (i = 0; i < n; i++)
+			s->pix[i] |= 0xff000000u;
+	}
+
 	{
 		uint32_t sum = 0;
 		int i, n = w * h;
@@ -493,34 +588,61 @@ surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 
 /* ------------------------------------------------------------- wl_surface */
 
+static struct surface *
+top_toplevel(void)
+{
+	struct surface *s, *top = NULL;
+
+	wl_list_for_each(s, &C.toplevels, link)
+		if (s->mapped)
+			top = s;
+	return top;
+}
+
 static void
 surface_destroy(struct wl_resource *resource)
 {
 	struct surface *s = wl_resource_get_user_data(resource);
 	struct wl_resource *cb, *tmp;
+	struct surface *c, *ctmp;
 
 	if (s == NULL)
 		return;
 
 	if (s->mapped)
-		dmg_add_surface(s);	/* erase it, while we still know where */
+		dmg_add_surface(s);	/* erase it, while we know where it is */
 
 	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks)
 		wl_resource_destroy(cb);
 
-	wl_list_remove(&s->link);
+	/* Orphan any children rather than leave them pointing at freed memory. */
+	wl_list_for_each_safe(c, ctmp, &s->children, sibling) {
+		wl_list_remove(&c->sibling);
+		wl_list_init(&c->sibling);
+		c->parent = NULL;
+		c->mapped = 0;
+	}
+
+	if (s->parent != NULL)
+		wl_list_remove(&s->sibling);
+	if (s->role == ROLE_TOPLEVEL)
+		wl_list_remove(&s->link);
+
 	if (s->img != NULL)
 		pixman_image_unref(s->img);
 	free(s->pix);
+	pixman_region32_fini(&s->damage);
 
 	if (C.focus == s)
-		C.focus = top_surface();
+		C.focus = top_toplevel();
 	if (C.ptr_focus == s)
 		C.ptr_focus = NULL;
 	if (C.dragging == s)
 		C.dragging = NULL;
 	if (C.resizing == s)
 		C.resizing = NULL;
+	if (C.cursor == s)
+		C.cursor = NULL;
 
 	free(s);
 }
@@ -543,29 +665,15 @@ surf_attach(struct wl_client *c, struct wl_resource *r,
 	s->pending_buffer_set = 1;
 }
 
-/*
- * The client naming the part of its surface it actually redrew.  Accumulate it
- * (as a bounding box, in surface-local coordinates) and turn it into screen
- * damage at commit: that is what lets a client repainting a small area avoid
- * costing us a full-screen recomposite.
- */
-static void
-surf_add_damage(struct surface *s, int32_t x, int32_t y, int32_t w, int32_t h)
-{
-	if (w <= 0 || h <= 0)
-		return;
-	if (x < s->dx0) s->dx0 = x;
-	if (y < s->dy0) s->dy0 = y;
-	if (x + w > s->dx1) s->dx1 = x + w;
-	if (y + h > s->dy1) s->dy1 = y + h;
-}
-
 static void
 surf_damage(struct wl_client *c, struct wl_resource *r,
     int32_t x, int32_t y, int32_t w, int32_t h)
 {
+	struct surface *s = wl_resource_get_user_data(r);
+
 	(void)c;
-	surf_add_damage(wl_resource_get_user_data(r), x, y, w, h);
+	if (w > 0 && h > 0)
+		pixman_region32_union_rect(&s->damage, &s->damage, x, y, w, h);
 }
 
 static void
@@ -583,14 +691,7 @@ surf_frame(struct wl_client *c, struct wl_resource *r, uint32_t id)
 }
 
 static void
-surf_set_opaque_region(struct wl_client *c, struct wl_resource *r,
-    struct wl_resource *region)
-{
-	(void)c; (void)r; (void)region;
-}
-
-static void
-surf_set_input_region(struct wl_client *c, struct wl_resource *r,
+surf_set_region(struct wl_client *c, struct wl_resource *r,
     struct wl_resource *region)
 {
 	(void)c; (void)r; (void)region;
@@ -604,78 +705,83 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 
 	(void)c;
 
-	if (!s->pending_buffer_set)
-		return;			/* commit with no new buffer */
+	if (!s->pending_buffer_set) {
+		pixman_region32_clear(&s->damage);
+		return;
+	}
 	s->pending_buffer_set = 0;
 
-	if (s->pending_buffer == NULL) {	/* attach(NULL): unmap */
+	if (s->pending_buffer == NULL) {		/* attach(NULL): unmap */
 		if (s->mapped) {
-			dmg_add_surface(s);	/* erase where it was */
+			dmg_add_surface(s);
 			s->mapped = 0;
 		}
+		pixman_region32_clear(&s->damage);
 		return;
 	}
 
 	if (surface_take_buffer(s, s->pending_buffer) == 0) {
 		if (!s->mapped) {
 			s->mapped = 1;
-			C.focus = s;
+			if (s->role == ROLE_TOPLEVEL)
+				C.focus = s;
 			dmg_add_surface(s);
-			wlog("surface mapped %dx%d \"%s\"\n", s->w, s->h,
-			    s->title);
+			wlog("%s mapped %dx%d \"%s\"\n",
+			    s->role == ROLE_POPUP ? "popup" :
+			    s->role == ROLE_SUBSURFACE ? "subsurface" :
+			    s->role == ROLE_CURSOR ? "cursor" : "surface",
+			    s->w, s->h, s->title);
 		} else if (s->w != ow || s->h != oh) {
 			/*
-			 * The client answered a configure with a new size.  Both
-			 * extents have to be damaged: the new one to draw it, the
-			 * old one to erase whatever it no longer covers -- a shrink
-			 * would otherwise leave the last frame's pixels stranded on
-			 * the screen.
+			 * Both extents: the new one to draw it, the old one to
+			 * erase what it no longer covers -- a shrink would
+			 * otherwise strand the last frame's pixels on screen.
 			 */
-			dmg_add(s->x, s->y, ow, TITLEH + oh);
+			int ox, oy;
+
+			surface_origin(s, &ox, &oy);
+			if (s->role == ROLE_TOPLEVEL)
+				dmg_add(s->x, s->y, ow, TITLEH + oh);
+			else
+				dmg_add(ox, oy, ow, oh);
 			dmg_add_surface(s);
 			wlog("surface resized %dx%d -> %dx%d\n", ow, oh,
 			    s->w, s->h);
-		} else if (s->dx1 > s->dx0 && s->dy1 > s->dy0) {
-			/* Only what the client said it redrew, in screen coords. */
-			dmg_add(s->x + s->dx0, s->y + TITLEH + s->dy0,
-			    s->dx1 - s->dx0, s->dy1 - s->dy0);
+		} else if (pixman_region32_not_empty(&s->damage)) {
+			/* Only what the client said it redrew, in screen space. */
+			pixman_region32_t d;
+			int ox, oy;
+
+			surface_origin(s, &ox, &oy);
+			pixman_region32_init(&d);
+			pixman_region32_copy(&d, &s->damage);
+			pixman_region32_intersect_rect(&d, &d, 0, 0, s->w, s->h);
+			pixman_region32_translate(&d, ox, oy);
+			pixman_region32_union(&C.damage, &C.damage, &d);
+			pixman_region32_fini(&d);
 		} else {
-			/* It named no damage: assume all of it. */
-			dmg_add_surface(s);
+			dmg_add_surface(s);	/* it named none: assume all */
 		}
 	}
 
-	s->dx0 = s->dy0 = 0x7fffffff;	/* consumed */
-	s->dx1 = s->dy1 = -0x7fffffff;
+	pixman_region32_clear(&s->damage);
 
-	/* Released at once: the client may reuse the buffer, and we already
-	 * hold our own copy of it. */
+	/* Released at once: we hold our own copy, so the client may reuse it. */
 	wl_buffer_send_release(s->pending_buffer);
 	s->pending_buffer = NULL;
 }
 
 static void
-surf_set_buffer_transform(struct wl_client *c, struct wl_resource *r,
-    int32_t transform)
+surf_noop_i(struct wl_client *c, struct wl_resource *r, int32_t v)
 {
-	(void)c; (void)r; (void)transform;
-}
-
-static void
-surf_set_buffer_scale(struct wl_client *c, struct wl_resource *r,
-    int32_t scale)
-{
-	(void)c; (void)r; (void)scale;
+	(void)c; (void)r; (void)v;
 }
 
 static void
 surf_damage_buffer(struct wl_client *c, struct wl_resource *r,
     int32_t x, int32_t y, int32_t w, int32_t h)
 {
-	/* Buffer coordinates.  With no scale or transform in play they are the
-	 * surface's, so this is the same accumulation. */
-	(void)c;
-	surf_add_damage(wl_resource_get_user_data(r), x, y, w, h);
+	surf_damage(c, r, x, y, w, h);	/* no scale or transform in play */
 }
 
 static void
@@ -689,11 +795,11 @@ static const struct wl_surface_interface surface_impl = {
 	.attach			= surf_attach,
 	.damage			= surf_damage,
 	.frame			= surf_frame,
-	.set_opaque_region	= surf_set_opaque_region,
-	.set_input_region	= surf_set_input_region,
+	.set_opaque_region	= surf_set_region,
+	.set_input_region	= surf_set_region,
 	.commit			= surf_commit,
-	.set_buffer_transform	= surf_set_buffer_transform,
-	.set_buffer_scale	= surf_set_buffer_scale,
+	.set_buffer_transform	= surf_noop_i,
+	.set_buffer_scale	= surf_noop_i,
 	.damage_buffer		= surf_damage_buffer,
 	.offset			= surf_offset,
 };
@@ -708,14 +814,7 @@ region_destroy(struct wl_client *c, struct wl_resource *r)
 }
 
 static void
-region_add(struct wl_client *c, struct wl_resource *r,
-    int32_t x, int32_t y, int32_t w, int32_t h)
-{
-	(void)c; (void)r; (void)x; (void)y; (void)w; (void)h;
-}
-
-static void
-region_subtract(struct wl_client *c, struct wl_resource *r,
+region_rect(struct wl_client *c, struct wl_resource *r,
     int32_t x, int32_t y, int32_t w, int32_t h)
 {
 	(void)c; (void)r; (void)x; (void)y; (void)w; (void)h;
@@ -723,8 +822,8 @@ region_subtract(struct wl_client *c, struct wl_resource *r,
 
 static const struct wl_region_interface region_impl = {
 	.destroy	= region_destroy,
-	.add		= region_add,
-	.subtract	= region_subtract,
+	.add		= region_rect,
+	.subtract	= region_rect,
 };
 
 /* ---------------------------------------------------------- wl_compositor */
@@ -741,15 +840,14 @@ comp_create_surface(struct wl_client *client, struct wl_resource *r,
 		return;
 	}
 	wl_list_init(&s->frame_callbacks);
-
-	/* An empty damage box, not the zeroed one calloc gives: a zeroed box
-	 * would swallow the client's first damage rectangle's origin. */
-	s->dx0 = s->dy0 = 0x7fffffff;
-	s->dx1 = s->dy1 = -0x7fffffff;
+	wl_list_init(&s->children);
+	wl_list_init(&s->sibling);
+	pixman_region32_init(&s->damage);
 
 	s->resource = wl_resource_create(client, &wl_surface_interface,
 	    wl_resource_get_version(r), id);
 	if (s->resource == NULL) {
+		pixman_region32_fini(&s->damage);
 		free(s);
 		wl_client_post_no_memory(client);
 		return;
@@ -757,12 +855,15 @@ comp_create_surface(struct wl_client *client, struct wl_resource *r,
 	wl_resource_set_implementation(s->resource, &surface_impl, s,
 	    surface_destroy);
 
+	/*
+	 * A surface has no role yet.  It stays out of the toplevel list until
+	 * it gets one -- a cursor or a subsurface never joins it at all.
+	 */
 	s->x = spawn_x;
 	s->y = spawn_y;
 	spawn_x = 60 + ((spawn_x + 30) % 240);
 	spawn_y = 60 + ((spawn_y + 30) % 180);
 
-	wl_list_insert(C.surfaces.prev, &s->link);	/* on top */
 	wlog("surface created\n");
 }
 
@@ -801,6 +902,112 @@ bind_compositor(struct wl_client *client, void *data, uint32_t version,
 	wl_resource_set_implementation(r, &compositor_impl, NULL, NULL);
 }
 
+/* ------------------------------------------------------- wl_subcompositor */
+
+static void
+subsurf_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+subsurf_set_position(struct wl_client *c, struct wl_resource *r,
+    int32_t x, int32_t y)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	if (s == NULL)
+		return;
+
+	if (s->mapped)
+		dmg_add_surface(s);	/* erase it where it was */
+	s->x = x;
+	s->y = y;
+	if (s->mapped)
+		dmg_add_surface(s);	/* and draw it where it now is */
+}
+
+static void
+subsurf_place(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *sibling)
+{
+	/* Ordering among siblings; we keep creation order. */
+	(void)c; (void)r; (void)sibling;
+}
+
+static void
+subsurf_set_sync(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c; (void)r;
+}
+
+static const struct wl_subsurface_interface subsurface_impl = {
+	.destroy	= subsurf_destroy,
+	.set_position	= subsurf_set_position,
+	.place_above	= subsurf_place,
+	.place_below	= subsurf_place,
+	.set_sync	= subsurf_set_sync,
+	.set_desync	= subsurf_set_sync,
+};
+
+static void
+subcomp_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+subcomp_get_subsurface(struct wl_client *c, struct wl_resource *r, uint32_t id,
+    struct wl_resource *surface, struct wl_resource *parent)
+{
+	struct surface *s = wl_resource_get_user_data(surface);
+	struct surface *p = wl_resource_get_user_data(parent);
+
+	if (s == NULL || p == NULL || s == p) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+
+	s->subsurface = wl_resource_create(c, &wl_subsurface_interface,
+	    wl_resource_get_version(r), id);
+	if (s->subsurface == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(s->subsurface, &subsurface_impl, s, NULL);
+
+	s->role = ROLE_SUBSURFACE;
+	s->parent = p;
+	s->x = 0;
+	s->y = 0;
+	wl_list_insert(p->children.prev, &s->sibling);
+
+	wlog("subsurface created\n");
+}
+
+static const struct wl_subcompositor_interface subcompositor_impl = {
+	.destroy		= subcomp_destroy,
+	.get_subsurface		= subcomp_get_subsurface,
+};
+
+static void
+bind_subcompositor(struct wl_client *client, void *data, uint32_t version,
+    uint32_t id)
+{
+	struct wl_resource *r;
+
+	(void)data;
+	r = wl_resource_create(client, &wl_subcompositor_interface, version, id);
+	if (r == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &subcompositor_impl, NULL, NULL);
+}
+
 /* ------------------------------------------------------------- xdg_shell */
 
 static void
@@ -818,7 +1025,7 @@ xdgtop_set_title(struct wl_client *c, struct wl_resource *r, const char *title)
 	(void)c;
 	if (s != NULL && title != NULL) {
 		strlcpy(s->title, title, sizeof(s->title));
-		dmg_add(s->x, s->y, s->w, TITLEH);	/* only the bar */
+		dmg_add(s->x, s->y, s->w, TITLEH);
 	}
 }
 
@@ -842,11 +1049,6 @@ xdgtop_move(struct wl_client *c, struct wl_resource *r,
 	}
 }
 
-/*
- * The client asking us to start an interactive resize -- what a toolkit does
- * when the user grabs the edge of a client-side-decorated window.  It is the
- * same gesture as our own grip, so it is the same state.
- */
 static void
 xdgtop_resize(struct wl_client *c, struct wl_resource *r,
     struct wl_resource *seat, uint32_t serial, uint32_t edges)
@@ -854,7 +1056,6 @@ xdgtop_resize(struct wl_client *c, struct wl_resource *r,
 	struct surface *s = wl_resource_get_user_data(r);
 
 	(void)c; (void)seat; (void)serial; (void)edges;
-
 	if (s == NULL || !s->mapped)
 		return;
 
@@ -893,7 +1094,6 @@ xdgtop_show_window_menu(struct wl_client *c, struct wl_resource *r,
 	(void)c; (void)r; (void)seat; (void)serial; (void)x; (void)y;
 }
 
-/* Its own signature -- casting xdgtop_noop to it would be undefined. */
 static void
 xdgtop_set_fullscreen(struct wl_client *c, struct wl_resource *r,
     struct wl_resource *output)
@@ -918,6 +1118,239 @@ static const struct xdg_toplevel_interface xdg_toplevel_impl = {
 	.set_minimized		= xdgtop_noop,
 };
 
+/* ---- xdg_positioner: where a popup goes ------------------------------- */
+
+static void
+pos_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+pos_set_size(struct wl_client *c, struct wl_resource *r, int32_t w, int32_t h)
+{
+	struct positioner *p = wl_resource_get_user_data(r);
+
+	(void)c;
+	p->w = w;
+	p->h = h;
+}
+
+static void
+pos_set_anchor_rect(struct wl_client *c, struct wl_resource *r,
+    int32_t x, int32_t y, int32_t w, int32_t h)
+{
+	struct positioner *p = wl_resource_get_user_data(r);
+
+	(void)c;
+	p->ax = x;
+	p->ay = y;
+	p->aw = w;
+	p->ah = h;
+}
+
+static void
+pos_set_anchor(struct wl_client *c, struct wl_resource *r, uint32_t anchor)
+{
+	struct positioner *p = wl_resource_get_user_data(r);
+
+	(void)c;
+	p->anchor = anchor;
+}
+
+static void
+pos_set_gravity(struct wl_client *c, struct wl_resource *r, uint32_t gravity)
+{
+	struct positioner *p = wl_resource_get_user_data(r);
+
+	(void)c;
+	p->gravity = gravity;
+}
+
+static void
+pos_set_constraint_adjustment(struct wl_client *c, struct wl_resource *r,
+    uint32_t adj)
+{
+	(void)c; (void)r; (void)adj;
+}
+
+static void
+pos_set_offset(struct wl_client *c, struct wl_resource *r, int32_t x, int32_t y)
+{
+	struct positioner *p = wl_resource_get_user_data(r);
+
+	(void)c;
+	p->ox = x;
+	p->oy = y;
+}
+
+static void
+pos_noop(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c; (void)r;
+}
+
+static void
+pos_set_parent_size(struct wl_client *c, struct wl_resource *r,
+    int32_t w, int32_t h)
+{
+	(void)c; (void)r; (void)w; (void)h;
+}
+
+static void
+pos_set_parent_configure(struct wl_client *c, struct wl_resource *r,
+    uint32_t serial)
+{
+	(void)c; (void)r; (void)serial;
+}
+
+static const struct xdg_positioner_interface positioner_impl = {
+	.destroy			= pos_destroy,
+	.set_size			= pos_set_size,
+	.set_anchor_rect		= pos_set_anchor_rect,
+	.set_anchor			= pos_set_anchor,
+	.set_gravity			= pos_set_gravity,
+	.set_constraint_adjustment	= pos_set_constraint_adjustment,
+	.set_offset			= pos_set_offset,
+	.set_reactive			= pos_noop,
+	.set_parent_size		= pos_set_parent_size,
+	.set_parent_configure		= pos_set_parent_configure,
+};
+
+static void
+positioner_resource_destroy(struct wl_resource *r)
+{
+	free(wl_resource_get_user_data(r));
+}
+
+/*
+ * Resolve a positioner into an offset from the parent's content origin.
+ *
+ * The anchor picks a point on the anchor rectangle; the gravity says which way
+ * the popup hangs from it.  This is the geometry a menu depends on -- get the
+ * gravity backwards and every menu opens over the item that spawned it.
+ */
+static void
+positioner_resolve(const struct positioner *p, int *px, int *py)
+{
+	int x = p->ax, y = p->ay;
+
+	/* Anchor point on the anchor rectangle. */
+	if (p->anchor == XDG_POSITIONER_ANCHOR_TOP ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_BOTTOM ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_NONE)
+		x += p->aw / 2;
+	else if (p->anchor == XDG_POSITIONER_ANCHOR_RIGHT ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_TOP_RIGHT ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT)
+		x += p->aw;
+
+	if (p->anchor == XDG_POSITIONER_ANCHOR_LEFT ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_RIGHT ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_NONE)
+		y += p->ah / 2;
+	else if (p->anchor == XDG_POSITIONER_ANCHOR_BOTTOM ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_BOTTOM_LEFT ||
+	    p->anchor == XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT)
+		y += p->ah;
+
+	/* Gravity: which side of that point the popup occupies. */
+	if (p->gravity == XDG_POSITIONER_GRAVITY_LEFT ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_TOP_LEFT ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_BOTTOM_LEFT)
+		x -= p->w;
+	else if (p->gravity == XDG_POSITIONER_GRAVITY_NONE ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_TOP ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_BOTTOM)
+		x -= p->w / 2;
+
+	if (p->gravity == XDG_POSITIONER_GRAVITY_TOP ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_TOP_LEFT ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_TOP_RIGHT)
+		y -= p->h;
+	else if (p->gravity == XDG_POSITIONER_GRAVITY_NONE ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_LEFT ||
+	    p->gravity == XDG_POSITIONER_GRAVITY_RIGHT)
+		y -= p->h / 2;
+
+	*px = x + p->ox;
+	*py = y + p->oy;
+}
+
+/* ---- xdg_popup -------------------------------------------------------- */
+
+static void
+popup_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+popup_grab(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *seat, uint32_t serial)
+{
+	/* We have no explicit grab; a click outside dismisses the popup, which
+	 * is handled where the button is dispatched. */
+	(void)c; (void)r; (void)seat; (void)serial;
+}
+
+static void
+popup_reposition(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *positioner, uint32_t token)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+	struct positioner *p = wl_resource_get_user_data(positioner);
+
+	(void)c;
+	if (s == NULL || p == NULL)
+		return;
+
+	if (s->mapped)
+		dmg_add_surface(s);
+	positioner_resolve(p, &s->x, &s->y);
+	if (s->mapped)
+		dmg_add_surface(s);
+
+	xdg_popup_send_repositioned(s->xdg_popup, token);
+}
+
+static const struct xdg_popup_interface popup_impl = {
+	.destroy	= popup_destroy,
+	.grab		= popup_grab,
+	.reposition	= popup_reposition,
+};
+
+/* Dismiss a popup (and any popup of its own) -- a click outside it, say. */
+static void
+popup_dismiss(struct surface *s)
+{
+	struct surface *c, *tmp;
+
+	wl_list_for_each_safe(c, tmp, &s->children, sibling)
+		if (c->role == ROLE_POPUP)
+			popup_dismiss(c);
+
+	if (s->xdg_popup != NULL) {
+		if (s->mapped)
+			dmg_add_surface(s);
+		xdg_popup_send_popup_done(s->xdg_popup);
+	}
+}
+
+static void
+dismiss_popups_of(struct surface *s)
+{
+	struct surface *c, *tmp;
+
+	wl_list_for_each_safe(c, tmp, &s->children, sibling)
+		if (c->role == ROLE_POPUP)
+			popup_dismiss(c);
+}
+
+/* ---- xdg_surface ------------------------------------------------------ */
+
 static void
 xdgsurf_destroy(struct wl_client *c, struct wl_resource *r)
 {
@@ -929,8 +1362,6 @@ static void
 xdgsurf_get_toplevel(struct wl_client *c, struct wl_resource *r, uint32_t id)
 {
 	struct surface *s = wl_resource_get_user_data(r);
-	struct wl_array states;
-	uint32_t *st;
 
 	s->xdg_toplevel = wl_resource_create(c, &xdg_toplevel_interface,
 	    wl_resource_get_version(r), id);
@@ -941,21 +1372,12 @@ xdgsurf_get_toplevel(struct wl_client *c, struct wl_resource *r, uint32_t id)
 	wl_resource_set_implementation(s->xdg_toplevel, &xdg_toplevel_impl, s,
 	    NULL);
 
-	/*
-	 * The handshake xdg_shell requires: propose a size, then configure the
-	 * xdg_surface.  A client must not draw until it has seen this and
-	 * ack'ed it, so getting it wrong shows up as a client that never
-	 * produces a frame.  A zero width/height means "you choose".
-	 */
-	wl_array_init(&states);
-	st = wl_array_add(&states, sizeof(uint32_t));
-	if (st != NULL)
-		*st = XDG_TOPLEVEL_STATE_ACTIVATED;
-	xdg_toplevel_send_configure(s->xdg_toplevel, 0, 0, &states);
-	wl_array_release(&states);
+	s->role = ROLE_TOPLEVEL;
+	wl_list_insert(C.toplevels.prev, &s->link);	/* on top */
 
-	xdg_surface_send_configure(s->xdg_surface,
-	    wl_display_next_serial(C.display));
+	/* A zero size means "you choose", which is what a first configure says.
+	 * A client must not draw until it has seen and ack'ed this. */
+	send_configure(s, 0, 0, 0);
 
 	wlog("xdg_toplevel created\n");
 }
@@ -964,20 +1386,42 @@ static void
 xdgsurf_get_popup(struct wl_client *c, struct wl_resource *r, uint32_t id,
     struct wl_resource *parent, struct wl_resource *positioner)
 {
-	/* Popups are not composited, but the resource must exist or a client
-	 * that asks for a menu dies on a protocol error rather than simply
-	 * getting nothing. */
-	struct wl_resource *res;
+	struct surface *s = wl_resource_get_user_data(r);
+	struct positioner *p = wl_resource_get_user_data(positioner);
+	struct surface *ps;
 
-	(void)parent; (void)positioner;
-	res = wl_resource_create(c, &xdg_popup_interface,
-	    wl_resource_get_version(r), id);
-	if (res == NULL) {
+	if (parent == NULL || p == NULL) {
 		wl_client_post_no_memory(c);
 		return;
 	}
-	wl_resource_set_implementation(res, NULL, NULL, NULL);
-	wlog("xdg_popup requested (not composited)\n");
+	/* The parent is an xdg_surface; its user data is the surface. */
+	ps = wl_resource_get_user_data(parent);
+	if (ps == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+
+	s->xdg_popup = wl_resource_create(c, &xdg_popup_interface,
+	    wl_resource_get_version(r), id);
+	if (s->xdg_popup == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(s->xdg_popup, &popup_impl, s, NULL);
+
+	s->role = ROLE_POPUP;
+	s->parent = ps;
+	wl_list_insert(ps->children.prev, &s->sibling);
+
+	positioner_resolve(p, &s->x, &s->y);
+
+	/* Tell it where and how big it is, then configure the xdg_surface. */
+	xdg_popup_send_configure(s->xdg_popup, s->x, s->y,
+	    p->w > 0 ? p->w : 1, p->h > 0 ? p->h : 1);
+	xdg_surface_send_configure(s->xdg_surface,
+	    wl_display_next_serial(C.display));
+
+	wlog("xdg_popup created at %+d%+d %dx%d\n", s->x, s->y, p->w, p->h);
 }
 
 static void
@@ -1014,14 +1458,22 @@ wmbase_create_positioner(struct wl_client *c, struct wl_resource *r,
     uint32_t id)
 {
 	struct wl_resource *res;
+	struct positioner *p;
+
+	if ((p = calloc(1, sizeof(*p))) == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
 
 	res = wl_resource_create(c, &xdg_positioner_interface,
 	    wl_resource_get_version(r), id);
 	if (res == NULL) {
+		free(p);
 		wl_client_post_no_memory(c);
 		return;
 	}
-	wl_resource_set_implementation(res, NULL, NULL, NULL);
+	wl_resource_set_implementation(res, &positioner_impl, p,
+	    positioner_resource_destroy);
 }
 
 static void
@@ -1068,7 +1520,85 @@ bind_wm_base(struct wl_client *client, void *data, uint32_t version,
 	wl_resource_set_implementation(r, &wm_base_impl, NULL, NULL);
 }
 
-/* ---------------------------------------------------------------- wl_seat */
+/* -------------------------------------------------- wl_data_device (clip) */
+
+static void
+dsrc_offer(struct wl_client *c, struct wl_resource *r, const char *mime)
+{
+	(void)c; (void)r; (void)mime;
+}
+
+static void
+dsrc_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+dsrc_set_actions(struct wl_client *c, struct wl_resource *r, uint32_t actions)
+{
+	(void)c; (void)r; (void)actions;
+}
+
+static const struct wl_data_source_interface data_source_impl = {
+	.offer		= dsrc_offer,
+	.destroy	= dsrc_destroy,
+	.set_actions	= dsrc_set_actions,
+};
+
+static void
+ddev_start_drag(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *source, struct wl_resource *origin,
+    struct wl_resource *icon, uint32_t serial)
+{
+	/* Drag and drop is not implemented; accepting the request and doing
+	 * nothing is better than a protocol error, which would kill the app. */
+	(void)c; (void)r; (void)source; (void)origin; (void)icon; (void)serial;
+}
+
+static void
+ddev_set_selection(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *source, uint32_t serial)
+{
+	(void)c; (void)r; (void)serial;
+
+	/*
+	 * Remember who owns the clipboard.  Handing the offer on to other
+	 * clients (wl_data_device.data_offer + .selection) is the other half and
+	 * is not done yet -- so a copy is recorded, but a paste in another
+	 * client will not see it.
+	 */
+	C.selection = source;
+	wlog("selection set (clipboard owner recorded)\n");
+}
+
+static void
+ddev_release(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static const struct wl_data_device_interface data_device_impl = {
+	.start_drag	= ddev_start_drag,
+	.set_selection	= ddev_set_selection,
+	.release	= ddev_release,
+};
+
+static void
+ddm_create_data_source(struct wl_client *c, struct wl_resource *r, uint32_t id)
+{
+	struct wl_resource *res;
+
+	res = wl_resource_create(c, &wl_data_source_interface,
+	    wl_resource_get_version(r), id);
+	if (res == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(res, &data_source_impl, NULL, NULL);
+}
 
 static void
 seat_resource_destroy(struct wl_resource *r)
@@ -1077,11 +1607,75 @@ seat_resource_destroy(struct wl_resource *r)
 }
 
 static void
+ddm_get_data_device(struct wl_client *c, struct wl_resource *r, uint32_t id,
+    struct wl_resource *seat)
+{
+	struct wl_resource *res;
+
+	(void)seat;
+	res = wl_resource_create(c, &wl_data_device_interface,
+	    wl_resource_get_version(r), id);
+	if (res == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(res, &data_device_impl, NULL,
+	    seat_resource_destroy);
+	wl_list_insert(&C.data_devices, wl_resource_get_link(res));
+}
+
+static const struct wl_data_device_manager_interface data_device_manager_impl = {
+	.create_data_source	= ddm_create_data_source,
+	.get_data_device	= ddm_get_data_device,
+};
+
+static void
+bind_ddm(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+	struct wl_resource *r;
+
+	(void)data;
+	r = wl_resource_create(client, &wl_data_device_manager_interface,
+	    version, id);
+	if (r == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &data_device_manager_impl, NULL, NULL);
+}
+
+/* ---------------------------------------------------------------- wl_seat */
+
+/*
+ * A client setting its own cursor.  The surface it hands us takes the cursor
+ * role: we draw it at the pointer instead of our own block, offset by the
+ * hotspot the client names.
+ */
+static void
 pointer_set_cursor(struct wl_client *c, struct wl_resource *r, uint32_t serial,
     struct wl_resource *surface, int32_t hx, int32_t hy)
 {
-	/* We draw our own cursor; a client-supplied one is ignored. */
-	(void)c; (void)r; (void)serial; (void)surface; (void)hx; (void)hy;
+	struct surface *s;
+
+	(void)c; (void)r; (void)serial;
+
+	dmg_add_cursor(C.cx, C.cy);		/* erase whatever is there now */
+
+	if (surface == NULL) {			/* hide the cursor */
+		C.cursor = NULL;
+		dmg_add_cursor(C.cx, C.cy);
+		return;
+	}
+
+	s = wl_resource_get_user_data(surface);
+	if (s == NULL)
+		return;
+
+	s->role = ROLE_CURSOR;
+	s->hx = hx;
+	s->hy = hy;
+	C.cursor = s;
+	dmg_add_cursor(C.cx, C.cy);
 }
 
 static void
@@ -1138,12 +1732,9 @@ seat_get_keyboard(struct wl_client *c, struct wl_resource *r, uint32_t id)
 	    seat_resource_destroy);
 	wl_list_insert(&C.keyboards, wl_resource_get_link(res));
 
-	/*
-	 * Hand the client the keymap.  It arrives as a file descriptor the
-	 * client mmap()s and feeds to xkb_keymap_new_from_string() -- which is
-	 * exactly the path xkbprobe exercises, and the reason xkeyboard-config
-	 * need not exist on this machine at all.
-	 */
+	/* The keymap goes over as a file descriptor the client mmap()s and
+	 * feeds to xkb_keymap_new_from_string() -- the path xkbprobe exercises,
+	 * and the reason xkeyboard-config need not exist on this machine. */
 	if (C.keymap_fd >= 0)
 		wl_keyboard_send_keymap(res, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1,
 		    C.keymap_fd, (uint32_t)C.keymap_size);
@@ -1196,6 +1787,13 @@ bind_seat(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 	}
 	wl_resource_set_implementation(r, &seat_impl, NULL, NULL);
 
+	/*
+	 * Pointer and keyboard only.  There is no wl_seat touch capability
+	 * because there is no touch device, and no wl_pointer.axis because
+	 * MINIX's input server reports no wheel: <minix/input.h> defines only
+	 * INPUT_GD_X and INPUT_GD_Y on the General Desktop page.  Scrolling
+	 * needs the PS/2 driver to grow wheel events first.
+	 */
 	wl_seat_send_capabilities(r,
 	    WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
 	if (version >= WL_SEAT_NAME_SINCE_VERSION)
@@ -1241,7 +1839,6 @@ bind_output(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 
 /* ----------------------------------------------------------------- input */
 
-/* The resize grip: a square at the bottom-right of the content area. */
 static int
 in_grip(const struct surface *s, int sx, int sy)
 {
@@ -1250,25 +1847,69 @@ in_grip(const struct surface *s, int sx, int sy)
 	    sy < s->y + TITLEH + s->h;
 }
 
+/* Hit-test a surface's children (topmost first), then the surface itself. */
+static struct surface *
+hit_tree(struct surface *s, int sx, int sy)
+{
+	struct surface *c, *hit;
+	int ox, oy;
+
+	/* Children are drawn after the parent, so they are on top: search them
+	 * in reverse. */
+	for (c = wl_container_of(s->children.prev, c, sibling);
+	    &c->sibling != &s->children;
+	    c = wl_container_of(c->sibling.prev, c, sibling)) {
+		if (!c->mapped)
+			continue;
+		if ((hit = hit_tree(c, sx, sy)) != NULL)
+			return hit;
+	}
+
+	if (!s->mapped || s->img == NULL)
+		return NULL;
+
+	surface_origin(s, &ox, &oy);
+	if (sx >= ox && sx < ox + s->w && sy >= oy && sy < oy + s->h)
+		return s;
+
+	/* A toplevel also owns its title bar. */
+	if (s->role == ROLE_TOPLEVEL &&
+	    sx >= s->x && sx < s->x + s->w &&
+	    sy >= s->y && sy < s->y + TITLEH)
+		return s;
+
+	return NULL;
+}
+
 static struct surface *
 surface_at(int sx, int sy, int *on_titlebar)
 {
 	struct surface *s, *hit = NULL;
-	int bar = 0;
 
-	wl_list_for_each(s, &C.surfaces, link) {
+	/* Toplevels are bottom-to-top, so the last hit is the topmost. */
+	wl_list_for_each(s, &C.toplevels, link) {
+		struct surface *h;
+
 		if (!s->mapped)
 			continue;
-		if (sx < s->x || sx >= s->x + s->w)
-			continue;
-		if (sy < s->y || sy >= s->y + TITLEH + s->h)
-			continue;
-		hit = s;			/* later == higher */
-		bar = (sy < s->y + TITLEH);
+		if ((h = hit_tree(s, sx, sy)) != NULL)
+			hit = h;
 	}
+
 	if (on_titlebar != NULL)
-		*on_titlebar = bar;
+		*on_titlebar = (hit != NULL && hit->role == ROLE_TOPLEVEL &&
+		    sy < hit->y + TITLEH && sy >= hit->y);
+
 	return hit;
+}
+
+/* The toplevel a surface ultimately belongs to. */
+static struct surface *
+root_of(struct surface *s)
+{
+	while (s != NULL && s->parent != NULL)
+		s = s->parent;
+	return s;
 }
 
 static void
@@ -1276,6 +1917,7 @@ pointer_focus(struct surface *s)
 {
 	struct wl_resource *p;
 	uint32_t serial;
+	int ox, oy;
 
 	if (C.ptr_focus == s)
 		return;
@@ -1292,13 +1934,14 @@ pointer_focus(struct surface *s)
 	C.ptr_focus = s;
 
 	if (s != NULL && s->resource != NULL) {
+		surface_origin(s, &ox, &oy);
 		serial = wl_display_next_serial(C.display);
 		wl_resource_for_each(p, &C.pointers)
 			if (wl_resource_get_client(p) ==
 			    wl_resource_get_client(s->resource))
 				wl_pointer_send_enter(p, serial, s->resource,
-				    wl_fixed_from_int(C.cx - s->x),
-				    wl_fixed_from_int(C.cy - s->y - TITLEH));
+				    wl_fixed_from_int(C.cx - ox),
+				    wl_fixed_from_int(C.cy - oy));
 	}
 }
 
@@ -1319,23 +1962,23 @@ keyboard_focus(struct surface *s)
 			    wl_resource_get_client(C.focus->resource))
 				wl_keyboard_send_leave(k, serial,
 				    C.focus->resource);
-		/* Its title bar loses the focused colour. */
 		dmg_add(C.focus->x, C.focus->y, C.focus->w, TITLEH);
 	}
 
 	C.focus = s;
-	if (s != NULL)
-		dmg_add(s->x, s->y, s->w, TITLEH);	/* and this one gains it */
 
-	if (s != NULL && s->resource != NULL) {
-		wl_array_init(&keys);
-		serial = wl_display_next_serial(C.display);
-		wl_resource_for_each(k, &C.keyboards)
-			if (wl_resource_get_client(k) ==
-			    wl_resource_get_client(s->resource))
-				wl_keyboard_send_enter(k, serial, s->resource,
-				    &keys);
-		wl_array_release(&keys);
+	if (s != NULL) {
+		dmg_add(s->x, s->y, s->w, TITLEH);
+		if (s->resource != NULL) {
+			wl_array_init(&keys);
+			serial = wl_display_next_serial(C.display);
+			wl_resource_for_each(k, &C.keyboards)
+				if (wl_resource_get_client(k) ==
+				    wl_resource_get_client(s->resource))
+					wl_keyboard_send_enter(k, serial,
+					    s->resource, &keys);
+			wl_array_release(&keys);
+		}
 	}
 }
 
@@ -1383,8 +2026,6 @@ on_keyboard(int fd, uint32_t mask, void *data)
 
 		press = (ev.value != INPUT_RELEASE);
 
-		/* Our own xkb state, so modifiers we report stay in step with
-		 * the keys we forward. */
 		if (C.xkb_state != NULL)
 			xkb_state_update_key(C.xkb_state, evdev + 8,
 			    press ? XKB_KEY_DOWN : XKB_KEY_UP);
@@ -1415,9 +2056,10 @@ on_mouse(int fd, uint32_t mask, void *data)
 	 * read every drag as "button released" and settle it on the first move.
 	 */
 	int dx = 0, dy = 0, buttons = C.buttons, nx, ny, bar;
-	struct surface *s;
+	struct surface *s, *root;
 	struct wl_resource *p;
 	uint32_t serial;
+	int ox, oy;
 
 	(void)mask; (void)data;
 
@@ -1425,7 +2067,7 @@ on_mouse(int fd, uint32_t mask, void *data)
 		return 0;
 
 	nx = C.cx + dx;
-	ny = C.cy - dy;			/* mouse Y grows upward */
+	ny = C.cy - dy;			/* the mouse's Y grows upward */
 	if (nx < 0) nx = 0;
 	if (ny < 0) ny = 0;
 	if (nx >= fbgui_width(C.fb)) nx = fbgui_width(C.fb) - 1;
@@ -1439,17 +2081,14 @@ on_mouse(int fd, uint32_t mask, void *data)
 	}
 
 	/*
-	 * Dragging the grip resizes.  We do not move the pixels ourselves: we
-	 * tell the client the size we want and it answers with a buffer of that
-	 * size (surf_commit picks the change up).  That round trip is what
+	 * A resize does not move pixels: we tell the client the size we want and
+	 * it answers with a buffer of that size.  That round trip is what
 	 * xdg_shell means by a resize.
 	 */
 	if (C.resizing != NULL) {
 		struct surface *rs = C.resizing;
 
 		if (!(buttons & 1)) {
-			/* Settle: repeat the size without the resizing state, so
-			 * the client can stop drawing at interactive quality. */
 			send_configure(rs, rs->cfg_w, rs->cfg_h, 0);
 			C.resizing = NULL;
 		} else {
@@ -1459,15 +2098,15 @@ on_mouse(int fd, uint32_t mask, void *data)
 			if (nw < MINW) nw = MINW;
 			if (nh < MINH) nh = MINH;
 
-			/* Only when it actually changes: a configure per mouse
-			 * event would flood the client. */
+			/* Only when it changes: a configure per mouse event
+			 * would flood the client. */
 			if (nw != rs->cfg_w || nh != rs->cfg_h)
 				send_configure(rs, nw, nh, 1);
+			C.buttons = buttons;
 			return 0;
 		}
 	}
 
-	/* Dragging a title bar moves the window; nothing reaches the client. */
 	if (C.dragging != NULL) {
 		if (!(buttons & 1)) {
 			C.dragging = NULL;
@@ -1476,49 +2115,66 @@ on_mouse(int fd, uint32_t mask, void *data)
 			C.dragging->x = C.cx - C.drag_dx;
 			C.dragging->y = C.cy - C.drag_dy;
 			dmg_add_surface(C.dragging);	/* draw the new one */
+			C.buttons = buttons;
 			return 0;
 		}
 	}
 
 	s = surface_at(C.cx, C.cy, &bar);
+	root = root_of(s);
 
 	if (buttons != C.buttons) {
 		int pressed = (buttons & 1) && !(C.buttons & 1);
 		int released = !(buttons & 1) && (C.buttons & 1);
 
-		if (pressed)
+		if (pressed) {
+			struct surface *t, *tmp;
+
 			wlog("button press at %d,%d (%s)\n", C.cx, C.cy,
-			    s == NULL ? "desktop" : bar ? "title bar"
-			    : in_grip(s, C.cx, C.cy) ? "grip" : "content");
+			    s == NULL ? "desktop" :
+			    s->role == ROLE_POPUP ? "popup" :
+			    s->role == ROLE_SUBSURFACE ? "subsurface" :
+			    bar ? "title bar" :
+			    in_grip(s, C.cx, C.cy) ? "grip" : "content");
 
-		if (pressed && s != NULL) {
-			keyboard_focus(s);
-			/* Raise. */
-			wl_list_remove(&s->link);
-			wl_list_insert(C.surfaces.prev, &s->link);
-			dmg_add_surface(s);
+			/*
+			 * A click anywhere but inside a popup dismisses the
+			 * open popups -- that is what makes a menu close when
+			 * you click away from it.
+			 */
+			if (s == NULL || s->role != ROLE_POPUP) {
+				wl_list_for_each_safe(t, tmp, &C.toplevels, link)
+					dismiss_popups_of(t);
+			}
+		}
 
-			/* The grip, before anything reaches the client. */
-			if (!bar && in_grip(s, C.cx, C.cy)) {
-				C.resizing = s;
+		if (pressed && root != NULL && root->role == ROLE_TOPLEVEL) {
+			keyboard_focus(root);
+			wl_list_remove(&root->link);	/* raise */
+			wl_list_insert(C.toplevels.prev, &root->link);
+			dmg_add_surface(root);
+
+			if (s == root && !bar && in_grip(root, C.cx, C.cy)) {
+				C.resizing = root;
 				C.rz_cx0 = C.cx;
 				C.rz_cy0 = C.cy;
-				C.rz_w0 = s->w;
-				C.rz_h0 = s->h;
+				C.rz_w0 = root->w;
+				C.rz_h0 = root->h;
 				C.buttons = buttons;
-				wlog("resize started from %dx%d\n", s->w, s->h);
+				wlog("resize started from %dx%d\n", root->w,
+				    root->h);
 				return 0;
 			}
 
 			if (bar) {
-				if (C.cx >= s->x + s->w - CLOSEW) {
-					if (s->xdg_toplevel != NULL)
+				if (C.cx >= root->x + root->w - CLOSEW) {
+					if (root->xdg_toplevel != NULL)
 						xdg_toplevel_send_close(
-						    s->xdg_toplevel);
+						    root->xdg_toplevel);
 				} else {
-					C.dragging = s;
-					C.drag_dx = C.cx - s->x;
-					C.drag_dy = C.cy - s->y;
+					C.dragging = root;
+					C.drag_dx = C.cx - root->x;
+					C.drag_dy = C.cy - root->y;
 				}
 				C.buttons = buttons;
 				return 0;
@@ -1542,12 +2198,13 @@ on_mouse(int fd, uint32_t mask, void *data)
 
 	if (!bar && s != NULL) {
 		pointer_focus(s);
+		surface_origin(s, &ox, &oy);
 		wl_resource_for_each(p, &C.pointers)
 			if (wl_resource_get_client(p) ==
 			    wl_resource_get_client(s->resource))
 				wl_pointer_send_motion(p, now_ms(),
-				    wl_fixed_from_int(C.cx - s->x),
-				    wl_fixed_from_int(C.cy - s->y - TITLEH));
+				    wl_fixed_from_int(C.cx - ox),
+				    wl_fixed_from_int(C.cy - oy));
 	} else {
 		pointer_focus(NULL);
 	}
@@ -1559,7 +2216,7 @@ on_mouse(int fd, uint32_t mask, void *data)
 
 /*
  * The keymap goes to clients as a file descriptor.  It has to be a *real* file:
- * a client maps it with MAP_PRIVATE, and on MINIX only a genuine file mapping
+ * a client maps it MAP_PRIVATE, and on MINIX only a genuine file mapping
  * carries its contents that way -- an shm token would map the empty token file
  * and the client would compile a keymap out of zeroes.
  */
@@ -1570,7 +2227,7 @@ open_keymap(size_t *sizep)
 	struct stat st;
 	char *text;
 	FILE *f;
-	int fd, kfd;
+	int fd;
 
 	if ((f = fopen(KEYMAP_PATH, "r")) == NULL) {
 		wlog("no keymap at %s: %s\n", KEYMAP_PATH, strerror(errno));
@@ -1601,8 +2258,8 @@ open_keymap(size_t *sizep)
 		return -1;
 	}
 
-	/* Compile it for ourselves too, so the modifiers we report to clients
-	 * come from the same keymap they were given. */
+	/* Compile it for ourselves too, so the modifiers we report come from
+	 * the same keymap the clients were given. */
 	C.keymap = xkb_keymap_new_from_string(C.xkb, text,
 	    XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	free(text);
@@ -1617,8 +2274,7 @@ open_keymap(size_t *sizep)
 	}
 
 	*sizep = (size_t)st.st_size;
-	kfd = fd;
-	return kfd;
+	return fd;
 }
 
 static int
@@ -1640,9 +2296,11 @@ main(int argc, char **argv)
 	lg = stdout;
 	setvbuf(lg, NULL, _IONBF, 0);
 
-	wl_list_init(&C.surfaces);
+	wl_list_init(&C.toplevels);
 	wl_list_init(&C.pointers);
 	wl_list_init(&C.keyboards);
+	wl_list_init(&C.data_devices);
+	pixman_region32_init(&C.damage);
 	C.keymap_fd = -1;
 
 	if ((C.fb = fbgui_open()) == NULL) {
@@ -1670,10 +2328,14 @@ main(int argc, char **argv)
 
 	if (wl_global_create(C.display, &wl_compositor_interface, 4, NULL,
 		bind_compositor) == NULL ||
+	    wl_global_create(C.display, &wl_subcompositor_interface, 1, NULL,
+		bind_subcompositor) == NULL ||
 	    wl_global_create(C.display, &wl_seat_interface, 5, NULL,
 		bind_seat) == NULL ||
 	    wl_global_create(C.display, &wl_output_interface, 3, NULL,
 		bind_output) == NULL ||
+	    wl_global_create(C.display, &wl_data_device_manager_interface, 3,
+		NULL, bind_ddm) == NULL ||
 	    wl_global_create(C.display, &xdg_wm_base_interface, 3, NULL,
 		bind_wm_base) == NULL) {
 		wlog("wl_global_create failed\n");
@@ -1687,8 +2349,7 @@ main(int argc, char **argv)
 		wlog("warning: no keymap - clients will get NO_KEYMAP\n");
 
 	if ((sock = wl_display_add_socket_auto(C.display)) == NULL) {
-		wlog("wl_display_add_socket_auto failed: %s\n",
-		    strerror(errno));
+		wlog("wl_display_add_socket_auto failed: %s\n", strerror(errno));
 		return 1;
 	}
 
@@ -1705,7 +2366,6 @@ main(int argc, char **argv)
 	C.repaint = wl_event_loop_add_timer(C.loop, on_repaint, NULL);
 	wl_event_source_timer_update(C.repaint, REPAINT_MS);
 
-	dmg_reset();
 	dmg_add_all();			/* the first frame is the whole screen */
 	recomposite();
 	fbgui_present_full(C.fb);
