@@ -64,16 +64,42 @@ pshm_retire(vir_bytes page, size_t size)
 	return ENOSPC;
 }
 
+/*
+ * Look an object up by the identity of its token file.
+ *
+ * Whether an unlinked object may be found depends on who is asking, and the
+ * difference matters in both directions.
+ *
+ * A mapping must find one.  The idiom every Wayland client uses -- and which
+ * POSIX requires to work -- is shm_open(), shm_unlink() straight away, then
+ * ftruncate() and mmap() on the descriptor it kept: the name is gone but the
+ * object lives on as long as someone holds an fd.  Refusing to find it here is
+ * what made a real client fail at mmap().
+ *
+ * An shm_open() must NOT find one.  Once the last descriptor for an unlinked
+ * token closes, its inode is freed and the filesystem may hand the same
+ * (dev, ino) to an entirely unrelated file.  Matching that against the stale
+ * object would quietly give the new caller the old one's pages.
+ */
 static struct pshm *
-pshm_find(dev_t dev, ino_t ino)
+pshm_lookup(dev_t dev, ino_t ino, int include_unlinked)
 {
+	struct pshm *stale = NULL;
 	int i;
 
-	for (i = 0; i < POSIX_SHM_MAX; i++)
-		if (pshm_list[i].used && !pshm_list[i].unlinked &&
-		    pshm_list[i].dev == dev && pshm_list[i].ino == ino)
-			return &pshm_list[i];
-	return NULL;
+	for (i = 0; i < POSIX_SHM_MAX; i++) {
+		if (!pshm_list[i].used)
+			continue;
+		if (pshm_list[i].dev != dev || pshm_list[i].ino != ino)
+			continue;
+
+		if (!pshm_list[i].unlinked)
+			return &pshm_list[i];	/* live: always preferred */
+		if (include_unlinked && stale == NULL)
+			stale = &pshm_list[i];
+	}
+
+	return stale;			/* NULL unless include_unlinked */
 }
 
 /* Register a (dev, ino) token as a POSIX shm object (idempotent). */
@@ -84,7 +110,9 @@ do_shm_open(message *m)
 	ino_t ino = (ino_t)m->m_lc_ipc_shm.ino;
 	int i;
 
-	if (pshm_find(dev, ino) != NULL)
+	/* An unlinked object must not be matched here: its inode may have been
+	 * freed and reused by an unrelated file.  See pshm_lookup(). */
+	if (pshm_lookup(dev, ino, 0 /*live only*/) != NULL)
 		return OK;			/* already registered */
 
 	for (i = 0; i < POSIX_SHM_MAX; i++)
@@ -110,7 +138,9 @@ do_shm_map(message *m)
 	struct pshm *shm;
 	void *ret;
 
-	if ((shm = pshm_find(dev, ino)) == NULL)
+	/* Include unlinked objects: a client that unlinked the name straight
+	 * after opening it still holds the fd, and mapping it must work. */
+	if ((shm = pshm_lookup(dev, ino, 1 /*incl. unlinked*/)) == NULL)
 		return ENOENT;			/* not a shm object; caller falls back */
 
 	if (size == 0)
@@ -205,7 +235,7 @@ do_shm_unlink(message *m)
 	ino_t ino = (ino_t)m->m_lc_ipc_shm.ino;
 	struct pshm *shm;
 
-	if ((shm = pshm_find(dev, ino)) == NULL)
+	if ((shm = pshm_lookup(dev, ino, 0 /*live only*/)) == NULL)
 		return ENOENT;
 	shm->unlinked = 1;
 	posix_shm_update();

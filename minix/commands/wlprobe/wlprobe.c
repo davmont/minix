@@ -253,7 +253,44 @@ main(void)
 		}
 	}
 
-	/* 6. Unlink removes the name; the mapping must stay valid until munmap. */
+	/*
+	 * 6. The idiom every real Wayland client uses (os_create_anonymous_file):
+	 * open the object, unlink the name AT ONCE, and keep only the fd -- then
+	 * size it and map it.  POSIX guarantees the object outlives its name for
+	 * as long as a descriptor is held, and a client that could not do this
+	 * would fail at mmap().  Worth its own check precisely because every step
+	 * above passed while this did not work.
+	 */
+	{
+		int afd;
+		volatile unsigned long *ap;
+
+		afd = shm_open("/wlprobe-anon", O_RDWR | O_CREAT | O_EXCL, 0600);
+		check("anonymous pool: shm_open", afd >= 0, strerror(errno));
+
+		if (afd >= 0) {
+			check("anonymous pool: unlink the name immediately",
+			    shm_unlink("/wlprobe-anon") == 0, strerror(errno));
+
+			check("anonymous pool: ftruncate after unlink",
+			    ftruncate(afd, POOL_SIZE) == 0, strerror(errno));
+
+			ap = mmap(NULL, POOL_SIZE, PROT_READ | PROT_WRITE,
+			    MAP_SHARED, afd, 0);
+			check("anonymous pool: mmap the unlinked fd",
+			    ap != MAP_FAILED, strerror(errno));
+
+			if (ap != MAP_FAILED) {
+				ap[0] = MAGIC_C;
+				check("anonymous pool: writable",
+				    ap[0] == MAGIC_C, "readback failed");
+				(void)munmap((void *)ap, POOL_SIZE);
+			}
+			(void)close(afd);
+		}
+	}
+
+	/* 7. Unlink removes the name; the mapping must stay valid until munmap. */
 	check("shm_unlink", shm_unlink(SHM_NAME) == 0, strerror(errno));
 	check("mapping survives unlink", pool[0] == MAGIC_P, "mapping died");
 	check("shm_unlink of a gone name fails with ENOENT",

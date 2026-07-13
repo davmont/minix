@@ -129,6 +129,7 @@
 ./etc/rc.d/dhcpcd                                       minix-base
 ./etc/rc.d/downinterfaces                               minix-base
 ./etc/rc.d/fbcompd                                      minix-base
+./etc/rc.d/wlcompd                                      minix-base
 ./etc/rc.d/fsck                                         minix-base
 ./etc/rc.d/ftpd                                         minix-base
 ./etc/rc.d/inetd                                        minix-base
@@ -642,6 +643,8 @@
 ./usr/bin/whoami                                        minix-base
 ./usr/bin/whois                                         minix-base
 ./usr/bin/oomprobe                                      minix-base
+./usr/bin/wlclient                                      minix-base
+./usr/bin/wlcompd                                       minix-base
 ./usr/bin/wlcoreprobe                                   minix-base
 ./usr/bin/xkbprobe                                      minix-base
 ./usr/bin/wlprobe                                       minix-base

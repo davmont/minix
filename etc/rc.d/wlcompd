@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# MINIX: start the Wayland compositor (/usr/bin/wlcompd) at boot.
+#
+# Opt-in: disabled by default (wlcompd=NO in /etc/defaults/minix.rc.conf).
+# Like fbcompd, it grabs the keyboard from /dev/kbdmux, so enabling it turns
+# the framebuffer into the primary console; set wlcompd=YES in /etc/rc.conf to
+# use it.  The serial console keeps working regardless.  Do not enable both
+# this and fbcompd: they would fight over /dev/fb0 and the keyboard.
+#
+
+# PROVIDE: wlcompd
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+
+$_rc_subr_loaded . /etc/rc.subr
+
+name="wlcompd"
+rcvar=$name
+command="/usr/bin/wlcompd"
+pidfile="/var/run/wlcompd.pid"
+start_cmd="wlcompd_start"
+
+wlcompd_start()
+{
+	# The compositor needs /dev/fb0, which the framebuffer driver provides.
+	# Bring the driver up if it is not already running (harmless if it is).
+	minix-service up /service/fb -dev /dev/fb0 >/dev/null 2>&1
+
+	# Clients find the compositor through XDG_RUNTIME_DIR; wl_display's
+	# socket is created there.
+	: ${XDG_RUNTIME_DIR:=/var/run}
+	export XDG_RUNTIME_DIR
+
+	echo "Starting wlcompd."
+	# wlcompd does not daemonize, so run it in the background and record its
+	# pid so rc.subr can stop it.
+	/usr/bin/wlcompd >/var/log/wlcompd.log 2>&1 &
+	echo $! > $pidfile
+}
+
+load_rc_config $name
+run_rc_command "$1"
