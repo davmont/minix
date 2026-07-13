@@ -92,7 +92,6 @@
 ./usr/lib/libm_pic.a				comp-c-piclib		compatfile,picinstall
 ./usr/lib/libmagic_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libmenu_pic.a				comp-c-piclib		compatfile,picinstall
-./usr/lib/libmj_pic.a				comp-c-piclib		compatfile,picinstall
 ./usr/lib/libmpc.so				comp-c-shlib		obsolete
 ./usr/lib/libmpc.so.2				comp-c-shlib		obsolete
 ./usr/lib/libmpc.so.2.0				comp-c-shlib		obsolete
@@ -109,7 +108,6 @@
 ./usr/lib/libmudflapth.so.0			comp-c-shlib		compatfile,gcc
 ./usr/lib/libmudflapth.so.0.0			comp-c-shlib		compatfile,gcc
 ./usr/lib/libmudflapth_pic.a			comp-c-piclib		compatfile,picinstall,gcc
-./usr/lib/libnetpgp_pic.a			comp-c-piclib		compatfile,picinstall,crypto
 ./usr/lib/libnetpgpverify_pic.a			comp-c-piclib		compatfile,picinstall,crypto
 ./usr/lib/libnpf_pic.a				comp-npf-piclib		compatfile,picinstall,npf
 ./usr/lib/libntp_pic.a				comp-obsolete		obsolete

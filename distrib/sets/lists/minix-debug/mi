@@ -90,10 +90,8 @@
 ./usr/lib/libmenu_g.a                                   minix-debug     debuglib
 ./usr/lib/libminc_g.a                                   minix-debug     debuglib
 ./usr/lib/libminixfs_g.a                                minix-debug     debuglib
-./usr/lib/libmj_g.a                                     minix-debug     debuglib
 ./usr/lib/libmthread_g.a                                minix-debug     debuglib
 ./usr/lib/libnetdriver_g.a                              minix-debug     debuglib
-./usr/lib/libnetpgp_g.a                                 minix-debug     debuglib
 ./usr/lib/libnetpgpverify_g.a                           minix-debug     debuglib
 ./usr/lib/libnetsock_g.a                                minix-debug     debuglib,obsolete
 ./usr/lib/libobjc_g.a                                   minix-debug     gcc=5,debuglib
@@ -372,8 +370,6 @@
 ./usr/libdata/debug/usr/bin/mt.debug                    minix-debug     debug
 ./usr/libdata/debug/usr/bin/mtop.debug                  minix-debug     debug
 ./usr/libdata/debug/usr/bin/nbperf.debug                minix-debug     debug
-./usr/libdata/debug/usr/bin/netpgp.debug                minix-debug     debug
-./usr/libdata/debug/usr/bin/netpgpkeys.debug            minix-debug     debug
 ./usr/libdata/debug/usr/bin/netpgpverify.debug          minix-debug     debug
 ./usr/libdata/debug/usr/bin/netstat.debug               minix-debug     debug
 ./usr/libdata/debug/usr/bin/newgrp.debug                minix-debug     debug
@@ -579,9 +575,7 @@
 ./usr/libdata/debug/usr/lib/libm.so.0.11.debug          minix-debug     debug
 ./usr/libdata/debug/usr/lib/libmagic.so.8.0.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/libmenu.so.6.0.debug        minix-debug     debug
-./usr/libdata/debug/usr/lib/libmj.so.1.0.debug          minix-debug     debug
 ./usr/libdata/debug/usr/lib/libmthread.so.0.0.debug     minix-debug     debug
-./usr/libdata/debug/usr/lib/libnetpgp.so.4.0.debug      minix-debug     debug
 ./usr/libdata/debug/usr/lib/libnetpgpverify.so.5.0.debug minix-debug     debug
 ./usr/libdata/debug/usr/lib/libobjc.so.4.0.debug        minix-debug     gcc=5,gcccmds,debug
 ./usr/libdata/debug/usr/lib/libopcodes.so.6.0.debug     minix-debug     debug

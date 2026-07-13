@@ -792,8 +792,6 @@
 ./usr/bin/msgs					base-util-bin
 ./usr/bin/nbsvtool				base-crypto-bin		crypto
 ./usr/bin/netgroup				base-nis-bin
-./usr/bin/netpgp				base-crypto-bin		crypto
-./usr/bin/netpgpkeys				base-crypto-bin		crypto
 ./usr/bin/netpgpverify				base-crypto-bin		crypto
 ./usr/bin/netstat				base-netutil-bin
 ./usr/bin/newaliases				base-mailwrapper-bin
