@@ -48,4 +48,23 @@ struct signalfd_siginfo {
 
 int signalfd(int fd, const sigset_t *mask, int flags);
 
+/*
+ * ...and this is where that difference has to be enforced.
+ * wl_event_loop_add_signal() does:
+ *
+ *	source->base.fd = signalfd(-1, &mask, ...);
+ *	sigprocmask(SIG_BLOCK, &mask, NULL);
+ *
+ * i.e. it blocks the signal *after* creating the descriptor.  With a real
+ * signalfd that is exactly right.  Here it is fatal: a blocked signal never
+ * reaches the handler that feeds our pipe, so the source would never fire.
+ *
+ * Redirect sigprocmask(2) so that SIG_BLOCK silently skips any signal we are
+ * delivering by handler on libwayland's behalf.  Every other signal, and every
+ * other operation (SIG_UNBLOCK, SIG_SETMASK), passes through untouched.  Doing
+ * it here rather than patching event-loop.c is what keeps that file unmodified.
+ */
+int wl_minix_sigprocmask(int how, const sigset_t *set, sigset_t *oset);
+#define sigprocmask(how, set, oset) wl_minix_sigprocmask((how), (set), (oset))
+
 #endif /* MINIX_WL_SYS_SIGNALFD_H */

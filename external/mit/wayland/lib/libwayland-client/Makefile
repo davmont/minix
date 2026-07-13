@@ -18,7 +18,7 @@ SRCS+=		wayland-protocol.c
 
 .include "${WLDIR}/lib/wayland-gen.mk"
 
-DPSRCS+=	wayland-version.h wayland-client-protocol.h wayland-protocol.c
+DPSRCS+=	${WL_VERSION_H} ${WL_CLIENT_H} ${WL_PROTO_C}
 
 INCS=		wayland-client.h wayland-client-core.h wayland-util.h \
 		wayland-version.h wayland-client-protocol.h
@@ -33,8 +33,7 @@ wayland-client.pc: wayland-client.pc.in
 	${TOOL_SED} -e 's/@VERSION@/${WAYLAND_VERSION}/g' \
 		< ${.CURDIR}/wayland-client.pc.in > ${.TARGET}
 
-all: wayland-version.h wayland-client-protocol.h wayland-protocol.c \
-	wayland-client.pc
+all: ${WL_VERSION_H} ${WL_CLIENT_H} ${WL_PROTO_C} wayland-client.pc
 dependall: all
 
 .include <bsd.lib.mk>

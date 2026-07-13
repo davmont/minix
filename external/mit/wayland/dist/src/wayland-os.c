@@ -255,8 +255,18 @@ wl_os_mremap_maymove(int fd, void *old_data, ssize_t *old_size,
 	void *result;
 
 	/* Make sure any pending write is flushed. */
+#ifndef __minix
 	if (msync(old_data, *old_size, MS_SYNC) != 0)
 		return MAP_FAILED;
+#else
+	/*
+	 * MINIX has no msync(2) (it is listed in libc's MISSING_SYSCALLS), and
+	 * it needs none here: an SHM pool on MINIX is an anonymous region
+	 * shared via vm_remap(), not a file mapping, so there are no dirty
+	 * pages owed to a backing file.  The client's writes are already
+	 * visible to the compositor -- which is exactly what wlprobe proves.
+	 */
+#endif
 
 	/* We could try mapping a new block immediately after the current one
 	 * with MAP_FIXED, however that is not guaranteed to work and breaks

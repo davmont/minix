@@ -4,6 +4,7 @@
 #define MINIX_WL_SYS_EVENTFD_H
 
 #include <sys/epoll.h>		/* for the close(2) redirect */
+#include <unistd.h>		/* before the write(2) redirect, as above */
 
 #define EFD_CLOEXEC	0x400000
 #define EFD_NONBLOCK	0x004000

@@ -28,6 +28,10 @@
 #ifndef MINIX_WL_SYS_EPOLL_H
 #define MINIX_WL_SYS_EPOLL_H
 
+/* <unistd.h> MUST come before the close(2) redirect below: if it were included
+ * afterwards, its own declaration of close() would be eaten by the macro. */
+#include <unistd.h>
+
 #include <stdint.h>
 
 /* Values match Linux; nothing outside this shim depends on that, but it keeps

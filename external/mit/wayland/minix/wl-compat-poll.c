@@ -36,6 +36,7 @@
 /* This file implements the redirects, so it must not be subject to them. */
 #undef close
 #undef write
+#undef sigprocmask
 
 #include <sys/poll.h>
 
@@ -514,10 +515,12 @@ signalfd(int fd, const sigset_t *mask, int flags)
 	}
 
 	/*
-	 * wl_event_loop_add_signal() blocked these signals just before calling
-	 * us, which is right for a real signalfd but fatal here: a blocked
-	 * signal never reaches a handler, so the pipe would stay empty forever.
-	 * Undo the block -- see the note in <sys/signalfd.h>.
+	 * Make sure the signal is deliverable now.  wl_event_loop_add_signal()
+	 * will call sigprocmask(SIG_BLOCK) on it immediately *after* we return
+	 * -- correct for a real signalfd, fatal for a handler-fed pipe -- but
+	 * wl_minix_sigprocmask() below filters that block out.  This unblock
+	 * covers the case where the signal was already blocked before we were
+	 * ever called.
 	 */
 	(void)sigprocmask(SIG_UNBLOCK, &unblock, NULL);
 
@@ -525,6 +528,31 @@ signalfd(int fd, const sigset_t *mask, int flags)
 	sigpipes[i].fd = rfd;
 	sigpipes[i].wfd = wfd;
 	return rfd;
+}
+
+/*
+ * Refuse to block signals we are delivering by handler for libwayland; see the
+ * comment on the redirect in <sys/signalfd.h>.  Everything else is passed
+ * straight through to the real sigprocmask(2).
+ */
+int
+wl_minix_sigprocmask(int how, const sigset_t *set, sigset_t *oset)
+{
+	sigset_t filtered;
+	int signo, dropped = 0;
+
+	if (how != SIG_BLOCK || set == NULL)
+		return sigprocmask(how, set, oset);
+
+	filtered = *set;
+	for (signo = 1; signo < NSIG; signo++) {
+		if (sigismember(&filtered, signo) && sig_wfd[signo] >= 0) {
+			sigdelset(&filtered, signo);
+			dropped++;
+		}
+	}
+
+	return sigprocmask(how, dropped ? &filtered : set, oset);
 }
 
 /*===========================================================================*
