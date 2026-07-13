@@ -308,6 +308,64 @@ udp_input(struct pbuf *p, struct netif *inp)
   /* no fully matching pcb found? then look for an unconnected pcb */
   if (pcb == NULL) {
     pcb = uncon_pcb;
+
+#if SO_REUSE
+    /* MINIX 3: SO_REUSEPORT.  Several sockets may be bound to the same local
+       address and port -- typically one per worker thread of a server, which
+       is how BIND's netmgr expects to receive queries.  Without this, the loop
+       above always picks the first such socket and the other workers never see
+       any traffic at all.
+
+       Spread the datagrams instead: hash the flow and pick the corresponding
+       socket among those that asked for SO_REUSEPORT.  Hashing the flow rather
+       than, say, taking turns keeps a given peer pinned to a single socket, so
+       a multi-packet exchange stays with one worker.
+
+       This only ever runs when SO_REUSEPORT is actually in use. */
+    if (pcb != NULL && ip_get_option(pcb, SOF_REUSEPORT)) {
+      struct udp_pcb *rpcb;
+      u32_t hash, n;
+      u16_t count = 0;
+
+      for (rpcb = udp_pcbs; rpcb != NULL; rpcb = rpcb->next) {
+        if ((rpcb->flags & UDP_FLAGS_CONNECTED) == 0 &&
+            ip_get_option(rpcb, SOF_REUSEPORT) &&
+            rpcb->local_port == dest &&
+            udp_input_local_match(rpcb, inp, broadcast) != 0) {
+          count++;
+        }
+      }
+
+      if (count > 1) {
+        hash = (u32_t)src * 59U + (u32_t)dest;
+#if LWIP_IPV4
+        if (!ip_current_is_v6()) {
+          hash += lwip_ntohl(ip4_addr_get_u32(ip4_current_src_addr()));
+        }
+#endif /* LWIP_IPV4 */
+#if LWIP_IPV6
+        if (ip_current_is_v6()) {
+          hash += ip6_current_src_addr()->addr[0] ^
+                  ip6_current_src_addr()->addr[3];
+        }
+#endif /* LWIP_IPV6 */
+
+        n = hash % (u32_t)count;
+
+        for (rpcb = udp_pcbs; rpcb != NULL; rpcb = rpcb->next) {
+          if ((rpcb->flags & UDP_FLAGS_CONNECTED) == 0 &&
+              ip_get_option(rpcb, SOF_REUSEPORT) &&
+              rpcb->local_port == dest &&
+              udp_input_local_match(rpcb, inp, broadcast) != 0) {
+            if (n-- == 0) {
+              pcb = rpcb;
+              break;
+            }
+          }
+        }
+      }
+    }
+#endif /* SO_REUSE */
   }
 
   /* Check checksum if this is a match or if it was directed at us. */
@@ -1002,8 +1060,13 @@ udp_bind(struct udp_pcb *pcb, const ip_addr_t *ipaddr, u16_t port)
            PCB is already bound to, unless *all* PCBs with that port have the
            REUSEADDR flag set. */
 #if SO_REUSE
-        if (!ip_get_option(pcb, SOF_REUSEADDR) ||
-            !ip_get_option(ipcb, SOF_REUSEADDR))
+        /* MINIX 3: SO_REUSEPORT permits sharing the local address and port in
+           its own right, as it does on the systems this option comes from; it
+           does not require SO_REUSEADDR as well. */
+        if ((!ip_get_option(pcb, SOF_REUSEADDR) ||
+             !ip_get_option(ipcb, SOF_REUSEADDR)) &&
+            (!ip_get_option(pcb, SOF_REUSEPORT) ||
+             !ip_get_option(ipcb, SOF_REUSEPORT)))
 #endif /* SO_REUSE */
         {
           /* port matches that of PCB in list and REUSEADDR not set -> reject */

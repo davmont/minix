@@ -719,9 +719,17 @@ tcp_bind(struct tcp_pcb *pcb, const ip_addr_t *ipaddr, u16_t port)
 #if SO_REUSE
           /* Omit checking for the same port if both pcbs have REUSEADDR set.
              For SO_REUSEADDR, the duplicate-check for a 5-tuple is done in
-             tcp_connect. */
-          if (!ip_get_option(pcb, SOF_REUSEADDR) ||
-              !ip_get_option(cpcb, SOF_REUSEADDR))
+             tcp_connect.
+
+             MINIX 3: SO_REUSEPORT permits sharing the address and port in its
+             own right, so that a server can put one listening socket per worker
+             on the same port.  Note that incoming connections still all go to
+             the first matching listener -- we do not spread them the way we do
+             UDP datagrams -- which is correct, just not balanced. */
+          if ((!ip_get_option(pcb, SOF_REUSEADDR) ||
+               !ip_get_option(cpcb, SOF_REUSEADDR)) &&
+              (!ip_get_option(pcb, SOF_REUSEPORT) ||
+               !ip_get_option(cpcb, SOF_REUSEPORT)))
 #endif /* SO_REUSE */
           {
             /* @todo: check accept_any_ip_version */

@@ -550,6 +550,19 @@ udpsock_setsockmask(struct sock * sock, unsigned int mask)
 	else
 		ip_reset_option(udp->udp_pcb, SOF_REUSEADDR);
 
+	/*
+	 * SO_REUSEPORT lets several sockets bind the same local address and
+	 * port, with incoming unicast datagrams spread across them by flow --
+	 * see udp_input().  Servers that run one worker per socket rely on
+	 * this; BIND's netmgr is the reason we implement it.  We used to
+	 * advertise the option in <sys/socket.h> and then ignore it, which left
+	 * every worker but the first with no traffic at all.
+	 */
+	if (mask & SO_REUSEPORT)
+		ip_set_option(udp->udp_pcb, SOF_REUSEPORT);
+	else
+		ip_reset_option(udp->udp_pcb, SOF_REUSEPORT);
+
 	if (mask & SO_BROADCAST)
 		ip_set_option(udp->udp_pcb, SOF_BROADCAST);
 	else
