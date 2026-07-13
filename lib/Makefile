@@ -171,7 +171,6 @@ SUBDIR+=        ../external/cddl/osnet/lib/libctf
 SUBDIR+=	../external/public-domain/xz/lib	# depends on libpthread
 
 .if (${MKCRYPTO} != "no")
-SUBDIR+=	../crypto/external/bsd/netpgp/libmj
 SUBDIR+=	../crypto/external/bsd/netpgp/lib/verify # depends on libz
 .endif
 
@@ -267,7 +266,6 @@ SUBDIR+=	../crypto/external/bsd/heimdal/lib	# depends on libcrypto
 
 .if (${MKCRYPTO} != "no")
 #SUBDIR+=	../crypto/external/bsd/openssh/lib # depends on libcrypto, libz
-SUBDIR+=	../crypto/external/bsd/netpgp/lib  # depends on libcrypto, ...
 .endif
 
 SUBDIR+=	../external/bsd/libevent/lib	# depends on libcrypto

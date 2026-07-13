@@ -99,10 +99,8 @@
 ./usr/lib/libm_g.a				comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libmagic_g.a				comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libmenu_g.a				comp-c-debuglib		debuglib,compatfile
-./usr/lib/libmj_g.a				comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libmudflap_g.a			comp-c-debuglib		debuglib,compatfile,gcc
 ./usr/lib/libmudflapth_g.a			comp-c-debuglib		debuglib,compatfile,gcc
-./usr/lib/libnetpgp_g.a				comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libnetpgpverify_g.a			comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libnpf_g.a				comp-c-debuglib		debuglib,compatfile
 ./usr/lib/libnvpair_g.a				comp-c-debuglib		debuglib,zfs,compatfile
@@ -651,8 +649,6 @@
 ./usr/libdata/debug/usr/bin/nbperf.debug	comp-util-debug		debug
 ./usr/libdata/debug/usr/bin/nbsvtool.debug	comp-crypto-debug	crypto,debug
 ./usr/libdata/debug/usr/bin/netgroup.debug	comp-nis-debug		debug
-./usr/libdata/debug/usr/bin/netpgp.debug	comp-crypto-debug	crypto,debug
-./usr/libdata/debug/usr/bin/netpgpkeys.debug	comp-crypto-debug	crypto,debug
 ./usr/libdata/debug/usr/bin/netpgpverify.debug	comp-crypto-debug	crypto,debug
 ./usr/libdata/debug/usr/bin/netstat.debug	comp-netutil-debug	debug
 ./usr/libdata/debug/usr/bin/newgrp.debug	comp-util-debug		debug

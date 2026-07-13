@@ -386,12 +386,6 @@
 ./usr/lib/libmenu.so				base-sys-shlib		compatfile
 ./usr/lib/libmenu.so.6				base-sys-shlib		compatfile
 ./usr/lib/libmenu.so.6.0			base-sys-shlib		compatfile
-./usr/lib/libmj.so				base-crypto-shlib	compatfile,crypto
-./usr/lib/libmj.so.1				base-crypto-shlib	compatfile,crypto
-./usr/lib/libmj.so.1.0				base-crypto-shlib	compatfile,crypto
-./usr/lib/libnetpgp.so				base-crypto-shlib	compatfile,crypto
-./usr/lib/libnetpgp.so.4			base-crypto-shlib	compatfile,crypto
-./usr/lib/libnetpgp.so.4.0			base-crypto-shlib	compatfile,crypto
 ./usr/lib/libnetpgpverify.so			base-crypto-shlib	compatfile,crypto
 ./usr/lib/libnetpgpverify.so.5			base-crypto-shlib	compatfile,crypto
 ./usr/lib/libnetpgpverify.so.5.0		base-crypto-shlib	compatfile,crypto

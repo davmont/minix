@@ -491,8 +491,6 @@
 ./usr/bin/mt                                            minix-base
 ./usr/bin/mtop                                          minix-base
 ./usr/bin/nbperf                                        minix-base
-./usr/bin/netpgp                                        minix-base      crypto
-./usr/bin/netpgpkeys                                    minix-base      crypto
 ./usr/bin/netpgpverify                                  minix-base      crypto
 ./usr/bin/netstat                                       minix-base
 ./usr/bin/newgrp                                        minix-base
@@ -975,19 +973,9 @@
 ./usr/lib/libminlib.so.0.0                              minix-base      obsolete
 ./usr/lib/libminlib.so.0                                minix-base      obsolete
 ./usr/lib/libminlib.so                                  minix-base      obsolete
-./usr/lib/libmj.a                                       minix-base      crypto
-./usr/lib/libmj.so.1.0                                  minix-base      crypto
-./usr/lib/libmj.so.1                                    minix-base      crypto
-./usr/lib/libmj.so                                      minix-base      crypto
-./usr/lib/libmj_pic.a                                   minix-base      crypto
 ./usr/lib/libmthread.so                                 minix-base
 ./usr/lib/libmthread.so.0                               minix-base
 ./usr/lib/libmthread.so.0.0                             minix-base
-./usr/lib/libnetpgp.a                                   minix-base      crypto
-./usr/lib/libnetpgp.so.4.0                              minix-base      crypto
-./usr/lib/libnetpgp.so.4                                minix-base      crypto
-./usr/lib/libnetpgp.so                                  minix-base      crypto
-./usr/lib/libnetpgp_pic.a                               minix-base      crypto
 ./usr/lib/libnetpgpverify.a                             minix-base      crypto
 ./usr/lib/libnetpgpverify.so.5.0                        minix-base      crypto
 ./usr/lib/libnetpgpverify.so.5                          minix-base      crypto

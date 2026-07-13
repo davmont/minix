@@ -2388,7 +2388,6 @@
 ./usr/include/netns/spp_debug.h			comp-obsolete		obsolete
 ./usr/include/netns/spp_timer.h			comp-obsolete		obsolete
 ./usr/include/netns/spp_var.h			comp-obsolete		obsolete
-./usr/include/netpgp.h				comp-c-include		crypto
 ./usr/include/netpgp/verify.h			comp-c-include		crypto
 ./usr/include/netsmb/iconv.h			comp-c-include
 ./usr/include/netsmb/netbios.h			comp-c-include
@@ -3345,8 +3344,6 @@
 ./usr/lib/libmenu.a				comp-c-lib		compatfile
 ./usr/lib/libmenu_p.a				comp-c-proflib		compatfile,profile
 ./usr/lib/libmilter.a				comp-obsolete		obsolete
-./usr/lib/libmj.a				comp-c-lib		compatfile,crypto
-./usr/lib/libmj_p.a				comp-c-proflib		compatfile,crypto,profile
 ./usr/lib/libmpc.a				-unknown-		obsolete
 ./usr/lib/libmpc.a				comp-c-lib		obsolete
 ./usr/lib/libmpc_p.a				comp-c-proflib		obsolete
@@ -3357,8 +3354,6 @@
 ./usr/lib/libmudflap_p.a			comp-c-proflib		compatfile,gcc,profile
 ./usr/lib/libmudflapth.a			comp-c-lib		compatfile,gcc
 ./usr/lib/libmudflapth_p.a			comp-c-proflib		compatfile,gcc,profile
-./usr/lib/libnetpgp.a				comp-c-lib		compatfile,crypto
-./usr/lib/libnetpgp_p.a				comp-c-proflib		compatfile,crypto,profile
 ./usr/lib/libnetpgpverify.a			comp-c-lib		compatfile,crypto
 ./usr/lib/libnetpgpverify_p.a			comp-c-proflib		compatfile,crypto,profile
 ./usr/lib/libnpf.a				comp-npf-lib		compatfile,npf
@@ -3783,7 +3778,6 @@
 ./usr/libdata/lint/llib-lmj.ln			comp-c-lintlib		lint,crypto
 ./usr/libdata/lint/llib-lmpc.ln			comp-c-lintlib		obsolete
 ./usr/libdata/lint/llib-lmpfr.ln		comp-c-lintlib		obsolete
-./usr/libdata/lint/llib-lnetpgp.ln		comp-c-lintlib		lint,crypto
 ./usr/libdata/lint/llib-lnetpgpverify.ln	comp-c-lintlib		lint,crypto
 ./usr/libdata/lint/llib-lnpf.ln			comp-npf-lintlib	lint,npf
 ./usr/libdata/lint/llib-lntp.ln			comp-obsolete		obsolete
@@ -7605,8 +7599,6 @@
 ./usr/share/man/cat3/libblacklist.0		comp-c-catman		.cat
 ./usr/share/man/cat3/libiscsi.0			comp-c-catman		iscsi,.cat
 ./usr/share/man/cat3/libmagic.0			comp-c-catman		.cat
-./usr/share/man/cat3/libmj.0			comp-c-catman		crypto,.cat
-./usr/share/man/cat3/libnetpgp.0		comp-c-catman		crypto,.cat
 ./usr/share/man/cat3/libnetpgpverify.0		comp-c-catman		crypto,.cat
 ./usr/share/man/cat3/libnpf.0			comp-npf-catman		npf,.cat
 ./usr/share/man/cat3/libperfuse.0		comp-perfuse-catman	.cat
@@ -14528,8 +14520,6 @@
 ./usr/share/man/html3/libblacklist.html		comp-c-html		html
 ./usr/share/man/html3/libiscsi.html		comp-c-htmlman		iscsi,html
 ./usr/share/man/html3/libmagic.html		comp-c-htmlman		html
-./usr/share/man/html3/libmj.html		comp-c-htmlman		crypto,html
-./usr/share/man/html3/libnetpgp.html		comp-c-htmlman		crypto,html
 ./usr/share/man/html3/libnetpgpverify.html	comp-c-htmlman		crypto,html
 ./usr/share/man/html3/libnpf.html		comp-npf-htmlman	npf,html
 ./usr/share/man/html3/libperfuse.html		comp-perfuse-htmlman	html
@@ -21408,8 +21398,6 @@
 ./usr/share/man/man3/libblacklist.3		comp-c-man		.man
 ./usr/share/man/man3/libiscsi.3			comp-c-man		iscsi,.man
 ./usr/share/man/man3/libmagic.3			comp-c-man		.man
-./usr/share/man/man3/libmj.3			comp-c-man		crypto,.man
-./usr/share/man/man3/libnetpgp.3		comp-c-man		crypto,.man
 ./usr/share/man/man3/libnetpgpverify.3		comp-c-man		crypto,.man
 ./usr/share/man/man3/libnpf.3			comp-npf-man		npf,.man
 ./usr/share/man/man3/libperfuse.3		comp-perfuse-man	.man

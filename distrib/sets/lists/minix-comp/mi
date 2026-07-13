@@ -1458,7 +1458,6 @@
 ./usr/include/netmpls                                   minix-comp
 ./usr/include/netmpls/mpls.h                            minix-comp
 ./usr/include/netpgp                                    minix-comp
-./usr/include/netpgp.h                                  minix-comp      crypto
 ./usr/include/netpgp/verify.h                           minix-comp      crypto
 ./usr/include/nl_types.h                                minix-comp
 ./usr/include/nlist.h                                   minix-comp
@@ -2081,10 +2080,8 @@
 ./usr/lib/bc/libminc.a                                  minix-comp      bitcode
 ./usr/lib/bc/libminixfs.a                               minix-comp      bitcode
 ./usr/lib/bc/libminlib.a                                minix-comp      bitcode,obsolete
-./usr/lib/bc/libmj.a                                    minix-comp      bitcode
 ./usr/lib/bc/libmthread.a                               minix-comp      bitcode
 ./usr/lib/bc/libnetdriver.a                             minix-comp      bitcode
-./usr/lib/bc/libnetpgp.a                                minix-comp      bitcode
 ./usr/lib/bc/libnetpgpverify.a                          minix-comp      bitcode
 ./usr/lib/bc/libnetsock.a                               minix-comp      bitcode,obsolete
 ./usr/lib/bc/libopcodes.a                               minix-comp      bitcode,binutils
