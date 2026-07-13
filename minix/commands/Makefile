@@ -30,6 +30,7 @@ SUBDIR=	at backup \
 	wlprobe \
 	ffiprobe \
 	wlcoreprobe \
+	xkbprobe \
 	writeisofs fetch \
 	zmodem pkgin_cd pkgin_all pkgin_sets \
 	worldstone updateboot update_asr update_bootcfg \

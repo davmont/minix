@@ -642,6 +642,7 @@
 ./usr/bin/whoami                                        minix-base
 ./usr/bin/whois                                         minix-base
 ./usr/bin/wlcoreprobe                                   minix-base
+./usr/bin/xkbprobe                                      minix-base
 ./usr/bin/wlprobe                                       minix-base
 ./usr/bin/worldstone                                    minix-base
 ./usr/bin/write                                         minix-base
@@ -3355,6 +3356,8 @@
 ./usr/share/nvi/catalog/spanish                         minix-base
 ./usr/share/nvi/catalog/swedish                         minix-base
 ./usr/share/terminfo                                    minix-base
+./usr/share/xkb                                         minix-base
+./usr/share/xkb/us.xkb                                  minix-base
 ./usr/share/terminfo/terminfo                           minix-base
 ./usr/share/terminfo/terminfo.cdb                       minix-base
 ./usr/share/zoneinfo                                    minix-base

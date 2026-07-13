@@ -2,6 +2,6 @@
 
 .include <bsd.own.mk>
 
-SUBDIR+=	expat lua pixman freetype libffi wayland
+SUBDIR+=	expat lua pixman freetype libffi libxkbcommon wayland
 
 .include <bsd.subdir.mk>

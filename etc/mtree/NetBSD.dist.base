@@ -204,6 +204,7 @@
 ./usr/include/openssl
 ./usr/include/pcap
 ./usr/include/pixman-1
+./usr/include/xkbcommon
 ./usr/include/ppath
 ./usr/include/prop
 ./usr/include/protocols
@@ -773,6 +774,7 @@
 ./usr/share/nvi
 ./usr/share/nvi/catalog
 ./usr/share/terminfo
+./usr/share/xkb
 ./usr/share/zoneinfo
 ./usr/share/zoneinfo/Africa
 ./usr/share/zoneinfo/America
