@@ -1,0 +1,35 @@
+Cherry-picks from lwIP upstream master, applied on top of release 2.2.1.
+
+These are not MINIX changes.  They are fixes that upstream committed after the
+2.2.1 release and has not yet put in a release of its own -- upstream's own note
+says "next release will probably be 2.2.2".  Being on the latest release is not
+the same as being current: several of these are security fixes in code we
+compile and expose to the network.
+
+DROP THIS DIRECTORY when lwIP is next upgraded to a release that contains them
+(2.2.2 or later): they will already be in dist/, and re-applying them will
+fail or double-apply.  Check with:
+
+    git log --oneline STABLE-2_2_1_RELEASE..<new tag> -- src/
+
+The patches, oldest upstream commit first:
+
+  0001-0003  nd6: parse *all* neighbour-discovery options rather than only the
+             first, plus the follow-up cast fix and link-layer address helper.
+             IPv6 ND is the area the CVEs we were exposed to lived in, and we
+             build with IPv6 on.
+  0004       tcp_in: bounds-check the TCP option bytes.  tcp_get_next_optbyte()
+             could read past the end of the options area, which any peer can
+             trigger with malformed options -- an out-of-bounds read on input.
+  0005       netif: verify the hardware address length on netif add.
+  0006       ip4_frag/ip6_frag: fix a NULL-pointer dereference on memory errors
+             during fragment reassembly.  We build with reassembly enabled.
+  0007-0008  ip4: the IP_MIN_FRAG_LENGTH and IP4_MIN_MTU_LENGTH definitions.
+             Not fixes in themselves; 0009 does not build without them.
+  0009       ip4/tcp: send a zero IP_ID for small packets (do not leak a
+             predictable, incrementing IP ID to the network).
+
+Selection: only fixes touching code MINIX actually builds.  Deliberately left
+out are the DHCP, AutoIP, mDNS, SNMP, SMTP, TFTP and httpd fixes (we build none
+of those apps), the big-endian TCP timestamp fix (x86 is little-endian), and the
+sys_check_timeouts() API change (no security value, and it would churn the glue).

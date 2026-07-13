@@ -356,6 +356,74 @@ tcp_input(struct pbuf *p, struct netif *inp)
       lpcb = lpcb_any;
       prev = lpcb_prev;
     }
+
+    /* MINIX 3: SO_REUSEPORT.  Several sockets may be listening on the same
+       local address and port -- one per worker thread of a server.  The loop
+       above always settles on the same listener, so without this every
+       connection would land on one worker.
+
+       Spread them: hash the flow and pick the corresponding listener among
+       those that asked for SO_REUSEPORT.  Unlike UDP we do not need the hash
+       for affinity -- a listener only matters while the connection is being
+       established, after which the connection has a PCB of its own -- we need
+       it only to distribute.
+
+       Do not move the chosen listener to the front of the list afterwards
+       (below): that reordering would keep changing which listener each hash
+       value maps to, and the distribution with it.  Hence prev = NULL, which
+       leaves the list alone.
+
+       This only ever runs when SO_REUSEPORT is actually in use. */
+    if (lpcb != NULL && ip_get_option(lpcb, SOF_REUSEPORT)) {
+      struct tcp_pcb_listen *rpcb;
+      u32_t hash, n;
+      u16_t count = 0;
+
+      for (rpcb = tcp_listen_pcbs.listen_pcbs; rpcb != NULL; rpcb = rpcb->next) {
+        if (ip_get_option(rpcb, SOF_REUSEPORT) &&
+            rpcb->local_port == tcphdr->dest &&
+            ((rpcb->netif_idx == NETIF_NO_INDEX) ||
+             (rpcb->netif_idx == netif_get_index(ip_data.current_input_netif))) &&
+            (ip_addr_isany(&rpcb->local_ip) ||
+             IP_IS_ANY_TYPE_VAL(rpcb->local_ip) ||
+             ip_addr_eq(&rpcb->local_ip, ip_current_dest_addr()))) {
+          count++;
+        }
+      }
+
+      if (count > 1) {
+        hash = (u32_t)tcphdr->src * 59U + (u32_t)tcphdr->dest;
+#if LWIP_IPV4
+        if (!ip_current_is_v6()) {
+          hash += lwip_ntohl(ip4_addr_get_u32(ip4_current_src_addr()));
+        }
+#endif /* LWIP_IPV4 */
+#if LWIP_IPV6
+        if (ip_current_is_v6()) {
+          hash += ip6_current_src_addr()->addr[0] ^
+                  ip6_current_src_addr()->addr[3];
+        }
+#endif /* LWIP_IPV6 */
+
+        n = hash % (u32_t)count;
+
+        for (rpcb = tcp_listen_pcbs.listen_pcbs; rpcb != NULL; rpcb = rpcb->next) {
+          if (ip_get_option(rpcb, SOF_REUSEPORT) &&
+              rpcb->local_port == tcphdr->dest &&
+              ((rpcb->netif_idx == NETIF_NO_INDEX) ||
+               (rpcb->netif_idx == netif_get_index(ip_data.current_input_netif))) &&
+              (ip_addr_isany(&rpcb->local_ip) ||
+               IP_IS_ANY_TYPE_VAL(rpcb->local_ip) ||
+               ip_addr_eq(&rpcb->local_ip, ip_current_dest_addr()))) {
+            if (n-- == 0) {
+              lpcb = rpcb;
+              prev = NULL;	/* leave the list order alone; see above */
+              break;
+            }
+          }
+        }
+      }
+    }
 #endif /* SO_REUSE */
     if (lpcb != NULL) {
       /* Move this PCB to the front of the list so that subsequent
@@ -1904,6 +1972,10 @@ static u8_t
 tcp_get_next_optbyte(void)
 {
   u16_t optidx = tcp_optidx++;
+  if (optidx >= tcphdr_optlen) {
+    /* Return 0 for any excess reads (like length fields) */
+    return LWIP_TCP_OPT_EOL;
+  }
   if ((tcphdr_opt2 == NULL) || (optidx < tcphdr_opt1len)) {
     u8_t *opts = (u8_t *)tcphdr + TCP_HLEN;
     return opts[optidx];
