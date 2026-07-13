@@ -416,7 +416,10 @@ USETOOLS?=	no
 # Provide a default for TOOLDIR.
 #
 .if !defined(TOOLDIR)
-TOOLDIR:=	${_SRC_TOP_OBJ_}/tooldir.${HOST_OSTYPE}
+# TOOLDIR_OSTYPE, not HOST_OSTYPE: on Linux hosts the kernel release is not
+# part of the key, so a routine kernel update does not invalidate the tools.
+# See <bsd.host.mk>.
+TOOLDIR:=	${_SRC_TOP_OBJ_}/tooldir.${TOOLDIR_OSTYPE}
 .MAKEOVERRIDES+= TOOLDIR
 .endif
 

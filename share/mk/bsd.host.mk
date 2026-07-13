@@ -72,6 +72,33 @@ HOST_OSTYPE:=	${_HOST_OSNAME}-${_HOST_OSREL:C/\([^\)]*\)//g:[*]:C/ /_/g}-${_HOST
 .MAKEOVERRIDES+= HOST_OSTYPE
 .endif # !defined(HOST_OSTYPE)
 
+#
+# TOOLDIR_OSTYPE: the key used to name TOOLDIR (see <bsd.own.mk>).
+#
+# The contents of TOOLDIR are *host* executables, so what decides whether they
+# can be reused is the host OS and architecture - not the host *kernel* release.
+#
+# HOST_OSTYPE embeds `uname -r`, which is right on NetBSD/Minix, where the
+# release identifies the whole OS (kernel *and* userland, so libc moves with
+# it).  On Linux it identifies only the kernel: it changes with every routine
+# kernel package update, while the userspace ABI Linux guarantees keeps the
+# existing host tools working perfectly.  Keying TOOLDIR on it there means an
+# unrelated system update silently invalidates the toolchain and forces a
+# multi-hour rebuild of the tools (and, through them, the target LLVM).
+#
+# So on Linux hosts, key TOOLDIR on OS and architecture only.  Everywhere else
+# the key is unchanged.  Derived from HOST_OSTYPE so it is still correct when
+# HOST_OSTYPE is supplied from the environment.
+#
+.if !defined(TOOLDIR_OSTYPE)
+.if ${HOST_OSTYPE:C/\-.*//} == "Linux"
+TOOLDIR_OSTYPE:=	${HOST_OSTYPE:C/\-.*//}-${HOST_OSTYPE:C/.*\-//}
+.else
+TOOLDIR_OSTYPE:=	${HOST_OSTYPE}
+.endif
+.MAKEOVERRIDES+= TOOLDIR_OSTYPE
+.endif # !defined(TOOLDIR_OSTYPE)
+
 .if ${USETOOLS} == "yes"
 HOST_MKDEP?=	${TOOLDIR}/bin/${_TOOL_PREFIX}host-mkdep
 HOST_MKDEPCXX?=	${TOOLDIR}/bin/${_TOOL_PREFIX}host-mkdep
