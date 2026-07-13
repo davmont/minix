@@ -602,32 +602,30 @@ void arch_boot_proc(struct boot_image *ip, struct proc *rp)
         execi.allocmem_ondemand        = libexec_pg_alloc;
         execi.clearproc                = NULL;
 
-        /* Copy the ELF binary to high physical memory (second gigabyte).
-         * libexec_pg_alloc calls pg_map(PG_ALLOCATEME,...) which replaces
-         * 2MB identity-map PD entries for the VM's virtual address range.
-         * This destroys the identity mapping of the original module pages
-         * (physical ~0x7FC000) after the first segment is allocated, making
-         * subsequent reads through execi.hdr return zeros.  Placing the copy
-         * at the top of physical RAM (allocated via pg_alloc_page) puts it in
-         * PDPT[1] (1-2 GB) which none of the low-vaddr allocations touch. */
+        /* Copy the ELF binary to a CONTIGUOUS range high in physical RAM,
+         * ABOVE the VM process's virtual-address ceiling (USR_DATATOP, 896 MB).
+         * libexec_pg_alloc() calls pg_map(PG_ALLOCATEME,...), which replaces
+         * the 2 MB identity-map PD entries covering the VM's 0-896 MB virtual
+         * range as it allocates each segment.  If the module copy sits inside
+         * that range, the segment allocation destroys the identity mapping of
+         * the module's own ELF headers, and the next read through execi.hdr
+         * faults (a nested pagefault in libexec_load_elf).  alloc_highest()
+         * places the copy above the ceiling, where those allocations never
+         * reach; it stays reachable via the PML4[0] 0-4 GB identity map.
+         *
+         * (History: an earlier pg_alloc_page loop gave scattered pages whose
+         * "lowest base" memcpy clobbered the ACPI tables; the alloc_lowest()
+         * fix made it contiguous but LOW, which the 512->896 MB user-vaddr
+         * expansion then turned into this fault.  A single contiguous HIGH
+         * allocation avoids both.) */
 #ifndef AMD64_PAGE_SIZE
 #define AMD64_PAGE_SIZE 4096UL
 #endif
         {
-            /* Use alloc_lowest() to get a CONTIGUOUS phys range.  The
-             * previous code (loop calling pg_alloc_page n_pages times +
-             * memcpy from "lowest base") was buggy because pg_alloc_page
-             * doesn't guarantee allocations come from the same chunk —
-             * when the highest-index chunk runs dry it falls back to
-             * another chunk, and the resulting `base = lowest of N
-             * scattered pages` doesn't actually own the contiguous N×4KB
-             * range that memcpy then writes.  In practice that monolithic
-             * memcpy clobbered the ACPI tables at phys 0x3ffe2335 and
-             * broke the userspace ACPI service. */
-            extern phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len);
+            extern phys_bytes alloc_highest(kinfo_t *cbi, phys_bytes len);
             size_t mod_len  = execi.hdr_len;
             phys_bytes base;
-            base = alloc_lowest(&kinfo, mod_len);
+            base = alloc_highest(&kinfo, mod_len);
             BOOT_VERBOSE(printf(
                 "VMCOPY: base=0x%lx mod_len=%zu (contig phys [0x%lx, 0x%lx))\n",
                 (unsigned long)base, mod_len,

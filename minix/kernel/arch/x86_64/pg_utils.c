@@ -478,6 +478,38 @@ phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len)
     return lowest;
 }
 
+/*
+ * alloc_highest — reserve a CONTIGUOUS len-byte physical range as high in RAM
+ * as possible, returning its base.  Used for the VM boot-module copy: it must
+ * sit above the VM process's virtual-address ceiling (USR_DATATOP, 896 MB) so
+ * that libexec_pg_alloc()'s replacement of 0-896 MB identity-map PD entries,
+ * while loading the module's segments, never destroys the identity mapping of
+ * the module's own ELF headers.  (alloc_lowest() put the copy low, inside that
+ * range, which faulted once a segment allocation reached the copy's 2 MB page
+ * - the regression the 512->896 MB expansion exposed.)  Requires RAM above the
+ * ceiling, i.e. >= ~1 GB, as the amd64 layout already assumes.
+ */
+phys_bytes alloc_highest(kinfo_t *cbi, phys_bytes len)
+{
+    int m, best = -1;
+    phys_bytes best_top = 0, top, base;
+
+    assert(len > 0);
+    len = roundup(len, AMD64_PAGE_SIZE);
+    assert(kernel_may_alloc);
+
+    for (m = 0; m < cbi->mmap_size; m++) {
+        if (cbi->memmap[m].mm_length < len) continue;
+        top = cbi->memmap[m].mm_base_addr + cbi->memmap[m].mm_length;
+        if (top > best_top) { best_top = top; best = m; }
+    }
+    assert(best != -1);
+    base = best_top - len;			/* top of the highest fit */
+    cut_memmap(cbi, base, base + len);
+    cbi->kernel_allocated_bytes_dynamic += len;
+    return base;
+}
+
 void add_memmap(kinfo_t *cbi, u64_t addr, u64_t len)
 {
     int m;
