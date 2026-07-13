@@ -641,6 +641,7 @@
 ./usr/bin/who                                           minix-base
 ./usr/bin/whoami                                        minix-base
 ./usr/bin/whois                                         minix-base
+./usr/bin/oomprobe                                      minix-base
 ./usr/bin/wlcoreprobe                                   minix-base
 ./usr/bin/xkbprobe                                      minix-base
 ./usr/bin/wlprobe                                       minix-base

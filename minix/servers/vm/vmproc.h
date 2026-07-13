@@ -27,6 +27,14 @@ struct vmproc {
 #endif
 	vir_bytes	vm_total;
 	vir_bytes	vm_total_max;
+	/*
+	 * Of vm_total, the part living in regions shared from somewhere else
+	 * (mem_type_shared: an shm pool whose pages the IPC server owns).
+	 * Killing this process does not free those pages -- the source region
+	 * still holds them -- so the OOM killer subtracts this out when it asks
+	 * how much a kill would actually recover.  See vm_oom_kill().
+	 */
+	vir_bytes	vm_shared_total;
 	u32_t		vm_oom_grow;	/* growth clock at last resident growth
 					 * (OOM killer prefers active hogs) */
 	u64_t		vm_as_limit;	/* RLIMIT_AS soft limit, bytes (0=none) */

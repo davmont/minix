@@ -120,10 +120,25 @@ do_shm_map(message *m)
 	if (shm->page == 0) {			/* first mapping: allocate pages */
 		void *page;
 
-		page = mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
+		/*
+		 * MAP_USERMEM: these pages are the client's, not ours.  Without it
+		 * they are allocated as system memory and draw on the OOM reserve
+		 * that exists to keep system services alive -- see VR_USERMEM in
+		 * the VM.
+		 *
+		 * Note there is no memset() here.  MAP_ANON is already zero-filled
+		 * on fault (PAF_CLEAR, since the region is not VR_UNINITIALIZED),
+		 * so clearing it by hand bought nothing and cost a great deal: it
+		 * faulted the whole pool in *our* address space, up front, which is
+		 * both eager where the fault should be lazy and, now, the one place
+		 * a pool could still evade the reserve.  Leaving the pages untouched
+		 * means the client's own fault allocates them, so a failure under
+		 * memory pressure sacrifices the client rather than killing us.
+		 */
+		page = mmap(0, size, PROT_READ | PROT_WRITE,
+		    MAP_ANON | MAP_USERMEM, -1, 0);
 		if (page == MAP_FAILED)
 			return ENOMEM;
-		memset(page, 0, size);
 		shm->page = (vir_bytes)page;
 		shm->size = size;
 	} else if (size > shm->size) {
@@ -149,10 +164,14 @@ do_shm_map(message *m)
 		 */
 		void *page;
 
-		page = mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
+		/* MAP_USERMEM again, and here it is load-bearing: the memcpy below
+		 * faults the new pool in *our* address space, before any client has
+		 * mapped it, so do_remap()'s tagging would come too late. */
+		page = mmap(0, size, PROT_READ | PROT_WRITE,
+		    MAP_ANON | MAP_USERMEM, -1, 0);
 		if (page == MAP_FAILED)
 			return ENOMEM;
-		memset(page, 0, size);
+		/* The tail beyond the old contents is zero-filled on fault. */
 		memcpy(page, (void *)shm->page, shm->size);
 
 		if (pshm_retire(shm->page, shm->size) != OK) {

@@ -85,6 +85,11 @@ void physblock_set(struct vir_region *region, vir_bytes offset,
 		proc->vm_total += VM_PAGE_SIZE;
 		if (proc->vm_total > proc->vm_total_max)
 			proc->vm_total_max = proc->vm_total;
+		/* Pages reached through a shared region belong to the region we
+		 * were remapped from, not to us; killing us would not free them.
+		 * Track them apart so the OOM killer can leave them out. */
+		if (region->def_memtype == &mem_type_shared)
+			proc->vm_shared_total += VM_PAGE_SIZE;
 		/* Stamp the growth clock so the OOM killer can prefer a hog
 		 * that is actively ballooning now over an equally large but
 		 * quiescent long-running process. */
@@ -92,6 +97,10 @@ void physblock_set(struct vir_region *region, vir_bytes offset,
 	} else {
 		assert(region->physblocks[i]);
 		proc->vm_total -= VM_PAGE_SIZE;
+		if (region->def_memtype == &mem_type_shared) {
+			assert(proc->vm_shared_total >= VM_PAGE_SIZE);
+			proc->vm_shared_total -= VM_PAGE_SIZE;
+		}
 	}
 	region->physblocks[i] = newphysr;
 }

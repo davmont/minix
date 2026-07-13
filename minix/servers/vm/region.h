@@ -77,6 +77,18 @@ typedef struct vir_region {
 #define VR_LOWER1MB	0x010
 #define VR_SHARED	0x040
 #define VR_UNINITIALIZED 0x080	/* Do not clear after allocation  */
+/*
+ * This region belongs to a system service, but its pages are allocated on
+ * behalf of a user process -- a POSIX or SysV shm pool held by the IPC server
+ * and vm_remap()ed into its clients.  Set by do_remap() when the destination is
+ * a user process; see the OOM reserve in alloc.c.
+ *
+ * Without it such a pool escapes the reserve entirely: the fault that allocates
+ * a pool page runs with the IPC server as the region's owner, so
+ * acl_is_user_proc() is false, PAF_USERMEM is never set, and a user process can
+ * eat the very last pages the reserve exists to keep for system services.
+ */
+#define VR_USERMEM	0x800	/* System-owned, but user memory in effect */
 
 /* Mapping type: */
 #define VR_ANON		0x100	/* Memory to be cleared and allocated */

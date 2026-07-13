@@ -48,6 +48,11 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 		if(!execpriv) return NULL;
 		vrflags |= VR_UNINITIALIZED;
 	}
+	/* A service declaring that this memory is really a user process's; see
+	 * VR_USERMEM.  do_remap() sets the same flag when a region is shared into
+	 * a user process, but that is too late for pages the service itself
+	 * touches first -- the copy that grows an shm pool, for one. */
+	if(vmm_flags & MAP_USERMEM) vrflags |= VR_USERMEM;
 
 	if(len <= 0) {
 		return NULL;
@@ -423,6 +428,20 @@ int do_remap(message *m)
 	if(size != src_region->length) {
 		printf("VM: do_remap: not size of region.\n");
 		return EFAULT;
+	}
+
+	/*
+	 * Remapping into a user process makes the *source* region user memory in
+	 * all but ownership: the pages are allocated on that process's behalf and
+	 * charged to nobody who can be held to account for them.  Mark it so the
+	 * OOM reserve applies to its faults (see VR_USERMEM in region.h), and hold
+	 * it to the destination's RLIMIT_AS -- do_mmap() enforces that, but shm
+	 * reaches memory through here instead and would otherwise escape it.
+	 */
+	if(acl_is_user_proc(dvmp)) {
+		if(vm_rlimit_exceeded(dvmp, (vir_bytes) size, 0 /*AS only*/))
+			return ENOMEM;
+		src_region->flags |= VR_USERMEM;
 	}
 
 	flags = VR_SHARED;

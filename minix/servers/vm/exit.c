@@ -85,6 +85,7 @@ void clear_proc(struct vmproc *vmp)
 	vmp->vm_flags = 0;		/* Clear INUSE, so slot is free. */
 	vmp->vm_as_limit = 0;		/* fresh slot: no RLIMIT_AS/DATA yet */
 	vmp->vm_data_limit = 0;		/* (exec preserves via free_proc) */
+	vmp->vm_shared_total = 0;	/* regions are gone with the slot */
 	vmp->vm_lwp_leader = NO_LWP_LEADER;	/* clean slot for reuse */
 	vmp->vm_lwp_refcount = 0;
 #if VMSTATS

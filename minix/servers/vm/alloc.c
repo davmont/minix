@@ -740,17 +740,33 @@ void vm_oom_kill(void)
 	for(p = 0; p < VMP_NR; p++) {
 		struct vmproc *vmp = &vmproc[p];
 		unsigned long pages, badness;
+		vir_bytes owned;
 
 		if(!(vmp->vm_flags & VMF_INUSE)) continue;
 		if(vmp->vm_flags & VMF_EXITING) continue;
 		if(!acl_is_user_proc(vmp)) continue;	/* protect system procs */
 
-		pages = vmp->vm_total / VM_PAGE_SIZE;
+		/*
+		 * Score by what killing this process would actually free, which is
+		 * the memory it alone holds: vm_total less the pages it merely
+		 * reaches through a shared region (vm_shared_total).  Those live in
+		 * the region they were remapped from -- an shm pool owned by the IPC
+		 * server -- and survive the kill.
+		 *
+		 * Scoring by vm_total instead, as this did, is wrong in both
+		 * directions.  It picks a process whose bulk is shm, frees almost
+		 * nothing, and comes back for another victim while memory never
+		 * recovers.  And on a graphical system it aims squarely at the
+		 * compositor, which maps every client's buffers and so looks like
+		 * the biggest thing running -- killing the display to spare the
+		 * client that exhausted memory.
+		 */
+		owned = vmp->vm_total - vmp->vm_shared_total;
+		pages = owned / VM_PAGE_SIZE;
 		if(pages < OOM_MIN_VICTIM) continue;	/* too small to matter */
 
-		/* Badness is dominated by committed footprint (killing the
-		 * biggest frees the most RAM + pool + swap), with a bonus for
-		 * a hog that is actively ballooning right now. */
+		/* Bonus for a hog that is actively ballooning right now, over an
+		 * equally large but quiescent long-running process. */
 		badness = pages;
 		if(oom_grow_clock - vmp->vm_oom_grow < OOM_GROW_WINDOW)
 			badness += pages / 2;		/* +50% for active growth */
@@ -764,8 +780,10 @@ void vm_oom_kill(void)
 	if(victim < 0)
 		return;			/* nothing killable (only system procs) */
 
-	printf("VM: OOM: killing process (endpoint %d, %lu KB) to reclaim "
-		"memory\n", vmproc[victim].vm_endpoint,
+	printf("VM: OOM: killing process (endpoint %d, %lu KB of %lu KB mapped) "
+		"to reclaim memory\n", vmproc[victim].vm_endpoint,
+		(unsigned long)((vmproc[victim].vm_total -
+		    vmproc[victim].vm_shared_total) / 1024),
 		(unsigned long)(vmproc[victim].vm_total / 1024));
 
 	if((s = sys_kill(vmproc[victim].vm_endpoint, SIGKILL)) != OK)

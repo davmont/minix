@@ -88,8 +88,16 @@ static int anon_pagefault(struct vmproc *vmp, struct vir_region *region,
 	allocflags = vrallocflags(region->flags);
 
 	/* Anonymous growth of a user process is subject to the OOM reserve, so
-	 * a user memory hog cannot starve system services of their last pages. */
-	if(acl_is_user_proc(vmp))
+	 * a user memory hog cannot starve system services of their last pages.
+	 *
+	 * VR_USERMEM extends that to memory a system service allocates on a user
+	 * process's behalf -- an shm pool held by the IPC server.  The fault that
+	 * allocates such a page runs with the IPC server as the region's owner
+	 * (shared_pagefault() forwards to the source region), so the ACL check
+	 * alone would let a user process draw the reserve down to nothing through
+	 * shm.  Failing here instead sacrifices the client whose fault it is, not
+	 * the service. */
+	if(acl_is_user_proc(vmp) || (region->flags & VR_USERMEM))
 		allocflags |= PAF_USERMEM;
 
 	assert(ph->ph->refcount > 0);

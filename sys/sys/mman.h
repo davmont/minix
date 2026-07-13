@@ -122,6 +122,15 @@ typedef	__off_t		off_t;		/* file offset */
 #define MAP_LOWER16M		0x200000        /* physically below 16MB */
 #define MAP_LOWER1M		0x400000        /* physically below 16MB */
 #define MAP_THIRDPARTY		0x800000        /* perform on behalf of any process */
+/*
+ * Memory a system service allocates on behalf of a user process, not for
+ * itself: an shm pool held by the IPC server.  It is charged against the OOM
+ * reserve like ordinary user memory, so a client cannot reach the last pages
+ * kept for system services by asking a service to allocate on its behalf.
+ * Meaningless (and ignored) for a user process, whose memory is user memory
+ * anyway.
+ */
+#define MAP_USERMEM		0x1000000
 #endif /* defined(__minix) */
 
 /*
