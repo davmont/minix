@@ -27,6 +27,10 @@ struct vmproc {
 #endif
 	vir_bytes	vm_total;
 	vir_bytes	vm_total_max;
+	u32_t		vm_oom_grow;	/* growth clock at last resident growth
+					 * (OOM killer prefers active hogs) */
+	u64_t		vm_as_limit;	/* RLIMIT_AS soft limit, bytes (0=none) */
+	u64_t		vm_data_limit;	/* RLIMIT_DATA soft limit, bytes (0=none) */
 	u64_t		vm_minor_page_fault;
 	u64_t		vm_major_page_fault;
 

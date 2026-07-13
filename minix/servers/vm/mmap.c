@@ -229,6 +229,12 @@ int do_mmap(message *m)
 		return EINVAL;
 	}
 
+	/* Enforce RLIMIT_AS: a new mapping that would push the process past its
+	 * address-space soft limit fails here, so a runaway allocation returns
+	 * ENOMEM to that process instead of pressuring the whole system. */
+	if(vm_rlimit_exceeded(vmp, (vir_bytes) len, 0 /*AS only*/))
+		return ENOMEM;
+
 	if(m->m_mmap.fd == -1 || (m->m_mmap.flags & MAP_ANON)) {
 		/* actual memory in some form */
 		mem_type_t *mt = NULL;

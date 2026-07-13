@@ -19,6 +19,11 @@
 
 EXTERN struct vmproc vmproc[VMP_NR];
 
+/* Monotonic growth clock: bumped whenever any process gains a resident page.
+ * Recorded per-process (vm_oom_grow) so the OOM killer can favour a hog that
+ * is actively growing over an equally large but quiescent process. */
+EXTERN u32_t oom_grow_clock;
+
 long enable_filemap;
 
 typedef kinfo_t ixfer_kinfo_t;

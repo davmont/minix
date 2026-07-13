@@ -68,6 +68,9 @@ int do_fork(message *msg);
 /* break.c */
 int do_brk(message *msg);
 int real_brk(struct vmproc *vmp, vir_bytes v);
+int do_rlimit(message *msg);
+vir_bytes vm_as_bytes(struct vmproc *vmp);
+int vm_rlimit_exceeded(struct vmproc *vmp, vir_bytes add, int check_data);
 
 /* map_mem.c */
 int map_memory(endpoint_t sour, endpoint_t dest, vir_bytes virt_s,
@@ -276,6 +279,8 @@ int swapio_selftest_result(void);
 
 /* swappage.c (phase C2 writeback + C3 read-in) */
 int vm_reclaim_active(void);
+int vm_oom_wanted(void);
+void vm_oom_kill(void);
 int swappage_init(void);
 void swapout_tick(void);
 void swapout_cancel_pb(struct phys_block *pb);

@@ -85,6 +85,10 @@ void physblock_set(struct vir_region *region, vir_bytes offset,
 		proc->vm_total += VM_PAGE_SIZE;
 		if (proc->vm_total > proc->vm_total_max)
 			proc->vm_total_max = proc->vm_total;
+		/* Stamp the growth clock so the OOM killer can prefer a hog
+		 * that is actively ballooning now over an equally large but
+		 * quiescent long-running process. */
+		proc->vm_oom_grow = ++oom_grow_clock;
 	} else {
 		assert(region->physblocks[i]);
 		proc->vm_total -= VM_PAGE_SIZE;
@@ -1661,6 +1665,25 @@ int map_evict_clean_page(struct phys_block *pb)
 	assert(pb->refcount == 1);	/* only the cache reference is left */
 
 	return OK;
+}
+
+/*===========================================================================*
+ *				vm_as_bytes				     *
+ *===========================================================================*/
+/* Total mapped virtual address space of a process, in bytes (sum of all its
+ * region lengths).  Used by break.c to enforce RLIMIT_AS / RLIMIT_DATA. */
+vir_bytes vm_as_bytes(struct vmproc *vmp)
+{
+	region_iter iter;
+	struct vir_region *vr;
+	vir_bytes total = 0;
+
+	region_start_iter_least(&vmp->vm_regions_avl, &iter);
+	while((vr = region_get_iter(&iter))) {
+		total += vr->length;
+		region_incr_iter(&iter);
+	}
+	return total;
 }
 
 /*===========================================================================*

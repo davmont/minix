@@ -19,6 +19,7 @@
 #include <limits.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h>
 #include <assert.h>
 #include <memory.h>
 
@@ -93,6 +94,19 @@ static int below_low_watermark = 0;		/* hysteresis state */
  * critical band and never reaches the deadlock point.  This is what makes
  * anonymous overcommit reach disk swap (phase C2/C3) instead of ENOMEM. */
 #define RECLAIM_WATER_CRIT	(RECLAIM_WATER_LOW / 2)
+/* OOM reserve: the last OOM_RESERVE physical pages are withheld from
+ * user-process allocations (PAF_USERMEM), so that system services - init,
+ * PM, VFS, file servers, drivers - can always fault in a page and keep the
+ * system alive when a user memory hog has exhausted the rest.  Reclaim and
+ * system allocations are not tagged PAF_USERMEM and so bypass the reserve. */
+#define OOM_RESERVE \
+	((unsigned long)(total_pages / 64 > 1024 ? total_pages / 64 : 1024))
+/* OOM killer: sustained allocations below the reserve before the largest
+ * user hog is killed.  High enough that recoverable pressure (which climbs
+ * back to the high watermark and resets the counter) never trips it. */
+#define OOM_PRESSURE_LIMIT	8192
+static unsigned long oom_pressure = 0;	/* consecutive-ish below-reserve allocs */
+static int oom_kill_wanted = 0;		/* main loop should kill a hog */
 #define RECLAIM_BATCH_MAX	4096	/* pages (16 MB) per reclaim batch */
 #define RECLAIM_COMPRESS_MAX	512	/* cap for a proactive compress batch
 					 * (B2): compression costs CPU per
@@ -546,6 +560,15 @@ static phys_bytes alloc_pages(int pages, int memflags)
 	static int lastscan = -1;
 	int startscan, run_length;
 
+	/* OOM reserve: a user-process allocation may not draw the free pool
+	 * below OOM_RESERVE.  Fail here so alloc_mem()'s retry loop reclaims
+	 * (compress/evict/swap) and retries; if reclaim cannot lift free back
+	 * above the reserve, the user allocation fails - sacrificing that user
+	 * process - while the reserve stays available to system services. */
+	if((memflags & PAF_USERMEM) &&
+		free_page_count < OOM_RESERVE + (unsigned long)pages)
+		return NO_MEM;
+
 	if(memflags & PAF_LOWER16MB)
 		maxpage = boundary16 - 1;
 	else if(memflags & PAF_LOWER1MB)
@@ -645,6 +668,21 @@ static phys_bytes alloc_pages(int pages, int memflags)
 	if(free_page_count < RECLAIM_WATER_CRIT)
 		cache_freepages(RECLAIM_COMPRESS_MAX, 1 /*evict + compress any*/);
 
+	/* OOM detection: when a working set persistently exceeds RAM + swap,
+	 * reclaim keeps freeing but free never recovers - the system thrashes
+	 * instead of failing.  Count sustained time below the reserve; if it
+	 * stays there for OOM_PRESSURE_LIMIT allocations without ever climbing
+	 * back to the high watermark, flag the main loop to kill the largest
+	 * user memory hog (vm_oom_kill).  Recovery to the high watermark resets
+	 * the counter, so recoverable pressure (reclaim keeping pace) never
+	 * trips it. */
+	if(free_page_count < OOM_RESERVE) {
+		if(++oom_pressure >= OOM_PRESSURE_LIMIT)
+			oom_kill_wanted = 1;
+	} else if(free_page_count >= RECLAIM_WATER_HIGH) {
+		oom_pressure = 0;
+	}
+
 	if(memflags & PAF_CLEAR) {
 		int s;
 		if ((s= sys_memset(NONE, 0, CLICK_SIZE*mem,
@@ -664,6 +702,75 @@ static phys_bytes alloc_pages(int pages, int memflags)
 int vm_reclaim_active(void)
 {
 	return below_low_watermark;
+}
+
+/*===========================================================================*
+ *				vm_oom_wanted / vm_oom_kill		     *
+ *===========================================================================*/
+/* Set by alloc_pages() when memory has stayed critically low long enough that
+ * the system is thrashing on a working set larger than RAM + swap.  The main
+ * loop polls vm_oom_wanted() and, at a safe point (never inside an allocation
+ * or reclaim), calls vm_oom_kill() to SIGKILL the largest user memory hog.
+ * Killing the hog is what actually reduces demand below capacity; reclaim
+ * alone cannot.  System services are never chosen (acl_is_user_proc), and
+ * they keep their pages via the OOM reserve, so the system stays alive. */
+int vm_oom_wanted(void)
+{
+	return oom_kill_wanted;
+}
+
+/* Minimum footprint (pages) for a process to be an OOM victim: killing a tiny
+ * process frees almost nothing and is more likely to hit something innocent,
+ * so hold out for a real hog. */
+#define OOM_MIN_VICTIM	256			/* 1 MB */
+/* A process counts as "actively growing" if it gained a resident page within
+ * the last OOM_GROW_WINDOW growth ticks (system-wide).  Such a hog gets a
+ * badness bonus so a transient balloon is preferred over an equally large but
+ * quiescent long-running program. */
+#define OOM_GROW_WINDOW	4096
+
+void vm_oom_kill(void)
+{
+	int p, victim = -1, s;
+	unsigned long best = 0;
+
+	oom_kill_wanted = 0;
+	oom_pressure = 0;		/* cooldown: let the kill free memory */
+
+	for(p = 0; p < VMP_NR; p++) {
+		struct vmproc *vmp = &vmproc[p];
+		unsigned long pages, badness;
+
+		if(!(vmp->vm_flags & VMF_INUSE)) continue;
+		if(vmp->vm_flags & VMF_EXITING) continue;
+		if(!acl_is_user_proc(vmp)) continue;	/* protect system procs */
+
+		pages = vmp->vm_total / VM_PAGE_SIZE;
+		if(pages < OOM_MIN_VICTIM) continue;	/* too small to matter */
+
+		/* Badness is dominated by committed footprint (killing the
+		 * biggest frees the most RAM + pool + swap), with a bonus for
+		 * a hog that is actively ballooning right now. */
+		badness = pages;
+		if(oom_grow_clock - vmp->vm_oom_grow < OOM_GROW_WINDOW)
+			badness += pages / 2;		/* +50% for active growth */
+
+		if(badness > best) {
+			best = badness;
+			victim = p;
+		}
+	}
+
+	if(victim < 0)
+		return;			/* nothing killable (only system procs) */
+
+	printf("VM: OOM: killing process (endpoint %d, %lu KB) to reclaim "
+		"memory\n", vmproc[victim].vm_endpoint,
+		(unsigned long)(vmproc[victim].vm_total / 1024));
+
+	if((s = sys_kill(vmproc[victim].vm_endpoint, SIGKILL)) != OK)
+		printf("VM: OOM: sys_kill(%d) failed: %d\n",
+			vmproc[victim].vm_endpoint, s);
 }
 
 /*===========================================================================*

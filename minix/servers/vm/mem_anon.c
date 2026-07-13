@@ -87,6 +87,11 @@ static int anon_pagefault(struct vmproc *vmp, struct vir_region *region,
 
 	allocflags = vrallocflags(region->flags);
 
+	/* Anonymous growth of a user process is subject to the OOM reserve, so
+	 * a user memory hog cannot starve system services of their last pages. */
+	if(acl_is_user_proc(vmp))
+		allocflags |= PAF_USERMEM;
+
 	assert(ph->ph->refcount > 0);
 
 	if((new_page_cl = alloc_mem(1, allocflags)) == NO_MEM) {
