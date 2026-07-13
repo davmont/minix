@@ -134,9 +134,9 @@ SUBDIR+= \
 	llvm-tblgen llvm-clang-tblgen .WAIT \
 	llvm-include .WAIT \
 	llvm-lib .WAIT \
-	llvm-clang
-# llvm-lld / llvm-mcld dropped: MINIX links with GNU ld, and mcld is gone
-# upstream as of LLVM 13 (see external/apache2/llvm import).
+	llvm-clang llvm-lld
+# mcld stays dropped: it is gone upstream as of LLVM 13.  llvm-lld builds
+# ld.lld, which is the target linker (see LD in <bsd.own.mk>).
 .endif
 
 .if ${MKMAN} != "no" || ${MKDOC} != "no" || ${MKHTML} != "no"

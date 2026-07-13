@@ -3,6 +3,7 @@
 .include <bsd.own.mk>
 
 SUBDIR=	clang \
+	lld \
 	clang-tblgen \
 	tblgen \
 	llvm-symbolizer

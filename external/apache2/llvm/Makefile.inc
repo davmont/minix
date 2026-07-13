@@ -5,7 +5,11 @@ LLVM_TOPLEVEL_MK=
 
 .include <bsd.own.mk>
 
-COMMON_REVISION=	249b40b558955afe5ac2b549edcf2d7f859c8cc9
+# The llvm-project commit the vendored sources come from.  This used to say
+# 249b40b5..., which is a commit from May 2021 -- the LLVM 13 era.  It was never
+# updated when the tree moved to LLVM 22.1.7, so clang -v reported a revision
+# that had nothing to do with the sources being compiled.  This is llvmorg-22.1.7.
+COMMON_REVISION=	a255c1ed36a1d06f79bd2633ba9f8d900153007c
 CLANG_REVISION=		${COMMON_REVISION}
 LLVM_REVISION=		${COMMON_REVISION}
 
@@ -13,11 +17,13 @@ LLVM_VERSION=		22.1.7
 CLANG_VERSION=		22.1.7
 
 CLANG_SRCDIR:=	${.PARSEDIR}/dist/clang
+LLD_SRCDIR:=	${.PARSEDIR}/dist/lld
 LLVM_SRCDIR:=	${.PARSEDIR}/dist/llvm
 LLVM_TOPLEVEL:=	${.PARSEDIR}
 CONFIG_DIR:=	${.PARSEDIR}/autoconf
 
-CPPFLAGS+=	-I. -I${CLANG_SRCDIR}/include -I${LLVM_SRCDIR}/include
+CPPFLAGS+=	-I. -I${CLANG_SRCDIR}/include -I${LLD_SRCDIR}/include \
+		-I${LLVM_SRCDIR}/include
 
 # Bogus warning with -O2 in GCC 7 and 8.
 CWARNFLAGS.gcc+=	${${ACTIVE_CC} == "gcc" && ${HAVE_GCC:U0} < 9:? -Wno-stringop-overflow :}

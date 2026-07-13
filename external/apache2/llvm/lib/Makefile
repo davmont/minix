@@ -3,6 +3,8 @@
 .include <bsd.own.mk>
 
 SUBDIR=	\
+	libLLDCommon \
+	libLLDELF \
 	libLLVMAnalysis \
 	libLLVMAsmParser \
 	libLLVMAsmPrinter \

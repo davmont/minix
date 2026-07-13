@@ -20,6 +20,12 @@ LDADD+=	-L${CLANG_OBJDIR.${l}} -l${l}
 DPADD+=	${CLANG_OBJDIR.${l}}/lib${l}.a
 .endfor
 
+.for l in ${LLD_LIBS}
+LLD_OBJDIR.${l}!=	cd ${LIB_BASE}/libLLD${l} && ${PRINTOBJDIR}
+LDADD+=	-L${LLD_OBJDIR.${l}} -lLLD${l}
+DPADD+=	${LLD_OBJDIR.${l}}/libLLD${l}.a
+.endfor
+
 .for l in ${LLVM_LIBS}
 LLVM_OBJDIR.${l}!=	cd ${LIB_BASE}/libLLVM${l} && ${PRINTOBJDIR}
 LDADD+=	-L${LLVM_OBJDIR.${l}} -lLLVM${l}
