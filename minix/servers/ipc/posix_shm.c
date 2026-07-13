@@ -20,6 +20,7 @@
 #include "inc.h"
 
 #define POSIX_SHM_MAX	128
+#define POSIX_SHM_OLD_MAX 64
 
 struct pshm {
 	int		used;
@@ -30,6 +31,38 @@ struct pshm {
 	size_t		size;		/* rounded region size in bytes */
 };
 static struct pshm pshm_list[POSIX_SHM_MAX];
+
+/*
+ * Superseded regions from a grow (see do_shm_map).  A grown object gets a new,
+ * larger region, but the old one cannot simply be unmapped: a client that has
+ * the object mapped holds a VR_SHARED region whose source is *this* region (see
+ * shared_setsource() in the VM's mem_shared.c), so dropping it here would leave
+ * that client's mapping dangling on its next page fault.  Park the old region
+ * instead and let posix_shm_update() reclaim it once every client has re-mapped
+ * and its refcount falls back to ours alone.
+ */
+struct pshm_old {
+	int		used;
+	vir_bytes	page;
+	size_t		size;
+};
+static struct pshm_old pshm_old_list[POSIX_SHM_OLD_MAX];
+
+static int
+pshm_retire(vir_bytes page, size_t size)
+{
+	int i;
+
+	for (i = 0; i < POSIX_SHM_OLD_MAX; i++) {
+		if (pshm_old_list[i].used)
+			continue;
+		pshm_old_list[i].used = 1;
+		pshm_old_list[i].page = page;
+		pshm_old_list[i].size = size;
+		return OK;
+	}
+	return ENOSPC;
+}
 
 static struct pshm *
 pshm_find(dev_t dev, ino_t ino)
@@ -80,20 +113,62 @@ do_shm_map(message *m)
 	if ((shm = pshm_find(dev, ino)) == NULL)
 		return ENOENT;			/* not a shm object; caller falls back */
 
+	if (size == 0)
+		return EINVAL;
+	size = roundup(size, PAGE_SIZE);
+
 	if (shm->page == 0) {			/* first mapping: allocate pages */
 		void *page;
 
-		if (size == 0)
-			return EINVAL;
-		size = roundup(size, PAGE_SIZE);
 		page = mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
 		if (page == MAP_FAILED)
 			return ENOMEM;
 		memset(page, 0, size);
 		shm->page = (vir_bytes)page;
 		shm->size = size;
+	} else if (size > shm->size) {
+		/*
+		 * Grow.  ftruncate() on the token file does not touch our region,
+		 * so a pool that has been enlarged only becomes usable when the
+		 * next mmap() asks for more than we hold -- which is what
+		 * wl_shm_pool_resize() does on every window resize.  Without this
+		 * the caller would be handed back a mapping still of the old size
+		 * and would fault as soon as it wrote past the end.
+		 *
+		 * MINIX has no mremap(2) and the VM offers no way to extend a
+		 * region in place, so growing means a new region plus a copy.  The
+		 * old region is retired rather than freed (see pshm_retire).
+		 *
+		 * The copy means the old and new regions are distinct memory, where
+		 * POSIX would have kept the overlapping pages identical.  A mapper
+		 * that never re-mmap()s after a resize therefore keeps writing to
+		 * the old region and diverges.  That is safe for the case this
+		 * exists to serve: on a wl_shm_pool.resize both sides re-map, and
+		 * the wire order (resize precedes any later commit) guarantees the
+		 * compositor has re-mapped before it reads the new contents.
+		 */
+		void *page;
+
+		page = mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON, -1, 0);
+		if (page == MAP_FAILED)
+			return ENOMEM;
+		memset(page, 0, size);
+		memcpy(page, (void *)shm->page, shm->size);
+
+		if (pshm_retire(shm->page, shm->size) != OK) {
+			munmap(page, size);
+			return ENOMEM;
+		}
+
+		shm->page = (vir_bytes)page;
+		shm->size = size;
 	}
 
+	/*
+	 * vm_remap() always transfers the whole region, so a caller asking for
+	 * less than we hold simply gets more than it asked for -- harmless.  It
+	 * must never get less, which is what the grow above guarantees.
+	 */
 	ret = vm_remap(m->m_source, sef_self(), NULL, (void *)shm->page,
 	    shm->size);
 	if (ret == MAP_FAILED)
@@ -118,7 +193,7 @@ do_shm_unlink(message *m)
 	return OK;
 }
 
-/* Reclaim unlinked objects that no process maps anymore. */
+/* Reclaim unlinked objects, and grown-away regions, that no process maps. */
 void
 posix_shm_update(void)
 {
@@ -135,6 +210,25 @@ posix_shm_update(void)
 		if (rc <= 1 && pshm_list[i].unlinked) {
 			munmap((void *)pshm_list[i].page, pshm_list[i].size);
 			memset(&pshm_list[i], 0, sizeof(pshm_list[i]));
+		}
+	}
+
+	/*
+	 * A region superseded by a grow is dropped as soon as the last client
+	 * that still had it mapped has gone (or re-mapped), which is when its
+	 * refcount falls back to our own mapping alone.  Doing it here, rather
+	 * than at grow time, is what keeps those clients from dangling.
+	 */
+	for (i = 0; i < POSIX_SHM_OLD_MAX; i++) {
+		if (!pshm_old_list[i].used)
+			continue;
+		rc = vm_getrefcount(sef_self(), (void *)pshm_old_list[i].page);
+		if (rc == (u8_t)-1)
+			continue;
+		if (rc <= 1) {
+			munmap((void *)pshm_old_list[i].page,
+			    pshm_old_list[i].size);
+			memset(&pshm_old_list[i], 0, sizeof(pshm_old_list[i]));
 		}
 	}
 }

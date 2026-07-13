@@ -219,7 +219,41 @@ main(void)
 	check("peer exited cleanly",
 	    WIFEXITED(status) && WEXITSTATUS(status) == 0, "see codes above");
 
-	/* 5. Unlink removes the name; the mapping must stay valid until munmap. */
+	/*
+	 * 5. Grow the pool, as wl_shm_pool_resize() does on every window resize:
+	 * ftruncate() bigger, then mmap() the same fd at the new size.  This used
+	 * to hand back a mapping still of the OLD size -- the IPC server honoured
+	 * the length only on the first mmap() -- so the caller faulted the moment
+	 * it wrote past the old end.  Check the far end of the grown pool, since
+	 * that is the part that did not exist before.
+	 */
+	{
+		volatile unsigned long *big;
+
+		check("ftruncate(pool, 8192): grow",
+		    ftruncate(fd, POOL_SIZE * 2) == 0, strerror(errno));
+
+		big = mmap(NULL, POOL_SIZE * 2, PROT_READ | PROT_WRITE,
+		    MAP_SHARED, fd, 0);
+		check("wl_shm_pool_resize: mmap grown pool",
+		    big != MAP_FAILED, strerror(errno));
+
+		if (big != MAP_FAILED) {
+			/* Contents written before the grow must survive it. */
+			check("grown pool keeps the old contents",
+			    big[0] == MAGIC_P, "data lost across the grow");
+
+			/* The bytes past the old end must be real memory. */
+			big[(POOL_SIZE * 2) / sizeof(*big) - 1] = MAGIC_C;
+			check("grown pool is writable past the old end",
+			    big[(POOL_SIZE * 2) / sizeof(*big) - 1] == MAGIC_C,
+			    "readback failed beyond the old size");
+
+			(void)munmap((void *)big, POOL_SIZE * 2);
+		}
+	}
+
+	/* 6. Unlink removes the name; the mapping must stay valid until munmap. */
 	check("shm_unlink", shm_unlink(SHM_NAME) == 0, strerror(errno));
 	check("mapping survives unlink", pool[0] == MAGIC_P, "mapping died");
 	check("shm_unlink of a gone name fails with ENOENT",
