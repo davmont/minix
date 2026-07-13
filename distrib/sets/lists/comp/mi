@@ -3384,6 +3384,16 @@
 ./usr/lib/libffi.a			comp-c-lib		compatfile
 ./usr/include/ffi.h			comp-c-include
 ./usr/include/ffitarget.h		comp-c-include
+./usr/lib/libwayland-server.a		comp-c-lib		compatfile
+./usr/lib/libwayland-client.a		comp-c-lib		compatfile
+./usr/include/wayland-server.h		comp-c-include
+./usr/include/wayland-server-core.h		comp-c-include
+./usr/include/wayland-server-protocol.h		comp-c-include
+./usr/include/wayland-client.h		comp-c-include
+./usr/include/wayland-client-core.h		comp-c-include
+./usr/include/wayland-client-protocol.h		comp-c-include
+./usr/include/wayland-util.h		comp-c-include
+./usr/include/wayland-version.h		comp-c-include
 ./usr/include/freetype2/ft2build.h			comp-c-include
 ./usr/include/freetype2/freetype/freetype.h		comp-c-include
 ./usr/include/freetype2/freetype/ftadvanc.h		comp-c-include

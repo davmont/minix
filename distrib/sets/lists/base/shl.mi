@@ -429,6 +429,12 @@
 ./usr/lib/libffi.so				base-sys-shlib		compatfile
 ./usr/lib/libffi.so.8				base-sys-shlib		compatfile
 ./usr/lib/libffi.so.8.1				base-sys-shlib		compatfile
+./usr/lib/libwayland-server.so			base-sys-shlib		compatfile
+./usr/lib/libwayland-server.so.0			base-sys-shlib		compatfile
+./usr/lib/libwayland-server.so.0.1			base-sys-shlib		compatfile
+./usr/lib/libwayland-client.so			base-sys-shlib		compatfile
+./usr/lib/libwayland-client.so.0			base-sys-shlib		compatfile
+./usr/lib/libwayland-client.so.0.1			base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0				base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0.1			base-sys-shlib		compatfile
 ./usr/lib/libppath.so				base-sys-shlib		compatfile
