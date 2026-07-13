@@ -2212,6 +2212,7 @@
 ./usr/lib/libffi_pic.a                                  minix-comp
 ./usr/lib/libwayland-server_pic.a                     minix-comp
 ./usr/lib/libwayland-client_pic.a                     minix-comp
+./usr/lib/libwayland-cursor_pic.a                     minix-comp
 ./usr/lib/libxkbcommon_pic.a                            minix-comp
 ./usr/lib/libfetch.a                                    minix-comp
 ./usr/lib/libfetch_pic.a                                minix-comp

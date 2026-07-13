@@ -3394,6 +3394,8 @@
 ./usr/include/wayland-client-protocol.h		comp-c-include
 ./usr/include/wayland-util.h		comp-c-include
 ./usr/include/wayland-version.h		comp-c-include
+./usr/lib/libwayland-cursor.a		comp-c-lib		compatfile
+./usr/include/wayland-cursor.h		comp-c-include
 ./usr/lib/libxkbcommon.a		comp-c-lib		compatfile
 ./usr/include/xkbcommon			comp-c-include
 ./usr/include/xkbcommon/xkbcommon.h		comp-c-include

@@ -48,6 +48,7 @@
 ./usr/lib/libffi_pic.a				comp-c-piclib		compatfile,picinstall
 ./usr/lib/libwayland-server_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libwayland-client_pic.a			comp-c-piclib		compatfile,picinstall
+./usr/lib/libwayland-cursor_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libxkbcommon_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfetch_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libform_pic.a				comp-c-piclib		compatfile,picinstall
