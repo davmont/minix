@@ -456,7 +456,7 @@ ethif_poll(struct ifdev * ifdev)
 		while (ethif_can_send(ethif)) {
 			pref = *ethif->ethif_snd.es_unsentp;
 
-			if (pref->type == PBUF_REF)
+			if (pref->type_internal == PBUF_REF)
 				pbuf = (struct pbuf *)pref->payload;
 			else
 				pbuf = pref;
@@ -1218,7 +1218,7 @@ ethif_dequeue_send(struct ethif * ethif)
 	 * already done with.  Otherwise, the copy of the packet is the
 	 * reference buffer itself.  In both cases we need to free that buffer.
 	 */
-	if (pref->type == PBUF_REF) {
+	if (pref->type_internal == PBUF_REF) {
 		pbuf = (struct pbuf *)pref->payload;
 
 		pbuf_free(pbuf);

@@ -27,32 +27,14 @@ pchain_alloc(int layer, size_t size)
 		return NULL;
 
 	/*
-	 * Unfortunately, we have no choice but to replicate this block from
-	 * lwIP's pbuf_alloc() code.  It is however unlikely that the offsets
-	 * change for the currently supported layer types, and we do not need
-	 * to support any layer types that we do not use ourselves.
+	 * As of lwIP 2.1, the pbuf_layer enumeration values *are* the header
+	 * offsets they reserve, which is exactly how lwIP's own pbuf_alloc()
+	 * derives the offset.  This block used to have to replicate the switch
+	 * from pbuf_alloc(); it no longer does.  (Note that the layer values
+	 * are no longer distinct either: without an encapsulation header,
+	 * PBUF_RAW_TX equals PBUF_RAW, so a switch on them would not compile.)
 	 */
-	switch (layer) {
-	case PBUF_TRANSPORT:
-		offset = PBUF_LINK_ENCAPSULATION_HLEN + PBUF_LINK_HLEN +
-		    PBUF_IP_HLEN + PBUF_TRANSPORT_HLEN;
-		break;
-	case PBUF_IP:
-		offset = PBUF_LINK_ENCAPSULATION_HLEN + PBUF_LINK_HLEN +
-		    PBUF_IP_HLEN;
-		break;
-	case PBUF_LINK:
-		offset = PBUF_LINK_ENCAPSULATION_HLEN + PBUF_LINK_HLEN;
-		break;
-	case PBUF_RAW_TX:
-		offset = PBUF_LINK_ENCAPSULATION_HLEN;
-		break;
-	case PBUF_RAW:
-		offset = 0;
-		break;
-	default:
-		panic("invalid pbuf layer: %d", layer);
-	}
+	offset = (u16_t)layer;
 
 	chunk = size + offset;
 	if (chunk > MEMPOOL_BUFSIZE)

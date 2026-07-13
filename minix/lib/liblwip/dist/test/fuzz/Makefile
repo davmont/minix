@@ -29,25 +29,45 @@
 # Author: Adam Dunkels <adam@sics.se>
 #
 
-all compile: lwip_fuzz
+all compile: lwip_fuzz lwip_fuzz2 lwip_fuzz3
 .PHONY: all clean
 
+ifeq ($(origin CC), default)
 CC=afl-gcc
-LDFLAGS=-lm
-CFLAGS=-O0
+endif
 
-CONTRIBDIR=../../../lwip-contrib
+LDFLAGS=-lm
+# use 'make D=-DUSER_DEFINE' to pass a user define to gcc
+CFLAGS=-O2 $(D)
+
+LWIPDIR=../../src
+CONTRIBDIR=../../contrib
 include $(CONTRIBDIR)/ports/unix/Common.mk
 
+DEPFILES=.depend_fuzz .depend_lwip .depend_app
+
 clean:
-	rm -f *.o $(LWIPLIBCOMMON) lwip_fuzz *.s .depend* *.core core
+	rm -f *.o $(LWIPLIBCOMMON) $(APPLIB) lwip_fuzz lwip_fuzz2 lwip_fuzz3 *.s $(DEPFILES) *.core core
 
-depend dep: .depend
+depend dep: $(DEPFILES)
+	@true
 
-include .depend
+ifneq ($(MAKECMDGOALS),clean)
+include $(DEPFILES)
+endif
 
-.depend: fuzz.c $(LWIPFILES) $(APPFILES)
-	$(CCDEP) $(CFLAGS) -MM $^ > .depend || rm -f .depend
+.depend_fuzz: fuzz.c fuzz2.c fuzz3.c fuzz_common.c
+	$(CCDEP) $(CFLAGS) -MM $^ > .depend_fuzz || rm -f .depend_fuzz
+.depend_lwip: $(LWIPFILES)
+	$(CCDEP) $(CFLAGS) -MM $^ > .depend_lwip || rm -f .depend_lwip
+.depend_app: $(APPFILES)
+	$(CCDEP) $(CFLAGS) -MM $^ > .depend_app || rm -f .depend_app
 
-lwip_fuzz: .depend $(LWIPLIBCOMMON) fuzz.o
-	$(CC) $(CFLAGS) -o lwip_fuzz fuzz.o $(LWIPLIBCOMMON) $(LDFLAGS)
+lwip_fuzz: $(DEPFILES) $(LWIPLIBCOMMON) $(APPLIB) fuzz.o fuzz_common.o
+	$(CC) $(CFLAGS) -o lwip_fuzz fuzz.o fuzz_common.o $(APPLIB) $(LWIPLIBCOMMON) $(LDFLAGS)
+
+lwip_fuzz2: $(DEPFILES) $(LWIPLIBCOMMON) $(APPLIB) fuzz2.o fuzz_common.o
+	$(CC) $(CFLAGS) -o lwip_fuzz2 fuzz2.o fuzz_common.o $(APPLIB) $(LWIPLIBCOMMON) $(LDFLAGS)
+
+lwip_fuzz3: $(DEPFILES) $(LWIPLIBCOMMON) $(APPLIB) fuzz3.o fuzz_common.o
+	$(CC) $(CFLAGS) -o lwip_fuzz3 fuzz3.o fuzz_common.o $(APPLIB) $(LWIPLIBCOMMON) $(LDFLAGS)

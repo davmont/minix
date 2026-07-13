@@ -96,8 +96,15 @@
  * why we test against PBUF_REF here rather than simply putting in "(0)"--i.e.,
  * just to be on the safe side.  For more information, see lwIP patch #9272 and
  * the references mentioned in lwIP's default definition of PBUF_NEEDS_COPY.
+ *
+ * lwIP 2.1 replaced pbuf's "type" field with the "type_internal" bitmask, so
+ * this now tests the volatile-data flag instead of comparing against PBUF_REF.
+ * The two are equivalent: PBUF_REF is the only standard pbuf type carrying
+ * PBUF_TYPE_FLAG_DATA_VOLATILE.  That makes this identical to lwIP's current
+ * default; it is kept explicit so the reasoning above stays pinned to the tree.
  */
-#define PBUF_NEEDS_COPY(p)              ((p)->type == PBUF_REF)
+#define PBUF_NEEDS_COPY(p)              ((p)->type_internal & \
+					 PBUF_TYPE_FLAG_DATA_VOLATILE)
 
 #define LWIP_ARP                        1
 
@@ -178,8 +185,12 @@
  * starting port number after start-up, but obviously that is not at all useful
  * for security purposes.  Still, it is better than nothing for the case it
  * aims to cover: likely selection of the same port numbers after each reboot.
+ *
+ * As of lwIP 2.1 this is no longer an option: udp_init()/tcp_init() randomize
+ * the starting port whenever LWIP_RAND is defined, which it is for us (see
+ * arch/cc.h).  The behaviour above is therefore still in effect; the option
+ * itself is gone from lwIP, so setting it here would do nothing.
  */
-#define LWIP_RANDOMIZE_INITIAL_LOCAL_PORTS 1
 
 #define LWIP_ICMP                       1
 
@@ -379,7 +390,14 @@
 /* Note that VLAN support would require an extra four bytes here. */
 #define PBUF_LINK_HLEN                  (ETH_PAD_LEN + ETH_HDR_LEN)
 
-#define PBUF_LINK_ENCAPSULATION_LEN     0
+/*
+ * We reserve no room for an extra encapsulation header before the ethernet
+ * header.  NB: this used to be spelled PBUF_LINK_ENCAPSULATION_LEN, which is
+ * not an lwIP option at all (the real one ends in _HLEN) and so never had any
+ * effect.  Zero happens to be lwIP's default, so the spelling fix is not a
+ * behavioural change -- but do not assume the old name worked.
+ */
+#define PBUF_LINK_ENCAPSULATION_HLEN    0
 
 /*
  * We use the status callback to detect lwIP-initiated state changes on local
