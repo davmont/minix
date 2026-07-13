@@ -50,8 +50,8 @@ Current after the 2026-07 upgrade batch: LLVM/clang 22.1.7, OpenSSL
 libevent 2.1.13, xz 5.8.3, libarchive 3.8.8, lua 5.4.8, file 5.46,
 tz 2026a, libpcap 1.10.6, tcpdump 4.99.6 (both resynced from
 NetBSD-current; ndp vendors gmt2local.c, netstat's bpf_dump renamed
-nsbpf_dump), BIND 9.20.24 + liburcu 0.15.0, dhcpcd 10.3.1, bzip2 1.0.8.
-ISC DHCP (server/relay) retired.
+nsbpf_dump), BIND 9.20.24 + liburcu 0.15.0, dhcpcd 10.3.1, bzip2 1.0.8,
+lwIP 2.2.1.  ISC DHCP (server/relay) retired.
 The batch was validated with a full amd64 release build and a QEMU
 boot of the ISO to login, running the upgraded binaries in-system.
 
@@ -91,22 +91,39 @@ Landed since the audit, with notes:
   receive traffic correctly.  Earlier "intermittent hang" reports were
   compounded by querying `. NS` with recursion off (a correct REFUSED,
   not a hang) and by serial-console repaints garbling scripted output.
-  **Workaround:** run named single-worker (`-n 1`) on MINIX.  **Real
-  fix:** implement `SO_REUSEPORT` in the lwIP UDP layer (delivery
-  semantics need care — deferred as its own network-stack task).
+  **Resolved 2026-07:** `SO_REUSEPORT` is now implemented (see the lwIP
+  entry below), so the `-n 1` workaround is no longer needed.  Note the
+  failure was blunter than "stall": the second worker's `bind(2)` failed
+  with `EADDRINUSE`, since without `SO_REUSEPORT` lwIP would only share
+  a port under `SO_REUSEADDR`.
   named is not part of the default boot (`named=NO`).
+
+- **lwIP 2.0.2 → 2.2.1 landed 2026-07**, together with an implementation
+  of `SO_REUSEPORT`.  lwIP is the network stack and parses packets off
+  the wire; what we shipped predated the fix for CVE-2020-22283 /
+  CVE-2020-22284 (ICMPv6 / 6LoWPAN overflows, fixed in 2.1.3) and we
+  build with IPv6, including reassembly and forwarding, enabled.
+  What the tree actually carried was not release 2.0.2 but a git-master
+  snapshot just after it (upstream `7ffe5bfb`); against that true base
+  the local delta was only the patches in `minix/lib/liblwip/patches/`,
+  so the upgrade was a re-vendor with those rebased.  Two traps worth
+  knowing for the next upgrade: upstream now clones a multi-PCB UDP
+  datagram with `pbuf_clone(..., PBUF_POOL, ...)`, which can never
+  succeed here (we set `PBUF_POOL_SIZE` to 0) and would have silently
+  dropped such datagrams -- patch 4 exists for exactly this; and the
+  `pbuf_layer` enum values are now header offsets rather than ordinals,
+  so `PBUF_RAW_TX` equals `PBUF_RAW` without an encapsulation header.
 
 Known-stale, deliberately deferred (each needs its own effort):
 
-- **lwIP 2.0.2** → 2.2.x: OS-stack surgery, MINIX glue in
-  minix/net/lwip.  (The 2026-07 bpfdev/sockopt audit that this note
-  used to flag is done: the BPF send path was never the problem - it
-  sends ARP frames fine - and the real dhcpcd master-mode blocker was
-  a missing IP_RECVIF sockopt, now implemented in pktsock.c.  named's
-  local-query stall is a separate BIND/libuv-over-loopback issue, not
-  a bpfdev limitation.)
 - Bootstrap-entangled and left alone: gmake 3.81, texinfo 4.8,
-  binutils 2.34, flex, nvi, elftoolchain, heimdal 7.8.0, netpgp.
+  binutils 2.34, flex, nvi, elftoolchain, heimdal 7.8.0 (which is
+  upstream's newest release anyway), netpgp.
+- netpgp is unmaintained upstream and is a *removal* candidate rather
+  than an upgrade one, like ISC DHCP before it: its maintained successor
+  is RNP (BSD-3, descends from netpgp, used by Thunderbird), but RNP is
+  C++17/CMake with a Botan-or-OpenSSL backend, which is a poor fit for
+  base -- pkgsrc already packages it.
 
 Removed 2026-07 with owner sign-off: GCC 4.8.5 and its gmp/mpfr/mpc
 dependencies (~312 MB; the trees were never even tracked by git —
