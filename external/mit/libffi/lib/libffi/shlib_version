@@ -1,0 +1,3 @@
+# MINIX: libffi 3.4.x exposes the libffi.so.8 ABI upstream (libtool 8:x:0).
+major=8
+minor=1

@@ -45,6 +45,7 @@
 ./usr/lib/libpixman-1_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfbgui_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfreetype_pic.a			comp-c-piclib		compatfile,picinstall
+./usr/lib/libffi_pic.a				comp-c-piclib		compatfile,picinstall
 ./usr/lib/libfetch_pic.a			comp-c-piclib		compatfile,picinstall
 ./usr/lib/libform_pic.a				comp-c-piclib		compatfile,picinstall
 ./usr/lib/libg++_pic.a				comp-obsolete		obsolete

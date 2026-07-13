@@ -3381,6 +3381,9 @@
 ./usr/lib/libperfuse_p.a			comp-perfuse-proflib	compatfile,profile
 ./usr/lib/libposix.a				comp-c-lib		compatfile
 ./usr/lib/libpixman-1.a			comp-c-lib		compatfile
+./usr/lib/libffi.a			comp-c-lib		compatfile
+./usr/include/ffi.h			comp-c-include
+./usr/include/ffitarget.h		comp-c-include
 ./usr/include/freetype2/ft2build.h			comp-c-include
 ./usr/include/freetype2/freetype/freetype.h		comp-c-include
 ./usr/include/freetype2/freetype/ftadvanc.h		comp-c-include

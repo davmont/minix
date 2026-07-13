@@ -379,6 +379,7 @@
 ./usr/bin/fbdctl                                        minix-base      obsolete
 ./usr/bin/fdisk                                         minix-base
 ./usr/bin/fetch                                         minix-base
+./usr/bin/ffiprobe                                      minix-base
 ./usr/bin/fgrep                                         minix-base
 ./usr/bin/file                                          minix-base
 ./usr/bin/find                                          minix-base

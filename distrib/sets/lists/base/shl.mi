@@ -426,6 +426,9 @@
 ./usr/lib/libfreetype.so			base-sys-shlib		compatfile
 ./usr/lib/libfreetype.so.6			base-sys-shlib		compatfile
 ./usr/lib/libfreetype.so.6.0			base-sys-shlib		compatfile
+./usr/lib/libffi.so				base-sys-shlib		compatfile
+./usr/lib/libffi.so.8				base-sys-shlib		compatfile
+./usr/lib/libffi.so.8.1				base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0				base-sys-shlib		compatfile
 ./usr/lib/libposix.so.0.1			base-sys-shlib		compatfile
 ./usr/lib/libppath.so				base-sys-shlib		compatfile

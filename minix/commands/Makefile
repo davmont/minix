@@ -28,6 +28,7 @@ SUBDIR=	at backup \
 	truncate umount \
 	update version vol \
 	wlprobe \
+	ffiprobe \
 	writeisofs fetch \
 	zmodem pkgin_cd pkgin_all pkgin_sets \
 	worldstone updateboot update_asr update_bootcfg \
