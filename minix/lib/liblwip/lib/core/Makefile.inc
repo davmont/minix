@@ -18,6 +18,7 @@ SRCS+=	\
 	udp.c
 
 SRCS+=	\
+	etharp.c \
 	icmp.c \
 	igmp.c \
 	ip4.c \

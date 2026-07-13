@@ -2093,6 +2093,18 @@ tcpsock_setsockmask(struct sock * sock, unsigned int mask)
 	else
 		ip_reset_option(tcp->tcp_pcb, SOF_REUSEADDR);
 
+	/*
+	 * SO_REUSEPORT lets several sockets listen on the same local address
+	 * and port, so that a server can put one listening socket per worker on
+	 * a port.  Unlike UDP, incoming connections are not spread across them:
+	 * they all go to the first matching listener.  That is correct, just not
+	 * balanced, and it is enough for the servers that ask for the option.
+	 */
+	if (mask & SO_REUSEPORT)
+		ip_set_option(tcp->tcp_pcb, SOF_REUSEPORT);
+	else
+		ip_reset_option(tcp->tcp_pcb, SOF_REUSEPORT);
+
 	if (mask & SO_KEEPALIVE)
 		ip_set_option(tcp->tcp_pcb, SOF_KEEPALIVE);
 	else

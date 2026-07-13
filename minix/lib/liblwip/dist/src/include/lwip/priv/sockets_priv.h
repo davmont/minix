@@ -43,24 +43,63 @@
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
+#include "lwip/sys.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#if LWIP_SOCKET_SET_ERRNO
+#define NUM_SOCKETS MEMP_NUM_NETCONN
+
+/** This is overridable for the rare case where more than 255 threads
+ * select on the same socket...
+ */
+#ifndef SELWAIT_T
+#define SELWAIT_T u8_t
+#endif
+
+union lwip_sock_lastdata {
+  struct netbuf *netbuf;
+  struct pbuf *pbuf;
+};
+
+/** Contains all internal pointers and states used for a socket */
+struct lwip_sock {
+  /** sockets currently are built on netconns, each socket has one netconn */
+  struct netconn *conn;
+  /** data that was left from the previous read */
+  union lwip_sock_lastdata lastdata;
+#if LWIP_SOCKET_SELECT || LWIP_SOCKET_POLL
+  /** number of times data was received, set by event_callback(),
+      tested by the receive and select functions */
+  s16_t rcvevent;
+  /** number of times data was ACKed (free send buffer), set by event_callback(),
+      tested by select */
+  u16_t sendevent;
+  /** error happened for this socket, set by event_callback(), tested by select */
+  u16_t errevent;
+  /** counter of how many threads are waiting for this socket using select */
+  SELWAIT_T select_waiting;
+#endif /* LWIP_SOCKET_SELECT || LWIP_SOCKET_POLL */
+#if LWIP_NETCONN_FULLDUPLEX
+  /* counter of how many threads are using a struct lwip_sock (not the 'int') */
+  u8_t fd_used;
+  /* status of pending close/delete actions */
+  u8_t fd_free_pending;
+#define LWIP_SOCK_FD_FREE_TCP  1
+#define LWIP_SOCK_FD_FREE_FREE 2
+#endif
+};
+
 #ifndef set_errno
 #define set_errno(err) do { if (err) { errno = (err); } } while(0)
 #endif
-#else /* LWIP_SOCKET_SET_ERRNO */
-#define set_errno(err)
-#endif /* LWIP_SOCKET_SET_ERRNO */
 
 #if !LWIP_TCPIP_CORE_LOCKING
 /** Maximum optlen used by setsockopt/getsockopt */
-#define LWIP_SETGETSOCKOPT_MAXOPTLEN 16
+#define LWIP_SETGETSOCKOPT_MAXOPTLEN LWIP_MAX(16, sizeof(struct ifreq))
 
-/** This struct is used to pass data to the set/getsockopt_internal
+/** This struct is used to pass data to the set/getsockopt_impl
  * functions running in tcpip_thread context (only a void* is allowed) */
 struct lwip_setgetsockopt_data {
   /** socket index for which to change options */
@@ -91,6 +130,45 @@ struct lwip_setgetsockopt_data {
 #ifdef __cplusplus
 }
 #endif
+
+struct lwip_sock* lwip_socket_dbg_get_socket(int fd);
+
+#if LWIP_SOCKET_SELECT || LWIP_SOCKET_POLL
+
+#if LWIP_NETCONN_SEM_PER_THREAD
+#define SELECT_SEM_T        sys_sem_t*
+#define SELECT_SEM_PTR(sem) (sem)
+#else /* LWIP_NETCONN_SEM_PER_THREAD */
+#define SELECT_SEM_T        sys_sem_t
+#define SELECT_SEM_PTR(sem) (&(sem))
+#endif /* LWIP_NETCONN_SEM_PER_THREAD */
+
+/** Description for a task waiting in select */
+struct lwip_select_cb {
+  /** Pointer to the next waiting task */
+  struct lwip_select_cb *next;
+  /** Pointer to the previous waiting task */
+  struct lwip_select_cb *prev;
+#if LWIP_SOCKET_SELECT
+  /** readset passed to select */
+  fd_set *readset;
+  /** writeset passed to select */
+  fd_set *writeset;
+  /** unimplemented: exceptset passed to select */
+  fd_set *exceptset;
+#endif /* LWIP_SOCKET_SELECT */
+#if LWIP_SOCKET_POLL
+  /** fds passed to poll; NULL if select */
+  struct pollfd *poll_fds;
+  /** nfds passed to poll; 0 if select */
+  nfds_t poll_nfds;
+#endif /* LWIP_SOCKET_POLL */
+  /** don't signal the same semaphore twice: set to 1 when signalled */
+  int sem_signalled;
+  /** semaphore to wake up a task waiting for select */
+  SELECT_SEM_T sem;
+};
+#endif /* LWIP_SOCKET_SELECT || LWIP_SOCKET_POLL */
 
 #endif /* LWIP_SOCKET */
 
