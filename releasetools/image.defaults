@@ -1,5 +1,17 @@
 : ${OBJ=../obj.${ARCH}}
-: ${CROSS_TOOLS=${OBJ}/"tooldir.`uname -s`-`uname -r`-`uname -m`"/bin}
+
+# TOOLDIR is keyed on the host OS and architecture.  On non-Linux hosts the
+# kernel release is part of the key too, because there it names the whole OS
+# release (kernel and userland).  Must match TOOLDIR_OSTYPE in <bsd.host.mk>.
+if [ "`uname -s`" = "Linux" ]
+then
+	_tooldir_ostype="`uname -s`-`uname -m`"
+else
+	_tooldir_ostype="`uname -s`-`uname -r`-`uname -m`"
+fi
+: ${CROSS_TOOLS=${OBJ}/"tooldir.${_tooldir_ostype}"/bin}
+unset _tooldir_ostype
+
 : ${CROSS_PREFIX=${CROSS_TOOLS}/${TOOLCHAIN_TRIPLET}}
 : ${JOBS=1}
 : ${DESTDIR=${OBJ}/destdir.$ARCH}

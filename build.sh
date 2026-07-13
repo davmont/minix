@@ -1487,6 +1487,21 @@ print_tooldir_make()
 		echo "${uname_p}" | sed -e 's/([^)]*)//g' -e 's/ /_/g'
 		)"
 
+	# The tools in TOOLDIR are host executables: what decides whether they
+	# can be reused is the host OS and architecture, not the host *kernel*
+	# release.  On Linux the release names only the kernel and changes with
+	# every routine package update, while the userspace ABI keeps the tools
+	# working - so including it would make an unrelated system update
+	# silently invalidate the toolchain.  Drop it there.  This must match
+	# TOOLDIR_OSTYPE in <bsd.host.mk>.
+	#
+	local tooldir_ostype="${host_ostype}"
+	if [ "${uname_s}" = "Linux" ]; then
+		tooldir_ostype="${uname_s}-$(
+			echo "${uname_p}" | sed -e 's/([^)]*)//g' -e 's/ /_/g'
+			)"
+	fi
+
 	# Look in a few potential locations for
 	# ${possible_TOOLDIR}/bin/${toolprefix}make.
 	# If we find it, then set possible_make.
@@ -1509,8 +1524,32 @@ print_tooldir_make()
 		"${TOP}/obj.${MACHINE}"
 	do
 		[ -n "${possible_TOP_OBJ}" ] || continue
-		possible_TOOLDIR="${possible_TOP_OBJ}/tooldir.${host_ostype}"
+		possible_TOOLDIR="${possible_TOP_OBJ}/tooldir.${tooldir_ostype}"
 		possible_make="${possible_TOOLDIR}/bin/${toolprefix}make"
+
+		# Adopt a tooldir built before TOOLDIR stopped being keyed on the
+		# host kernel release: point the new name at it rather than
+		# rebuilding the whole toolchain.  A symlink, not a rename: a few
+		# tool wrappers (nbmake-<machine>, nblorder, nbgenassym) embed
+		# their absolute path, so the original directory must stay put.
+		if [ ! -x "${possible_make}" ] &&
+		   [ ! -e "${possible_TOOLDIR}" ]; then
+			for legacy_TOOLDIR in \
+			    "${possible_TOP_OBJ}"/tooldir."${uname_s}"-*-"${uname_p}"
+			do
+				[ -x "${legacy_TOOLDIR}/bin/${toolprefix}make" ] ||
+					continue
+				# NB: this function returns its result on stdout,
+				# so any message must go to stderr.
+				echo "===> Reusing the tools in" \
+				     "${legacy_TOOLDIR}: TOOLDIR is no longer" \
+				     "keyed on the host kernel release." >&2
+				ln -s "$(basename "${legacy_TOOLDIR}")" \
+					"${possible_TOOLDIR}" 2>/dev/null
+				break
+			done
+		fi
+
 		if [ -x "${possible_make}" ]; then
 			break
 		else

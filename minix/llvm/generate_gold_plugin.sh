@@ -9,7 +9,17 @@ cd $(dirname $0)
 : ${OBJ_LLVM=${NETBSDSRCDIR}/../obj_llvm.${ARCH}}
 : ${OBJ=${NETBSDSRCDIR}/../obj.${ARCH}}
 : ${HOST_TRIPLET=$([ "${ARCH}" = "amd64" ] && echo "x86_64-elf64-minix" || echo "i586-elf32-minix")}
-: ${CROSS_TOOLS=${OBJ}/"tooldir.`uname -s`-`uname -r`-`uname -m`"/bin}
+# Must match TOOLDIR_OSTYPE in <bsd.host.mk>: on Linux the host kernel release
+# is not part of the key (it names only the kernel, and changes with every
+# routine update without affecting the host tools).
+if [ "`uname -s`" = "Linux" ]
+then
+	_tooldir_ostype="`uname -s`-`uname -m`"
+else
+	_tooldir_ostype="`uname -s`-`uname -r`-`uname -m`"
+fi
+: ${CROSS_TOOLS=${OBJ}/"tooldir.${_tooldir_ostype}"/bin}
+unset _tooldir_ostype
 : ${MAKE=make}
 
 echo ${NETBSDSRCDIR}

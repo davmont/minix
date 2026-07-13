@@ -103,7 +103,13 @@ MAKE_ARGS+=	BISON=true DESTDIR= INSTALL=${HOST_INSTALL_FILE:Q}
 ALL_TARGET?=	all
 INSTALL_TARGET?=install
 
-BUILD_PLATFORM!= uname -srm | tr ' ()' '-'
+# What invalidates the configure caches below is the host OS and machine.  On
+# Linux the kernel release ("uname -r") names only the kernel, not the OS: it
+# changes with every routine kernel update, while the userspace the configure
+# tests probe stays compatible.  Including it there would silently reconfigure
+# and rebuild every GNU host tool after an unrelated system update, so key the
+# check on OS and machine only.  See also TOOLDIR_OSTYPE in <bsd.host.mk>.
+BUILD_PLATFORM!= if [ "`uname -s`" = Linux ]; then uname -sm; else uname -srm; fi | tr ' ()' '-'
 CONFIGURE_PLATFORM!= if [ -s .configure_done ]; then cat .configure_done; else echo none; fi
 .if "${BUILD_PLATFORM}" != "${CONFIGURE_PLATFORM}"
 configure_cleanup:
