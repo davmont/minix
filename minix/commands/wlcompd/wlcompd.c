@@ -70,6 +70,9 @@
 
 #define TITLEH		22		/* title bar height */
 #define CLOSEW		TITLEH		/* square close box at its right */
+#define RESIZEW		14		/* square resize grip, bottom-right */
+#define MINW		80		/* smallest we will configure a window */
+#define MINH		48
 #define CURW		12		/* cursor */
 #define CURH		19
 #define MAXSURF		32
@@ -92,6 +95,16 @@ struct surface {
 	uint32_t		*pix;
 	pixman_image_t		*img;
 	int			 w, h;
+
+	/*
+	 * Damage the client accumulated with wl_surface.damage since its last
+	 * commit, in surface-local coordinates.  Empty (x1 <= x0) means it named
+	 * none, which xdg_shell takes to mean the whole surface.
+	 */
+	int			 dx0, dy0, dx1, dy1;
+
+	/* The size we last told the client to be (xdg_toplevel.configure). */
+	int			 cfg_w, cfg_h;
 
 	int			 x, y;		/* title-bar top-left */
 	int			 mapped;
@@ -127,7 +140,11 @@ static struct {
 	struct surface		*dragging;
 	int			 drag_dx, drag_dy;
 
-	int			 dirty;
+	/* Interactive resize: the grip, or an xdg_toplevel.resize request. */
+	struct surface		*resizing;
+	int			 rz_cx0, rz_cy0;	/* cursor when it began */
+	int			 rz_w0, rz_h0;		/* size when it began */
+
 	struct wl_event_source	*repaint;
 } C;
 
@@ -160,6 +177,7 @@ static const pixman_color_t c_title = { 0x3a3a, 0x5a5a, 0x8888, 0xffff };
 static const pixman_color_t c_tfoc  = { 0x4a4a, 0x8a8a, 0xcccc, 0xffff };
 static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_cur   = { 0xffff, 0xffff, 0xffff, 0xffff };
+static const pixman_color_t c_grip  = { 0x8888, 0x9999, 0xaaaa, 0xffff };
 
 static struct surface *
 top_surface(void)
@@ -172,37 +190,164 @@ top_surface(void)
 	return top;
 }
 
+/*
+ * Damage, in screen coordinates, accumulated for the frame we are about to
+ * draw.  recomposite() redraws only inside it and only pushes those rows to the
+ * framebuffer, so moving the cursor no longer costs a full-screen blit -- at
+ * 1280x800 that is four megabytes per frame, and it is what made the naive
+ * version repaint the entire screen sixty times a second.
+ *
+ * A bounding box rather than a region: cheap, and for one window plus a cursor
+ * it is very nearly as tight.  Empty when x1 <= x0.
+ */
+static int dmg_x0, dmg_y0, dmg_x1, dmg_y1;
+
+static void
+dmg_reset(void)
+{
+	dmg_x0 = dmg_y0 = 0x7fffffff;
+	dmg_x1 = dmg_y1 = -0x7fffffff;
+}
+
+static void
+dmg_add(int x, int y, int w, int h)
+{
+	if (w <= 0 || h <= 0)
+		return;
+	if (x < dmg_x0) dmg_x0 = x;
+	if (y < dmg_y0) dmg_y0 = y;
+	if (x + w > dmg_x1) dmg_x1 = x + w;
+	if (y + h > dmg_y1) dmg_y1 = y + h;
+}
+
+static void
+dmg_add_all(void)
+{
+	dmg_add(0, 0, fbgui_width(C.fb), fbgui_height(C.fb));
+}
+
+/* A window's whole on-screen extent: title bar plus content (grip included). */
+static void
+dmg_add_surface(const struct surface *s)
+{
+	dmg_add(s->x, s->y, s->w, TITLEH + s->h);
+}
+
+static void
+dmg_add_cursor(int x, int y)
+{
+	dmg_add(x, y, CURW, CURH);
+}
+
+/* Clamp to the screen; 0 if there is nothing to redraw. */
+static int
+dmg_box(int *x0, int *y0, int *x1, int *y1)
+{
+	int W = fbgui_width(C.fb), H = fbgui_height(C.fb);
+
+	*x0 = dmg_x0 < 0 ? 0 : dmg_x0;
+	*y0 = dmg_y0 < 0 ? 0 : dmg_y0;
+	*x1 = dmg_x1 > W ? W : dmg_x1;
+	*y1 = dmg_y1 > H ? H : dmg_y1;
+	return (*x1 > *x0 && *y1 > *y0);
+}
+
+/* Fill the part of a rectangle that falls inside the damage box. */
+static void
+fill_clip(const pixman_color_t *c, int ex, int ey, int ew, int eh,
+    int x0, int y0, int x1, int y1)
+{
+	int ix0 = ex < x0 ? x0 : ex, iy0 = ey < y0 ? y0 : ey;
+	int ix1 = ex + ew > x1 ? x1 : ex + ew;
+	int iy1 = ey + eh > y1 ? y1 : ey + eh;
+
+	if (ix1 > ix0 && iy1 > iy0)
+		fbgui_fill_rect(C.fb, c, ix0, iy0, ix1 - ix0, iy1 - iy0);
+}
+
+/*
+ * Bound the back buffer to the damage box.  pixman honours a destination clip
+ * region, which is what keeps the composited surface inside the box; text needs
+ * it too, since fbgui_draw_text() has no clipping of its own and a glyph would
+ * otherwise spill outside and be left behind when the box is presented.
+ */
+static void
+clip_set(pixman_image_t *back, int x0, int y0, int x1, int y1)
+{
+	pixman_box32_t b = { x0, y0, x1, y1 };
+	pixman_region32_t r;
+
+	pixman_region32_init_rects(&r, &b, 1);
+	pixman_image_set_clip_region32(back, &r);
+	pixman_region32_fini(&r);
+}
+
 static void
 recomposite(void)
 {
+	pixman_image_t *back;
 	struct surface *s;
+	int x0, y0, x1, y1;
 
-	fbgui_fill_rect(C.fb, &c_desk, 0, 0,
-	    fbgui_width(C.fb), fbgui_height(C.fb));
+	if (!dmg_box(&x0, &y0, &x1, &y1))
+		return;			/* nothing changed this frame */
+
+	back = fbgui_surface(C.fb);
+	clip_set(back, x0, y0, x1, y1);
+
+	fill_clip(&c_desk, x0, y0, x1 - x0, y1 - y0, x0, y0, x1, y1);
 
 	wl_list_for_each(s, &C.surfaces, link) {
 		const pixman_color_t *tc;
 
 		if (!s->mapped || s->img == NULL)
 			continue;
+		/* Skip windows that fall entirely outside the box. */
+		if (s->x >= x1 || s->y >= y1 ||
+		    s->x + s->w <= x0 || s->y + TITLEH + s->h <= y0)
+			continue;
 
 		tc = (s == C.focus) ? &c_tfoc : &c_title;
-		fbgui_fill_rect(C.fb, tc, s->x, s->y, s->w, TITLEH);
+		fill_clip(tc, s->x, s->y, s->w, TITLEH, x0, y0, x1, y1);
 		if (s->title[0] != '\0')
 			fbgui_draw_text(C.fb, s->x + 8, s->y + 16, s->title,
 			    &c_ttext, 14);
 		fbgui_draw_text(C.fb, s->x + s->w - CLOSEW + 6, s->y + 16, "x",
 		    &c_ttext, 14);
 
-		pixman_image_composite32(PIXMAN_OP_SRC, s->img, NULL,
-		    fbgui_surface(C.fb), 0, 0, 0, 0,
-		    s->x, s->y + TITLEH, s->w, s->h);
+		pixman_image_composite32(PIXMAN_OP_SRC, s->img, NULL, back,
+		    0, 0, 0, 0, s->x, s->y + TITLEH, s->w, s->h);
+
+		/* The resize grip, over the bottom-right of the content. */
+		fill_clip(&c_grip, s->x + s->w - RESIZEW,
+		    s->y + TITLEH + s->h - RESIZEW, RESIZEW, RESIZEW,
+		    x0, y0, x1, y1);
 	}
 
-	fbgui_fill_rect(C.fb, &c_cur, C.cx, C.cy, CURW, CURH);
+	fill_clip(&c_cur, C.cx, C.cy, CURW, CURH, x0, y0, x1, y1);
 
-	fbgui_damage_all(C.fb);
-	fbgui_present(C.fb);
+	pixman_image_set_clip_region32(back, NULL);
+
+	fbgui_damage(C.fb, x0, y0, x1 - x0, y1 - y0);
+
+	/*
+	 * fbgui_present() returns the bytes it actually pushed.  Keep a running
+	 * average against what a full-screen frame would have cost, so the
+	 * saving is a measured number rather than an assertion.
+	 */
+	{
+		static long frames, bytes;
+		long full = (long)fbgui_width(C.fb) * fbgui_height(C.fb) * 4;
+
+		bytes += fbgui_present(C.fb);
+		if (++frames % 20 == 0)
+			wlog("damage: %ld frames, last box %dx%d, avg %ld KB/"
+			    "frame (a full screen is %ld KB)\n", frames,
+			    x1 - x0, y1 - y0, (bytes / frames) / 1024,
+			    full / 1024);
+	}
+
+	dmg_reset();
 }
 
 /*
@@ -231,14 +376,42 @@ on_repaint(void *data)
 {
 	(void)data;
 
-	if (C.dirty) {
-		recomposite();
-		C.dirty = 0;
-	}
+	recomposite();			/* no-op when nothing is damaged */
 	send_frame_callbacks();
 
 	wl_event_source_timer_update(C.repaint, REPAINT_MS);
 	return 0;
+}
+
+/*
+ * Tell a client what size to be.  xdg_shell requires the pair: the toplevel's
+ * size, then a configure on the xdg_surface that the client must ack before it
+ * draws.  A width or height of zero means "you choose", which is what a client
+ * gets on its first configure.
+ */
+static void
+send_configure(struct surface *s, int w, int h, int resizing)
+{
+	struct wl_array states;
+	uint32_t *st;
+
+	if (s->xdg_toplevel == NULL || s->xdg_surface == NULL)
+		return;
+
+	wl_array_init(&states);
+	if ((st = wl_array_add(&states, sizeof(uint32_t))) != NULL)
+		*st = XDG_TOPLEVEL_STATE_ACTIVATED;
+	if (resizing && (st = wl_array_add(&states, sizeof(uint32_t))) != NULL)
+		*st = XDG_TOPLEVEL_STATE_RESIZING;
+
+	xdg_toplevel_send_configure(s->xdg_toplevel, w, h, &states);
+	wl_array_release(&states);
+
+	xdg_surface_send_configure(s->xdg_surface,
+	    wl_display_next_serial(C.display));
+
+	s->cfg_w = w;
+	s->cfg_h = h;
 }
 
 /* -------------------------------------------------------------- wl_buffer */
@@ -329,6 +502,9 @@ surface_destroy(struct wl_resource *resource)
 	if (s == NULL)
 		return;
 
+	if (s->mapped)
+		dmg_add_surface(s);	/* erase it, while we still know where */
+
 	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks)
 		wl_resource_destroy(cb);
 
@@ -343,9 +519,10 @@ surface_destroy(struct wl_resource *resource)
 		C.ptr_focus = NULL;
 	if (C.dragging == s)
 		C.dragging = NULL;
+	if (C.resizing == s)
+		C.resizing = NULL;
 
 	free(s);
-	C.dirty = 1;
 }
 
 static void
@@ -366,12 +543,29 @@ surf_attach(struct wl_client *c, struct wl_resource *r,
 	s->pending_buffer_set = 1;
 }
 
+/*
+ * The client naming the part of its surface it actually redrew.  Accumulate it
+ * (as a bounding box, in surface-local coordinates) and turn it into screen
+ * damage at commit: that is what lets a client repainting a small area avoid
+ * costing us a full-screen recomposite.
+ */
+static void
+surf_add_damage(struct surface *s, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+	if (w <= 0 || h <= 0)
+		return;
+	if (x < s->dx0) s->dx0 = x;
+	if (y < s->dy0) s->dy0 = y;
+	if (x + w > s->dx1) s->dx1 = x + w;
+	if (y + h > s->dy1) s->dy1 = y + h;
+}
+
 static void
 surf_damage(struct wl_client *c, struct wl_resource *r,
     int32_t x, int32_t y, int32_t w, int32_t h)
 {
-	/* We repaint whole surfaces; damage rectangles are advisory here. */
-	(void)c; (void)r; (void)x; (void)y; (void)w; (void)h;
+	(void)c;
+	surf_add_damage(wl_resource_get_user_data(r), x, y, w, h);
 }
 
 static void
@@ -406,6 +600,7 @@ static void
 surf_commit(struct wl_client *c, struct wl_resource *r)
 {
 	struct surface *s = wl_resource_get_user_data(r);
+	int ow = s->w, oh = s->h;
 
 	(void)c;
 
@@ -414,8 +609,10 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 	s->pending_buffer_set = 0;
 
 	if (s->pending_buffer == NULL) {	/* attach(NULL): unmap */
-		s->mapped = 0;
-		C.dirty = 1;
+		if (s->mapped) {
+			dmg_add_surface(s);	/* erase where it was */
+			s->mapped = 0;
+		}
 		return;
 	}
 
@@ -423,11 +620,33 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 		if (!s->mapped) {
 			s->mapped = 1;
 			C.focus = s;
+			dmg_add_surface(s);
 			wlog("surface mapped %dx%d \"%s\"\n", s->w, s->h,
 			    s->title);
+		} else if (s->w != ow || s->h != oh) {
+			/*
+			 * The client answered a configure with a new size.  Both
+			 * extents have to be damaged: the new one to draw it, the
+			 * old one to erase whatever it no longer covers -- a shrink
+			 * would otherwise leave the last frame's pixels stranded on
+			 * the screen.
+			 */
+			dmg_add(s->x, s->y, ow, TITLEH + oh);
+			dmg_add_surface(s);
+			wlog("surface resized %dx%d -> %dx%d\n", ow, oh,
+			    s->w, s->h);
+		} else if (s->dx1 > s->dx0 && s->dy1 > s->dy0) {
+			/* Only what the client said it redrew, in screen coords. */
+			dmg_add(s->x + s->dx0, s->y + TITLEH + s->dy0,
+			    s->dx1 - s->dx0, s->dy1 - s->dy0);
+		} else {
+			/* It named no damage: assume all of it. */
+			dmg_add_surface(s);
 		}
-		C.dirty = 1;
 	}
+
+	s->dx0 = s->dy0 = 0x7fffffff;	/* consumed */
+	s->dx1 = s->dy1 = -0x7fffffff;
 
 	/* Released at once: the client may reuse the buffer, and we already
 	 * hold our own copy of it. */
@@ -453,7 +672,10 @@ static void
 surf_damage_buffer(struct wl_client *c, struct wl_resource *r,
     int32_t x, int32_t y, int32_t w, int32_t h)
 {
-	(void)c; (void)r; (void)x; (void)y; (void)w; (void)h;
+	/* Buffer coordinates.  With no scale or transform in play they are the
+	 * surface's, so this is the same accumulation. */
+	(void)c;
+	surf_add_damage(wl_resource_get_user_data(r), x, y, w, h);
 }
 
 static void
@@ -519,6 +741,11 @@ comp_create_surface(struct wl_client *client, struct wl_resource *r,
 		return;
 	}
 	wl_list_init(&s->frame_callbacks);
+
+	/* An empty damage box, not the zeroed one calloc gives: a zeroed box
+	 * would swallow the client's first damage rectangle's origin. */
+	s->dx0 = s->dy0 = 0x7fffffff;
+	s->dx1 = s->dy1 = -0x7fffffff;
 
 	s->resource = wl_resource_create(client, &wl_surface_interface,
 	    wl_resource_get_version(r), id);
@@ -591,7 +818,7 @@ xdgtop_set_title(struct wl_client *c, struct wl_resource *r, const char *title)
 	(void)c;
 	if (s != NULL && title != NULL) {
 		strlcpy(s->title, title, sizeof(s->title));
-		C.dirty = 1;
+		dmg_add(s->x, s->y, s->w, TITLEH);	/* only the bar */
 	}
 }
 
@@ -615,11 +842,28 @@ xdgtop_move(struct wl_client *c, struct wl_resource *r,
 	}
 }
 
+/*
+ * The client asking us to start an interactive resize -- what a toolkit does
+ * when the user grabs the edge of a client-side-decorated window.  It is the
+ * same gesture as our own grip, so it is the same state.
+ */
 static void
-xdgtop_noop_seat(struct wl_client *c, struct wl_resource *r,
+xdgtop_resize(struct wl_client *c, struct wl_resource *r,
     struct wl_resource *seat, uint32_t serial, uint32_t edges)
 {
-	(void)c; (void)r; (void)seat; (void)serial; (void)edges;
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c; (void)seat; (void)serial; (void)edges;
+
+	if (s == NULL || !s->mapped)
+		return;
+
+	C.resizing = s;
+	C.rz_cx0 = C.cx;
+	C.rz_cy0 = C.cy;
+	C.rz_w0 = s->w;
+	C.rz_h0 = s->h;
+	wlog("client asked to resize from %dx%d\n", s->w, s->h);
 }
 
 static void
@@ -664,7 +908,7 @@ static const struct xdg_toplevel_interface xdg_toplevel_impl = {
 	.set_app_id		= xdgtop_set_app_id,
 	.show_window_menu	= xdgtop_show_window_menu,
 	.move			= xdgtop_move,
-	.resize			= xdgtop_noop_seat,
+	.resize			= xdgtop_resize,
 	.set_max_size		= xdgtop_set_size,
 	.set_min_size		= xdgtop_set_size,
 	.set_maximized		= xdgtop_noop,
@@ -997,6 +1241,15 @@ bind_output(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 
 /* ----------------------------------------------------------------- input */
 
+/* The resize grip: a square at the bottom-right of the content area. */
+static int
+in_grip(const struct surface *s, int sx, int sy)
+{
+	return sx >= s->x + s->w - RESIZEW && sx < s->x + s->w &&
+	    sy >= s->y + TITLEH + s->h - RESIZEW &&
+	    sy < s->y + TITLEH + s->h;
+}
+
 static struct surface *
 surface_at(int sx, int sy, int *on_titlebar)
 {
@@ -1066,10 +1319,13 @@ keyboard_focus(struct surface *s)
 			    wl_resource_get_client(C.focus->resource))
 				wl_keyboard_send_leave(k, serial,
 				    C.focus->resource);
+		/* Its title bar loses the focused colour. */
+		dmg_add(C.focus->x, C.focus->y, C.focus->w, TITLEH);
 	}
 
 	C.focus = s;
-	C.dirty = 1;
+	if (s != NULL)
+		dmg_add(s->x, s->y, s->w, TITLEH);	/* and this one gains it */
 
 	if (s != NULL && s->resource != NULL) {
 		wl_array_init(&keys);
@@ -1152,7 +1408,13 @@ on_keyboard(int fd, uint32_t mask, void *data)
 static int
 on_mouse(int fd, uint32_t mask, void *data)
 {
-	int dx = 0, dy = 0, buttons = 0, nx, ny, bar;
+	/*
+	 * Seed the button state with what we already hold.  fbgui_read_mouse()
+	 * only *changes* the bitmap when a button event is in the batch -- a
+	 * batch of pure motion leaves it alone -- so starting from zero would
+	 * read every drag as "button released" and settle it on the first move.
+	 */
+	int dx = 0, dy = 0, buttons = C.buttons, nx, ny, bar;
 	struct surface *s;
 	struct wl_resource *p;
 	uint32_t serial;
@@ -1170,9 +1432,39 @@ on_mouse(int fd, uint32_t mask, void *data)
 	if (ny >= fbgui_height(C.fb)) ny = fbgui_height(C.fb) - 1;
 
 	if (nx != C.cx || ny != C.cy) {
+		dmg_add_cursor(C.cx, C.cy);	/* erase it where it was */
 		C.cx = nx;
 		C.cy = ny;
-		C.dirty = 1;
+		dmg_add_cursor(C.cx, C.cy);	/* draw it where it is */
+	}
+
+	/*
+	 * Dragging the grip resizes.  We do not move the pixels ourselves: we
+	 * tell the client the size we want and it answers with a buffer of that
+	 * size (surf_commit picks the change up).  That round trip is what
+	 * xdg_shell means by a resize.
+	 */
+	if (C.resizing != NULL) {
+		struct surface *rs = C.resizing;
+
+		if (!(buttons & 1)) {
+			/* Settle: repeat the size without the resizing state, so
+			 * the client can stop drawing at interactive quality. */
+			send_configure(rs, rs->cfg_w, rs->cfg_h, 0);
+			C.resizing = NULL;
+		} else {
+			int nw = C.rz_w0 + (C.cx - C.rz_cx0);
+			int nh = C.rz_h0 + (C.cy - C.rz_cy0);
+
+			if (nw < MINW) nw = MINW;
+			if (nh < MINH) nh = MINH;
+
+			/* Only when it actually changes: a configure per mouse
+			 * event would flood the client. */
+			if (nw != rs->cfg_w || nh != rs->cfg_h)
+				send_configure(rs, nw, nh, 1);
+			return 0;
+		}
 	}
 
 	/* Dragging a title bar moves the window; nothing reaches the client. */
@@ -1180,9 +1472,10 @@ on_mouse(int fd, uint32_t mask, void *data)
 		if (!(buttons & 1)) {
 			C.dragging = NULL;
 		} else {
+			dmg_add_surface(C.dragging);	/* erase the old place */
 			C.dragging->x = C.cx - C.drag_dx;
 			C.dragging->y = C.cy - C.drag_dy;
-			C.dirty = 1;
+			dmg_add_surface(C.dragging);	/* draw the new one */
 			return 0;
 		}
 	}
@@ -1193,12 +1486,29 @@ on_mouse(int fd, uint32_t mask, void *data)
 		int pressed = (buttons & 1) && !(C.buttons & 1);
 		int released = !(buttons & 1) && (C.buttons & 1);
 
+		if (pressed)
+			wlog("button press at %d,%d (%s)\n", C.cx, C.cy,
+			    s == NULL ? "desktop" : bar ? "title bar"
+			    : in_grip(s, C.cx, C.cy) ? "grip" : "content");
+
 		if (pressed && s != NULL) {
 			keyboard_focus(s);
 			/* Raise. */
 			wl_list_remove(&s->link);
 			wl_list_insert(C.surfaces.prev, &s->link);
-			C.dirty = 1;
+			dmg_add_surface(s);
+
+			/* The grip, before anything reaches the client. */
+			if (!bar && in_grip(s, C.cx, C.cy)) {
+				C.resizing = s;
+				C.rz_cx0 = C.cx;
+				C.rz_cy0 = C.cy;
+				C.rz_w0 = s->w;
+				C.rz_h0 = s->h;
+				C.buttons = buttons;
+				wlog("resize started from %dx%d\n", s->w, s->h);
+				return 0;
+			}
 
 			if (bar) {
 				if (C.cx >= s->x + s->w - CLOSEW) {
@@ -1395,7 +1705,8 @@ main(int argc, char **argv)
 	C.repaint = wl_event_loop_add_timer(C.loop, on_repaint, NULL);
 	wl_event_source_timer_update(C.repaint, REPAINT_MS);
 
-	C.dirty = 1;
+	dmg_reset();
+	dmg_add_all();			/* the first frame is the whole screen */
 	recomposite();
 	fbgui_present_full(C.fb);
 

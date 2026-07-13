@@ -165,15 +165,44 @@ fbgui_draw_text(fbgui_t *g, int x, int y, const char *s,
 		gl = g->face->glyph;
 		bm = &gl->bitmap;
 		if (bm->width != 0 && bm->rows != 0 && bm->buffer != NULL) {
-			int ms = (bm->pitch > 0) ? bm->pitch : -bm->pitch;
-			pixman_image_t *m = pixman_image_create_bits(PIXMAN_a8,
-			    bm->width, bm->rows, (uint32_t *)bm->buffer, ms);
-			if (m != NULL) {
-				pixman_image_composite32(PIXMAN_OP_OVER, fg, m,
-				    g->surface, 0, 0, 0, 0,
-				    x + gl->bitmap_left, y - gl->bitmap_top,
-				    bm->width, bm->rows);
-				pixman_image_unref(m);
+			/*
+			 * Stage the glyph at a stride pixman will accept.
+			 *
+			 * FreeType hands back an 8-bit bitmap whose pitch is the
+			 * glyph width rounded to a byte, and whose buffer has no
+			 * particular alignment.  pixman requires the stride to be
+			 * a multiple of 4 and the base to be uint32_t-aligned, so
+			 * handing it FreeType's buffer directly makes
+			 * pixman_image_create_bits() fail -- it returns NULL, the
+			 * glyph is quietly dropped, and text simply never appears.
+			 * (It went unnoticed because a missing font drops text
+			 * too, and the default font path was wrong.)
+			 */
+			int src_pitch = (bm->pitch > 0) ? bm->pitch : -bm->pitch;
+			int ms = ((int)bm->width + 3) & ~3;
+			unsigned char *gbuf = malloc((size_t)ms * bm->rows);
+
+			if (gbuf != NULL) {
+				pixman_image_t *m;
+				unsigned int r;
+
+				memset(gbuf, 0, (size_t)ms * bm->rows);
+				for (r = 0; r < bm->rows; r++)
+					memcpy(gbuf + (size_t)r * ms,
+					    bm->buffer + (size_t)r * src_pitch,
+					    bm->width);
+
+				m = pixman_image_create_bits(PIXMAN_a8,
+				    bm->width, bm->rows, (uint32_t *)gbuf, ms);
+				if (m != NULL) {
+					pixman_image_composite32(PIXMAN_OP_OVER,
+					    fg, m, g->surface, 0, 0, 0, 0,
+					    x + gl->bitmap_left,
+					    y - gl->bitmap_top,
+					    bm->width, bm->rows);
+					pixman_image_unref(m);
+				}
+				free(gbuf);
 			}
 		}
 		x += gl->advance.x >> 6;

@@ -1,22 +1,20 @@
 /*	wlclient - a Wayland client, and the end-to-end proof of the stack
  *
  * Connects to wlcompd, binds the globals, makes an xdg_toplevel, draws into a
- * wl_shm buffer and commits it.  That one sequence exercises every piece this
- * branch added, in the arrangement they were built for:
+ * wl_shm buffer and commits it -- then honours whatever size the compositor
+ * configures it to, which is the other half of xdg_shell.
  *
- *   shm_open + MAP_SHARED for the pool, its fd passed to the compositor over
- *   SCM_RIGHTS (wl_shm), requests marshalled and dispatched through libffi, the
- *   compositor's event loop running on the poll(2) emulation, and the keymap it
- *   sends compiled by libxkbcommon.
+ * That sequence exercises every piece this branch added, in the arrangement
+ * they were built for: shm_open + MAP_SHARED for the pool, its fd passed to the
+ * compositor over SCM_RIGHTS (wl_shm), requests marshalled and dispatched
+ * through libffi, the compositor's event loop on the poll(2) emulation, and the
+ * keymap it sends compiled by libxkbcommon.  A resize adds wl_shm_pool_resize
+ * on top, which on MINIX means the IPC server growing the pool underneath.
  *
- * It paints a recognisable pattern -- a border and a diagonal -- and, so that
- * the result can be checked without looking at a screen, prints the exact
- * checksum of the pixels it committed.  The compositor prints the checksum of
- * what it received.  If those two agree, a client's pixels really did cross the
- * process boundary through shared memory and arrive intact.
- *
- * Exits 0 once the compositor has released the buffer -- i.e. once it has taken
- * the frame.
+ * So that the result can be checked without looking at a screen, every frame's
+ * pixels are checksummed and printed; the compositor prints the checksum of
+ * what it received.  If those agree, the pixels really did cross the process
+ * boundary through shared memory, intact.
  */
 
 #include <sys/types.h>
@@ -28,25 +26,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 
-#define W	240
-#define H	160
-#define STRIDE	(W * 4)
-#define SIZE	(STRIDE * H)
+#define W0	240			/* the size we pick when told "you choose" */
+#define H0	160
 
+static struct wl_display	*display;
 static struct wl_compositor	*compositor;
 static struct wl_shm		*shm;
 static struct xdg_wm_base	*wm_base;
 static struct wl_seat		*seat;
+static struct wl_surface	*surface;
+static struct xdg_surface	*xdg_surface;
+
+/* The pool outlives any one buffer: a resize grows it in place. */
+static struct wl_shm_pool	*pool;
+static int			 pool_fd = -1;
+static size_t			 pool_size;
+static void			*pool_data;
+
+static struct wl_buffer		*buffer;
+static int			 cur_w, cur_h;		/* what we last drew */
+static int			 want_w, want_h;	/* what we were told to be */
 
 static int	 configured;
 static int	 released;
 static int	 got_keymap;
-static uint32_t	 checksum;
+static int	 frames;
+static uint32_t	 last_checksum;
 
 /* ------------------------------------------------------------- registry */
 
@@ -107,17 +118,26 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = xdg_surface_configure,
 };
 
+/*
+ * The compositor telling us how big to be.  Zero means "you choose", which is
+ * what the first configure carries; anything else we must adopt, and the frame
+ * we draw next has to be that size.
+ */
 static void
 toplevel_configure(void *data, struct xdg_toplevel *t, int32_t w, int32_t h,
     struct wl_array *states)
 {
-	(void)data; (void)t; (void)w; (void)h; (void)states;
+	(void)data; (void)t; (void)states;
+
+	want_w = (w > 0) ? w : W0;
+	want_h = (h > 0) ? h : H0;
 }
 
 static void
 toplevel_close(void *data, struct xdg_toplevel *t)
 {
 	(void)data; (void)t;
+	printf("wlclient: compositor asked us to close\n");
 	exit(0);
 }
 
@@ -141,11 +161,6 @@ static const struct wl_buffer_listener buffer_listener = {
 
 /* ------------------------------------------------------------ wl_keyboard */
 
-/*
- * We do not need the keymap to draw, but taking it proves the last link: the
- * compositor sends one as an fd, and this is the call every real toolkit makes
- * on it.
- */
 static void
 kbd_keymap(void *data, struct wl_keyboard *k, uint32_t format, int32_t fd,
     uint32_t size)
@@ -168,7 +183,6 @@ kbd_keymap(void *data, struct wl_keyboard *k, uint32_t format, int32_t fd,
 		return;
 	}
 
-	/* It must actually be a keymap, not a page of zeroes. */
 	got_keymap = (size > 32 && strstr(text, "xkb_keymap") != NULL);
 	printf("  keymap: %u bytes, %s\n", size,
 	    got_keymap ? "looks like XKB text" : "NOT XKB TEXT");
@@ -206,17 +220,17 @@ static const struct wl_keyboard_listener keyboard_listener = {
 	.repeat_info	= kbd_repeat_info,
 };
 
-/* ------------------------------------------------------------------ main */
+/* ------------------------------------------------------------------ pool */
 
 /*
- * The pool: shm_open, size it, map it writable and MAP_SHARED, and hand the fd
- * to the compositor.  This is wlprobe's chain, now driven by libwayland.
+ * shm_open, unlink the name at once, keep the fd: the idiom every Wayland
+ * client uses, and the one that made the IPC server's lookup have to learn that
+ * an object outlives its name.
  */
 static int
-make_pool(void **datap)
+pool_create(size_t size)
 {
 	static const char *name = "/wlclient-pool";
-	void *data;
 	int fd;
 
 	(void)shm_unlink(name);
@@ -224,64 +238,133 @@ make_pool(void **datap)
 		fprintf(stderr, "shm_open: %s\n", strerror(errno));
 		return -1;
 	}
-	(void)shm_unlink(name);		/* the fd is enough from here on */
+	(void)shm_unlink(name);
 
-	if (ftruncate(fd, SIZE) != 0) {
+	if (ftruncate(fd, size) != 0) {
 		fprintf(stderr, "ftruncate: %s\n", strerror(errno));
 		close(fd);
 		return -1;
 	}
 
-	data = mmap(NULL, SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	if (data == MAP_FAILED) {
+	pool_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (pool_data == MAP_FAILED) {
 		fprintf(stderr, "mmap: %s\n", strerror(errno));
 		close(fd);
 		return -1;
 	}
 
-	*datap = data;
-	return fd;
+	pool_fd = fd;
+	pool_size = size;
+	pool = wl_shm_create_pool(shm, fd, (int32_t)size);
+	return 0;
+}
+
+/*
+ * Grow the pool to hold a bigger frame.  On MINIX this is the interesting one:
+ * ftruncate() then a fresh mmap() of the same fd makes the IPC server grow the
+ * region behind it, and wl_shm_pool_resize makes the compositor re-map its end.
+ */
+static int
+pool_grow(size_t size)
+{
+	void *nd;
+
+	if (ftruncate(pool_fd, size) != 0) {
+		fprintf(stderr, "ftruncate(grow): %s\n", strerror(errno));
+		return -1;
+	}
+
+	nd = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, pool_fd, 0);
+	if (nd == MAP_FAILED) {
+		fprintf(stderr, "mmap(grow): %s\n", strerror(errno));
+		return -1;
+	}
+
+	(void)munmap(pool_data, pool_size);
+	pool_data = nd;
+	pool_size = size;
+
+	wl_shm_pool_resize(pool, (int32_t)size);
+	printf("wlclient: pool grown to %zu bytes\n", size);
+	return 0;
 }
 
 /* A pattern that is obviously right or obviously wrong: border + diagonal. */
-static void
-paint(uint32_t *px)
+static uint32_t
+paint(uint32_t *px, int w, int h)
 {
+	uint32_t sum = 0;
 	int x, y;
 
-	checksum = 0;
-	for (y = 0; y < H; y++) {
-		for (x = 0; x < W; x++) {
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
 			uint32_t c;
 
-			if (x < 2 || y < 2 || x >= W - 2 || y >= H - 2)
+			if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2)
 				c = 0x00ff6600;		/* orange border */
-			else if ((x * H) / W == y)
+			else if ((x * h) / w == y)
 				c = 0x00ffffff;		/* white diagonal */
 			else
 				c = 0x00224466;		/* blue field */
 
-			px[y * W + x] = c;
-			checksum = checksum * 31u + c;
+			px[y * w + x] = c;
+			sum = sum * 31u + c;
 		}
 	}
+	return sum;
 }
 
-int
-main(void)
+/* Draw one frame at (w, h) and commit it. */
+static int
+draw_frame(int w, int h)
 {
-	struct wl_display *display;
-	struct wl_registry *registry;
-	struct wl_surface *surface;
-	struct xdg_surface *xdg_surface;
-	struct xdg_toplevel *toplevel;
-	struct wl_shm_pool *pool;
-	struct wl_buffer *buffer;
-	struct wl_keyboard *kbd = NULL;
-	uint32_t *px;
-	void *data;
-	int fd, spins;
+	size_t need = (size_t)w * 4 * h;
 
+	if (pool_fd < 0) {
+		if (pool_create(need) != 0)
+			return -1;
+	} else if (need > pool_size) {
+		if (pool_grow(need) != 0)
+			return -1;
+	}
+
+	last_checksum = paint(pool_data, w, h);
+
+	if (buffer != NULL)
+		wl_buffer_destroy(buffer);
+	buffer = wl_shm_pool_create_buffer(pool, 0, w, h, w * 4,
+	    WL_SHM_FORMAT_XRGB8888);
+	wl_buffer_add_listener(buffer, &buffer_listener, NULL);
+
+	released = 0;
+	wl_surface_attach(surface, buffer, 0, 0);
+	wl_surface_damage(surface, 0, 0, w, h);
+	wl_surface_commit(surface);
+	wl_display_flush(display);
+
+	cur_w = w;
+	cur_h = h;
+	frames++;
+
+	printf("wlclient: frame %d %dx%d checksum=0x%08x\n", frames, w, h,
+	    last_checksum);
+	fflush(stdout);
+	return 0;
+}
+
+/* ------------------------------------------------------------------ main */
+
+int
+main(int argc, char **argv)
+{
+	struct wl_registry *registry;
+	struct xdg_toplevel *toplevel;
+	struct wl_keyboard *kbd = NULL;
+	int seconds = (argc > 1) ? atoi(argv[1]) : 0;
+	time_t deadline;
+	int spins;
+
+	setvbuf(stdout, NULL, _IONBF, 0);
 	printf("wlclient: connecting\n");
 
 	if ((display = wl_display_connect(NULL)) == NULL) {
@@ -294,12 +377,10 @@ main(void)
 
 	registry = wl_display_get_registry(display);
 	wl_registry_add_listener(registry, &registry_listener, NULL);
-	wl_display_roundtrip(display);		/* globals arrive here */
+	wl_display_roundtrip(display);
 
 	if (compositor == NULL || shm == NULL || wm_base == NULL) {
-		fprintf(stderr, "missing globals (compositor=%p shm=%p "
-		    "wm_base=%p)\n", (void *)compositor, (void *)shm,
-		    (void *)wm_base);
+		fprintf(stderr, "missing globals\n");
 		return 1;
 	}
 	xdg_wm_base_add_listener(wm_base, &wm_base_listener, NULL);
@@ -320,41 +401,24 @@ main(void)
 
 	/* xdg_shell forbids drawing before the first configure. */
 	spins = 0;
-	while (!configured && spins++ < 200) {
+	while (!configured && spins++ < 200)
 		if (wl_display_dispatch(display) < 0)
 			break;
+
+	if (!configured) {
+		printf("wlclient: NOT configured (giving up)\n");
+		return 1;
 	}
-	printf("wlclient: %s\n",
-	    configured ? "configured" : "NOT configured (giving up)");
-	if (!configured)
+	printf("wlclient: configured, told %dx%d\n", want_w, want_h);
+
+	if (draw_frame(want_w, want_h) != 0)
 		return 1;
-
-	if ((fd = make_pool(&data)) < 0)
-		return 1;
-	px = data;
-	paint(px);
-	printf("wlclient: painted %dx%d, checksum=0x%08x\n", W, H, checksum);
-
-	/* Hand the pool's fd over: SCM_RIGHTS, underneath. */
-	pool = wl_shm_create_pool(shm, fd, SIZE);
-	buffer = wl_shm_pool_create_buffer(pool, 0, W, H, STRIDE,
-	    WL_SHM_FORMAT_XRGB8888);
-	wl_shm_pool_destroy(pool);
-	close(fd);
-
-	wl_buffer_add_listener(buffer, &buffer_listener, NULL);
-
-	wl_surface_attach(surface, buffer, 0, 0);
-	wl_surface_damage(surface, 0, 0, W, H);
-	wl_surface_commit(surface);
-	wl_display_flush(display);
 
 	/* The compositor releases the buffer once it has taken the frame. */
 	spins = 0;
-	while (!released && spins++ < 200) {
+	while (!released && spins++ < 200)
 		if (wl_display_dispatch(display) < 0)
 			break;
-	}
 
 	printf("wlclient: buffer %s\n",
 	    released ? "released by the compositor" : "NOT released");
@@ -362,10 +426,35 @@ main(void)
 	    kbd == NULL ? "not requested"
 	    : got_keymap ? "received and valid" : "MISSING/INVALID");
 
+	/*
+	 * Stay up for a while, honouring configures.  This is where an
+	 * interactive resize lands: the compositor sends a new size, we adopt it
+	 * and redraw at that size -- growing the shm pool if the frame no longer
+	 * fits.
+	 */
+	if (seconds > 0) {
+		printf("wlclient: serving configures for %ds\n", seconds);
+		deadline = time(NULL) + seconds;
+
+		while (time(NULL) < deadline) {
+			if (wl_display_dispatch(display) < 0)
+				break;
+
+			if (want_w != cur_w || want_h != cur_h) {
+				printf("wlclient: reconfigured %dx%d -> %dx%d\n",
+				    cur_w, cur_h, want_w, want_h);
+				if (draw_frame(want_w, want_h) != 0)
+					break;
+			}
+		}
+		printf("wlclient: served %d frame(s), final size %dx%d\n",
+		    frames, cur_w, cur_h);
+	}
+
 	printf("wlclient: %s\n",
-	    (released && (kbd == NULL || got_keymap)) ? "ALL PASS"
-						      : "FAILURES PRESENT");
+	    (frames > 0 && (kbd == NULL || got_keymap)) ? "ALL PASS"
+							: "FAILURES PRESENT");
 
 	wl_display_disconnect(display);
-	return (released && (kbd == NULL || got_keymap)) ? 0 : 1;
+	return (frames > 0 && (kbd == NULL || got_keymap)) ? 0 : 1;
 }
