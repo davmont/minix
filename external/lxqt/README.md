@@ -1,0 +1,106 @@
+# LXQt libraries on MINIX
+
+`libqtxdg` 4.4.0 and `liblxqt` 2.4.0 cross-compiled for MINIX/amd64 -- the two
+libraries every LXQt component sits on.  Next after these: `lxqt-panel`, which
+docks through the wlr-layer-shell support wlcompd already speaks.
+
+Verified on-target by `minix/commands/lxqtprobe` (ALL PASS, headless and on
+wlcompd): XDG base directories, desktop-entry parsing, the MIME database,
+`XdgMimeApps` through its GLib/GIO backend, and `LXQt::Settings` writing real
+config under `/root/.config/lxqt`.
+
+## Order of the build
+
+    lxqt-build-tools 2.4.0   (CMake modules both libraries require)
+    pcre2, glib              (see external/glib)
+    qtsvg                    (Qt6Svg -- libqtxdg needs it; separate Qt module)
+    libqtxdg 4.4.0
+    liblxqt 2.4.0
+
+`lxqt-build-tools` is **built natively, not cross-compiled**, and installed into
+the sysroot: it ships only CMake modules, and it wants `Qt6CoreTools` (host
+moc/rcc), which a cross-built Qt does not provide.  Pass
+`-DLXQT_ETC_XDG_DIR=/etc/xdg` so it does not try to run a *target* `qtpaths` on
+the build host.
+
+## Configuring libqtxdg / liblxqt
+
+    cmake ../libqtxdg-4.4.0 -GNinja \
+      -DCMAKE_TOOLCHAIN_FILE=<destdir>/usr/lib/cmake/Qt6/qt.toolchain.cmake \
+      -DQT_HOST_PATH=/usr -DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_PROJECT_INCLUDE=<...>/external/qt6/cmake/MinixWaylandShim.cmake \
+      -DMINIX_EXTRA_STANDARD_LIBRARIES="-lgio-2.0 -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 -lintl -lpcre2-8 -lz" \
+      -DQTXDGX_ICONENGINEPLUGIN_INSTALL_PATH=/usr/lib/qt6/plugins/iconengines \
+      -DLXQT_ETC_XDG_DIR=/etc/xdg -DBUILD_TESTS=OFF -DBUILD_DEV_UTILS=OFF
+    ninja && DESTDIR=<destdir> ninja install
+
+liblxqt is the same, plus `-DBUILD_BACKLIGHT_LINUX_BACKEND=OFF` (that backend is
+Linux sysfs and drags in PolkitQt6) and
+`-DCMAKE_CXX_FLAGS="-D__minix=3 -D__minix__=3 -D__ELF__=1 -D_NETBSD_SOURCE -DLXQT_NO_KWINDOWSYSTEM"`.
+
+Note `MINIX_NO_STAGING=1` + plain prefix + `DESTDIR`: both projects install into
+`/etc` as well as `/usr`, and an absolute sysconfdir escapes a staging prefix and
+lands on the build host.
+
+**Always repeat the `-D__minix` defines when you pass `CMAKE_CXX_FLAGS`.**  Doing
+so overrides the toolchain's `CMAKE_CXX_FLAGS_INIT`, and without them
+`<sys/errno.h>` never defines `_SIGN`, so every errno constant fails to parse.
+
+## What the patches do, and why
+
+**Everything must be STATIC.**  Both projects hardcode `add_library(... SHARED)`.
+Qt has to be linked statically on MINIX -- a dynamic Qt segfaults before `main()`
+in `ld.elf_so`'s dynamic TLS -- and a `libQt6Xdg.so` would link static Qt *into
+itself* while the application links static Qt too, giving one process two copies
+of Qt's global state.  The non-PIC archives will not go into a shared object
+anyway.  So: `SHARED`/`MODULE` -> `STATIC`.
+
+**libqtxdg's icon loader collides with Qt's.**  `xdgiconloader` is a fork of Qt's
+private `qiconloader.cpp`: it re-implements the member functions of `PixmapEntry`
+and `ScalableEntry` -- classes *declared by Qt's own* `private/qiconloader_p.h` --
+and defines its own `QIconCacheGtkReader`.  With a shared Qt each copy stays
+inside its own `.so` and nobody notices the ODR violation; with a static Qt both
+object files land in one link and the three classes are defined twice.  The patch
+renames libqtxdg's copies before Qt's header is pulled in, making them genuinely
+distinct types.
+
+**liblxqt: no X11, no KF6WindowSystem, no Polkit.**  Upstream guards every X11 bit
+with `NOT APPLE`, i.e. it assumes every non-Mac platform has X11; MINIX has none
+at all.  The patch gives that guard a name (`LXQT_HAS_X11`) and turns it off.
+KWindowSystem is used in exactly one place -- raising an existing instance's
+window -- and on MINIX it could only ever be a no-op: there is no X11, and Wayland
+does not let one client raise another's window without xdg-activation, which
+wlcompd does not implement.  So rather than port a whole KDE Framework to get a
+stub, `lxqtsingleapplication.cpp` uses Qt's own `raise()`/`activateWindow()` under
+`LXQT_NO_KWINDOWSYSTEM`.  (`lxqtpowerproviders.cpp` only compares
+`QGuiApplication::platformName()` at runtime and needs no X11 headers.)
+
+## The Wayland/Qt shim
+
+`external/qt6/cmake/MinixWaylandShim.cmake`, injected with
+`-DCMAKE_PROJECT_INCLUDE`, exists because Qt's exported targets name
+`Wayland::Client` and `Qt6::GuiPrivate` in their link interfaces without recording
+them as propagated dependencies -- so a consumer that merely asks for
+`Qt6 COMPONENTS Widgets` fails with "the link interface contains Wayland::Client
+but the target was not found".  It also forces static library resolution, which
+Qt's `qt.toolchain.cmake` otherwise loses (zlib/freetype/wayland get resolved to
+`.so`, and then `-static` fails with "attempted static link of dynamic object").
+
+Use `CMAKE_PROJECT_INCLUDE`, not `CMAKE_PROJECT_INCLUDE_BEFORE`: the latter runs
+before compiler detection, so a `find_package` that needs a compiler cannot work
+there.
+
+## Consumers must link -static and Q_IMPORT_PLUGIN their platform
+
+A Qt program here has to be `-static` (see above) and, because static Qt plugins
+are archives rather than dlopen'd `.so` files, it must register its platform
+plugin by hand with `Q_IMPORT_PLUGIN`.  Miss the first and it segfaults before
+`main()` with no output at all; miss the second and Qt aborts with "Could not find
+the Qt platform plugin".  `minix/commands/lxqtprobe` shows both.
+
+## Known limitation: C locale only
+
+See `external/glib/README.md`.  Static binaries on MINIX cannot dlopen the citrus
+locale/iconv modules, so the process is stuck in the C locale (codeset `646`) and
+GLib cannot convert non-ASCII.  ASCII works; accented names will not, until the
+citrus modules can be linked into a static libc.
