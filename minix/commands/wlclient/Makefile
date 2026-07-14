@@ -10,7 +10,7 @@
 PROG=	wlclient
 MAN=
 
-SRCS=	wlclient.c xdg-shell-protocol.c
+SRCS=	wlclient.c xdg-shell-protocol.c wlr-layer-shell-protocol.c
 
 CPPFLAGS+=	-I${.OBJDIR}
 
@@ -18,10 +18,12 @@ LDADD+=	-lwayland-client -lffi -lpthread -lm
 DPADD+=	${DESTDIR}/usr/lib/libwayland-client.a ${DESTDIR}/usr/lib/libffi.a
 
 XDG_XML=	${WLDIR}/protocols/xdg-shell/xdg-shell.xml
+LAYER_XML=	${WLDIR}/protocols/wlr-layer-shell/wlr-layer-shell-unstable-v1.xml
 WL_SCANNER=	${.OBJDIR}/wayland-scanner
 
 CLEANFILES+=	wayland-scanner wayland-version.h \
-		xdg-shell-protocol.c xdg-shell-client-protocol.h
+		xdg-shell-protocol.c xdg-shell-client-protocol.h \
+		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h
 
 wayland-version.h: ${WLSRCDIR}/src/wayland-version.h.in
 	${_MKTARGET_CREATE}
@@ -47,11 +49,20 @@ xdg-shell-client-protocol.h: wayland-scanner ${XDG_XML}
 	${_MKTARGET_CREATE}
 	${WL_SCANNER} client-header < ${XDG_XML} > ${.TARGET}
 
-DPSRCS+=	xdg-shell-protocol.c xdg-shell-client-protocol.h
+wlr-layer-shell-protocol.c: wayland-scanner ${LAYER_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} private-code < ${LAYER_XML} > ${.TARGET}
+
+wlr-layer-shell-client-protocol.h: wayland-scanner ${LAYER_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} client-header < ${LAYER_XML} > ${.TARGET}
+
+DPSRCS+=	xdg-shell-protocol.c xdg-shell-client-protocol.h \
+		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h
 
 .include <bsd.prog.mk>
 
-${OBJS}: xdg-shell-client-protocol.h
+${OBJS}: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h
 .for _f in ${SRCS:M*.c:T:R}
-${_f}.d: xdg-shell-client-protocol.h
+${_f}.d: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h
 .endfor

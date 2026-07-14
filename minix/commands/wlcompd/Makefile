@@ -12,7 +12,7 @@
 PROG=	wlcompd
 MAN=
 
-SRCS=	wlcompd.c xdg-shell-protocol.c
+SRCS=	wlcompd.c xdg-shell-protocol.c wlr-layer-shell-protocol.c
 
 # pixman and freetype headers live in their own subdirectories.
 CPPFLAGS+=	-I${DESTDIR}/usr/include/pixman-1
@@ -26,10 +26,14 @@ DPADD+=	${DESTDIR}/usr/lib/libwayland-server.a ${DESTDIR}/usr/lib/libffi.a \
 	${DESTDIR}/usr/lib/libfreetype.a ${DESTDIR}/usr/lib/libpixman-1.a
 
 XDG_XML=	${WLDIR}/protocols/xdg-shell/xdg-shell.xml
+# wlr-layer-shell: how a panel or a dock anchors itself to an edge of the
+# screen.  lxqt-panel (and every other Wayland panel) needs it.
+LAYER_XML=	${WLDIR}/protocols/wlr-layer-shell/wlr-layer-shell-unstable-v1.xml
 WL_SCANNER=	${.OBJDIR}/wayland-scanner
 
 CLEANFILES+=	wayland-scanner wayland-version.h \
-		xdg-shell-protocol.c xdg-shell-server-protocol.h
+		xdg-shell-protocol.c xdg-shell-server-protocol.h \
+		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h
 
 wayland-version.h: ${WLSRCDIR}/src/wayland-version.h.in
 	${_MKTARGET_CREATE}
@@ -55,13 +59,22 @@ xdg-shell-server-protocol.h: wayland-scanner ${XDG_XML}
 	${_MKTARGET_CREATE}
 	${WL_SCANNER} server-header < ${XDG_XML} > ${.TARGET}
 
-DPSRCS+=	xdg-shell-protocol.c xdg-shell-server-protocol.h
+wlr-layer-shell-protocol.c: wayland-scanner ${LAYER_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} private-code < ${LAYER_XML} > ${.TARGET}
+
+wlr-layer-shell-server-protocol.h: wayland-scanner ${LAYER_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} server-header < ${LAYER_XML} > ${.TARGET}
+
+DPSRCS+=	xdg-shell-protocol.c xdg-shell-server-protocol.h \
+		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h
 
 .include <bsd.prog.mk>
 
 # Every object needs the generated protocol header; DPSRCS does not order that
 # under -j, and OBJS only exists once bsd.prog.mk has been read.
-${OBJS}: xdg-shell-server-protocol.h
+${OBJS}: xdg-shell-server-protocol.h wlr-layer-shell-server-protocol.h
 .for _f in ${SRCS:M*.c:T:R}
-${_f}.d: xdg-shell-server-protocol.h
+${_f}.d: xdg-shell-server-protocol.h wlr-layer-shell-server-protocol.h
 .endfor

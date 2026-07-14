@@ -61,6 +61,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "xdg-shell-server-protocol.h"
+#include "wlr-layer-shell-server-protocol.h"
 #include "hid_evdev.h"
 
 #define KEYMAP_PATH	"/usr/share/xkb/us.xkb"
@@ -93,7 +94,10 @@ enum role {
 	ROLE_POPUP,
 	ROLE_SUBSURFACE,
 	ROLE_CURSOR,		/* a client's pointer cursor */
+	ROLE_LAYER,		/* a panel, dock or wallpaper (wlr-layer-shell) */
 };
+
+#define NLAYERS	4		/* background, bottom, top, overlay */
 
 struct positioner {
 	int	w, h;			/* size of the popup */
@@ -129,6 +133,17 @@ struct surface {
 
 	int			 cfg_w, cfg_h;	/* last size we configured */
 
+	/* wlr-layer-shell state (ROLE_LAYER). */
+	struct wl_resource	*layer_surface;
+	uint32_t		 layer;		/* background..overlay */
+	uint32_t		 lanchor;	/* zwlr anchor bitmask */
+	int32_t			 lw, lh;	/* size the client asked for */
+	int32_t			 lexclusive;	/* exclusive zone */
+	int32_t			 lmargin[4];	/* top, right, bottom, left */
+	uint32_t		 lkbd;		/* keyboard interactivity */
+	int			 lconfigured;	/* first configure sent */
+	struct wl_list		 llink;		/* link in C.layers[layer] */
+
 	/*
 	 * Position.  A toplevel's is absolute (its title bar's top-left); a
 	 * popup's and a subsurface's is relative to the parent's content origin.
@@ -150,6 +165,7 @@ static struct {
 	fbgui_t			*fb;
 
 	struct wl_list		 toplevels;	/* bottom-to-top */
+	struct wl_list		 layers[NLAYERS];	/* wlr-layer-shell */
 	struct surface		*focus;
 
 	/* Seat */
@@ -216,6 +232,12 @@ now_ms(void)
 static void
 surface_origin(const struct surface *s, int *ox, int *oy)
 {
+	if (s->role == ROLE_LAYER) {
+		/* A panel has no decoration: its content starts where it sits. */
+		*ox = s->x;
+		*oy = s->y;
+		return;
+	}
 	if (s->role == ROLE_TOPLEVEL || s->parent == NULL) {
 		*ox = s->x;
 		*oy = s->y + TITLEH;
@@ -335,6 +357,7 @@ clip_off(void)
 }
 
 static void render_surface(struct surface *s);
+static void layer_send_configure(struct surface *s);
 
 /* Draw a surface's content and then everything hanging off it, in order. */
 static void
@@ -419,7 +442,26 @@ recomposite(void)
 
 	fill_damaged(&c_desk, 0, 0, fbgui_width(C.fb), fbgui_height(C.fb));
 
+	/*
+	 * Stacking order is the whole point of layers: a wallpaper goes under
+	 * the windows, a panel over them, and a lock screen over everything.
+	 */
+	wl_list_for_each(s, &C.layers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND],
+	    llink)
+		if (s->mapped)
+			render_surface(s);
+	wl_list_for_each(s, &C.layers[ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM], llink)
+		if (s->mapped)
+			render_surface(s);
+
 	wl_list_for_each(s, &C.toplevels, link)
+		if (s->mapped)
+			render_surface(s);
+
+	wl_list_for_each(s, &C.layers[ZWLR_LAYER_SHELL_V1_LAYER_TOP], llink)
+		if (s->mapped)
+			render_surface(s);
+	wl_list_for_each(s, &C.layers[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY], llink)
 		if (s->mapped)
 			render_surface(s);
 
@@ -473,6 +515,7 @@ on_repaint(void *data)
 {
 	struct surface *s;
 	uint32_t t = now_ms();
+	int i;
 
 	(void)data;
 
@@ -480,6 +523,9 @@ on_repaint(void *data)
 
 	wl_list_for_each(s, &C.toplevels, link)
 		send_frame_callbacks_for(s, t);
+	for (i = 0; i < NLAYERS; i++)
+		wl_list_for_each(s, &C.layers[i], llink)
+			send_frame_callbacks_for(s, t);
 	if (C.cursor != NULL)
 		send_frame_callbacks_for(C.cursor, t);
 
@@ -639,6 +685,8 @@ surface_destroy(struct wl_resource *resource)
 		wl_list_remove(&s->sibling);
 	if (s->role == ROLE_TOPLEVEL)
 		wl_list_remove(&s->link);
+	if (s->role == ROLE_LAYER)
+		wl_list_remove(&s->llink);
 
 	if (s->img != NULL)
 		pixman_image_unref(s->img);
@@ -716,6 +764,20 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 	int ow = s->w, oh = s->h;
 
 	(void)c;
+
+	/*
+	 * A layer surface's first commit carries no buffer: it is the client
+	 * saying "I have told you my anchors and my size, now tell me my
+	 * geometry".  Only now are set_size/set_anchor/set_margin actually in.
+	 */
+	if (s->role == ROLE_LAYER && !s->lconfigured) {
+		s->lconfigured = 1;
+		layer_send_configure(s);
+		if (!s->pending_buffer_set) {
+			pixman_region32_clear(&s->damage);
+			return;
+		}
+	}
 
 	if (!s->pending_buffer_set) {
 		pixman_region32_clear(&s->damage);
@@ -854,6 +916,7 @@ comp_create_surface(struct wl_client *client, struct wl_resource *r,
 	wl_list_init(&s->frame_callbacks);
 	wl_list_init(&s->children);
 	wl_list_init(&s->sibling);
+	wl_list_init(&s->llink);
 	pixman_region32_init(&s->damage);
 
 	s->resource = wl_resource_create(client, &wl_surface_interface,
@@ -1532,7 +1595,338 @@ bind_wm_base(struct wl_client *client, void *data, uint32_t version,
 	wl_resource_set_implementation(r, &wm_base_impl, NULL, NULL);
 }
 
+
+/* ------------------------------------------------------- wlr-layer-shell */
+
+/*
+ * Where a panel, dock or wallpaper goes.
+ *
+ * The client names the edges it is anchored to and (optionally) a size; the
+ * compositor works out the rest.  Anchoring to two opposite edges means "span
+ * that axis", which is how a panel comes out the full width of the screen
+ * without having to know how wide the screen is.  A size of zero on an axis is
+ * only legal when the surface is anchored to both of its edges -- otherwise
+ * there is nothing to derive it from, and the protocol says to raise an error.
+ *
+ * The exclusive zone is the strip a panel reserves for itself so that other
+ * windows do not sit underneath it.  We record it and report the usable area,
+ * but nothing is forced into it yet: wlcompd's toplevels float, so there is no
+ * maximised geometry for it to shrink.  It becomes load-bearing the moment
+ * maximise or tiling arrives.
+ */
+static void
+layer_recompute(struct surface *s)
+{
+	int sw = fbgui_width(C.fb), sh = fbgui_height(C.fb);
+	int mt = s->lmargin[0], mr = s->lmargin[1];
+	int mb = s->lmargin[2], ml = s->lmargin[3];
+	uint32_t a = s->lanchor;
+	int anchored_lr, anchored_tb;
+	int w, h, x, y;
+
+	anchored_lr = (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+	    (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+	anchored_tb = (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+	    (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
+
+	/* Width: spanned if anchored both sides, else what the client asked. */
+	w = s->lw;
+	if (w <= 0)
+		w = anchored_lr ? (sw - ml - mr) : sw;
+	h = s->lh;
+	if (h <= 0)
+		h = anchored_tb ? (sh - mt - mb) : sh;
+
+	if (w < 1) w = 1;
+	if (h < 1) h = 1;
+
+	/* Horizontal placement. */
+	if (anchored_lr || !(a & (ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+	    ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)))
+		x = anchored_lr ? ml : (sw - w) / 2;	/* spanned, or centred */
+	else if (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT)
+		x = ml;
+	else
+		x = sw - w - mr;
+
+	/* Vertical placement. */
+	if (anchored_tb || !(a & (ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+	    ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)))
+		y = anchored_tb ? mt : (sh - h) / 2;
+	else if (a & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP)
+		y = mt;
+	else
+		y = sh - h - mb;
+
+	if (s->mapped)
+		dmg_add_surface(s);	/* erase it where it was */
+	s->x = x;
+	s->y = y;
+	s->cfg_w = w;
+	s->cfg_h = h;
+	if (s->mapped)
+		dmg_add_surface(s);
+}
+
+static void
+layer_send_configure(struct surface *s)
+{
+	layer_recompute(s);
+	zwlr_layer_surface_v1_send_configure(s->layer_surface,
+	    wl_display_next_serial(C.display), s->cfg_w, s->cfg_h);
+}
+
+/* The area left over once every panel has taken its exclusive strip. */
+static void
+layer_usable_area(int *x, int *y, int *w, int *h)
+{
+	struct surface *s;
+	int i;
+
+	*x = 0;
+	*y = 0;
+	*w = fbgui_width(C.fb);
+	*h = fbgui_height(C.fb);
+
+	for (i = 0; i < NLAYERS; i++) {
+		wl_list_for_each(s, &C.layers[i], llink) {
+			int e = s->lexclusive;
+
+			if (!s->mapped || e <= 0)
+				continue;
+
+			if (s->lanchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) {
+				*y += e;
+				*h -= e;
+			} else if (s->lanchor &
+			    ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM) {
+				*h -= e;
+			} else if (s->lanchor &
+			    ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) {
+				*x += e;
+				*w -= e;
+			} else if (s->lanchor &
+			    ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT) {
+				*w -= e;
+			}
+		}
+	}
+}
+
+static void
+lsurf_set_size(struct wl_client *c, struct wl_resource *r,
+    uint32_t w, uint32_t h)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	s->lw = (int32_t)w;
+	s->lh = (int32_t)h;
+}
+
+static void
+lsurf_set_anchor(struct wl_client *c, struct wl_resource *r, uint32_t anchor)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	s->lanchor = anchor;
+}
+
+static void
+lsurf_set_exclusive_zone(struct wl_client *c, struct wl_resource *r,
+    int32_t zone)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	s->lexclusive = zone;
+}
+
+static void
+lsurf_set_margin(struct wl_client *c, struct wl_resource *r,
+    int32_t top, int32_t right, int32_t bottom, int32_t left)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	s->lmargin[0] = top;
+	s->lmargin[1] = right;
+	s->lmargin[2] = bottom;
+	s->lmargin[3] = left;
+}
+
+static void
+lsurf_set_keyboard_interactivity(struct wl_client *c, struct wl_resource *r,
+    uint32_t ki)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	s->lkbd = ki;
+}
+
+static void
+lsurf_get_popup(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *popup)
+{
+	/* A menu opened from a panel.  The popup already exists as an
+	 * xdg_popup; re-parent it onto the layer surface so it is positioned
+	 * and stacked with it. */
+	struct surface *s = wl_resource_get_user_data(r);
+	struct surface *p = wl_resource_get_user_data(popup);
+
+	(void)c;
+	if (s == NULL || p == NULL)
+		return;
+
+	if (p->parent != NULL)
+		wl_list_remove(&p->sibling);
+	p->parent = s;
+	wl_list_insert(s->children.prev, &p->sibling);
+}
+
+static void
+lsurf_ack_configure(struct wl_client *c, struct wl_resource *r, uint32_t serial)
+{
+	(void)c; (void)r; (void)serial;
+}
+
+static void
+lsurf_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+lsurf_set_layer(struct wl_client *c, struct wl_resource *r, uint32_t layer)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	if (s == NULL || layer >= NLAYERS)
+		return;
+
+	wl_list_remove(&s->llink);
+	s->layer = layer;
+	wl_list_insert(C.layers[layer].prev, &s->llink);
+	dmg_add_surface(s);
+}
+
+static void
+lsurf_set_exclusive_edge(struct wl_client *c, struct wl_resource *r,
+    uint32_t edge)
+{
+	(void)c; (void)r; (void)edge;
+}
+
+static const struct zwlr_layer_surface_v1_interface layer_surface_impl = {
+	.set_size			= lsurf_set_size,
+	.set_anchor			= lsurf_set_anchor,
+	.set_exclusive_zone		= lsurf_set_exclusive_zone,
+	.set_margin			= lsurf_set_margin,
+	.set_keyboard_interactivity	= lsurf_set_keyboard_interactivity,
+	.get_popup			= lsurf_get_popup,
+	.ack_configure			= lsurf_ack_configure,
+	.destroy			= lsurf_destroy,
+	.set_layer			= lsurf_set_layer,
+	.set_exclusive_edge		= lsurf_set_exclusive_edge,
+};
+
+static void
+layer_surface_resource_destroy(struct wl_resource *r)
+{
+	struct surface *s = wl_resource_get_user_data(r);
+
+	if (s == NULL)
+		return;
+	if (s->mapped)
+		dmg_add_surface(s);
+	wl_list_remove(&s->llink);
+	wl_list_init(&s->llink);
+	s->layer_surface = NULL;
+	s->role = ROLE_NONE;
+	s->mapped = 0;
+}
+
+static void
+lshell_get_layer_surface(struct wl_client *c, struct wl_resource *r,
+    uint32_t id, struct wl_resource *surface, struct wl_resource *output,
+    uint32_t layer, const char *namespace)
+{
+	struct surface *s = wl_resource_get_user_data(surface);
+
+	(void)output;
+
+	if (s == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	if (layer >= NLAYERS) {
+		wl_resource_post_error(r,
+		    ZWLR_LAYER_SHELL_V1_ERROR_INVALID_LAYER,
+		    "invalid layer %u", layer);
+		return;
+	}
+
+	s->layer_surface = wl_resource_create(c,
+	    &zwlr_layer_surface_v1_interface, wl_resource_get_version(r), id);
+	if (s->layer_surface == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(s->layer_surface, &layer_surface_impl, s,
+	    layer_surface_resource_destroy);
+
+	s->role = ROLE_LAYER;
+	s->layer = layer;
+	wl_list_insert(C.layers[layer].prev, &s->llink);
+
+	if (namespace != NULL)
+		strlcpy(s->title, namespace, sizeof(s->title));
+
+	/*
+	 * NOT configured here.  At this point the client has only asked for the
+	 * layer surface: set_size, set_anchor and the margins are still on their
+	 * way, so anything computed now would be derived from zeroes -- which is
+	 * exactly how a panel ends up full-screen instead of a strip along an
+	 * edge.  The protocol has the client set its properties and then commit;
+	 * the configure is the answer to that commit.  See surf_commit().
+	 */
+	wlog("layer surface \"%s\" on layer %u\n", s->title, layer);
+}
+
+static void
+lshell_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static const struct zwlr_layer_shell_v1_interface layer_shell_impl = {
+	.get_layer_surface	= lshell_get_layer_surface,
+	.destroy		= lshell_destroy,
+};
+
+static void
+bind_layer_shell(struct wl_client *client, void *data, uint32_t version,
+    uint32_t id)
+{
+	struct wl_resource *r;
+
+	(void)data;
+	r = wl_resource_create(client, &zwlr_layer_shell_v1_interface, version,
+	    id);
+	if (r == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &layer_shell_impl, NULL, NULL);
+}
+
 /* -------------------------------------------------- wl_data_device (clip) */
+
 
 static void
 dsrc_offer(struct wl_client *c, struct wl_resource *r, const char *mime)
@@ -1893,20 +2287,49 @@ hit_tree(struct surface *s, int sx, int sy)
 	return NULL;
 }
 
+/* Search one layer, topmost-first within it. */
+static struct surface *
+hit_layer(int layer, int sx, int sy)
+{
+	struct surface *s, *hit = NULL, *h;
+
+	wl_list_for_each(s, &C.layers[layer], llink) {
+		if (!s->mapped)
+			continue;
+		if ((h = hit_tree(s, sx, sy)) != NULL)
+			hit = h;	/* later == higher */
+	}
+	return hit;
+}
+
 static struct surface *
 surface_at(int sx, int sy, int *on_titlebar)
 {
 	struct surface *s, *hit = NULL;
 
-	/* Toplevels are bottom-to-top, so the last hit is the topmost. */
-	wl_list_for_each(s, &C.toplevels, link) {
-		struct surface *h;
+	/*
+	 * Search in reverse stacking order: whatever is drawn last is hit
+	 * first, so a click on a panel does not fall through to the window
+	 * beneath it.
+	 */
+	if ((hit = hit_layer(ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, sx, sy)) == NULL)
+		hit = hit_layer(ZWLR_LAYER_SHELL_V1_LAYER_TOP, sx, sy);
 
-		if (!s->mapped)
-			continue;
-		if ((h = hit_tree(s, sx, sy)) != NULL)
-			hit = h;
+	if (hit == NULL) {
+		/* Toplevels are bottom-to-top, so the last hit is the topmost. */
+		wl_list_for_each(s, &C.toplevels, link) {
+			struct surface *h;
+
+			if (!s->mapped)
+				continue;
+			if ((h = hit_tree(s, sx, sy)) != NULL)
+				hit = h;
+		}
 	}
+
+	if (hit == NULL &&
+	    (hit = hit_layer(ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, sx, sy)) == NULL)
+		hit = hit_layer(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, sx, sy);
 
 	if (on_titlebar != NULL)
 		*on_titlebar = (hit != NULL && hit->role == ROLE_TOPLEVEL &&
@@ -2160,6 +2583,15 @@ on_mouse(int fd, uint32_t mask, void *data)
 			}
 		}
 
+		/*
+		 * A panel that asked for keyboard interactivity takes focus when
+		 * it is clicked -- that is what "on demand" means, and without it
+		 * a panel with a search box could never be typed into.
+		 */
+		if (pressed && root != NULL && root->role == ROLE_LAYER &&
+		    root->lkbd != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE)
+			keyboard_focus(root);
+
 		if (pressed && root != NULL && root->role == ROLE_TOPLEVEL) {
 			keyboard_focus(root);
 			wl_list_remove(&root->link);	/* raise */
@@ -2309,6 +2741,8 @@ main(int argc, char **argv)
 	setvbuf(lg, NULL, _IONBF, 0);
 
 	wl_list_init(&C.toplevels);
+	for (int i = 0; i < NLAYERS; i++)
+		wl_list_init(&C.layers[i]);
 	wl_list_init(&C.pointers);
 	wl_list_init(&C.keyboards);
 	wl_list_init(&C.data_devices);
@@ -2348,6 +2782,8 @@ main(int argc, char **argv)
 		bind_output) == NULL ||
 	    wl_global_create(C.display, &wl_data_device_manager_interface, 3,
 		NULL, bind_ddm) == NULL ||
+	    wl_global_create(C.display, &zwlr_layer_shell_v1_interface, 4, NULL,
+		bind_layer_shell) == NULL ||
 	    wl_global_create(C.display, &xdg_wm_base_interface, 3, NULL,
 		bind_wm_base) == NULL) {
 		wlog("wl_global_create failed\n");

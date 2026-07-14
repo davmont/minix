@@ -31,6 +31,7 @@
 
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#include "wlr-layer-shell-client-protocol.h"
 
 #define W0	240			/* the size we pick when told "you choose" */
 #define H0	160
@@ -41,6 +42,7 @@ static struct wl_shm		*shm;
 static struct xdg_wm_base	*wm_base;
 static struct wl_seat		*seat;
 static struct wl_subcompositor	*subcompositor;
+static struct zwlr_layer_shell_v1 *layer_shell;
 static struct wl_pointer	*pointer;
 static struct wl_surface	*surface;
 static struct xdg_surface	*xdg_surface;
@@ -81,6 +83,9 @@ registry_global(void *data, struct wl_registry *reg, uint32_t name,
 	else if (strcmp(iface, "wl_subcompositor") == 0)
 		subcompositor = wl_registry_bind(reg, name,
 		    &wl_subcompositor_interface, 1);
+	else if (strcmp(iface, "zwlr_layer_shell_v1") == 0)
+		layer_shell = wl_registry_bind(reg, name,
+		    &zwlr_layer_shell_v1_interface, 1);
 
 	printf("  global: %s v%u\n", iface, version);
 }
@@ -559,7 +564,119 @@ make_popup(void)
 	}
 }
 
+
+/* ------------------------------------------------- panel (layer-shell) --- */
+
+/*
+ * What a panel does: take a layer surface, anchor it to an edge, let the
+ * compositor work out the size, and reserve an exclusive strip so windows do
+ * not sit underneath.  This is how lxqt-panel (and every other Wayland panel)
+ * docks itself, so it is worth proving on its own.
+ */
+static int panel_configured;
+static int panel_w, panel_h;
+
+static void
+layer_configure(void *data, struct zwlr_layer_surface_v1 *ls, uint32_t serial,
+    uint32_t w, uint32_t h)
+{
+    (void)data;
+    zwlr_layer_surface_v1_ack_configure(ls, serial);
+    panel_w = (int)w;
+    panel_h = (int)h;
+    panel_configured = 1;
+    printf("wlpanel: configured %ux%u\n", w, h);
+    fflush(stdout);
+}
+
+static void
+layer_closed(void *data, struct zwlr_layer_surface_v1 *ls)
+{
+    (void)data; (void)ls;
+    printf("wlpanel: closed by the compositor\n");
+    exit(0);
+}
+
+static const struct zwlr_layer_surface_v1_listener layer_listener = {
+    .configure = layer_configure,
+    .closed    = layer_closed,
+};
+
+static int
+run_panel(int seconds)
+{
+    struct zwlr_layer_surface_v1 *ls;
+    struct wl_surface *psurf;
+    struct wl_buffer *b;
+    time_t deadline;
+    int spins;
+
+    if (layer_shell == NULL) {
+        fprintf(stderr, "wlpanel: no zwlr_layer_shell_v1\n");
+        return 1;
+    }
+
+    psurf = wl_compositor_create_surface(compositor);
+    ls = zwlr_layer_shell_v1_get_layer_surface(layer_shell, psurf, NULL,
+             ZWLR_LAYER_SHELL_V1_LAYER_TOP, "wlpanel");
+    zwlr_layer_surface_v1_add_listener(ls, &layer_listener, NULL);
+
+    /*
+     * Anchored left+right+bottom: spanning the width is the compositor's job,
+     * so the width is left at zero and only the height is named.  A panel that
+     * had to know the screen width could not be written portably at all.
+     */
+    zwlr_layer_surface_v1_set_size(ls, 0, 28);
+    zwlr_layer_surface_v1_set_anchor(ls,
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
+    zwlr_layer_surface_v1_set_exclusive_zone(ls, 28);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(ls,
+        ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+
+    wl_surface_commit(psurf);   /* ask to be configured */
+
+    spins = 0;
+    while (!panel_configured && spins++ < 200)
+        if (wl_display_dispatch(display) < 0)
+            break;
+
+    if (!panel_configured) {
+        printf("wlpanel: NOT configured\n");
+        return 1;
+    }
+
+    if ((b = solid_buffer(panel_w, panel_h, 0xff204060)) == NULL) {
+        fprintf(stderr, "wlpanel: buffer failed\n");
+        return 1;
+    }
+    wl_surface_attach(psurf, b, 0, 0);
+    wl_surface_damage(psurf, 0, 0, panel_w, panel_h);
+    wl_surface_commit(psurf);
+    wl_display_flush(display);
+
+    printf("wlpanel: committed %dx%d\n", panel_w, panel_h);
+
+    /*
+     * roundtrip, not dispatch: a static panel asks for nothing, so no events
+     * ever arrive and wl_display_dispatch() would simply block forever.  A
+     * roundtrip always completes -- it sends a sync and waits for its reply.
+     */
+    deadline = time(NULL) + (seconds > 0 ? seconds : 5);
+    while (time(NULL) < deadline) {
+        if (wl_display_roundtrip(display) < 0)
+            break;
+        sleep(1);
+    }
+
+    printf("wlpanel: %s\n", panel_w > 0 && panel_h == 28 ? "ALL PASS"
+                                                          : "FAILURES PRESENT");
+    return (panel_w > 0 && panel_h == 28) ? 0 : 1;
+}
+
 /* ------------------------------------------------------------------ main */
+
 
 int
 main(int argc, char **argv)
@@ -585,6 +702,14 @@ main(int argc, char **argv)
 	registry = wl_display_get_registry(display);
 	wl_registry_add_listener(registry, &registry_listener, NULL);
 	wl_display_roundtrip(display);
+
+	/* Panel mode: a layer surface instead of a toplevel. */
+	if (argc > 2 && strcmp(argv[2], "panel") == 0) {
+		int rc = run_panel(seconds);
+
+		wl_display_disconnect(display);
+		return rc;
+	}
 
 	if (compositor == NULL || shm == NULL || wm_base == NULL) {
 		fprintf(stderr, "missing globals\n");
