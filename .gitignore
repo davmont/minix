@@ -97,10 +97,17 @@ boot/
 *.map
 *.sym
 vers.c
-# Generated architecture symlink directories
-i386
-machine
-x86
+# Generated architecture symlink directories.
+#
+# These MUST be anchored.  As bare patterns ("i386", "machine", "x86") they
+# matched a directory of that name ANYWHERE in the tree, which silently swallowed
+# real source directories on import -- external/mit/libffi/dist/src/x86/ was lost
+# that way, and devel could not be built at all until it was restored.  The
+# symlinks nbmake creates live at the top level and under sys/arch/*/stand
+# (the latter are listed further down).
+/machine
+/i386
+/x86
 machines.lo.o
 
 # Bootxx build artifacts
