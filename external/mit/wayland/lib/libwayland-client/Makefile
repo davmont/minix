@@ -47,4 +47,19 @@ dependall: all
 # which is exactly how Qt's Wayland plugin first failed to link.
 LIBDPLIBS+=	ffi	${.CURDIR}/../../../libffi/lib/libffi
 
+# INCS lists the generated protocol and version headers, but two things stop
+# the "includes" phase of a full build from getting them:
+#
+#  - it runs before "dependall", which is what generates them; and
+#  - the generating rules name their targets by ABSOLUTE path (see
+#    wayland-gen.mk, which does that deliberately so -j does not race), while
+#    INCS refers to them by bare name -- and to bmake those are different nodes.
+#
+# So bmake reaches the install-includes step with no rule to make the bare name
+# ("don't know how to make wayland-client-protocol.h") and the build stops.  Bridge the
+# bare names to the absolute targets, and make the includes phase depend on them.
+wayland-client-protocol.h: ${WL_VERSION_H} ${WL_CLIENT_H}
+wayland-version.h: ${WL_VERSION_H}
+includes: ${WL_VERSION_H} ${WL_CLIENT_H}
+
 .include <bsd.lib.mk>
