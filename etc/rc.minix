@@ -133,6 +133,15 @@ start)
          . "$RC_TZ"
     fi
 
+    # Entropy source.  Nothing serves RANDOM_MAJOR until this driver is up, so
+    # until then /dev/urandom returns ENXIO -- and libc's arc4random(3), which
+    # falls back to reading it, silently seeds itself from uninitialised stack.
+    # Start it before anything that draws on randomness.  The -dev is what makes
+    # RS map the driver onto RANDOM_MAJOR; without it the driver runs but no
+    # major points at it, and reads still fail with ENXIO.  /dev/random and
+    # /dev/urandom are the same (major, minor), so one mapping serves both.
+    up random -dev /dev/random
+
     # Start real time clock driver & set system time, otherwise default date.
     up readclock.drv
     readclock -q || date 201301010000
