@@ -835,6 +835,8 @@
 ./var/games			uname=games gname=games mode=0775
 ./var/heimdal
 ./var/mail			mode=1777
+./var/lib
+./var/lib/dbus
 ./var/run
 ./var/run/lwresd		mode=0775 gname=named
 ./var/run/named			mode=0775 gname=named

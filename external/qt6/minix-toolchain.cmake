@@ -22,7 +22,19 @@ set(MINIX_SYSROOT "${MINIX_BUILD}/destdir.amd64")
 set(MINIX_TOOLS   "${MINIX_BUILD}/tooldir.Linux-x86_64/bin")
 
 set(CMAKE_SYSROOT "${MINIX_SYSROOT}")
-set(CMAKE_STAGING_PREFIX "${MINIX_SYSROOT}/usr")
+# Only if the project has not chosen for itself.  A project that installs into
+# /etc or /var (D-Bus does both) needs a plain prefix plus DESTDIR instead, and
+# an unconditional set() here would silently override its -D and bake build-host
+# paths into the installed binaries.
+# A project that also installs into /etc or /var (D-Bus does both) cannot use a
+# staging prefix: an absolute sysconfdir escapes it and lands on the build host.
+# Such a project passes -DMINIX_NO_STAGING=1 and installs with DESTDIR instead.
+# Setting CMAKE_STAGING_PREFIX to the empty string does NOT work as an opt-out --
+# CMake then treats "" as the install destination and everything lands in
+# DESTDIR/bin rather than DESTDIR/usr/bin.
+if(NOT MINIX_NO_STAGING)
+    set(CMAKE_STAGING_PREFIX "${MINIX_SYSROOT}/usr")
+endif()
 
 set(CMAKE_C_COMPILER   "${MINIX_TOOLS}/x86_64-elf64-minix-clang")
 set(CMAKE_CXX_COMPILER "${MINIX_TOOLS}/x86_64-elf64-minix-clang++")
