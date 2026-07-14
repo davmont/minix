@@ -452,6 +452,16 @@ send_frame_callbacks_for(struct surface *s, uint32_t t)
 
 	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks) {
 		wl_callback_send_done(cb, t);
+		/*
+		 * wl_resource_destroy() posts delete_id and frees the resource,
+		 * but it does NOT take it out of whatever list the compositor
+		 * put it in -- that link is ours to manage.  Leaving it behind
+		 * meant the next repaint walked freed memory and "destroyed"
+		 * whatever it found there, sending the client delete_id for ids
+		 * it had never heard of.  Only a client that draws more than one
+		 * frame ever notices; Qt does.
+		 */
+		wl_list_remove(wl_resource_get_link(cb));
 		wl_resource_destroy(cb);
 	}
 	wl_list_for_each(c, &s->children, sibling)
@@ -612,8 +622,10 @@ surface_destroy(struct wl_resource *resource)
 	if (s->mapped)
 		dmg_add_surface(s);	/* erase it, while we know where it is */
 
-	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks)
+	wl_resource_for_each_safe(cb, tmp, &s->frame_callbacks) {
+		wl_list_remove(wl_resource_get_link(cb));	/* see above */
 		wl_resource_destroy(cb);
+	}
 
 	/* Orphan any children rather than leave them pointing at freed memory. */
 	wl_list_for_each_safe(c, ctmp, &s->children, sibling) {
