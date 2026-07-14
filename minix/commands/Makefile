@@ -31,7 +31,7 @@ SUBDIR=	at backup \
 	ffiprobe \
 	wlcoreprobe \
 	xkbprobe \
-	oomprobe cxxprobe qtprobe \
+	oomprobe cxxprobe qtprobe sockprobe \
 	wlcompd wlclient \
 	writeisofs fetch \
 	zmodem pkgin_cd pkgin_all pkgin_sets \
