@@ -53,7 +53,22 @@ set(CMAKE_CXX_FLAGS_INIT "${MINIX_DEFINES}")
 # Appended last on the link line, which is where a static libffi has to go:
 # libwayland-client.a calls ffi_call() but, being an archive, records no
 # dependency of its own, so ffi must be resolved after it.
-set(CMAKE_CXX_STANDARD_LIBRARIES "-lffi -lc++ -lm")
+# -lpthread is where MINIX keeps the POSIX semaphores (sem_wait/sem_post/sem_open);
+# libc.a has none of them.  QtCore's QSystemSemaphore calls them, so a consumer
+# that pulls it in fails to link without this.  Appended last, which is where it
+# has to be: libQt6Core.a is an archive, so its references resolve left-to-right.
+# MINIX keeps backtrace(3) in libexecinfo, not libc; GLib's gbacktrace.c calls it.
+#
+# MINIX_EXTRA_STANDARD_LIBRARIES lets a project append libraries that must be
+# resolved at the very end of the link.  Needed because everything here is a
+# static archive, so a library that records no dependencies of its own -- GLib
+# found via find_library(), say -- leaves its callees (glib__private__,
+# bindtextdomain) unresolved unless they follow it on the command line.  The
+# extras go FIRST so that -lffi still lands after -lgobject-2.0, which needs it.
+set(CMAKE_CXX_STANDARD_LIBRARIES
+    "${MINIX_EXTRA_STANDARD_LIBRARIES} -lffi -lc++ -lm -lpthread -lexecinfo")
+set(CMAKE_C_STANDARD_LIBRARIES
+    "${MINIX_EXTRA_STANDARD_LIBRARIES} -lffi -lm -lpthread -lexecinfo")
 
 # pkg-config must answer for the TARGET, not the build host: without this it
 # would happily report the host's wayland-client and Qt would link the wrong
