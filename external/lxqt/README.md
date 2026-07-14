@@ -1,8 +1,12 @@
 # LXQt libraries on MINIX
 
-`libqtxdg` 4.4.0 and `liblxqt` 2.4.0 cross-compiled for MINIX/amd64 -- the two
-libraries every LXQt component sits on.  Next after these: `lxqt-panel`, which
-docks through the wlr-layer-shell support wlcompd already speaks.
+`libqtxdg` 4.4.0, `liblxqt` 2.4.0, `lxqt-globalkeys` 2.4.0, `lxqt-menu-data` 2.4.0
+and **`lxqt-panel` 2.4.1**, cross-compiled for MINIX/amd64.
+
+The panel runs and docks itself on wlcompd: the compositor sees a layer surface
+`"dock"` on the top layer, gives it the full screen width (1280x32), and receives
+its pixels.  It reaches the screen through **LayerShellQt** (see `external/kf6/`),
+which speaks wlr-layer-shell -- the protocol wlcompd implements.
 
 Verified on-target by `minix/commands/lxqtprobe` (ALL PASS, headless and on
 wlcompd): XDG base directories, desktop-entry parsing, the MIME database,
@@ -105,3 +109,64 @@ Earlier notes here said static binaries on MINIX were stuck in the C locale
 in libc -- the citrus encoding and iconv modules are compiled in rather than
 dlopen'd; see `external/glib/README.md` and `minix/commands/localeprobe`.  Set
 `LANG=en_US.UTF-8` and a static Qt/LXQt program now gets a real UTF-8 locale.
+
+## lxqt-panel
+
+Verified on-target (`drive_lxqtpanel.py`): layer surface `"dock"` on layer 2,
+1280x32, pixels committed, and all six enabled plugins loaded.
+
+Run it with:
+
+    XDG_RUNTIME_DIR=/tmp WAYLAND_DISPLAY=wayland-0 \
+    QT_QPA_PLATFORM=wayland QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+    lxqt-panel
+
+`QT_WAYLAND_SHELL_INTEGRATION=layer-shell` is not optional: it is how LayerShellQt
+selects its QPA shell integration.  lxqt-session normally sets it; there is no
+session yet.
+
+### Which plugins, and why only those
+
+Enabled: **mainmenu, fancymenu, quicklaunch, showdesktop, spacer, worldclock**.
+
+Two independent constraints decide this list.
+
+1. **A plugin has to be linkable statically.**  The panel loads plugins as `.so`
+   modules through `QPluginLoader`, and a static binary cannot dlopen -- so on MINIX
+   a plugin only exists if it is compiled into the panel.  Upstream already supports
+   this (`Plugin::findStaticPlugin`, and the `STATIC_PLUGINS` list), but the table in
+   `panel/plugin.cpp` is fixed: only ten plugins can ever be static.  Everything
+   outside that table (colorpicker, customcommand, directorymenu, dom, qeyes, ...) is
+   module-only and therefore unusable here.  This needs no patch -- upstream already
+   puts each of those ten into `STATIC_PLUGINS` when it is enabled.
+2. **The rest need things MINIX does not have**: statgrab (cpuload,
+   networkmonitor), lm_sensors, ALSA/PulseAudio (volume), libsysstat, X11 (tray,
+   kbindicator), or window management (taskbar, desktopswitch -- see
+   `external/kf6/README.md`).
+
+### What the panel patch does
+
+- **Static Qt plugin imports** (`panel/minix_static_plugins.cpp`).  lxqt-panel is a
+  plain `add_executable()`, so Qt's automatic static-plugin import generation never
+  runs and the panel aborts with *"Could not find the Qt platform plugin wayland"*.
+  It imports the wayland QPA plugin, LayerShellQt's shell integration, and the icon
+  and image plugins.  The executable is linked `-static` like every Qt program here.
+- **No X11.**  `KX11Extras` does not exist in a KWindowSystem built without X11.
+  Every use of it in the panel is an X11/EWMH operation -- `_NET_WM_STRUT`, dock
+  type, virtual desktops -- and none apply on Wayland, where LayerShellQt sets the
+  layer, anchors and exclusive zone instead.  The patch gives it a no-op stub
+  (`panel/kx11extras_minix.h`) rather than `#ifdef` out a dozen call sites, and
+  replaces the three `QNativeInterface::QX11Application` probes -- a type that does
+  not exist in a Qt built without XCB -- with a `lxqtPanelIsX11()` helper that is a
+  compile-time `false`.
+- **No WM backends.**  They are runtime `.so` plugins (unloadable), and each needs
+  something absent: X11, KWin's private protocols (and Qt6Concurrent), or
+  wlr-foreign-toplevel-management.  The panel falls back to its built-in dummy
+  backend.
+
+### lxqt-globalkeys
+
+Only the client library and `lxqt-globalkeys-ui` are built; the daemon and its
+config UI are skipped.  The daemon grabs keys through X11, and would be pointless
+anyway -- Wayland does not let a client grab another's keys, and wlcompd implements
+no protocol for it.  Both libraries are STATIC, for the usual reason.

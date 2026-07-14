@@ -29,3 +29,23 @@ find_package(Wayland COMPONENTS Client Cursor)
 # a consumer such as liblxqt only asks for Qt6 Widgets/DBus.  Create the target
 # here so the consumer's find_package(Qt6Xdg) does not fail on it.
 find_package(Qt6GuiPrivate REQUIRED)
+
+# LayerShellQt links Qt::WaylandClientPrivate (it drives wlr-layer-shell through
+# QtWayland's private API).  Same story: the target exists but is not created
+# unless the package is found explicitly.
+find_package(Qt6WaylandClientPrivate QUIET)
+
+# Several LXQt projects call find_package(Qt6LinguistTools) directly.  That is a
+# HOST tool package -- lupdate/lrelease -- and it does not exist in the target
+# sysroot, so the direct call fails.  Asking Qt for it as a *component* resolves
+# it through QT_HOST_PATH and puts Qt6LinguistTools_DIR in the cache, after which
+# the project's own direct find_package() succeeds.
+find_package(Qt6 QUIET COMPONENTS LinguistTools)
+
+# LayerShellQt's exported Interface target names PkgConfig::XKBCOMMON in its link
+# interface (QtWayland's private API pulls in xkbcommon), but the imported target
+# only exists if the consumer runs pkg_check_modules itself.  Create it here.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(XKBCOMMON IMPORTED_TARGET QUIET xkbcommon)
+endif()
