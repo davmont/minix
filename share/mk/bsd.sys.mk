@@ -292,6 +292,31 @@ CPUFLAGS+=	-Wa,--fatal-warnings
 CFLAGS+=	${CPUFLAGS}
 AFLAGS+=	${CPUFLAGS}
 
+#
+# Do not ask for an executable stack.
+#
+# An assembly source that says nothing about the stack produces an object with
+# no .note.GNU-stack section at all, and the linker then has to assume the worst
+# and mark the stack executable.  Nothing in the tree declares the note, so
+# every binary we shipped -- /bin/ls included -- carried PT_GNU_STACK with RWE.
+# GNU ld does that silently; lld refuses to unless asked with -z execstack,
+# which is how this was noticed.
+#
+# --noexecstack makes the assembler emit the note without the executable bit, so
+# the stack comes out non-executable.  C objects already do the right thing; it
+# is only assembly that needs telling.
+#
+AFLAGS+=	-Wa,--noexecstack
+
+# Assembly is not the only way in.  An object produced by "objcopy -I binary"
+# -- the ramdisk image the memory driver embeds, for one -- has no
+# .note.GNU-stack either, and there is no source to add one to.  One input
+# without the note is enough for the linker to mark the whole stack executable,
+# so say it at the link as well.  Nothing here executes code on the stack: the
+# signal trampoline the kernel is handed is __sigreturn, a libc symbol.
+#
+LDFLAGS+=	-Wl,-z,noexecstack
+
 .if !defined(LDSTATIC) || ${LDSTATIC} != "-static"
 # Position Independent Executable flags
 PIE_CFLAGS?=        -fPIC
