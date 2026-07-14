@@ -128,10 +128,11 @@ session yet.
 ### Which plugins, and why only those
 
 Enabled: **mainmenu, fancymenu, quicklaunch, showdesktop, spacer, worldclock,
-taskbar**.
+taskbar, desktopswitch** (the pager).
 
-The taskbar works because wlcompd implements **wlr-foreign-toplevel-management-v1**
-and the panel's `wlroots` backend speaks it.  That backend is built STATIC and
+The taskbar works because wlcompd implements **wlr-foreign-toplevel-management-v1**,
+and the pager because it implements **ext-workspace-v1** (four virtual desktops).
+The panel's `wlroots` backend speaks both.  That backend is built STATIC and
 linked into the panel, and `LXQtPanelApplication` instantiates it directly --
 upstream dlopens its WM backends from `*.so`, which a static binary cannot do.
 

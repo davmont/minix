@@ -77,8 +77,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/C
  install(TARGETS ${PROJECT} RUNTIME DESTINATION bin)
 diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
 --- /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h	1970-01-01 01:00:00.000000000 +0100
-+++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-14 16:58:59.011688548 +0200
-@@ -0,0 +1,29 @@
++++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-14 22:48:12.139462563 +0200
+@@ -0,0 +1,30 @@
 +/*
 + * MINIX: KWindowSystem is built without X11 support (there is no X11 here at
 + * all), so KX11Extras does not exist.  Every use of it in the panel is an
@@ -104,6 +104,7 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/pan
 +    template <typename... A> static void setOnAllDesktops(A &&...) {}
 +    template <typename... A> static void setType(A &&...) {}
 +    template <typename... A> static void setExtendedStrut(A &&...) {}
++    template <typename... A> static void setDesktopName(A &&...) {}
 +    static int currentDesktop() { return 0; }
 +};
 +
@@ -261,3 +262,33 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugi
  
  #include <QDebug>
  #include <QProcessEnvironment>
+diff -urN /tmp/pr/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp
+--- /tmp/pr/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-07-14 22:48:12.139855250 +0200
+@@ -30,7 +30,14 @@
+ #include "../panel/lxqtpanelapplication.h"
+ #include "../panel/backends/ilxqtabstractwmiface.h"
+ 
++#ifdef LXQT_PANEL_NO_X11
++/* Renaming a desktop is an X11/EWMH property (_NET_DESKTOP_NAMES).  ext-workspace
++ * names its workspaces itself and gives a client no way to rename them, so on
++ * MINIX this is a no-op -- see panel/kx11extras_minix.h. */
++#include "../panel/kx11extras_minix.h"
++#else
+ #include <KX11Extras>
++#endif
+ #include <QScreen>
+ #include <QTimer>
+ 
+@@ -83,7 +90,11 @@
+ 
+         //TODO: on Wayland we cannot set desktop names in a standart way
+         // On KWin we could use DBus org.kde.KWin as done by kcm_kwin_virtualdesktops
++#ifdef LXQT_PANEL_NO_X11
++        if (false)      /* no XCB in this Qt: QX11Application does not exist */
++#else
+         if(qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
++#endif
+         {
+             // C++11 rocks!
+             QTimer *timer = new QTimer(this);

@@ -10,7 +10,8 @@
 PROG=	wlclient
 MAN=
 
-SRCS=	wlclient.c xdg-shell-protocol.c wlr-layer-shell-protocol.c
+SRCS=	wlclient.c xdg-shell-protocol.c wlr-layer-shell-protocol.c \
+	ext-workspace-protocol.c
 
 CPPFLAGS+=	-I${.OBJDIR}
 
@@ -19,11 +20,13 @@ DPADD+=	${DESTDIR}/usr/lib/libwayland-client.a ${DESTDIR}/usr/lib/libffi.a
 
 XDG_XML=	${WLDIR}/protocols/xdg-shell/xdg-shell.xml
 LAYER_XML=	${WLDIR}/protocols/wlr-layer-shell/wlr-layer-shell-unstable-v1.xml
+WS_XML=		${WLDIR}/protocols/ext-workspace/ext-workspace-v1.xml
 WL_SCANNER=	${.OBJDIR}/wayland-scanner
 
 CLEANFILES+=	wayland-scanner wayland-version.h \
 		xdg-shell-protocol.c xdg-shell-client-protocol.h \
-		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h
+		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h \
+		ext-workspace-protocol.c ext-workspace-client-protocol.h
 
 wayland-version.h: ${WLSRCDIR}/src/wayland-version.h.in
 	${_MKTARGET_CREATE}
@@ -57,12 +60,23 @@ wlr-layer-shell-client-protocol.h: wayland-scanner ${LAYER_XML}
 	${_MKTARGET_CREATE}
 	${WL_SCANNER} client-header < ${LAYER_XML} > ${.TARGET}
 
+ext-workspace-protocol.c: wayland-scanner ${WS_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} private-code < ${WS_XML} > ${.TARGET}
+
+ext-workspace-client-protocol.h: wayland-scanner ${WS_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} client-header < ${WS_XML} > ${.TARGET}
+
 DPSRCS+=	xdg-shell-protocol.c xdg-shell-client-protocol.h \
-		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h
+		wlr-layer-shell-protocol.c wlr-layer-shell-client-protocol.h \
+		ext-workspace-protocol.c ext-workspace-client-protocol.h
 
 .include <bsd.prog.mk>
 
-${OBJS}: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h
+${OBJS}: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h \
+	ext-workspace-client-protocol.h
 .for _f in ${SRCS:M*.c:T:R}
-${_f}.d: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h
+${_f}.d: xdg-shell-client-protocol.h wlr-layer-shell-client-protocol.h \
+	ext-workspace-client-protocol.h
 .endfor

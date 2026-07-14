@@ -50,12 +50,11 @@ or raise another's windows** without an explicit protocol.  A full KWindowSystem
 would compile down to the same no-op here, because its Wayland backend speaks KWin's
 protocol and wlcompd does not.
 
-**wlcompd now implements wlr-foreign-toplevel-management-v1**, and the panel's
-`wlroots` backend speaks it -- so the *taskbar* works: it sees, raises, minimizes
-and closes other clients' windows.  KWindowSystem stays a stub because nothing
-routes through it; the taskbar goes through the wlroots backend instead.  What is
-still missing is virtual desktops (the pager), which would need
-`ext-workspace-v1` in wlcompd.
+**wlcompd implements wlr-foreign-toplevel-management-v1 and ext-workspace-v1**, and
+the panel's `wlroots` backend speaks both -- so the *taskbar* works (it sees,
+raises, minimizes and closes other clients' windows) and so does the *pager* (four
+virtual desktops).  KWindowSystem stays a stub because nothing routes through it;
+both go through the wlroots backend instead.
 
 ## The layer-shell-qt patch
 

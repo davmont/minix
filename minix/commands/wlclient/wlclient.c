@@ -32,6 +32,7 @@
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 #include "wlr-layer-shell-client-protocol.h"
+#include "ext-workspace-client-protocol.h"
 
 #define W0	240			/* the size we pick when told "you choose" */
 #define H0	160
@@ -63,6 +64,181 @@ static int	 got_keymap;
 static int	 frames;
 static uint32_t	 last_checksum;
 
+
+/* ------------------------------------------------ ext-workspace (desktops) ---
+ *
+ * What a pager does.  Wayland tells a client nothing about virtual desktops;
+ * ext-workspace-v1 is the only way to learn they exist, and the only way to
+ * switch.  Activation is double-buffered: activate() alone does nothing until
+ * the manager is told to commit.
+ */
+static struct ext_workspace_manager_v1	*ws_manager;
+static struct ext_workspace_handle_v1	*ws_handle[8];
+static int				 ws_count;
+static int				 ws_active = -1;
+static int				 ws_done;
+
+static int
+ws_index_of(struct ext_workspace_handle_v1 *h)
+{
+	int i;
+
+	for (i = 0; i < ws_count; i++)
+		if (ws_handle[i] == h)
+			return i;
+	return -1;
+}
+
+static void
+wsh_id(void *d, struct ext_workspace_handle_v1 *h, const char *id)
+{
+	(void)d; (void)h; (void)id;
+}
+
+static void
+wsh_name(void *d, struct ext_workspace_handle_v1 *h, const char *name)
+{
+	(void)d;
+	printf("  desktop %d: \"%s\"\n", ws_index_of(h), name);
+}
+
+static void
+wsh_coordinates(void *d, struct ext_workspace_handle_v1 *h,
+    struct wl_array *coords)
+{
+	(void)d; (void)h; (void)coords;
+}
+
+static void
+wsh_state(void *d, struct ext_workspace_handle_v1 *h, uint32_t state)
+{
+	(void)d;
+	if (state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE)
+		ws_active = ws_index_of(h);
+}
+
+static void
+wsh_capabilities(void *d, struct ext_workspace_handle_v1 *h, uint32_t caps)
+{
+	(void)d; (void)h; (void)caps;
+}
+
+static void
+wsh_removed(void *d, struct ext_workspace_handle_v1 *h)
+{
+	(void)d; (void)h;
+}
+
+static const struct ext_workspace_handle_v1_listener wsh_listener = {
+	.id		= wsh_id,
+	.name		= wsh_name,
+	.coordinates	= wsh_coordinates,
+	.state		= wsh_state,
+	.capabilities	= wsh_capabilities,
+	.removed	= wsh_removed,
+};
+
+static void
+wsg_capabilities(void *d, struct ext_workspace_group_handle_v1 *g, uint32_t c)
+{
+	(void)d; (void)g; (void)c;
+}
+
+static void
+wsg_output_enter(void *d, struct ext_workspace_group_handle_v1 *g,
+    struct wl_output *o)
+{
+	(void)d; (void)g; (void)o;
+}
+
+static void
+wsg_output_leave(void *d, struct ext_workspace_group_handle_v1 *g,
+    struct wl_output *o)
+{
+	(void)d; (void)g; (void)o;
+}
+
+static void
+wsg_workspace_enter(void *d, struct ext_workspace_group_handle_v1 *g,
+    struct ext_workspace_handle_v1 *h)
+{
+	(void)d; (void)g; (void)h;
+}
+
+static void
+wsg_workspace_leave(void *d, struct ext_workspace_group_handle_v1 *g,
+    struct ext_workspace_handle_v1 *h)
+{
+	(void)d; (void)g; (void)h;
+}
+
+static void
+wsg_removed(void *d, struct ext_workspace_group_handle_v1 *g)
+{
+	(void)d; (void)g;
+}
+
+static const struct ext_workspace_group_handle_v1_listener wsg_listener = {
+	.capabilities	 = wsg_capabilities,
+	.output_enter	 = wsg_output_enter,
+	.output_leave	 = wsg_output_leave,
+	.workspace_enter = wsg_workspace_enter,
+	.workspace_leave = wsg_workspace_leave,
+	.removed	 = wsg_removed,
+};
+
+static void
+wsm_workspace_group(void *d, struct ext_workspace_manager_v1 *m,
+    struct ext_workspace_group_handle_v1 *g)
+{
+	(void)d; (void)m;
+	ext_workspace_group_handle_v1_add_listener(g, &wsg_listener, NULL);
+}
+
+static void
+wsm_workspace(void *d, struct ext_workspace_manager_v1 *m,
+    struct ext_workspace_handle_v1 *h)
+{
+	(void)d; (void)m;
+	if (ws_count < (int)(sizeof(ws_handle) / sizeof(ws_handle[0]))) {
+		ws_handle[ws_count++] = h;
+		ext_workspace_handle_v1_add_listener(h, &wsh_listener, NULL);
+	}
+}
+
+static void
+wsm_done(void *d, struct ext_workspace_manager_v1 *m)
+{
+	(void)d; (void)m;
+	ws_done = 1;
+}
+
+static void
+wsm_finished(void *d, struct ext_workspace_manager_v1 *m)
+{
+	(void)d; (void)m;
+	ws_manager = NULL;
+}
+
+static const struct ext_workspace_manager_v1_listener wsm_listener = {
+	.workspace_group = wsm_workspace_group,
+	.workspace	 = wsm_workspace,
+	.done		 = wsm_done,
+	.finished	 = wsm_finished,
+};
+
+/* Switch desktops, and say what we saw.  Double-buffered: activate, then commit. */
+static void
+workspace_go(int to)
+{
+	if (ws_manager == NULL || to < 0 || to >= ws_count)
+		return;
+	printf("wlclient: switching to desktop %d\n", to);
+	ext_workspace_handle_v1_activate(ws_handle[to]);
+	ext_workspace_manager_v1_commit(ws_manager);
+	wl_display_roundtrip(display);
+}
+
 /* ------------------------------------------------------------- registry */
 
 static void
@@ -86,6 +262,12 @@ registry_global(void *data, struct wl_registry *reg, uint32_t name,
 	else if (strcmp(iface, "zwlr_layer_shell_v1") == 0)
 		layer_shell = wl_registry_bind(reg, name,
 		    &zwlr_layer_shell_v1_interface, 1);
+	else if (strcmp(iface, "ext_workspace_manager_v1") == 0) {
+		ws_manager = wl_registry_bind(reg, name,
+		    &ext_workspace_manager_v1_interface, 1);
+		ext_workspace_manager_v1_add_listener(ws_manager,
+		    &wsm_listener, NULL);
+	}
 
 	printf("  global: %s v%u\n", iface, version);
 }
@@ -780,6 +962,34 @@ main(int argc, char **argv)
 	 * and redraw at that size -- growing the shm pool if the frame no longer
 	 * fits.
 	 */
+	/*
+	 * "workspace" mode: drive the virtual desktops.  Our own toplevel is on
+	 * desktop 0, so switching to 1 must take it off the screen, and coming
+	 * back must put it there again -- the compositor says how many toplevels
+	 * it can see after each switch, which is the thing worth checking.  A
+	 * pager that only draws buttons is not a pager.
+	 */
+	if (argc > 2 && strcmp(argv[2], "workspace") == 0) {
+		wl_display_roundtrip(display);
+		if (ws_manager == NULL || !ws_done) {
+			printf("wlclient: no ext_workspace_manager_v1\n");
+			return 1;
+		}
+		printf("wlclient: %d desktops, active %d\n", ws_count, ws_active);
+
+		workspace_go(1);
+		sleep(1);
+		printf("wlclient: active is now %d\n", ws_active);
+
+		workspace_go(0);
+		sleep(1);
+		printf("wlclient: active is back to %d\n", ws_active);
+
+		printf("wlclient: workspace %s\n",
+		    (ws_count == 4 && ws_active == 0) ? "ALL PASS" : "FAILED");
+		return (ws_count == 4 && ws_active == 0) ? 0 : 1;
+	}
+
 	if (seconds > 0) {
 		printf("wlclient: serving configures for %ds\n", seconds);
 		deadline = time(NULL) + seconds;

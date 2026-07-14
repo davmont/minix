@@ -3338,6 +3338,7 @@
 ./usr/share/lua/5.4                                     minix-base
 ./usr/share/lxqt                                        minix-base
 ./usr/share/lxqt/lxqt-panel                             minix-base
+./usr/share/lxqt/lxqt-panel/desktopswitch.desktop       minix-base
 ./usr/share/lxqt/lxqt-panel/fancymenu.desktop           minix-base
 ./usr/share/lxqt/lxqt-panel/mainmenu.desktop            minix-base
 ./usr/share/lxqt/lxqt-panel/quicklaunch.desktop         minix-base

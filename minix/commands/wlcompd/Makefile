@@ -13,7 +13,7 @@ PROG=	wlcompd
 MAN=
 
 SRCS=	wlcompd.c xdg-shell-protocol.c wlr-layer-shell-protocol.c \
-	wlr-foreign-toplevel-protocol.c
+	wlr-foreign-toplevel-protocol.c ext-workspace-protocol.c
 
 # pixman and freetype headers live in their own subdirectories.
 CPPFLAGS+=	-I${DESTDIR}/usr/include/pixman-1
@@ -33,13 +33,17 @@ LAYER_XML=	${WLDIR}/protocols/wlr-layer-shell/wlr-layer-shell-unstable-v1.xml
 # wlr-foreign-toplevel-management: how a taskbar gets to see, raise and close
 # other clients' windows.  Wayland gives it no other way -- see wlcompd.c.
 FTL_XML=	${WLDIR}/protocols/wlr-foreign-toplevel/wlr-foreign-toplevel-management-unstable-v1.xml
+# ext-workspace: virtual desktops.  The panel's pager (the "desktopswitch"
+# plugin) drives them through this; nothing else in Wayland exposes them.
+WS_XML=		${WLDIR}/protocols/ext-workspace/ext-workspace-v1.xml
 WL_SCANNER=	${.OBJDIR}/wayland-scanner
 
 CLEANFILES+=	wayland-scanner wayland-version.h \
 		xdg-shell-protocol.c xdg-shell-server-protocol.h \
 		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h \
 		wlr-foreign-toplevel-protocol.c \
-		wlr-foreign-toplevel-server-protocol.h
+		wlr-foreign-toplevel-server-protocol.h \
+		ext-workspace-protocol.c ext-workspace-server-protocol.h
 
 wayland-version.h: ${WLSRCDIR}/src/wayland-version.h.in
 	${_MKTARGET_CREATE}
@@ -81,18 +85,27 @@ wlr-foreign-toplevel-server-protocol.h: wayland-scanner ${FTL_XML}
 	${_MKTARGET_CREATE}
 	${WL_SCANNER} server-header < ${FTL_XML} > ${.TARGET}
 
+ext-workspace-protocol.c: wayland-scanner ${WS_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} private-code < ${WS_XML} > ${.TARGET}
+
+ext-workspace-server-protocol.h: wayland-scanner ${WS_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} server-header < ${WS_XML} > ${.TARGET}
+
 DPSRCS+=	xdg-shell-protocol.c xdg-shell-server-protocol.h \
 		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h \
 		wlr-foreign-toplevel-protocol.c \
-		wlr-foreign-toplevel-server-protocol.h
+		wlr-foreign-toplevel-server-protocol.h \
+		ext-workspace-protocol.c ext-workspace-server-protocol.h
 
 .include <bsd.prog.mk>
 
 # Every object needs the generated protocol header; DPSRCS does not order that
 # under -j, and OBJS only exists once bsd.prog.mk has been read.
 ${OBJS}: xdg-shell-server-protocol.h wlr-layer-shell-server-protocol.h \
-	wlr-foreign-toplevel-server-protocol.h
+	wlr-foreign-toplevel-server-protocol.h ext-workspace-server-protocol.h
 .for _f in ${SRCS:M*.c:T:R}
 ${_f}.d: xdg-shell-server-protocol.h wlr-layer-shell-server-protocol.h \
-	wlr-foreign-toplevel-server-protocol.h
+	wlr-foreign-toplevel-server-protocol.h ext-workspace-server-protocol.h
 .endfor

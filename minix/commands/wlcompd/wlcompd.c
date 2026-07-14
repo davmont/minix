@@ -63,6 +63,7 @@
 #include "xdg-shell-server-protocol.h"
 #include "wlr-layer-shell-server-protocol.h"
 #include "wlr-foreign-toplevel-server-protocol.h"
+#include "ext-workspace-server-protocol.h"
 #include "hid_evdev.h"
 
 #define KEYMAP_PATH	"/usr/share/xkb/us.xkb"
@@ -99,6 +100,13 @@ enum role {
 };
 
 #define NLAYERS	4		/* background, bottom, top, overlay */
+
+/*
+ * Virtual desktops.  Four, like every other desktop ever shipped; the number is
+ * fixed because ext-workspace lets a client create workspaces only if we say we
+ * can, and we do not.
+ */
+#define NWORKSPACES	4
 
 struct positioner {
 	int	w, h;			/* size of the popup */
@@ -165,6 +173,7 @@ struct surface {
 	 */
 	int			 minimized;
 	int			 maximized;
+	int			 ws;		/* the desktop it lives on */
 	int			 mx, my, mw, mh;	/* geometry before maximize */
 	struct wl_list		 ftl;		/* struct ftl, one per manager */
 
@@ -183,6 +192,9 @@ static struct {
 
 	struct wl_list		 outputs;	/* wl_output resources */
 	struct wl_list		 ftl_managers;	/* foreign-toplevel managers */
+
+	int			 ws;		/* the desktop on screen now */
+	struct wl_list		 ws_managers;	/* struct wsmgr */
 
 	/* Seat */
 	struct wl_list		 pointers;
@@ -676,16 +688,19 @@ surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 /* ------------------------------------------------------------- wl_surface */
 
 /*
- * A minimized toplevel is still mapped: the client has no idea it is minimized,
- * and must not -- minimizing is the compositor's business, and there is no
- * Wayland event to tell a client about it.  So we simply stop drawing it and
- * stop letting the pointer hit it.  Everything that walks C.toplevels for
- * something the user can see or click asks this, not s->mapped.
+ * A minimized toplevel, or one on another desktop, is still mapped: the client
+ * has no idea about either, and must not -- both are the compositor's business,
+ * and Wayland has no event to tell a client about them.  So we simply stop
+ * drawing it and stop letting the pointer hit it.  Everything that walks
+ * C.toplevels for something the user can see or click asks this, not s->mapped.
+ *
+ * Layer surfaces (panels, docks, wallpapers) are on every desktop, and so are
+ * not asked.
  */
 static int
 toplevel_visible(const struct surface *s)
 {
-	return s->mapped && !s->minimized;
+	return s->mapped && !s->minimized && s->ws == C.ws;
 }
 
 static struct surface *
@@ -1518,6 +1533,7 @@ xdgsurf_get_toplevel(struct wl_client *c, struct wl_resource *r, uint32_t id)
 	    NULL);
 
 	s->role = ROLE_TOPLEVEL;
+	s->ws = C.ws;			/* it opens on the desktop you are on */
 	wl_list_insert(C.toplevels.prev, &s->link);	/* on top */
 
 	/* A zero size means "you choose", which is what a first configure says.
@@ -2714,6 +2730,307 @@ bind_ftl_manager(struct wl_client *client, void *data, uint32_t version,
 			ftl_announce_to(r, s);
 }
 
+/* ------------------------------------------------------- ext-workspace-v1 */
+
+/*
+ * Virtual desktops.
+ *
+ * The compositor half is small: every toplevel remembers which desktop it is on
+ * (surface.ws), toplevel_visible() hides the ones that are not on the desktop
+ * currently displayed (C.ws), and switching desktops is a repaint plus a
+ * refocus.  The client half is this protocol, which is the only way a panel can
+ * learn that desktops exist at all -- lxqt-panel's pager ("desktopswitch") drives
+ * it.
+ *
+ * ext-workspace is double-buffered: a client asks for a workspace to be
+ * activated and nothing happens until it sends manager.commit.  Hence the
+ * pending state per manager.  Each manager that binds gets its own group handle
+ * and its own handle per workspace; the objects are per-client, the desktops are
+ * not.
+ */
+
+struct wsmgr {
+	struct wl_resource	*resource;
+	struct wl_resource	*group;
+	struct wl_resource	*ws[NWORKSPACES];
+	int			 pending;	/* workspace to activate, or -1 */
+	struct wl_list		 link;		/* in C.ws_managers */
+};
+
+static void
+ws_send_state(struct wsmgr *m, int i)
+{
+	if (m->ws[i] == NULL)
+		return;
+	ext_workspace_handle_v1_send_state(m->ws[i],
+	    i == C.ws ? EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE : 0);
+}
+
+/* Tell every panel which desktop is on screen now. */
+static void
+ws_broadcast(void)
+{
+	struct wsmgr *m;
+	int i;
+
+	wl_list_for_each(m, &C.ws_managers, link) {
+		for (i = 0; i < NWORKSPACES; i++)
+			ws_send_state(m, i);
+		ext_workspace_manager_v1_send_done(m->resource);
+	}
+}
+
+static void
+workspace_switch(int to)
+{
+	struct surface *s;
+
+	if (to < 0 || to >= NWORKSPACES || to == C.ws)
+		return;
+
+	C.ws = to;
+
+	/* Everything on screen changes at once. */
+	dmg_add(0, 0, fbgui_width(C.fb), fbgui_height(C.fb));
+
+	/*
+	 * The focused window may have just vanished onto another desktop.  Give
+	 * focus to the top window of the one we arrived at -- keyboard_focus()
+	 * also tells the taskbar which window is active now.
+	 */
+	s = top_toplevel();
+	if (C.focus != s)
+		keyboard_focus(s);
+	else
+		ftl_focus_changed();
+
+	ws_broadcast();
+
+	{
+		struct surface *t;
+		int n = 0;
+
+		wl_list_for_each(t, &C.toplevels, link)
+			if (toplevel_visible(t))
+				n++;
+		wlog("workspace: switched to %d (%d windows visible)\n", to, n);
+	}
+}
+
+/* --- ext_workspace_handle_v1 */
+
+static void
+wsh_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+/* Which workspace is this handle?  Encoded in the user data as index+1. */
+static int
+wsh_index(struct wl_resource *r)
+{
+	return (int)(intptr_t)wl_resource_get_user_data(r) - 1;
+}
+
+static struct wsmgr *
+wsh_manager(struct wl_resource *r)
+{
+	struct wsmgr *m;
+	int i;
+
+	wl_list_for_each(m, &C.ws_managers, link)
+		for (i = 0; i < NWORKSPACES; i++)
+			if (m->ws[i] == r)
+				return m;
+	return NULL;
+}
+
+static void
+wsh_activate(struct wl_client *c, struct wl_resource *r)
+{
+	struct wsmgr *m = wsh_manager(r);
+
+	(void)c;
+	/* Double-buffered: it takes effect at manager.commit, not here. */
+	if (m != NULL)
+		m->pending = wsh_index(r);
+}
+
+static void
+wsh_deactivate(struct wl_client *c, struct wl_resource *r)
+{
+	/*
+	 * There is always exactly one desktop on screen, so "deactivate this one"
+	 * has no meaning on its own -- something else has to become active, and
+	 * that is what activate is for.
+	 */
+	(void)c; (void)r;
+}
+
+static void
+wsh_assign(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *group)
+{
+	/* We advertise no assign capability. */
+	(void)c; (void)r; (void)group;
+}
+
+static void
+wsh_remove(struct wl_client *c, struct wl_resource *r)
+{
+	/* Nor a remove one: the four desktops are fixed. */
+	(void)c; (void)r;
+}
+
+static const struct ext_workspace_handle_v1_interface wsh_impl = {
+	.destroy	= wsh_destroy,
+	.activate	= wsh_activate,
+	.deactivate	= wsh_deactivate,
+	.assign		= wsh_assign,
+	.remove		= wsh_remove,
+};
+
+/* --- ext_workspace_group_handle_v1 */
+
+static void
+wsg_create_workspace(struct wl_client *c, struct wl_resource *r,
+    const char *name)
+{
+	/* We advertise no create_workspace capability. */
+	(void)c; (void)r; (void)name;
+}
+
+static void
+wsg_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static const struct ext_workspace_group_handle_v1_interface wsg_impl = {
+	.create_workspace	= wsg_create_workspace,
+	.destroy		= wsg_destroy,
+};
+
+/* --- ext_workspace_manager_v1 */
+
+static void
+wsm_commit(struct wl_client *c, struct wl_resource *r)
+{
+	struct wsmgr *m = wl_resource_get_user_data(r);
+
+	(void)c;
+	if (m == NULL || m->pending < 0)
+		return;
+
+	workspace_switch(m->pending);
+	m->pending = -1;
+}
+
+static void
+wsm_stop(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	ext_workspace_manager_v1_send_finished(r);
+	wl_resource_destroy(r);
+}
+
+static const struct ext_workspace_manager_v1_interface wsm_impl = {
+	.commit	= wsm_commit,
+	.stop	= wsm_stop,
+};
+
+static void
+wsm_res_destroy(struct wl_resource *r)
+{
+	struct wsmgr *m = wl_resource_get_user_data(r);
+
+	if (m == NULL)
+		return;
+	wl_list_remove(&m->link);
+	free(m);
+}
+
+static void
+bind_ws_manager(struct wl_client *client, void *data, uint32_t version,
+    uint32_t id)
+{
+	struct wl_resource *out;
+	struct wsmgr *m;
+	char buf[8];
+	int i;
+
+	(void)data;
+	if ((m = calloc(1, sizeof(*m))) == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	m->pending = -1;
+
+	m->resource = wl_resource_create(client,
+	    &ext_workspace_manager_v1_interface, version, id);
+	if (m->resource == NULL) {
+		free(m);
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(m->resource, &wsm_impl, m,
+	    wsm_res_destroy);
+	wl_list_insert(&C.ws_managers, &m->link);
+
+	/* One group: one screen, one set of desktops. */
+	m->group = wl_resource_create(client,
+	    &ext_workspace_group_handle_v1_interface, version, 0);
+	if (m->group == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(m->group, &wsg_impl, m, NULL);
+	ext_workspace_manager_v1_send_workspace_group(m->resource, m->group);
+	/* No capabilities: the desktops are ours, a client cannot add any. */
+	ext_workspace_group_handle_v1_send_capabilities(m->group, 0);
+	if ((out = output_of(client)) != NULL)
+		ext_workspace_group_handle_v1_send_output_enter(m->group, out);
+
+	for (i = 0; i < NWORKSPACES; i++) {
+		struct wl_array coords;
+		uint32_t *co;
+
+		m->ws[i] = wl_resource_create(client,
+		    &ext_workspace_handle_v1_interface, version, 0);
+		if (m->ws[i] == NULL) {
+			wl_client_post_no_memory(client);
+			return;
+		}
+		wl_resource_set_implementation(m->ws[i], &wsh_impl,
+		    (void *)(intptr_t)(i + 1), NULL);
+
+		ext_workspace_manager_v1_send_workspace(m->resource, m->ws[i]);
+		ext_workspace_group_handle_v1_send_workspace_enter(m->group,
+		    m->ws[i]);
+
+		snprintf(buf, sizeof(buf), "%d", i + 1);
+		ext_workspace_handle_v1_send_id(m->ws[i], buf);
+		ext_workspace_handle_v1_send_name(m->ws[i], buf);
+
+		/* A one-dimensional row of desktops. */
+		wl_array_init(&coords);
+		if ((co = wl_array_add(&coords, sizeof(*co))) != NULL)
+			*co = (uint32_t)i;
+		ext_workspace_handle_v1_send_coordinates(m->ws[i], &coords);
+		wl_array_release(&coords);
+
+		ext_workspace_handle_v1_send_capabilities(m->ws[i],
+		    EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE);
+		ws_send_state(m, i);
+	}
+
+	ext_workspace_manager_v1_send_done(m->resource);
+	wlog("workspace: manager bound (%d desktops, current %d)\n",
+	    NWORKSPACES, C.ws);
+}
+
 /* ----------------------------------------------------------------- input */
 
 static int
@@ -3215,6 +3532,7 @@ main(int argc, char **argv)
 	wl_list_init(&C.toplevels);
 	wl_list_init(&C.outputs);
 	wl_list_init(&C.ftl_managers);
+	wl_list_init(&C.ws_managers);
 	for (int i = 0; i < NLAYERS; i++)
 		wl_list_init(&C.layers[i]);
 	wl_list_init(&C.pointers);
@@ -3265,6 +3583,9 @@ main(int argc, char **argv)
 	    wl_global_create(C.display,
 		&zwlr_foreign_toplevel_manager_v1_interface, 3, NULL,
 		bind_ftl_manager) == NULL ||
+	    /* Virtual desktops.  Nothing else in Wayland exposes them. */
+	    wl_global_create(C.display, &ext_workspace_manager_v1_interface, 1,
+		NULL, bind_ws_manager) == NULL ||
 	    wl_global_create(C.display, &xdg_wm_base_interface, 3, NULL,
 		bind_wm_base) == NULL) {
 		wlog("wl_global_create failed\n");
