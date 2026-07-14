@@ -66,7 +66,14 @@ TABLEGEN_OUTPUT= \
 # include path would also put its llvm/Config/ on the path, shadowing the
 # *generated* LLVM config headers and pulling in a static abi-breaking.h whose
 # llvm-config.h does not exist there ("fatal error: llvm/Config/llvm-config.h").
-CPPFLAGS+=	-I${LLVM_TOPLEVEL}/lldconfig \
+# Options.inc is generated here by llvm-tblgen (TABLEGEN_OUTPUT above) and lands
+# in the objdir, but lld/ELF/Driver.h includes it by bare name -- so the objdir
+# has to be on the include path or it is simply not found.  (A pre-generated copy
+# in the source directory does not help and actively hurts: bmake finds it via
+# .CURDIR, decides the target is up to date, and never runs tblgen at all -- while
+# the compiler still cannot see it.)
+CPPFLAGS+=	-I${.OBJDIR} \
+		-I${LLVM_TOPLEVEL}/lldconfig \
 		-I${LLVM_TOPLEVEL}/lldconfig/lld/Common \
 		-I${LLD_SRCDIR}/ELF
 
