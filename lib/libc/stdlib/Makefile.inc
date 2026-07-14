@@ -5,7 +5,7 @@
 .PATH: ${ARCHDIR}/stdlib ${.CURDIR}/stdlib
 
 SRCS+=	_env.c _rand48.c \
-	a64l.c abort.c atexit.c atof.c atoi.c atol.c atoll.c \
+	a64l.c abort.c atexit.c cxa_thread_atexit.c atof.c atoi.c atol.c atoll.c \
 	bsearch.c drand48.c exit.c \
 	getenv.c getopt.c getopt_long.c getsubopt.c \
 	hcreate.c heapsort.c imaxdiv.c insque.c jrand48.c l64a.c lldiv.c \

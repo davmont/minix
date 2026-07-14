@@ -205,9 +205,14 @@ int	 ftruncate(int, off_t);
  */
 #if (_POSIX_C_SOURCE - 0) >= 199309L || (_XOPEN_SOURCE - 0) >= 500 || \
     defined(_NETBSD_SOURCE)
-#if !defined(__minix)
+/*
+ * fdatasync() is implemented (minix/lib/libc/sys/fdatasync.c, and the symbol is
+ * in libc), and <sys/unistd.h> advertises _POSIX_SYNCHRONIZED_IO as 1 -- which
+ * POSIX says means fdatasync() is available.  Only the declaration was hidden,
+ * so callers got "use of undeclared identifier" for a function that was sitting
+ * right there in the library.  Qt is one such caller.
+ */
 int	 fdatasync(int);
-#endif /* !defined(__minix) */
 int	 fsync(int);
 #endif
 

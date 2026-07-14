@@ -104,3 +104,19 @@ void __diagassert(const char *, int, const char *);
 void __diagassert13(const char *, int, const char *, const char *);
 __END_DECLS
 #endif /* __ASSERT_DECLARED */
+
+/*
+ * C11 7.2: <assert.h> shall define static_assert as _Static_assert.  We did
+ * not, so any C11 source using it -- Qt's does, in qtypes.h -- failed to
+ * compile here with an error that names the expression rather than the missing
+ * macro, which is a thoroughly misleading place to start looking.
+ *
+ * C23 promotes static_assert to a keyword and no longer requires the macro, so
+ * do not define it there; and never in C++, where it has always been a keyword.
+ */
+#if !defined(__cplusplus) && \
+    ((__STDC_VERSION__ - 0) >= 201112L) && ((__STDC_VERSION__ - 0) < 202311L)
+#if !defined(static_assert)
+#define static_assert _Static_assert
+#endif
+#endif

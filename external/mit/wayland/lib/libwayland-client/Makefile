@@ -36,4 +36,10 @@ wayland-client.pc: wayland-client.pc.in
 all: ${WL_VERSION_H} ${WL_CLIENT_H} ${WL_PROTO_C} wayland-client.pc
 dependall: all
 
+# A shared library must record what it needs.  libwayland dispatches every
+# protocol message through ffi_call(), so libffi is a real dependency -- without
+# this the .so has undefined ffi_* symbols and anything that links it fails,
+# which is exactly how Qt's Wayland plugin first failed to link.
+LIBDPLIBS+=	ffi	${.CURDIR}/../../../libffi/lib/libffi
+
 .include <bsd.lib.mk>
