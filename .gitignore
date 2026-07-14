@@ -136,3 +136,6 @@ boot/minix/.temp/mod12_init
 /minix_*.iso
 /minix_*.iso.bak
 /minix_*.img
+
+# build output from tools/llvm-lld (the host ld.lld binary)
+tools/llvm-lld/*-ld.lld
