@@ -104,6 +104,7 @@ __RCSID("$NetBSD: citrus_module.c,v 1.12 2015/08/28 11:45:02 joerg Exp $");
 #include "citrus_namespace.h"
 #include "citrus_bcs.h"
 #include "citrus_module.h"
+#include "citrus_module_builtin.h"
 
 #include <sys/types.h>
 #include <dirent.h>
@@ -284,6 +285,10 @@ _citrus_find_getops(_citrus_module_t handle, const char *modname,
 	_DIAGASSERT(modname != NULL);
 	_DIAGASSERT(ifname != NULL);
 
+	/* A module compiled into libc never went through dlopen(). */
+	if (_citrus_is_builtin_module(handle))
+		return _citrus_find_builtin_getops(modname, ifname);
+
 	snprintf(name, sizeof(name), _C_LABEL_STRING("_citrus_%s_%s_getops"),
 	    modname, ifname);
 	p = dlsym((void *)handle, name);
@@ -299,6 +304,11 @@ _citrus_load_module(_citrus_module_t *rhandle, const char *encname)
 	void *handle;
 
 	_DIAGASSERT(rhandle != NULL);
+
+	/* Prefer a module built into libc; only then go looking for a .so. */
+	*rhandle = _citrus_find_builtin_module(encname);
+	if (*rhandle != NULL)
+		return (0);
 
 	if (_pathI18nModule == NULL) {
 		p = getenv("PATH_I18NMODULE");
@@ -340,25 +350,41 @@ _citrus_load_module(_citrus_module_t *rhandle, const char *encname)
 void
 _citrus_unload_module(_citrus_module_t handle)
 {
-	if (handle)
+	/* Built-in modules were never dlopen()ed, so there is nothing to close. */
+	if (handle && !_citrus_is_builtin_module(handle))
 		dlclose((void *)handle);
 }
 #else
 /* !_I18N_DYNAMIC */
 
+/*
+ * No dlopen() here -- this is the libc that gets linked into static programs,
+ * and on MINIX that is nearly everything.  These used to be stubs that failed
+ * every load, which is why a static program could not use any locale but C and
+ * could not iconv at all.  Now they answer out of the table of modules compiled
+ * into libc; anything not in that table is still unavailable, as before.
+ */
 void *
-/*ARGSUSED*/
 _citrus_find_getops(_citrus_module_t handle, const char *modname,
 		    const char *ifname)
 {
-	return (NULL);
+	if (!_citrus_is_builtin_module(handle))
+		return (NULL);
+
+	return _citrus_find_builtin_getops(modname, ifname);
 }
 
 int
-/*ARGSUSED*/
 _citrus_load_module(_citrus_module_t *rhandle, char const *modname)
 {
-	return (EINVAL);
+
+	_DIAGASSERT(rhandle != NULL);
+
+	*rhandle = _citrus_find_builtin_module(modname);
+	if (*rhandle == NULL)
+		return (EINVAL);
+
+	return (0);
 }
 
 void

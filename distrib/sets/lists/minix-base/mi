@@ -444,6 +444,7 @@
 ./usr/share/doc/dbus/examples/example-system-hardening-without-traditional-activation.conf minix-base
 ./usr/bin/qtprobe                                       minix-base
 ./usr/bin/glibprobe                                     minix-base
+./usr/bin/localeprobe                                   minix-base
 ./usr/bin/lxqtprobe                                     minix-base
 ./usr/bin/sockprobe                                     minix-base
 ./usr/bin/ffiprobe                                      minix-base

@@ -53,7 +53,15 @@ _citrus_ctype_rec_t _citrus_ctype_default = {
 	NULL				/* cc_module */
 };
 
-#ifdef _I18N_DYNAMIC
+/*
+ * No _I18N_DYNAMIC gate any more.  This used to be compiled two ways: the full
+ * implementation for the shared libc, and -- for the static libc -- a stub that
+ * accepted only the built-in default encoding and returned EINVAL for everything
+ * else.  The stub existed because loading a module meant dlopen(), and a static
+ * program cannot dlopen.  It no longer does: the modules that matter are compiled
+ * into libc and _citrus_load_module() finds them in a table (citrus_module_builtin.c).
+ * So the real implementation is now used in both.
+ */
 
 static int _initctypemodule(_citrus_ctype_t, char const *, _citrus_module_t,
 			    void *, size_t, size_t);
@@ -191,26 +199,3 @@ _citrus_ctype_close(_citrus_ctype_t cc)
 	free(cc);
 }
 
-#else
-/* !_I18N_DYNAMIC */
-
-int
-/*ARGSUSED*/
-_citrus_ctype_open(_citrus_ctype_t *rcc,
-		   char const *encname, void *variable, size_t lenvar,
-		   size_t szpriv)
-{
-	if (!strcmp(encname, _CITRUS_DEFAULT_CTYPE_NAME)) {
-		*rcc = &_citrus_ctype_default;
-		return (0);
-	}
-	return (EINVAL);
-}
-
-void
-/*ARGSUSED*/
-_citrus_ctype_close(_citrus_ctype_t cc)
-{
-}
-
-#endif

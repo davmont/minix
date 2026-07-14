@@ -49,16 +49,19 @@ unlike CMake's `CMAKE_SYSROOT`, the cross file's `sys_root` only feeds
 pkg-config.  It is in `c_args` explicitly; without it not even `<stddef.h>` is
 found and every probe, down to `sizeof(char)`, fails.
 
-## Known limitation: no iconv, and no UTF-8 locale, in static binaries
+## The C-locale / iconv problem, and its fix
 
-GLib will complain `Conversion from character set '646' to 'UTF-8' is not
-supported`.  This is not a GLib bug and not fixable here.  MINIX (like NetBSD)
-implements both the locale ctype tables and the iconv converters as **dlopen'd
-modules** under `/usr/lib/i18n`.  Qt has to be linked statically on MINIX (a
-dynamic Qt segfaults before `main()` in dynamic TLS), and a static binary cannot
-dlopen -- so `setlocale(LC_CTYPE, "en_US.UTF-8")` silently stays in the C locale,
-`nl_langinfo(CODESET)` keeps reporting `646`, and every `iconv_open()` fails.
+GLib used to flood stderr with `Conversion from character set '646' to 'UTF-8' is
+not supported`.  That was not a GLib bug: citrus implemented both the LC_CTYPE
+encoding handlers and the iconv converters as **dlopen'd modules** under
+`/usr/lib/i18n`, and MINIX links statically, so no static program could load any
+of them.  `setlocale(LC_CTYPE, "en_US.UTF-8")` silently stayed in the C locale
+and every `iconv_open()` failed.
 
-Consequences: ASCII is fine (lxqtprobe passes), but GLib cannot convert non-ASCII
-between the locale and UTF-8.  Fixing it properly means making the citrus ctype
-and iconv modules linkable into a static libc.
+Fixed in libc: the modules that matter are now compiled into libc and looked up
+in a table before dlopen is considered (`lib/libc/citrus/citrus_module_builtin.c`),
+and the `_I18N_DYNAMIC` gates in `citrus_ctype.c`/`citrus_stdenc.c` -- which had
+compiled a stub for static libc that accepted only the default encoding -- are
+gone.  Verified by `minix/commands/localeprobe`.
+
+Anything built before that fix must be relinked to pick it up.

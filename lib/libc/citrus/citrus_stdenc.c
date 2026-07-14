@@ -50,7 +50,15 @@ struct _citrus_stdenc _citrus_stdenc_default = {
 	&_citrus_NONE_stdenc_traits,	/* ce_traits */
 };
 
-#ifdef _I18N_DYNAMIC
+/*
+ * No _I18N_DYNAMIC gate any more.  This used to be compiled two ways: the full
+ * implementation for the shared libc, and -- for the static libc -- a stub that
+ * accepted only the built-in default encoding and returned EINVAL for everything
+ * else.  The stub existed because loading a module meant dlopen(), and a static
+ * program cannot dlopen.  It no longer does: the modules that matter are compiled
+ * into libc and _citrus_load_module() finds them in a table (citrus_module_builtin.c).
+ * So the real implementation is now used in both.
+ */
 
 static int
 /*ARGSUSED*/
@@ -174,26 +182,3 @@ _citrus_stdenc_close(struct _citrus_stdenc *ce)
 	free(ce);
 }
 
-#else
-/* !_I18N_DYNAMIC */
-
-int
-/*ARGSUSED*/
-_citrus_stdenc_open(struct _citrus_stdenc * __restrict * __restrict rce,
-		    char const * __restrict encname,
-		    const void * __restrict variable, size_t lenvar)
-{
-	if (!strcmp(encname, _CITRUS_DEFAULT_STDENC_NAME)) {
-		*rce = &_citrus_stdenc_default;
-		return (0);
-	}
-	return (EINVAL);
-}
-
-void
-/*ARGSUSED*/
-_citrus_stdenc_close(struct _citrus_stdenc *ce)
-{
-}
-
-#endif

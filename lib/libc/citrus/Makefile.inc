@@ -1,7 +1,7 @@
 #	$NetBSD: Makefile.inc,v 1.8 2010/05/30 08:28:53 tnozaki Exp $
 
 # sources
-.PATH: ${ARCHDIR}/citrus ${.CURDIR}/citrus
+.PATH: ${ARCHDIR}/citrus ${.CURDIR}/citrus ${.CURDIR}/citrus/modules
 
 .if !defined(__MINIX)
 MODULE_SHLIB_MAJOR!= . ${NETBSDSRCDIR}/lib/i18n_module/shlib_version ; echo $$major
@@ -21,6 +21,29 @@ SRCS+=	citrus_bcs.c citrus_bcs_strtol.c citrus_bcs_strtoul.c \
 	citrus_iconv.c citrus_lookup.c \
 	citrus_mapper.c citrus_memstream.c citrus_mmap.c citrus_module.c \
 	citrus_none.c citrus_stdenc.c
+
+# citrus loads the LC_CTYPE encodings and the iconv converters as modules
+# dlopen'd from /usr/lib/i18n.  MINIX links its programs statically -- /bin/sh,
+# /bin/ls and init all are -- and a static program cannot dlopen, so none of
+# those modules could ever be loaded: no locale but C, and no iconv at all.
+# Compile the ones that matter into libc instead; citrus_module.c looks them up
+# in a table before reaching for dlopen.  See citrus_module_builtin.c.
+#
+# Only multibyte encodings need a module here (UTF8); single-byte ones already
+# use citrus_none.c above.  The legacy CJK encodings are left out on purpose --
+# a lot of code for something the base system never asks for, and a dynamically
+# linked program can still dlopen them.
+SRCS+=	citrus_module_builtin.c \
+	citrus_utf8.c \
+	citrus_iconv_std.c citrus_iconv_none.c \
+	citrus_mapper_std.c citrus_mapper_none.c citrus_mapper_646.c \
+	citrus_mapper_serial.c citrus_mapper_zone.c
+
+# The module sources live in citrus/modules but include citrus/ headers by plain
+# "..." quotes, which resolve relative to the including file's directory -- and
+# citrus_module_builtin.c, which sits in citrus/, includes the module headers.
+# So both directories have to be on the include path.
+CPPFLAGS+=	-I${.CURDIR}/citrus -I${.CURDIR}/citrus/modules
 SRCS+=	citrus_lc_ctype.c \
 	citrus_lc_monetary.c \
 	citrus_lc_numeric.c \

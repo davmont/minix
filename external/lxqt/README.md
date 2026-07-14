@@ -98,9 +98,10 @@ plugin by hand with `Q_IMPORT_PLUGIN`.  Miss the first and it segfaults before
 `main()` with no output at all; miss the second and Qt aborts with "Could not find
 the Qt platform plugin".  `minix/commands/lxqtprobe` shows both.
 
-## Known limitation: C locale only
+## The C-locale limitation is fixed
 
-See `external/glib/README.md`.  Static binaries on MINIX cannot dlopen the citrus
-locale/iconv modules, so the process is stuck in the C locale (codeset `646`) and
-GLib cannot convert non-ASCII.  ASCII works; accented names will not, until the
-citrus modules can be linked into a static libc.
+Earlier notes here said static binaries on MINIX were stuck in the C locale
+(codeset `646`) with no iconv, so GLib could not handle non-ASCII.  That is fixed
+in libc -- the citrus encoding and iconv modules are compiled in rather than
+dlopen'd; see `external/glib/README.md` and `minix/commands/localeprobe`.  Set
+`LANG=en_US.UTF-8` and a static Qt/LXQt program now gets a real UTF-8 locale.
