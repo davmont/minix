@@ -39,7 +39,7 @@ files, and the mkspec -- and the recipe below fetches the rest.
       -DINPUT_zlib=system -DINPUT_freetype=system \
       -DFEATURE_libudev=OFF -DFEATURE_evdev=OFF -DFEATURE_libinput=OFF \
       -DFEATURE_sql=OFF -DFEATURE_testlib=OFF -DFEATURE_network=OFF \
-      -DFEATURE_printsupport=OFF -DFEATURE_concurrent=OFF \
+      -DFEATURE_printsupport=OFF \
       -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
     ninja -C build-minix && ninja -C build-minix install
 

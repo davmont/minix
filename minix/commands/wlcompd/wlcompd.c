@@ -62,6 +62,7 @@
 
 #include "xdg-shell-server-protocol.h"
 #include "wlr-layer-shell-server-protocol.h"
+#include "wlr-foreign-toplevel-server-protocol.h"
 #include "hid_evdev.h"
 
 #define KEYMAP_PATH	"/usr/share/xkb/us.xkb"
@@ -154,6 +155,18 @@ struct surface {
 
 	int			 mapped;
 	char			 title[64];
+	char			 app_id[64];
+
+	/*
+	 * wlr-foreign-toplevel state (ROLE_TOPLEVEL).  A minimized toplevel is
+	 * still mapped -- the client knows nothing about it -- we simply stop
+	 * drawing it and stop hitting it with the pointer.  Maximizing remembers
+	 * the floating geometry so unmaximize can put it back.
+	 */
+	int			 minimized;
+	int			 maximized;
+	int			 mx, my, mw, mh;	/* geometry before maximize */
+	struct wl_list		 ftl;		/* struct ftl, one per manager */
 
 	struct wl_list		 frame_callbacks;
 	struct wl_list		 link;		/* C.toplevels, if a toplevel */
@@ -167,6 +180,9 @@ static struct {
 	struct wl_list		 toplevels;	/* bottom-to-top */
 	struct wl_list		 layers[NLAYERS];	/* wlr-layer-shell */
 	struct surface		*focus;
+
+	struct wl_list		 outputs;	/* wl_output resources */
+	struct wl_list		 ftl_managers;	/* foreign-toplevel managers */
 
 	/* Seat */
 	struct wl_list		 pointers;
@@ -199,6 +215,21 @@ static struct {
 	pixman_region32_t	 damage;	/* screen damage for this frame */
 	struct wl_event_source	*repaint;
 } C;
+
+static int toplevel_visible(const struct surface *);
+
+/*
+ * wlr-foreign-toplevel notifications.  Defined further down with the rest of the
+ * protocol, but the places that must fire them -- map, destroy, focus, set_title
+ * -- come first.
+ */
+static void ftl_announce(struct surface *);
+static void ftl_closed(struct surface *);
+static void ftl_focus_changed(void);
+static void ftl_state_changed(struct surface *);
+static void ftl_title_changed(struct surface *);
+static void ftl_app_id_changed(struct surface *);
+
 
 static FILE *lg;
 
@@ -455,7 +486,7 @@ recomposite(void)
 			render_surface(s);
 
 	wl_list_for_each(s, &C.toplevels, link)
-		if (s->mapped)
+		if (toplevel_visible(s))
 			render_surface(s);
 
 	wl_list_for_each(s, &C.layers[ZWLR_LAYER_SHELL_V1_LAYER_TOP], llink)
@@ -644,13 +675,26 @@ surface_take_buffer(struct surface *s, struct wl_resource *buffer)
 
 /* ------------------------------------------------------------- wl_surface */
 
+/*
+ * A minimized toplevel is still mapped: the client has no idea it is minimized,
+ * and must not -- minimizing is the compositor's business, and there is no
+ * Wayland event to tell a client about it.  So we simply stop drawing it and
+ * stop letting the pointer hit it.  Everything that walks C.toplevels for
+ * something the user can see or click asks this, not s->mapped.
+ */
+static int
+toplevel_visible(const struct surface *s)
+{
+	return s->mapped && !s->minimized;
+}
+
 static struct surface *
 top_toplevel(void)
 {
 	struct surface *s, *top = NULL;
 
 	wl_list_for_each(s, &C.toplevels, link)
-		if (s->mapped)
+		if (toplevel_visible(s))
 			top = s;
 	return top;
 }
@@ -693,8 +737,13 @@ surface_destroy(struct wl_resource *resource)
 	free(s->pix);
 	pixman_region32_fini(&s->damage);
 
-	if (C.focus == s)
+	if (s->role == ROLE_TOPLEVEL)
+		ftl_closed(s);
+
+	if (C.focus == s) {
 		C.focus = top_toplevel();
+		ftl_focus_changed();
+	}
 	if (C.ptr_focus == s)
 		C.ptr_focus = NULL;
 	if (C.dragging == s)
@@ -797,8 +846,17 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 	if (surface_take_buffer(s, s->pending_buffer) == 0) {
 		if (!s->mapped) {
 			s->mapped = 1;
-			if (s->role == ROLE_TOPLEVEL)
+			if (s->role == ROLE_TOPLEVEL) {
 				C.focus = s;
+				/*
+				 * Announce it only now.  A toplevel exists as a
+				 * wl_surface well before it has a buffer, and a
+				 * taskbar entry for a window that is not on
+				 * screen yet is just a flicker.
+				 */
+				ftl_announce(s);
+				ftl_focus_changed();
+			}
 			dmg_add_surface(s);
 			wlog("%s mapped %dx%d \"%s\"\n",
 			    s->role == ROLE_POPUP ? "popup" :
@@ -914,6 +972,7 @@ comp_create_surface(struct wl_client *client, struct wl_resource *r,
 		return;
 	}
 	wl_list_init(&s->frame_callbacks);
+	wl_list_init(&s->ftl);
 	wl_list_init(&s->children);
 	wl_list_init(&s->sibling);
 	wl_list_init(&s->llink);
@@ -1101,13 +1160,24 @@ xdgtop_set_title(struct wl_client *c, struct wl_resource *r, const char *title)
 	if (s != NULL && title != NULL) {
 		strlcpy(s->title, title, sizeof(s->title));
 		dmg_add(s->x, s->y, s->w, TITLEH);
+		ftl_title_changed(s);
 	}
 }
 
 static void
 xdgtop_set_app_id(struct wl_client *c, struct wl_resource *r, const char *id)
 {
-	(void)c; (void)r; (void)id;
+	struct surface *s = wl_resource_get_user_data(r);
+
+	(void)c;
+	/*
+	 * We have no use for the app id ourselves, but a taskbar does: it is how
+	 * it finds the .desktop file, and so the icon.
+	 */
+	if (s != NULL && id != NULL) {
+		strlcpy(s->app_id, id, sizeof(s->app_id));
+		ftl_app_id_changed(s);
+	}
 }
 
 static void
@@ -2220,6 +2290,12 @@ static const struct wl_output_interface output_impl = {
 };
 
 static void
+output_res_destroy(struct wl_resource *r)
+{
+	wl_list_remove(wl_resource_get_link(r));
+}
+
+static void
 bind_output(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 {
 	struct wl_resource *r;
@@ -2231,7 +2307,13 @@ bind_output(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 		wl_client_post_no_memory(client);
 		return;
 	}
-	wl_resource_set_implementation(r, &output_impl, NULL, NULL);
+	/*
+	 * Keep the output resources: zwlr_foreign_toplevel_handle_v1.output_enter
+	 * has to name the wl_output *that client* bound, not ours.
+	 */
+	wl_resource_set_implementation(r, &output_impl, NULL,
+	    output_res_destroy);
+	wl_list_insert(&C.outputs, wl_resource_get_link(r));
 
 	wl_output_send_geometry(r, 0, 0, w, h, WL_OUTPUT_SUBPIXEL_UNKNOWN,
 	    "MINIX", "fb0", WL_OUTPUT_TRANSFORM_NORMAL);
@@ -2241,6 +2323,395 @@ bind_output(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 		wl_output_send_scale(r, 1);
 	if (version >= WL_OUTPUT_DONE_SINCE_VERSION)
 		wl_output_send_done(r);
+}
+
+/* ------------------------------------ wlr-foreign-toplevel-management-v1 */
+
+/*
+ * What a taskbar needs, and the only way it can get it.
+ *
+ * Wayland deliberately does not let a client see, name, raise or close another
+ * client's windows -- that is a security property, not an oversight.  This
+ * protocol is the explicit opt-in that hands those powers to a privileged
+ * client, which is what a panel is.  lxqt-panel's "wlroots" backend speaks it;
+ * without it, its taskbar has nothing to show and it falls back to a dummy
+ * backend.
+ *
+ * One handle exists per (manager, toplevel) pair: every manager that binds gets
+ * told about every toplevel, and each gets its own handle resource for it.
+ */
+
+struct ftl {
+	struct wl_resource	*resource;
+	struct surface		*s;	/* NULL once the toplevel has gone */
+	struct wl_list		 link;	/* in s->ftl */
+};
+
+static void keyboard_focus(struct surface *);	/* defined with the seat */
+
+static struct wl_resource *
+output_of(struct wl_client *client)
+{
+	struct wl_resource *o;
+
+	wl_resource_for_each(o, &C.outputs)
+		if (wl_resource_get_client(o) == client)
+			return o;
+	return NULL;
+}
+
+static void
+ftl_send_state(struct ftl *f)
+{
+	struct wl_array a;
+	uint32_t *st;
+
+	wl_array_init(&a);
+	if (f->s->maximized &&
+	    (st = wl_array_add(&a, sizeof(*st))) != NULL)
+		*st = ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED;
+	if (f->s->minimized &&
+	    (st = wl_array_add(&a, sizeof(*st))) != NULL)
+		*st = ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED;
+	if (f->s == C.focus && !f->s->minimized &&
+	    (st = wl_array_add(&a, sizeof(*st))) != NULL)
+		*st = ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED;
+
+	zwlr_foreign_toplevel_handle_v1_send_state(f->resource, &a);
+	wl_array_release(&a);
+}
+
+/* Everything the protocol says a change must be followed by. */
+static void
+ftl_done(struct surface *s)
+{
+	struct ftl *f;
+
+	wl_list_for_each(f, &s->ftl, link)
+		zwlr_foreign_toplevel_handle_v1_send_done(f->resource);
+}
+
+static void
+ftl_state_changed(struct surface *s)
+{
+	struct ftl *f;
+
+	if (s == NULL || s->role != ROLE_TOPLEVEL)
+		return;
+	wl_list_for_each(f, &s->ftl, link) {
+		ftl_send_state(f);
+		zwlr_foreign_toplevel_handle_v1_send_done(f->resource);
+	}
+}
+
+/*
+ * Activation is not a property of one window: the one that loses focus has to
+ * be told too, or a taskbar shows two windows highlighted at once.
+ */
+static void
+ftl_focus_changed(void)
+{
+	struct surface *s;
+
+	wl_list_for_each(s, &C.toplevels, link)
+		ftl_state_changed(s);
+}
+
+static void
+ftl_title_changed(struct surface *s)
+{
+	struct ftl *f;
+
+	if (s->role != ROLE_TOPLEVEL)
+		return;
+	wl_list_for_each(f, &s->ftl, link)
+		zwlr_foreign_toplevel_handle_v1_send_title(f->resource,
+		    s->title);
+	ftl_done(s);
+}
+
+static void
+ftl_app_id_changed(struct surface *s)
+{
+	struct ftl *f;
+
+	if (s->role != ROLE_TOPLEVEL)
+		return;
+	wl_list_for_each(f, &s->ftl, link)
+		zwlr_foreign_toplevel_handle_v1_send_app_id(f->resource,
+		    s->app_id);
+	ftl_done(s);
+}
+
+/* The toplevel is going away: tell every manager, and orphan the handles. */
+static void
+ftl_closed(struct surface *s)
+{
+	struct ftl *f, *tmp;
+
+	wl_list_for_each_safe(f, tmp, &s->ftl, link) {
+		zwlr_foreign_toplevel_handle_v1_send_closed(f->resource);
+		/*
+		 * The client destroys the handle in its own time; until it does,
+		 * the handle must not point at a freed surface.
+		 */
+		f->s = NULL;
+		wl_list_remove(&f->link);
+		wl_list_init(&f->link);
+	}
+}
+
+static void
+ftl_handle_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+ftl_handle_set_maximized(struct wl_client *c, struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+	struct surface *s;
+
+	(void)c;
+	if (f == NULL || (s = f->s) == NULL || s->maximized)
+		return;
+
+	s->mx = s->x; s->my = s->y; s->mw = s->w; s->mh = s->h;
+	s->maximized = 1;
+	s->x = 0;
+	s->y = TITLEH;
+	dmg_add_surface(s);
+	send_configure(s, fbgui_width(C.fb),
+	    fbgui_height(C.fb) - TITLEH, 0);
+	ftl_state_changed(s);
+}
+
+static void
+ftl_handle_unset_maximized(struct wl_client *c, struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+	struct surface *s;
+
+	(void)c;
+	if (f == NULL || (s = f->s) == NULL || !s->maximized)
+		return;
+
+	dmg_add_surface(s);
+	s->maximized = 0;
+	s->x = s->mx;
+	s->y = s->my;
+	send_configure(s, s->mw, s->mh, 0);
+	ftl_state_changed(s);
+}
+
+static void
+ftl_handle_set_minimized(struct wl_client *c, struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+	struct surface *s;
+
+	(void)c;
+	if (f == NULL || (s = f->s) == NULL || s->minimized)
+		return;
+
+	dmg_add_surface(s);		/* repaint what it was covering */
+	s->minimized = 1;
+	wlog("foreign-toplevel: minimize \"%s\"\n", s->title);
+	if (C.focus == s)
+		keyboard_focus(top_toplevel());	/* broadcasts for everyone */
+	else
+		ftl_state_changed(s);
+}
+
+static void
+ftl_handle_unset_minimized(struct wl_client *c, struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+	struct surface *s;
+
+	(void)c;
+	if (f == NULL || (s = f->s) == NULL || !s->minimized)
+		return;
+
+	s->minimized = 0;
+	dmg_add_surface(s);
+	ftl_state_changed(s);
+}
+
+static void
+ftl_handle_activate(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *seat)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+	struct surface *s;
+
+	(void)c; (void)seat;
+	if (f == NULL || (s = f->s) == NULL)
+		return;
+
+	s->minimized = 0;
+	wlog("foreign-toplevel: activate \"%s\"\n", s->title);
+
+	/* Raise: C.toplevels is bottom-to-top, so the tail is the top. */
+	wl_list_remove(&s->link);
+	wl_list_insert(C.toplevels.prev, &s->link);
+
+	keyboard_focus(s);	/* which broadcasts the new activation state */
+	dmg_add_surface(s);
+}
+
+static void
+ftl_handle_close(struct wl_client *c, struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+
+	(void)c;
+	if (f == NULL || f->s == NULL || f->s->xdg_toplevel == NULL)
+		return;
+	/*
+	 * A request, not an order: xdg_toplevel.close asks the client to close.
+	 * Whether it does is up to it.
+	 */
+	xdg_toplevel_send_close(f->s->xdg_toplevel);
+}
+
+static void
+ftl_handle_set_rectangle(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *surface, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+	/* Where the taskbar button is, for a minimize animation.  We have none. */
+	(void)c; (void)r; (void)surface; (void)x; (void)y; (void)w; (void)h;
+}
+
+static void
+ftl_handle_set_fullscreen(struct wl_client *c, struct wl_resource *r,
+    struct wl_resource *output)
+{
+	(void)output;
+	/* wlcompd has no fullscreen of its own; maximizing is as close as it gets. */
+	ftl_handle_set_maximized(c, r);
+}
+
+static void
+ftl_handle_unset_fullscreen(struct wl_client *c, struct wl_resource *r)
+{
+	ftl_handle_unset_maximized(c, r);
+}
+
+static const struct zwlr_foreign_toplevel_handle_v1_interface ftl_handle_impl = {
+	.set_maximized		= ftl_handle_set_maximized,
+	.unset_maximized	= ftl_handle_unset_maximized,
+	.set_minimized		= ftl_handle_set_minimized,
+	.unset_minimized	= ftl_handle_unset_minimized,
+	.activate		= ftl_handle_activate,
+	.close			= ftl_handle_close,
+	.set_rectangle		= ftl_handle_set_rectangle,
+	.destroy		= ftl_handle_destroy,
+	.set_fullscreen		= ftl_handle_set_fullscreen,
+	.unset_fullscreen	= ftl_handle_unset_fullscreen,
+};
+
+static void
+ftl_handle_res_destroy(struct wl_resource *r)
+{
+	struct ftl *f = wl_resource_get_user_data(r);
+
+	if (f == NULL)
+		return;
+	wl_list_remove(&f->link);	/* safe: ftl_closed re-inits the link */
+	free(f);
+}
+
+/* Tell one manager about one toplevel. */
+static void
+ftl_announce_to(struct wl_resource *mgr, struct surface *s)
+{
+	struct wl_client *client = wl_resource_get_client(mgr);
+	struct wl_resource *out;
+	struct ftl *f;
+
+	if ((f = calloc(1, sizeof(*f))) == NULL)
+		return;
+
+	f->s = s;
+	f->resource = wl_resource_create(client,
+	    &zwlr_foreign_toplevel_handle_v1_interface,
+	    wl_resource_get_version(mgr), 0);
+	if (f->resource == NULL) {
+		free(f);
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(f->resource, &ftl_handle_impl, f,
+	    ftl_handle_res_destroy);
+
+	zwlr_foreign_toplevel_manager_v1_send_toplevel(mgr, f->resource);
+	wl_list_insert(&s->ftl, &f->link);
+	wlog("foreign-toplevel: announced \"%s\" (app_id \"%s\")\n",
+	    s->title, s->app_id);
+
+	zwlr_foreign_toplevel_handle_v1_send_title(f->resource, s->title);
+	zwlr_foreign_toplevel_handle_v1_send_app_id(f->resource, s->app_id);
+	if ((out = output_of(client)) != NULL)
+		zwlr_foreign_toplevel_handle_v1_send_output_enter(f->resource,
+		    out);
+	ftl_send_state(f);
+	zwlr_foreign_toplevel_handle_v1_send_done(f->resource);
+}
+
+/* A new toplevel appeared: tell every manager. */
+static void
+ftl_announce(struct surface *s)
+{
+	struct wl_resource *mgr;
+
+	wl_resource_for_each(mgr, &C.ftl_managers)
+		ftl_announce_to(mgr, s);
+}
+
+static void
+ftl_manager_stop(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	zwlr_foreign_toplevel_manager_v1_send_finished(r);
+	wl_resource_destroy(r);
+}
+
+static const struct zwlr_foreign_toplevel_manager_v1_interface ftl_manager_impl = {
+	.stop = ftl_manager_stop,
+};
+
+static void
+ftl_manager_res_destroy(struct wl_resource *r)
+{
+	wl_list_remove(wl_resource_get_link(r));
+}
+
+static void
+bind_ftl_manager(struct wl_client *client, void *data, uint32_t version,
+    uint32_t id)
+{
+	struct wl_resource *r;
+	struct surface *s;
+
+	(void)data;
+	r = wl_resource_create(client,
+	    &zwlr_foreign_toplevel_manager_v1_interface, version, id);
+	if (r == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &ftl_manager_impl, NULL,
+	    ftl_manager_res_destroy);
+	wl_list_insert(&C.ftl_managers, wl_resource_get_link(r));
+	wlog("foreign-toplevel: manager bound (v%u)\n", version);
+
+	/* A manager that binds late still has to learn about what already exists. */
+	wl_list_for_each(s, &C.toplevels, link)
+		if (s->mapped)
+			ftl_announce_to(r, s);
 }
 
 /* ----------------------------------------------------------------- input */
@@ -2320,7 +2791,7 @@ surface_at(int sx, int sy, int *on_titlebar)
 		wl_list_for_each(s, &C.toplevels, link) {
 			struct surface *h;
 
-			if (!s->mapped)
+			if (!toplevel_visible(s))
 				continue;
 			if ((h = hit_tree(s, sx, sy)) != NULL)
 				hit = h;
@@ -2401,6 +2872,7 @@ keyboard_focus(struct surface *s)
 	}
 
 	C.focus = s;
+	ftl_focus_changed();	/* the taskbar highlights the active window */
 
 	if (s != NULL) {
 		dmg_add(s->x, s->y, s->w, TITLEH);
@@ -2741,6 +3213,8 @@ main(int argc, char **argv)
 	setvbuf(lg, NULL, _IONBF, 0);
 
 	wl_list_init(&C.toplevels);
+	wl_list_init(&C.outputs);
+	wl_list_init(&C.ftl_managers);
 	for (int i = 0; i < NLAYERS; i++)
 		wl_list_init(&C.layers[i]);
 	wl_list_init(&C.pointers);
@@ -2784,6 +3258,13 @@ main(int argc, char **argv)
 		NULL, bind_ddm) == NULL ||
 	    wl_global_create(C.display, &zwlr_layer_shell_v1_interface, 4, NULL,
 		bind_layer_shell) == NULL ||
+	    /*
+	     * How a taskbar gets to see other clients' windows.  Nothing else in
+	     * Wayland will tell it they exist.
+	     */
+	    wl_global_create(C.display,
+		&zwlr_foreign_toplevel_manager_v1_interface, 3, NULL,
+		bind_ftl_manager) == NULL ||
 	    wl_global_create(C.display, &xdg_wm_base_interface, 3, NULL,
 		bind_wm_base) == NULL) {
 		wlog("wl_global_create failed\n");

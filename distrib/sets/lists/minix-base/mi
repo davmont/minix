@@ -3343,6 +3343,7 @@
 ./usr/share/lxqt/lxqt-panel/quicklaunch.desktop         minix-base
 ./usr/share/lxqt/lxqt-panel/showdesktop.desktop         minix-base
 ./usr/share/lxqt/lxqt-panel/spacer.desktop              minix-base
+./usr/share/lxqt/lxqt-panel/taskbar.desktop             minix-base
 ./usr/share/lxqt/lxqt-panel/worldclock.desktop          minix-base
 ./usr/share/misc                                        minix-base
 ./usr/share/misc/NetBSD.el                              minix-base

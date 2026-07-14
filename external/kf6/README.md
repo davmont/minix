@@ -46,14 +46,16 @@ wlcompd does not speak.  So `KWindowSystem` builds with no platform plugin and i
 window-management calls become no-ops.
 
 That is honest rather than lossy: **no Wayland compositor lets one client enumerate
-or raise another's windows** without an explicit protocol, and wlcompd implements
-none.  A full KWindowSystem port would compile down to the same no-op.  The visible
-consequence is that lxqt-panel logs *"Could not create a backend for window
-management operations. Falling back to dummy backend"* and the taskbar and
-pager plugins have nothing to show -- which is why they are not built.
+or raise another's windows** without an explicit protocol.  A full KWindowSystem port
+would compile down to the same no-op here, because its Wayland backend speaks KWin's
+protocol and wlcompd does not.
 
-To make them work, wlcompd would need **wlr-foreign-toplevel-management-v1**; the
-panel already has a `wlroots` backend that speaks exactly that.
+**wlcompd now implements wlr-foreign-toplevel-management-v1**, and the panel's
+`wlroots` backend speaks it -- so the *taskbar* works: it sees, raises, minimizes
+and closes other clients' windows.  KWindowSystem stays a stub because nothing
+routes through it; the taskbar goes through the wlroots backend instead.  What is
+still missing is virtual desktops (the pager), which would need
+`ext-workspace-v1` in wlcompd.
 
 ## The layer-shell-qt patch
 

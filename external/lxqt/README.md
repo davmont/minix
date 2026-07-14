@@ -127,7 +127,13 @@ session yet.
 
 ### Which plugins, and why only those
 
-Enabled: **mainmenu, fancymenu, quicklaunch, showdesktop, spacer, worldclock**.
+Enabled: **mainmenu, fancymenu, quicklaunch, showdesktop, spacer, worldclock,
+taskbar**.
+
+The taskbar works because wlcompd implements **wlr-foreign-toplevel-management-v1**
+and the panel's `wlroots` backend speaks it.  That backend is built STATIC and
+linked into the panel, and `LXQtPanelApplication` instantiates it directly --
+upstream dlopens its WM backends from `*.so`, which a static binary cannot do.
 
 Two independent constraints decide this list.
 
@@ -159,10 +165,16 @@ Two independent constraints decide this list.
   replaces the three `QNativeInterface::QX11Application` probes -- a type that does
   not exist in a Qt built without XCB -- with a `lxqtPanelIsX11()` helper that is a
   compile-time `false`.
-- **No WM backends.**  They are runtime `.so` plugins (unloadable), and each needs
-  something absent: X11, KWin's private protocols (and Qt6Concurrent), or
-  wlr-foreign-toplevel-management.  The panel falls back to its built-in dummy
-  backend.
+- **One WM backend, linked in.**  Upstream loads them as `.so` plugins, which a
+  static binary cannot dlopen.  On MINIX exactly one is built -- `wlroots`, because
+  wlcompd implements the protocol it speaks -- as a STATIC library that
+  `LXQtPanelApplication` uses directly.  (xcb needs X11; kwin_wayland needs KWin's
+  private protocols; wayfire its own.)  It also needs `QT_STATICPLUGIN`: it is a Qt
+  plugin, and moc otherwise emits the shared-plugin entry points, which collide with
+  the panel's own static plugins.
+
+  Qt must be built with `-DFEATURE_concurrent=ON` for this backend (our Qt recipe
+  had it off).
 
 ### lxqt-globalkeys
 
