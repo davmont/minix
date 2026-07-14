@@ -1,0 +1,29 @@
+--- a/src/corelib/io/qstorageinfo_unix.cpp	2026-05-07 09:50:01.000000000 +0200
++++ b/src/corelib/io/qstorageinfo_unix.cpp	2026-07-14 01:44:02.773523787 +0200
+@@ -37,7 +37,7 @@
+ #endif
+ 
+ #if defined(Q_OS_BSD4)
+-#  if defined(Q_OS_NETBSD)
++#  if defined(Q_OS_NETBSD) || defined(Q_OS_MINIX)
+ #    define QT_STATFSBUF struct statvfs
+ #    define QT_STATFS    ::statvfs
+ #  else
+@@ -48,7 +48,7 @@
+ #  if !defined(ST_RDONLY)
+ #    define ST_RDONLY MNT_RDONLY
+ #  endif
+-#  if !defined(_STATFS_F_FLAGS) && !defined(Q_OS_NETBSD)
++#  if !defined(_STATFS_F_FLAGS) && !defined(Q_OS_NETBSD) && !defined(Q_OS_MINIX)
+ #    define _STATFS_F_FLAGS 1
+ #  endif
+ #elif defined(Q_OS_HAIKU) || defined(Q_OS_CYGWIN)
+@@ -407,7 +407,7 @@
+     QT_EINTR_LOOP(result, QT_STATFS(QFile::encodeName(rootPath).constData(), &statfs_buf));
+     valid = ready = (result == 0);
+     if (valid) {
+-#if defined(Q_OS_INTEGRITY) || (defined(Q_OS_BSD4) && !defined(Q_OS_NETBSD)) || defined(Q_OS_RTEMS)
++#if defined(Q_OS_INTEGRITY) || (defined(Q_OS_BSD4) && !defined(Q_OS_NETBSD) && !defined(Q_OS_MINIX)) || defined(Q_OS_RTEMS)
+         bytesTotal = statfs_buf.f_blocks * statfs_buf.f_bsize;
+         bytesFree = statfs_buf.f_bfree * statfs_buf.f_bsize;
+         bytesAvailable = statfs_buf.f_bavail * statfs_buf.f_bsize;

@@ -1,0 +1,23 @@
+--- /tmp/pg/glib-2.80.5/meson.build	2024-08-26 12:15:22.000000000 +0200
++++ glib-2.80.5/meson.build	2026-07-14 11:57:45.193050592 +0200
+@@ -2084,7 +2084,19 @@
+   if cc.has_header_symbol('pthread.h', 'pthread_getname_np', prefix : pthread_prefix)
+     glib_conf.set('HAVE_PTHREAD_GETNAME_NP', 1)
+   endif
+-  if cc.has_header_symbol('pthread.h', 'pthread_getaffinity_np', prefix : pthread_prefix)
++  # Checking that the symbol merely exists is not enough.  MINIX (like NetBSD)
++  # has pthread_getaffinity_np, but it takes a cpuset_t, whereas the caller in
++  # gthread.c uses the glibc shape -- cpu_set_t with CPU_ZERO/CPU_COUNT, which
++  # do not exist here.  Compile the actual usage, so platforms with the other
++  # API fall through to the sysconf(_SC_NPROCESSORS_ONLN) branch instead.
++  if cc.compiles(pthread_prefix + '''
++                 int main (void) {
++                   cpu_set_t m;
++                   CPU_ZERO (&m);
++                   pthread_getaffinity_np (pthread_self (), sizeof (m), &m);
++                   return CPU_COUNT (&m);
++                 }''',
++                 name : 'pthread_getaffinity_np with glibc cpu_set_t API')
+     glib_conf.set('HAVE_PTHREAD_GETAFFINITY_NP', 1)
+   endif
+ 

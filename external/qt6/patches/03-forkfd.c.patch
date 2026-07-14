@@ -1,0 +1,59 @@
+--- a/src/3rdparty/forkfd/forkfd.c	2026-05-07 09:50:01.000000000 +0200
++++ b/src/3rdparty/forkfd/forkfd.c	2026-07-14 01:36:59.328453311 +0200
+@@ -317,6 +317,16 @@
+ }
+ 
+ static void reapChildProcesses();
++static void sigchld_handler(int signum, siginfo_t *handler_info, void *handler_context);
++
++#ifndef SA_SIGINFO
++/* See the note where this is installed (forkfd_init). */
++static void sigchld_handler_nosiginfo(int signum)
++{
++    sigchld_handler(signum, NULL, NULL);
++}
++#endif
++
+ static void sigchld_handler(int signum, siginfo_t *handler_info, void *handler_context)
+ {
+     /*
+@@ -334,9 +344,11 @@
+      * those two arguments have a chance of being correct.
+      */
+     if (old_sigaction.sa_handler != SIG_IGN && old_sigaction.sa_handler != SIG_DFL) {
++#ifdef SA_SIGINFO
+         if (old_sigaction.sa_flags & SA_SIGINFO)
+             old_sigaction.sa_sigaction(signum, handler_info, handler_context);
+         else
++#endif
+             old_sigaction.sa_handler(signum);
+     }
+ 
+@@ -534,12 +546,27 @@
+     struct sigaction action;
+     memset(&action, 0, sizeof action);
+     sigemptyset(&action.sa_mask);
++#ifdef SA_SIGINFO
+     action.sa_flags = SA_NOCLDSTOP | SA_SIGINFO;
++#else
++    action.sa_flags = SA_NOCLDSTOP;
++#endif
+ #ifdef SA_RESTART
+     /* ask the OS to restart syscalls we may have interrupted */
+     action.sa_flags |= SA_RESTART;
+ #endif
++#ifdef SA_SIGINFO
+     action.sa_sigaction = sigchld_handler;
++#else
++    /*
++     * MINIX has no SA_SIGINFO and no sa_sigaction: <sys/signal.h> defines
++     * SA_SIGINFO only "#if !defined(__minix)".  Nothing is lost by installing a
++     * plain handler, because sigchld_handler ignores the siginfo it is handed
++     * anyway -- see the comment on it: the siginfo may be invalid when chained
++     * from a handler that did not use SA_SIGINFO, so it calls waitid() itself.
++     */
++    action.sa_handler = sigchld_handler_nosiginfo;
++#endif
+ 
+     /* ### RACE CONDITION
+      * The sigaction function does a memcpy from an internal buffer

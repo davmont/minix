@@ -1,0 +1,14 @@
+--- a/src/corelib/io/qlockfile_unix.cpp	2026-05-07 09:50:01.000000000 +0200
++++ b/src/corelib/io/qlockfile_unix.cpp	2026-07-14 01:42:45.716097060 +0200
+@@ -231,7 +231,10 @@
+     if (get_thread_info(pid, &info) != B_OK)
+         return QString();
+     return QFile::decodeName(info.name);
+-#elif defined(Q_OS_BSD4) && !defined(QT_PLATFORM_UIKIT)
++/* MINIX is Q_OS_BSD4 for its userland semantics, but it has no kinfo_proc and
++ * no KERN_PROC sysctl, so it must not take this path -- it falls through to the
++ * generic one below, which simply cannot name the process holding a lock. */
++#elif defined(Q_OS_BSD4) && !defined(QT_PLATFORM_UIKIT) && !defined(Q_OS_MINIX)
+ # if defined(Q_OS_NETBSD)
+     struct kinfo_proc2 kp;
+     int mib[6] = { CTL_KERN, KERN_PROC2, KERN_PROC_PID, (int)pid, sizeof(struct kinfo_proc2), 1 };

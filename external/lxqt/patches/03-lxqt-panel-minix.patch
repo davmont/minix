@@ -1,0 +1,263 @@
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/CMakeLists.txt
+--- /tmp/pr/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-07-14 20:35:50.234580827 +0200
+@@ -15,5 +15,19 @@
+     Qt6::Gui
+ )
+ 
+-add_subdirectory(wayland)
+-add_subdirectory(xcb)
++# Upstream loads the WM backends at runtime as .so plugins (LXQtPanelApplication
++# scans the backend dir for *.so).  A static binary cannot dlopen, and Qt must be
++# static on MINIX -- so on MINIX we build exactly one backend, statically, and
++# LXQtPanelApplication uses it directly.
++#
++# It is the wlroots one, because wlcompd implements the protocol it speaks:
++# wlr-foreign-toplevel-management-v1, which is the only way Wayland lets a panel
++# see other clients' windows at all.  The others are unusable here on their own
++# terms: xcb needs X11, kwin_wayland needs KWin's private protocols, wayfire its
++# own.
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    add_subdirectory(wayland/wlroots)
++else()
++    add_subdirectory(wayland)
++    add_subdirectory(xcb)
++endif()
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
+--- /tmp/pr/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-07-14 20:38:09.305666385 +0200
+@@ -26,8 +26,20 @@
+     workspace.cpp workspace.hpp
+ )
+ 
+-add_library(${NAME} MODULE ${SRC}) # build dynamically loadable modules
+-install(TARGETS ${NAME} DESTINATION ${PLUGIN_DIR}/${BACKEND}) # install the *.so file
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    # Static: see panel/backends/CMakeLists.txt.  Nothing installs it -- it is
++    # linked into lxqt-panel itself.
++    add_library(${NAME} STATIC ${SRC})
++    # This is a Qt plugin, and moc emits the *shared*-plugin entry points
++    # (qt_plugin_instance, qt_plugin_query_metadata_v2) unless told otherwise --
++    # which then collide with the panel's own static plugins, since every one of
++    # them defines the same two symbols.  QT_STATICPLUGIN switches moc to the
++    # per-class qt_static_plugin_<Class>() form instead.
++    target_compile_definitions(${NAME} PRIVATE QT_STATICPLUGIN)
++else()
++    add_library(${NAME} MODULE ${SRC}) # build dynamically loadable modules
++    install(TARGETS ${NAME} DESTINATION ${PLUGIN_DIR}/${BACKEND}) # install the *.so file
++endif()
+ 
+ target_link_libraries(${NAME} ${QTX_LIBRARIES} Qt6::Concurrent Qt6Xdg)
+ 
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/CMakeLists.txt
+--- /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-07-14 20:36:22.346739060 +0200
+@@ -111,6 +111,22 @@
+     lxqt-panel-backend-common
+ )
+ 
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    # See minix_static_plugins.cpp: with a static Qt the plugins are archives that
++    # have to be imported and linked explicitly.
++    target_sources(${PROJECT} PRIVATE minix_static_plugins.cpp)
++    # The one WM backend we build (wlroots) is linked in rather than dlopen'd.
++    target_compile_definitions(${PROJECT} PRIVATE LXQT_PANEL_STATIC_WM_BACKEND)
++    target_link_libraries(${PROJECT} wmbackend_wlroots)
++    target_link_libraries(${PROJECT}
++        Qt6::QWaylandIntegrationPlugin
++        Qt6::QSvgIconPlugin Qt6::QSvgPlugin
++        Qt6::QGifPlugin Qt6::QICOPlugin Qt6::QJpegPlugin
++        ${CMAKE_SYSROOT}/usr/lib/liblayer-shell.a
++        ${CMAKE_SYSROOT}/usr/lib/qt6/plugins/iconengines/libQt6XdgIconPlugin.a
++    )
++endif()
++
+ set_property(TARGET ${PROJECT} PROPERTY ENABLE_EXPORTS TRUE)
+ 
+ install(TARGETS ${PROJECT} RUNTIME DESTINATION bin)
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
+--- /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h	1970-01-01 01:00:00.000000000 +0100
++++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-14 16:58:59.011688548 +0200
+@@ -0,0 +1,29 @@
++/*
++ * MINIX: KWindowSystem is built without X11 support (there is no X11 here at
++ * all), so KX11Extras does not exist.  Every use of it in the panel is an
++ * X11/EWMH operation -- _NET_WM_STRUT, _NET_WM_WINDOW_TYPE_DOCK, virtual
++ * desktops, window activation -- and none of them apply on Wayland, where
++ * LayerShellQt sets the layer, the anchors and the exclusive zone instead.  The
++ * call sites that are not already guarded by a QX11Application check are
++ * unreachable without X11 anyway.
++ *
++ * So give them a no-op stub rather than #ifdef out a dozen call sites.  The
++ * members are variadic templates purely so the stub does not have to track
++ * upstream's exact signatures.
++ */
++#ifndef KX11EXTRAS_MINIX_H
++#define KX11EXTRAS_MINIX_H
++
++#include <netwm_def.h>
++
++struct KX11Extras
++{
++    template <typename... A> static void activateWindow(A &&...) {}
++    template <typename... A> static void setOnDesktop(A &&...) {}
++    template <typename... A> static void setOnAllDesktops(A &&...) {}
++    template <typename... A> static void setType(A &&...) {}
++    template <typename... A> static void setExtendedStrut(A &&...) {}
++    static int currentDesktop() { return 0; }
++};
++
++#endif /* KX11EXTRAS_MINIX_H */
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp
+--- /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-07-14 20:36:02.126112071 +0200
+@@ -43,6 +43,9 @@
+ #include <QProcessEnvironment>
+ 
+ #include "backends/lxqtdummywmbackend.h"
++#ifdef LXQT_PANEL_STATIC_WM_BACKEND
++#include "backends/wayland/wlroots/lxqtwmbackend_wlr.h"
++#endif
+ 
+ static inline QMap<QString, int> getBackendScoreMap( QString compositor )
+ {
+@@ -271,10 +274,20 @@
+ 
+     QPluginLoader loader;
+ 
++#ifdef LXQT_PANEL_STATIC_WM_BACKEND
++    /*
++     * MINIX: the WM backends are .so plugins and a static binary cannot dlopen,
++     * so the only backend that exists is the one linked into this executable --
++     * the wlroots one, which speaks wlr-foreign-toplevel-management-v1.  Use it
++     * directly; there is nothing to search for and nothing to score.
++     */
++    mWMBackend = LXQtWMBackendWlrootsLibrary().instance();
++#endif
++
+     // We now have the preferred backend.
+     // We have taken into consideration, the user's choice.
+     // In case it was unavailable, a default one has been chosen.
+-    if(!preferredBackend.isEmpty())
++    if(!mWMBackend && !preferredBackend.isEmpty())
+     {
+         loader.setFileName(getBackendFilePath(preferredBackend));
+         if (loader.load())
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lxqtpanel.cpp
+--- /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-07-14 17:00:58.920889903 +0200
+@@ -50,8 +50,19 @@
+ #include <XdgDirs>
+ 
+ #include <KWindowSystem>
++#ifdef LXQT_PANEL_NO_X11
++#include "kx11extras_minix.h"
++#else
+ #include <KX11Extras>
++#endif
++#ifdef LXQT_PANEL_NO_X11
++/* <NETWM> is the camelcase forwarding header, installed only with X11 support.
++ * The NET:: enums the panel actually uses live in netwm_def.h, which is always
++ * installed. */
++#include <netwm_def.h>
++#else
+ #include <NETWM>
++#endif
+ 
+ #include <algorithm>
+ 
+@@ -64,7 +75,22 @@
+ // #define DEBUG_PLUGIN_LOADTIME
+ #ifdef DEBUG_PLUGIN_LOADTIME
+ #include <QElapsedTimer>
++
++#endif
++
++/*
++ * "Are we on X11?"  Qt on MINIX is built without the XCB platform, so
++ * QNativeInterface::QX11Application does not exist and the usual test does not
++ * even compile.  There, the answer is a compile-time no.
++ */
++static inline bool lxqtPanelIsX11()
++{
++#ifdef LXQT_PANEL_NO_X11
++    return false;
++#else
++    return qGuiApp->nativeInterface<QNativeInterface::QX11Application>() != nullptr;
+ #endif
++}
+ 
+ // Config keys and groups
+ #define CFG_KEY_SCREENNUM          "desktop"
+@@ -546,7 +572,7 @@
+ void LXQtPanel::show()
+ {
+     QWidget::show();
+-    if(qGuiApp->nativeInterface<QNativeInterface::QX11Application>()) //TODO: cache in bool isPlatformX11
++    if(lxqtPanelIsX11()) //TODO: cache in bool isPlatformX11
+         KX11Extras::setOnDesktop(effectiveWinId(), NET::OnAllDesktops);
+ }
+ 
+@@ -904,7 +930,7 @@
+     if(wid == 0 || !isVisible())
+         return;
+ 
+-    if(qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
++    if(lxqtPanelIsX11())
+     {
+         if (mReserveSpace && QApplication::primaryScreen())
+         {
+@@ -1415,7 +1441,7 @@
+ 
+     case QEvent::WinIdChange:
+     {
+-        if(qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
++        if(lxqtPanelIsX11())
+         {
+             // qDebug() << "WinIdChange" << hex << effectiveWinId();
+             if(effectiveWinId() == 0)
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
+--- /tmp/pr/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
++++ lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	2026-07-14 17:02:55.980280066 +0200
+@@ -0,0 +1,26 @@
++/*
++ * Static Qt plugin imports (MINIX).
++ *
++ * Qt has to be linked statically here -- a dynamically linked Qt segfaults before
++ * main() in ld.elf_so's dynamic TLS -- which means Qt's plugins are archives, not
++ * .so files it can dlopen.  A static plugin only exists if it is registered by
++ * hand, and lxqt-panel is a plain add_executable(), so Qt's own automatic import
++ * generation (which qt_add_executable() would do) never runs.  Without this the
++ * panel aborts at startup with "Could not find the Qt platform plugin wayland".
++ *
++ * The same applies to LayerShellQt: its wlr-layer-shell support IS a QPA
++ * shell-integration plugin, selected by QT_WAYLAND_SHELL_INTEGRATION=layer-shell.
++ * Importing it is what lets LayerShellQt::Window actually dock the panel.
++ */
++#include <QtPlugin>
++
++Q_IMPORT_PLUGIN(QWaylandIntegrationPlugin)             /* QPA platform: wayland */
++Q_IMPORT_PLUGIN(QWaylandLayerShellIntegrationPlugin)   /* wlr-layer-shell */
++
++/* Icons and images: the panel is unusable without them. */
++Q_IMPORT_PLUGIN(XdgIconEnginePlugin)                   /* libqtxdg icon engine */
++Q_IMPORT_PLUGIN(QSvgIconPlugin)
++Q_IMPORT_PLUGIN(QSvgPlugin)
++Q_IMPORT_PLUGIN(QGifPlugin)
++Q_IMPORT_PLUGIN(QICOPlugin)
++Q_IMPORT_PLUGIN(QJpegPlugin)
+diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugin.cpp
+--- /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/plugin.cpp	2026-07-14 16:58:59.031364353 +0200
+@@ -31,7 +31,11 @@
+ #include "pluginsettings_p.h"
+ #include "lxqtpanel.h"
+ 
++#ifdef LXQT_PANEL_NO_X11
++#include "kx11extras_minix.h"
++#else
+ #include <KX11Extras>
++#endif
+ 
+ #include <QDebug>
+ #include <QProcessEnvironment>

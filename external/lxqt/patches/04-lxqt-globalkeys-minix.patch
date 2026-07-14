@@ -1,0 +1,50 @@
+diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/client/CMakeLists.txt lxqt-globalkeys-2.4.0/client/CMakeLists.txt
+--- /tmp/pr/lxqt-globalkeys-2.4.0/client/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
++++ lxqt-globalkeys-2.4.0/client/CMakeLists.txt	2026-07-14 16:36:23.457688173 +0200
+@@ -153,7 +153,9 @@
+ 
+ set(${PROJECT_NAME}_PKG_CONFIG_REQUIRES "Qt6Widgets, Qt6DBus")
+ 
+-add_library(${PROJECT_NAME} SHARED ${${PROJECT_NAME}_ALL_FILES})
++# STATIC: Qt must be linked statically on MINIX, so everything downstream must
++# be too -- and the non-PIC Qt/freetype archives cannot go into a shared object.
++add_library(${PROJECT_NAME} STATIC ${${PROJECT_NAME}_ALL_FILES})
+ target_link_libraries(${PROJECT_NAME}
+     PUBLIC
+         Qt6::Widgets
+diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/CMakeLists.txt lxqt-globalkeys-2.4.0/CMakeLists.txt
+--- /tmp/pr/lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
++++ lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-07-14 16:35:54.597025805 +0200
+@@ -84,8 +84,16 @@
+ #************************************************
+ 
+ set(LXQT_GLOBALKEYS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+-add_subdirectory(daemon)
+-add_subdirectory(config)
++# The daemon grabs global keys through X11 (find_package(X11) +
++# include_directories(${X11_INCLUDE_DIR})), and MINIX has no X11 at all.  It would
++# be useless here anyway: Wayland does not let a client grab another's keys, and
++# wlcompd implements no protocol for it.  The panel only needs the client library
++# and lxqt-globalkeys-ui, so build those and skip the daemon -- and skip the config
++# UI with it, since all it does is configure the daemon.
++if (NOT CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    add_subdirectory(daemon)
++    add_subdirectory(config)
++endif()
+ add_subdirectory(client)
+ add_subdirectory(ui)
+ 
+diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt lxqt-globalkeys-2.4.0/ui/CMakeLists.txt
+--- /tmp/pr/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
++++ lxqt-globalkeys-2.4.0/ui/CMakeLists.txt	2026-07-14 16:36:23.457505379 +0200
+@@ -126,7 +126,9 @@
+ 
+ set(${PROJECT_NAME}_PKG_CONFIG_REQUIRES "Qt6Widgets, Qt6DBus, ${LXQT_GLOBALKEYS_LIBRARY}")
+ 
+-add_library(${PROJECT_NAME} SHARED ${${PROJECT_NAME}_ALL_FILES})
++# STATIC: Qt must be linked statically on MINIX, so everything downstream must
++# be too -- and the non-PIC Qt/freetype archives cannot go into a shared object.
++add_library(${PROJECT_NAME} STATIC ${${PROJECT_NAME}_ALL_FILES})
+ target_link_libraries(${PROJECT_NAME}
+     PUBLIC
+         Qt6::Widgets

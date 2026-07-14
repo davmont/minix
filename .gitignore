@@ -7,6 +7,13 @@ cscope.*
 *.diff
 *.patch
 *.rej
+
+# ...but never the patch sets a port is actually built from.  The blanket
+# *.patch above silently swallowed every one of them: external/qt6/patches/,
+# external/lxqt/patches/, external/kf6/patches/ and even binutils' own were on
+# disk, referenced by the READMEs, and not in the tree at all -- so none of those
+# ports could be reproduced from a fresh clone.
+!**/patches/*.patch
 *.[1-9].gz
 *.o
 *.[psS]o

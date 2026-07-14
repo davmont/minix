@@ -1,0 +1,184 @@
+diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/cmake/lxqt-config.cmake.in liblxqt-2.4.0/cmake/lxqt-config.cmake.in
+--- /tmp/pristine/liblxqt-2.4.0/cmake/lxqt-config.cmake.in	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/cmake/lxqt-config.cmake.in	2026-07-14 12:17:29.270715278 +0200
+@@ -12,7 +12,7 @@
+ find_dependency(Qt6DBus @QT_MINIMUM_VERSION@)
+ find_dependency(Qt6LinguistTools @QT_MINIMUM_VERSION@)
+ find_dependency(Qt6Xdg @QTXDG_MINIMUM_VERSION@)
+-find_dependency(KF6WindowSystem)
++# KF6WindowSystem is not used on MINIX -- see the note in CMakeLists.txt.
+ find_dependency(lxqt2-build-tools @LXQTBT_MINIMUM_VERSION@)
+ include(LXQtConfigVars)
+ 
+diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/CMakeLists.txt
+--- /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/CMakeLists.txt	2026-07-14 12:14:11.500563066 +0200
+@@ -32,6 +32,17 @@
+ option(UPDATE_TRANSLATIONS "Update source translation translations/*.ts files" OFF)
+ option(BUILD_BACKLIGHT_LINUX_BACKEND "Build the Linux backend for the backlight" ON)
+ 
++# Upstream guards every X11 bit with "NOT APPLE", i.e. it assumes every non-Mac
++# platform has X11.  MINIX has none at all (no xsrc), so give the guard a name
++# and turn it off here.  What it excludes -- lxqtscreensaver and the XScreenSaver
++# link -- is exactly the X11-only part; lxqtpowerproviders only compares
++# QGuiApplication::platformName() at runtime and needs no X11 headers.
++if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    set(LXQT_HAS_X11 FALSE)
++else()
++    set(LXQT_HAS_X11 TRUE)
++endif()
++
+ set(CMAKE_INCLUDE_CURRENT_DIR ON)
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ 
+@@ -41,12 +52,11 @@
+ find_package(lxqt2-build-tools ${LXQTBT_MINIMUM_VERSION} REQUIRED)
+ find_package(Qt6 ${QT_MINIMUM_VERSION} CONFIG REQUIRED Widgets DBus LinguistTools)
+ find_package(Qt6Xdg ${QTXDG_MINIMUM_VERSION} REQUIRED)
+-find_package(KF6WindowSystem ${KF6_MINIMUM_VERSION} REQUIRED)
+ 
+ if (BUILD_BACKLIGHT_LINUX_BACKEND)
+     find_package(PolkitQt6-1 REQUIRED)
+ endif (BUILD_BACKLIGHT_LINUX_BACKEND)
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     find_package(X11 REQUIRED)
+ endif()
+ message(STATUS "Building ${PROJECT_NAME} with Qt ${Qt6Core_VERSION}")
+@@ -86,11 +96,11 @@
+     #lxqtbacklight/linux_backend/linuxbackend.h
+ )
+ 
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     list (APPEND PUB_HDRS
+         lxqtscreensaver.h
+     )
+-endif (NOT APPLE)
++endif (LXQT_HAS_X11)
+ 
+ set(PUBLIC_CLASSES
+     HtmlDelegate
+@@ -114,11 +124,11 @@
+     Globals
+     Backlight
+ )
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     list (APPEND PUBLIC_CLASSES
+         ScreenSaver
+     )
+-endif (NOT APPLE)
++endif (LXQT_HAS_X11)
+ 
+ set(SRCS
+     lxqthtmldelegate.cpp
+@@ -144,11 +154,11 @@
+     lxqtbacklight/virtual_backend.cpp
+ )
+ 
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     list (APPEND SRCS
+         lxqtscreensaver.cpp
+     )
+-endif (NOT APPLE)
++endif (LXQT_HAS_X11)
+ 
+ if (BUILD_BACKLIGHT_LINUX_BACKEND)
+     list (APPEND SRCS
+@@ -176,11 +186,11 @@
+     lxqtbacklight/virtual_backend.h
+ )
+ 
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     list (APPEND MOCS
+         lxqtscreensaver.h
+     )
+-endif (NOT APPLE)
++endif (LXQT_HAS_X11)
+ 
+ if (BUILD_BACKLIGHT_LINUX_BACKEND)
+     list (APPEND SRCS
+@@ -305,8 +315,13 @@
+     COMPONENT Devel
+ )
+ 
+-add_library(${LXQT_LIBRARY_NAME}
+-    SHARED ${PUB_HDRS}
++# STATIC, not the default SHARED: Qt has to be linked statically on MINIX (a
++# dynamic Qt segfaults before main() in ld.elf_so's dynamic TLS).  A liblxqt.so
++# would link static Qt *into itself* while the application links static Qt too,
++# giving one process two copies of Qt's global state -- and the non-PIC archives
++# will not go into a shared object anyway.
++add_library(${LXQT_LIBRARY_NAME} STATIC
++    ${PUB_HDRS}
+            ${SRCS}
+            ${dbus_generated}
+            ${UIS} ${MOCS}
+@@ -317,19 +332,18 @@
+ 
+ target_link_libraries(${LXQT_LIBRARY_NAME}
+     PUBLIC
+-        KF6::WindowSystem
+         Qt6::Widgets
+         Qt6::DBus
+         Qt6Xdg
+ )
+ 
+-if (NOT APPLE)
++if (LXQT_HAS_X11)
+     target_link_libraries(${LXQT_LIBRARY_NAME}
+         PRIVATE
+             ${X11_Xscreensaver_LIB}
+             ${X11_X11_LIB}
+     )
+-endif (NOT APPLE)
++endif (LXQT_HAS_X11)
+ 
+ set_target_properties(${LXQT_LIBRARY_NAME} PROPERTIES
+     VERSION   ${LXQT_VERSION}
+diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp liblxqt-2.4.0/lxqtsingleapplication.cpp
+--- /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-07-14 12:13:32.894813816 +0200
+@@ -27,9 +27,15 @@
+ 
+ #include "lxqtsingleapplication.h"
+ #include "singleapplicationadaptor.h"
++#ifndef LXQT_NO_KWINDOWSYSTEM
+ #include <KWindowSystem>
++#endif
++#ifndef LXQT_NO_KWINDOWSYSTEM
+ #include <KWindowInfo>
++#endif
++#ifndef LXQT_NO_KWINDOWSYSTEM
+ #include <KX11Extras>
++#endif
+ #include <QDBusMessage>
+ #include <QWidget>
+ #include <QDebug>
+@@ -96,6 +102,15 @@
+ {
+     if (mActivationWindow) {
+         mActivationWindow->show();
++#ifdef LXQT_NO_KWINDOWSYSTEM
++        /* No KWindowSystem here (MINIX): there is no X11, so there are no
++         * virtual desktops to switch to, and Wayland does not let one client
++         * raise another's window without xdg-activation -- which wlcompd does
++         * not implement.  KWindowSystem would therefore be a no-op anyway.
++         * Do what a compositor will honour for a window we own ourselves. */
++        mActivationWindow->raise();
++        mActivationWindow->activateWindow();
++#else
+         WId window = mActivationWindow->effectiveWinId();
+         KWindowInfo info(window, NET::WMDesktop);
+         int windowDesktop = info.desktop();
+@@ -107,6 +122,7 @@
+             KWindowSystem::activateWindow(w);
+          else
+             qDebug() << Q_FUNC_INFO << "Got null windowHandle";
++#endif
+     } else {
+         qDebug() << Q_FUNC_INFO << "activationWindow not set or null";
+     }

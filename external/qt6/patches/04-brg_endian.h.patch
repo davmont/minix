@@ -1,0 +1,15 @@
+--- a/src/3rdparty/sha3/brg_endian.h	2026-05-07 09:50:01.000000000 +0200
++++ b/src/3rdparty/sha3/brg_endian.h	2026-07-14 01:40:40.755868055 +0200
+@@ -34,7 +34,11 @@
+ /* Include files where endian defines and byteswap functions may reside */
+ #if defined( __sun )
+ #  include <sys/isa_defs.h>
+-#elif defined( __FreeBSD__ ) || defined( __OpenBSD__ ) || defined( __NetBSD__ )
++#elif defined( __FreeBSD__ ) || defined( __OpenBSD__ ) || defined( __NetBSD__ ) || \
++      defined( __minix )
++/* MINIX has a NetBSD userland: the endian macros live in <sys/endian.h>.  Without
++ * this it falls through to the __GNUC__ branch below and asks for glibc's
++ * <endian.h>, which does not exist here. */
+ #  include <sys/endian.h>
+ #elif defined( BSD ) && ( BSD >= 199103 ) || defined( __APPLE__ ) || \
+       defined( __CYGWIN32__ ) || defined( __DJGPP__ ) || defined( __osf__ )

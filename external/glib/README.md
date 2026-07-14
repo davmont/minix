@@ -13,7 +13,7 @@ i.e. GIO walking the desktop-file databases.  Also exercised through libqtxdg by
 
     curl -LO https://download.gnome.org/sources/glib/2.80/glib-2.80.5.tar.xz
     tar xJf glib-2.80.5.tar.xz
-    patch -p0 < 01-glib-minix.patch          # meson.build: see below
+    patch -p0 < patches/01-glib-minix.patch          # meson.build: see below
 
     export PKG_CONFIG_LIBDIR=<destdir>/usr/lib/pkgconfig
     export PKG_CONFIG_SYSROOT_DIR=<destdir>

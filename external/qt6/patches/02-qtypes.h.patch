@@ -1,0 +1,17 @@
+--- a/src/corelib/global/qtypes.h	2026-05-07 09:50:01.000000000 +0200
++++ b/src/corelib/global/qtypes.h	2026-07-14 01:36:20.793336240 +0200
+@@ -24,6 +24,14 @@
+ #  include <type_traits>
+ #else
+ #  include <assert.h>
++/*
++ * In C mode this header goes on to typedef qptrdiff/qsizetype from ptrdiff_t
++ * and quintptr from size_t, but nothing above actually declares them: it works
++ * on glibc only because <assert.h> happens to drag in <stddef.h>.  MINIX's does
++ * not, so ask for what we use.  <stdint.h> likewise, for the intN_t below.
++ */
++#  include <stddef.h>
++#  include <stdint.h>
+ #endif
+ 
+ #if 0

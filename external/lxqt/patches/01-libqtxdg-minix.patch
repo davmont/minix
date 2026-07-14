@@ -1,0 +1,71 @@
+diff -urN /tmp/pr3/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt
+--- /tmp/pr3/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
++++ libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt	2026-07-14 12:08:00.469425516 +0200
+@@ -70,7 +70,7 @@
+ 
+ set_property(SOURCE ${libqtxdg_DBUS_INTERFACE_SRCS} PROPERTY SKIP_AUTOGEN ON)
+ 
+-add_library(${QTXDGX_LIBRARY_NAME} SHARED
++add_library(${QTXDGX_LIBRARY_NAME} STATIC
+     ${libqtxdg_PUBLIC_H_FILES}
+     ${libqtxdg_PRIVATE_H_FILES}
+     ${libqtxdg_CPP_FILES}
+diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt
+--- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
++++ libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt	2026-07-14 12:08:00.469640389 +0200
+@@ -16,7 +16,7 @@
+ )
+ 
+ 
+-add_library(${QTXDGX_ICONLOADER_LIBRARY_NAME} SHARED
++add_library(${QTXDGX_ICONLOADER_LIBRARY_NAME} STATIC
+     ${xdgiconloader_CPP_FILES}
+     ${xdgiconloader_PRIVATE_INSTALLABLE_H_FILES}
+ )
+diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt
+--- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
++++ libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt	2026-07-14 17:03:30.937913926 +0200
+@@ -2,10 +2,15 @@
+     xdgiconengineplugin.cpp
+ )
+ 
+-add_library(${QTXDGX_ICONENGINEPLUGIN_LIBRARY_NAME} MODULE
++add_library(${QTXDGX_ICONENGINEPLUGIN_LIBRARY_NAME} STATIC
+     ${xdgiconengineplugin_CPP_FILES}
+ )
+ 
++# QT_STATICPLUGIN: makes moc emit qt_static_plugin_XdgIconEnginePlugin(), which is
++# what Q_IMPORT_PLUGIN in a statically linked application resolves against.
++target_compile_definitions(${QTXDGX_ICONENGINEPLUGIN_LIBRARY_NAME} PRIVATE QT_STATICPLUGIN)
++
++
+ target_compile_definitions(${QTXDGX_ICONENGINEPLUGIN_LIBRARY_NAME}
+     PRIVATE
+         "QT_NO_KEYWORDS"
+diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h
+--- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h	2026-04-20 09:07:00.000000000 +0200
++++ libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h	2026-07-14 12:04:38.254720872 +0200
+@@ -34,6 +34,23 @@
+ #ifndef XDGICONLOADER_P_H
+ #define XDGICONLOADER_P_H
+ 
++/* MINIX: Qt must be linked statically here (a dynamically linked Qt segfaults
++ * before main() in ld.elf_so's dynamic TLS).  That turns a latent ODR violation
++ * into a hard link error: this icon loader is a fork of Qt's private
++ * qiconloader.cpp, and it re-implements the member functions of PixmapEntry and
++ * ScalableEntry -- classes *declared by Qt's own* private/qiconloader_p.h -- as
++ * well as defining its own QIconCacheGtkReader.  With a shared Qt each copy stays
++ * inside its own .so and nobody notices; with a static Qt both object files land
++ * in one link and the three classes are defined twice.
++ *
++ * Rename our copies before Qt's header is pulled in, so they become genuinely
++ * distinct types rather than second definitions of Qt's.  Nothing outside this
++ * fork refers to them.
++ */
++#define PixmapEntry         XdgPixmapEntry
++#define ScalableEntry       XdgScalableEntry
++#define QIconCacheGtkReader XdgIconCacheGtkReader
++
+ #include <QtCore/qglobal.h>
+ 
+ #ifndef QT_NO_ICON

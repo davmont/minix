@@ -1,0 +1,47 @@
+--- a/src/plugins/platforms/wayland/qwaylandshmbackingstore.cpp	2026-05-07 09:50:01.000000000 +0200
++++ b/src/plugins/platforms/wayland/qwaylandshmbackingstore.cpp	2026-07-14 06:37:05.453633951 +0200
+@@ -11,6 +11,10 @@
+ #include <QtCore/qdebug.h>
+ #include <QtCore/qstandardpaths.h>
+ #include <QtCore/qtemporaryfile.h>
++#if defined(Q_OS_MINIX)
++#  include <QtCore/qatomic.h>
++#  include <fcntl.h>
++#endif
+ #include <QtGui/QPainter>
+ #include <QtGui/QTransform>
+ #include <QMutexLocker>
+@@ -62,6 +66,33 @@
+     fd = syscall(SYS_memfd_create, "wayland-shm", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+     if (fd >= 0)
+         fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_SEAL);
++#elif defined(Q_OS_MINIX)
++    /*
++     * MINIX has no memfd_create, and -- unlike the fallback below assumes -- it
++     * cannot mmap a plain file MAP_SHARED and writable at all: a file mapping
++     * copy-on-writes into private pages there, so the compositor would never see
++     * anything this process painted.  The QTemporaryFile path therefore fails at
++     * mmap() with ENXIO.
++     *
++     * POSIX shared memory is the one thing on MINIX that does hand out genuinely
++     * shared, writable pages: shm_open() gives a descriptor whose mmap() is
++     * routed to the IPC server, which vm_remap()s one region into both processes.
++     * That is precisely the buffer wl_shm needs, so create the pool with it.
++     *
++     * The name is unlinked immediately and only the descriptor kept -- the
++     * ordinary anonymous-pool idiom, and the same one libwayland's own clients
++     * use.
++     */
++    {
++        static QBasicAtomicInt counter = Q_BASIC_ATOMIC_INITIALIZER(0);
++        char name[64];
++
++        snprintf(name, sizeof(name), "/qtwl-%d-%d", int(getpid()),
++                 counter.fetchAndAddRelaxed(1));
++        fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
++        if (fd >= 0)
++            shm_unlink(name);
++    }
+ #endif
+ 
+     std::unique_ptr<QFile> filePointer;

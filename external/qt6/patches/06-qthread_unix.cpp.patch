@@ -1,0 +1,13 @@
+--- a/src/corelib/thread/qthread_unix.cpp	2026-05-07 09:50:01.000000000 +0200
++++ b/src/corelib/thread/qthread_unix.cpp	2026-07-14 01:42:45.717592213 +0200
+@@ -350,6 +350,10 @@
+         pthread_setname_np(name);
+ #  elif defined(Q_OS_OPENBSD)
+         pthread_set_name_np(pthread_self(), name);
++#  elif defined(Q_OS_MINIX)
++        /* MINIX follows NetBSD: pthread_setname_np(thread, fmt, arg), which is
++         * printf-style, not the two-argument form the other BSDs use. */
++        pthread_setname_np(pthread_self(), "%s", const_cast<char *>(name));
+ #  elif defined(Q_OS_QNX) || defined(Q_OS_BSD4)
+         pthread_setname_np(pthread_self(), name);
+ #  else

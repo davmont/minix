@@ -1,0 +1,147 @@
+diff -urN /tmp/pr2/layer-shell-qt-6.3.5/.clang-format layer-shell-qt-6.3.5/.clang-format
+--- /tmp/pr2/layer-shell-qt-6.3.5/.clang-format	1970-01-01 01:00:00.000000000 +0100
++++ layer-shell-qt-6.3.5/.clang-format	2026-07-14 16:38:11.210173235 +0200
+@@ -0,0 +1,91 @@
++---
++# SPDX-FileCopyrightText: 2019 Christoph Cullmann <cullmann@kde.org>
++# SPDX-FileCopyrightText: 2019 Gernot Gebhard <gebhard@absint.com>
++#
++# SPDX-License-Identifier: MIT
++
++# This file got automatically created by ECM, do not edit
++# See https://clang.llvm.org/docs/ClangFormatStyleOptions.html for the config options
++# and https://community.kde.org/Policies/Frameworks_Coding_Style#Clang-format_automatic_code_formatting
++# for clang-format tips & tricks
++---
++Language: JavaScript
++DisableFormat: true
++---
++
++# Style for C++
++Language: Cpp
++
++# base is WebKit coding style: https://webkit.org/code-style-guidelines/
++# below are only things set that diverge from this style!
++BasedOnStyle: WebKit
++
++# enforce C++11 (e.g. for std::vector<std::vector<lala>>
++Standard: Cpp11
++
++# 4 spaces indent
++TabWidth: 4
++
++# 2 * 80 wide lines
++ColumnLimit: 160
++
++# sort includes inside line separated groups
++SortIncludes: true
++
++# break before braces on function, namespace and class definitions.
++BreakBeforeBraces: Linux
++
++# CrlInstruction *a;
++PointerAlignment: Right
++
++# horizontally aligns arguments after an open bracket.
++AlignAfterOpenBracket: Align
++
++# don't move all parameters to new line
++AllowAllParametersOfDeclarationOnNextLine: false
++
++# no single line functions
++AllowShortFunctionsOnASingleLine: None
++
++# no single line enums
++AllowShortEnumsOnASingleLine: false
++
++# always break before you encounter multi line strings
++AlwaysBreakBeforeMultilineStrings: true
++
++# don't move arguments to own lines if they are not all on the same
++BinPackArguments: false
++
++# don't move parameters to own lines if they are not all on the same
++BinPackParameters: false
++
++# In case we have an if statement with multiple lines the operator should be at the beginning of the line
++# but we do not want to break assignments
++BreakBeforeBinaryOperators: NonAssignment
++
++# format C++11 braced lists like function calls
++Cpp11BracedListStyle: true
++
++# do not put a space before C++11 braced lists
++SpaceBeforeCpp11BracedList: false
++
++# remove empty lines
++KeepEmptyLinesAtTheStartOfBlocks: false
++
++# no namespace indentation to keep indent level low
++NamespaceIndentation: None
++
++# we use template< without space.
++SpaceAfterTemplateKeyword: false
++
++# Always break after template declaration
++AlwaysBreakTemplateDeclarations: true
++
++# macros for which the opening brace stays attached.
++ForEachMacros: [ foreach, Q_FOREACH, BOOST_FOREACH, forever, Q_FOREVER, QBENCHMARK, QBENCHMARK_ONCE , wl_resource_for_each, wl_resource_for_each_safe ]
++
++# keep lambda formatting multi-line if not empty
++AllowShortLambdasOnASingleLine: Empty
++
++# We do not want clang-format to put all arguments on a new line
++AllowAllArgumentsOnNextLine: false
+diff -urN /tmp/pr2/layer-shell-qt-6.3.5/CMakeLists.txt layer-shell-qt-6.3.5/CMakeLists.txt
+--- /tmp/pr2/layer-shell-qt-6.3.5/CMakeLists.txt	2025-05-06 19:57:54.000000000 +0200
++++ layer-shell-qt-6.3.5/CMakeLists.txt	2026-07-14 16:38:45.924737557 +0200
+@@ -30,10 +30,12 @@
+ include(GenerateExportHeader)
+ include(KDEClangFormat)
+ include(ECMQtDeclareLoggingCategory)
+-include(ECMQmlModule)
+ include(KDEGitCommitHooks)
+ 
+-find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS WaylandClient Qml)
++# No Qml: that would mean porting qtdeclarative, and nothing here needs it.  The
++# QML bindings live entirely in src/declarative (dropped below); lxqt-panel uses
++# the C++ LayerShellQt::Interface.
++find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS WaylandClient)
+ find_package(WaylandScanner REQUIRED)
+ find_package(Wayland 1.3 COMPONENTS Client Server)
+ find_package(WaylandProtocols REQUIRED)
+@@ -60,7 +62,6 @@
+ )
+ 
+ add_subdirectory(src)
+-add_subdirectory(tests)
+ 
+ set(CMAKECONFIG_INSTALL_DIR ${KDE_INSTALL_CMAKEPACKAGEDIR}/LayerShellQt)
+ install(EXPORT LayerShellQtTargets
+diff -urN /tmp/pr2/layer-shell-qt-6.3.5/src/CMakeLists.txt layer-shell-qt-6.3.5/src/CMakeLists.txt
+--- /tmp/pr2/layer-shell-qt-6.3.5/src/CMakeLists.txt	2025-05-06 19:57:54.000000000 +0200
++++ layer-shell-qt-6.3.5/src/CMakeLists.txt	2026-07-14 17:03:30.925493265 +0200
+@@ -47,7 +47,15 @@
+                                                        EXPORT_NAME Interface
+ )
+ 
+-add_library(layer-shell SHARED qwaylandlayershellintegrationplugin.cpp)
++# STATIC, not SHARED: Qt is linked statically on MINIX, so its QPA shell-integration
++# plugins are archives that the application imports with Q_IMPORT_PLUGIN rather than
++# .so files it dlopen's -- and the non-PIC Qt/freetype archives cannot go into a
++# shared object anyway.
++add_library(layer-shell STATIC qwaylandlayershellintegrationplugin.cpp)
++# QT_STATICPLUGIN is what makes moc emit qt_static_plugin_<Class>(), i.e. what a
++# Q_IMPORT_PLUGIN in the application resolves against.  Without it a STATIC plugin
++# builds fine and then fails to link into anything that imports it.
++target_compile_definitions(layer-shell PRIVATE QT_STATICPLUGIN)
+ target_link_libraries(layer-shell LayerShellQtInterface Qt::WaylandClient Qt::WaylandClientPrivate Wayland::Client PkgConfig::XKBCOMMON)
+ if (TARGET Qt::XkbCommonSupportPrivate)
+     target_link_libraries(layer-shell Qt::XkbCommonSupportPrivate)
+@@ -79,4 +87,4 @@
+     DESTINATION ${KDE_INSTALL_INCLUDEDIR}/LayerShellQt COMPONENT Devel
+ )
+ 
+-add_subdirectory(declarative)
++# QML bindings dropped -- no qtdeclarative on MINIX.  See the top-level CMakeLists.

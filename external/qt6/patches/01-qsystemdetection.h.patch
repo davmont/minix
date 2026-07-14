@@ -1,0 +1,23 @@
+--- a/src/corelib/global/qsystemdetection.h	2026-05-07 09:50:01.000000000 +0200
++++ b/src/corelib/global/qsystemdetection.h	2026-07-14 01:31:08.575581737 +0200
+@@ -130,6 +130,20 @@
+ #  define Q_OS_VXWORKS
+ #elif defined(__HAIKU__)
+ #  define Q_OS_HAIKU
++#elif defined(__minix)
++/*
++ * MINIX 3.  A NetBSD userland on a microkernel, so Q_OS_BSD4 is right: it is
++ * what selects arc4random_buf() for entropy, d_type in dirent, and the BSD
++ * flock()/socket semantics, all of which MINIX has.
++ *
++ * It is deliberately NOT Q_OS_NETBSD.  That would additionally claim kqueue,
++ * which MINIX does not have at all (kevent and kqueue are both listed in libc's
++ * MISSING_SYSCALLS) -- the same gap that made libwayland need a poll(2)
++ * emulation here.  Keeping MINIX its own platform is what lets the build select
++ * the poll-based paths instead.
++ */
++#  define Q_OS_MINIX
++#  define Q_OS_BSD4
+ #elif defined(__MAKEDEPEND__)
+ #else
+ #  error "Qt has not been ported to this OS - see http://www.qt-project.org/"
