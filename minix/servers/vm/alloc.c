@@ -101,12 +101,25 @@ static int below_low_watermark = 0;		/* hysteresis state */
  * system allocations are not tagged PAF_USERMEM and so bypass the reserve. */
 #define OOM_RESERVE \
 	((unsigned long)(total_pages / 64 > 1024 ? total_pages / 64 : 1024))
-/* OOM killer: sustained allocations below the reserve before the largest
- * user hog is killed.  High enough that recoverable pressure (which climbs
- * back to the high watermark and resets the counter) never trips it. */
+/* OOM killer: sustained allocations below the reserve before the largest user
+ * hog is killed.  Deliberately high.  A working set that still fits in RAM +
+ * swap thrashes for a long time before it settles - free memory hovers below
+ * the reserve while the swap device catches up - and killing during that window
+ * destroys processes that would have completed.  Lowering this to 2048 was
+ * measured to do exactly that (survivors 1 -> 0 on a 540 MB/670 MB-capacity
+ * workload), so err on the side of letting reclaim win. */
 #define OOM_PRESSURE_LIMIT	8192
+/* How many kill attempts to wait for a victim to actually go away before
+ * giving up on it and picking another.  A SIGKILL'ed victim is not freed
+ * synchronously (PM tears it down and only then does VM free its pages), so
+ * without this the pressure counter refills against a hog whose memory is
+ * already on its way back, and we kill a second (and third) process that did
+ * not need to die.  The bound keeps a wedged victim from blocking us forever. */
+#define OOM_VICTIM_MAX_WAIT	8
 static unsigned long oom_pressure = 0;	/* consecutive-ish below-reserve allocs */
 static int oom_kill_wanted = 0;		/* main loop should kill a hog */
+static int oom_victim_slot = -1;	/* kill in flight: victim not yet freed */
+static int oom_victim_wait = 0;		/* attempts spent waiting for it */
 #define RECLAIM_BATCH_MAX	4096	/* pages (16 MB) per reclaim batch */
 #define RECLAIM_COMPRESS_MAX	512	/* cap for a proactive compress batch
 					 * (B2): compression costs CPU per
@@ -737,6 +750,20 @@ void vm_oom_kill(void)
 	oom_kill_wanted = 0;
 	oom_pressure = 0;		/* cooldown: let the kill free memory */
 
+	/* Is a previous kill still in flight?  SIGKILL is not synchronous: PM
+	 * tears the victim down and only then does VM free its pages, so for a
+	 * while the memory we already asked for is not back yet.  Killing again
+	 * on that stale pressure takes down processes that did not need to die.
+	 * Wait for the victim's slot to be released - bounded, so a victim that
+	 * somehow never dies cannot block the killer forever. */
+	if(oom_victim_slot >= 0) {
+		if((vmproc[oom_victim_slot].vm_flags & VMF_INUSE) &&
+			++oom_victim_wait < OOM_VICTIM_MAX_WAIT)
+			return;		/* still dying; its pages are on the way */
+		oom_victim_slot = -1;
+		oom_victim_wait = 0;
+	}
+
 	for(p = 0; p < VMP_NR; p++) {
 		struct vmproc *vmp = &vmproc[p];
 		unsigned long pages, badness;
@@ -786,9 +813,15 @@ void vm_oom_kill(void)
 		    vmproc[victim].vm_shared_total) / 1024),
 		(unsigned long)(vmproc[victim].vm_total / 1024));
 
-	if((s = sys_kill(vmproc[victim].vm_endpoint, SIGKILL)) != OK)
+	if((s = sys_kill(vmproc[victim].vm_endpoint, SIGKILL)) != OK) {
 		printf("VM: OOM: sys_kill(%d) failed: %d\n",
 			vmproc[victim].vm_endpoint, s);
+		return;
+	}
+
+	/* Remember it: no further kill until its pages are actually back. */
+	oom_victim_slot = victim;
+	oom_victim_wait = 0;
 }
 
 /*===========================================================================*
