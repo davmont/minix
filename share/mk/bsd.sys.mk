@@ -317,6 +317,50 @@ AFLAGS+=	-Wa,--noexecstack
 #
 LDFLAGS+=	-Wl,-z,noexecstack
 
+#
+# Link with LLD rather than GNU ld.
+#
+# The toolchain has been clang/LLVM-only since GCC was removed; binutils was
+# the last GPL-3 piece of it, and the source of the __minix_init/.init_array
+# bug we carry a workaround for.  ld.lld is built as a host tool (see
+# tools/llvm-lld); clang finds it next to itself in TOOLDIR.
+#
+LDFLAGS+=	-fuse-ld=lld
+
+# No RELRO.
+#
+# lld turns RELRO on by default and splits the data segment in two to do it, so
+# a boot module comes out with three PT_LOAD segments where GNU ld gave two.
+# The kernel loads the boot modules itself, with a loader that expects the
+# classic text+data pair, and an lld-linked module made it jump through a
+# garbage pointer -- a nested pagefault at rip 0x1, before the first server ever
+# ran.  MINIX does not enforce RELRO anyway (nothing re-protects the segment
+# after relocation), so there is nothing to lose by turning it off.
+LDFLAGS+=	-Wl,-z,norelro
+
+# Nor a separate read-only segment.
+#
+# lld also gives read-only data a PT_LOAD of its own, which is the other half of
+# the same problem: it is a third segment the boot-module loader does not expect.
+# -z noseparate-code stops code getting a page-aligned segment of its own, and
+# --no-rosegment stops read-only data getting one.  Both are needed: they are
+# separate behaviours in lld, and dropping only the first still leaves a bare R
+# segment.  --no-rosegment is lld-only (GNU ld rejects it), which is fine now
+# that lld is the linker, but it does mean the tree can no longer be linked with
+# GNU ld without removing this line.
+LDFLAGS+=	-Wl,-z,noseparate-code -Wl,--no-rosegment
+
+# Link executables where GNU ld put them.
+#
+# lld's default image base for an ELF executable is 0x200000.  That is exactly
+# _kern_phys_base (see minix/kernel/arch/x86_64/kernel.lds): the address the
+# kernel itself is loaded at.  Boot modules linked there collide with the
+# kernel, which is what made it jump through a garbage pointer and die in a
+# nested pagefault at rip 0x1 before the first server ever ran.  GNU ld defaults
+# to 0x400000, clear of the kernel; use the same base.
+LDFLAGS+=	-Wl,--image-base=0x400000
+
+
 .if !defined(LDSTATIC) || ${LDSTATIC} != "-static"
 # Position Independent Executable flags
 PIE_CFLAGS?=        -fPIC

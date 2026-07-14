@@ -461,7 +461,9 @@ TOOL_LLC.clang=		${EXTERNAL_TOOLCHAIN}/bin/llc
 .if ${USETOOLS_BINUTILS:Uyes} == "yes"					#  {
 AR=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-ar
 AS=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-as
-LD=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-ld
+# ld.lld, not GNU ld.  The few places that drive the linker directly rather than
+# through the compiler (bsd.kmodule.mk's "ld -r", say) get it here.
+LD=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-ld.lld
 NM=		${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-nm
 OBJCOPY=	${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-objcopy
 OBJDUMP=	${TOOLDIR}/bin/${MACHINE_GNU_PLATFORM}-objdump
@@ -503,9 +505,18 @@ DESTDIR?=
 .  if ${DESTDIR} != ""
 CPPFLAGS+=	--sysroot=${DESTDIR}
 LDFLAGS+=	--sysroot=${DESTDIR}
+# Say where the libraries are.  GNU ld carries a built-in default search path
+# and reroots it through --sysroot, so it finds -lc without being told; lld has
+# no built-in paths at all and searches only what -L gives it.  bsd.prog.mk
+# already passes this for programs, but bsd.lib.mk never did -- shared libraries
+# were relying entirely on GNU ld's default, and libpthread.so was the first to
+# fail with "unable to find library -lc" once lld took over.  Set it here, next
+# to the sysroot it belongs with, so every link gets it.
+LDFLAGS+=	-L${DESTDIR}/usr/lib
 .  else
 CPPFLAGS+=	--sysroot=/
 LDFLAGS+=	--sysroot=/
+LDFLAGS+=	-L/usr/lib
 .  endif
 .endif
 .endif	# EXTERNAL_TOOLCHAIN						# }
