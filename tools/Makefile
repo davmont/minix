@@ -29,9 +29,12 @@ NOCLANGERROR=	yes
 # buildrump.sh), and should not be set for a regular "make build".
 TOOLS_BUILDRUMP?=no
 
-.if ${TOOLCHAIN_MISSING} == "no"
-TOOLCHAIN_BITS= binutils .WAIT
-.endif
+# GNU binutils is no longer built.  The toolchain is LLVM/clang + lld, and the
+# binutils tools the build used -- ar, nm, objcopy (ranlib and strip are the
+# same binaries under another name) -- are now llvm-ar, llvm-nm and llvm-objcopy,
+# built under tools/llvm-{ar,nm,objcopy}.  as and ld were already gone: clang's
+# integrated assembler handles every .S, and lld is the linker.
+TOOLCHAIN_BITS=
 
 # GCC, gmake and the LGPL math libs (gmp/mpc/mpfr) used to live under
 # external/gpl{2,3}/ and external/lgpl3/.  MINIX builds with LLVM/clang
@@ -134,7 +137,7 @@ SUBDIR+= \
 	llvm-tblgen llvm-clang-tblgen .WAIT \
 	llvm-include .WAIT \
 	llvm-lib .WAIT \
-	llvm-clang llvm-lld
+	llvm-clang llvm-lld llvm-ar llvm-nm llvm-objcopy
 # mcld stays dropped: it is gone upstream as of LLVM 13.  llvm-lld builds
 # ld.lld, which is the target linker (see LD in <bsd.own.mk>).
 .endif

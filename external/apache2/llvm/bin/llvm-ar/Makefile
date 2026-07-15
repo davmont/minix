@@ -9,6 +9,9 @@ NOMAN=		yes
 
 SRCS=	llvm-ar.cpp
 
+# AMDGPU target libs are intentionally omitted: they are not built for the
+# host (see the _BSD_HOSTINIT_MK_ guard in ../../lib/Makefile), and this tool
+# does not reference any target back end.
 LLVM_LIBS+= \
 	ToolDriversDlltool \
 	ToolDrivers \
@@ -16,10 +19,6 @@ LLVM_LIBS+= \
 	AArch64MCTargetDesc \
 	AArch64TargetInfo \
 	AArch64Utils \
-	AMDGPUMCTargetDesc \
-	AMDGPUTargetInfo \
-	AMDGPUAsmParser \
-	AMDGPUUtils \
 	ARMAsmParser \
 	ARMMCTargetDesc \
 	ARMTargetInfo \
@@ -52,9 +51,14 @@ LLVM_LIBS+= \
 	Demangle
 
 LDADD+=	-lz
+# On a host build ${LIBZ} names the *host's* /usr/lib/libz.a, which is not ours
+# to depend on ("don't know how to make /usr/lib/libz.a").  clang guards it the
+# same way.
+.if !defined(HOSTPROG)
 DPADD+=	${LIBZ}
+.endif
 
-LLVM_DRIVER_TOOL=	ar
+LLVM_DRIVER_TOOL=	llvm_ar
 .include "${.PARSEDIR}/../../driver.mk"
 
 LLVM_LIBS+=	TargetParser
@@ -65,9 +69,6 @@ LLVM_LIBS+= \
 	Analysis \
 	FrontendHLSL \
 	ProfileData \
-	DebugInfoSymbolize \
-	DebugInfoGSYM \
-	DebugInfoPDB \
 	DebugInfoCodeView \
 	DebugInfoMSF \
 	DebugInfoBTF \
