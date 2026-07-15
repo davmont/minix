@@ -67,3 +67,20 @@ in `$DESTDIR/bin` instead of `$DESTDIR/usr/bin`.  Hence the explicit flag.
 **`/dev/urandom` must work.**  D-Bus generates its bus GUID from it and refuses
 to start otherwise.  That used to fail here -- see `etc/rc.minix`, which now
 starts the `random` driver at boot.
+
+
+## A static libdbus-1.a, for linking into Qt
+
+The recipe above builds the daemon and a shared `libdbus-1.so` -- which is what the
+daemon binaries use.  But Qt has to be linked *statically* on MINIX and, with
+`-dbus-linked`, needs a static `libdbus-1.a` on the link line (see
+`external/qt6/README.md`).  dbus hardcodes `add_library(dbus-1 SHARED)`, so a second
+build with `patches/01-dbus-static-lib.patch` (SHARED -> STATIC) and
+`-DBUILD_SHARED_LIBS=OFF` produces the archive:
+
+    patch -p1 < patches/01-dbus-static-lib.patch
+    cmake ... -DBUILD_SHARED_LIBS=OFF -DDBUS_SESSION_SOCKET_DIR=/tmp   # same flags as above
+    ninja dbus-1
+    cp lib/libdbus-1.a <destdir>/usr/lib/
+
+The patch is only for this static build; the daemon build stays shared.

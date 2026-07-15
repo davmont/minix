@@ -1,0 +1,10 @@
+--- a/dbus/CMakeLists.txt
++++ b/dbus/CMakeLists.txt
+@@ -263,7 +263,7 @@
+ ### Client library
+
+-add_library(dbus-1 SHARED
++add_library(dbus-1 STATIC
+     ${libdbus_SOURCES}
+     ${libdbus_HEADERS}
+ )

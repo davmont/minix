@@ -61,13 +61,18 @@ mkdir -p "$OUTDIR/bin"
 # the `tools` phase has built them: ln -s happily creates dangling links that
 # resolve once the tools exist, and any tool the build never invokes (ld.bfd,
 # ld.gold, ...) is harmless if it stays dangling.
-for t in addr2line ar as c++filt elfedit install ld ld.bfd ld.gold nm \
+for t in addr2line ar as c++filt elfedit install ld ld.bfd ld.gold ld.lld nm \
          objcopy objdump ranlib readelf size strings strip; do
 	ln -sf "$TOOLDIR/bin/${TRIPLE}-$t" "$OUTDIR/bin/${TRIPLE}-$t"
 done
 # Plain ld/as names so clang's NetBSD link driver finds the cross tools via -B.
 ln -sf "${TRIPLE}-ld" "$OUTDIR/bin/ld"
 ln -sf "${TRIPLE}-as" "$OUTDIR/bin/as"
+# ld.lld too: the tree links with LLD now (LDFLAGS+=-fuse-ld=lld in bsd.sys.mk),
+# and clang resolves that through -B -- which for this toolchain is $OUTDIR/bin,
+# not TOOLDIR.  Without the link here every link fails with
+# "invalid linker name in argument '-fuse-ld=lld'".
+ln -sf "${TRIPLE}-ld.lld" "$OUTDIR/bin/ld.lld"
 
 # The frontend wrapper (clang / clang++ / clang-cpp dispatch by argv0).
 cat > "$OUTDIR/bin/${TRIPLE}-clang" <<EOF

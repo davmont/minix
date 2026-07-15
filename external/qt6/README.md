@@ -100,3 +100,28 @@ than worked around here -- fdatasync, madvise/posix_madvise and dup3 were all
 static_assert; and __cxa_thread_atexit was missing, without which nothing using
 a thread_local destructor could link.  See the commit "libc: fill in the POSIX
 and C11 gaps that Qt found".
+
+
+## D-Bus must be linked, not runtime-loaded (`-dbus-linked`)
+
+By default Qt6 loads libdbus at *runtime* via dlopen (`QT_FEATURE_dbus_linked=OFF`).
+A static MINIX binary cannot dlopen, so Qt's D-Bus stays permanently disconnected:
+`QDBusConnection::sessionBus().isConnected()` is false and `registerService()`
+fails.  That is invisible until something *depends* on D-Bus -- lxqt-session gates
+its whole event loop on `registerService("org.lxqt.session")` and silently exits 0
+when it fails, so the desktop never comes up.
+
+Reconfigure Qt with `-DFEATURE_dbus_linked=ON` and point it at a **static**
+libdbus:
+
+    # a static libdbus-1.a (the daemon build ships only the .so) -- see external/dbus
+    cmake -DFEATURE_dbus_linked=ON -DDBus1_LIBRARY=<destdir>/usr/lib/libdbus-1.a . && ninja install
+
+Then every binary that pulls in Qt6DBus must have `libdbus-1.a` on its final link
+line; the shared MINIX toolchain adds `-ldbus-1` (and `-lelf`, which libdbus's
+backtrace path needs, ordered last) to `CMAKE_CXX_STANDARD_LIBRARIES` for exactly
+this reason.
+
+If you rebuild Qt after the in-tree toolchain has changed, clear the precompiled
+headers (`-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` and delete `*.pch`) or clang errors
+out with "PCH file built from a different branch than the compiler".
