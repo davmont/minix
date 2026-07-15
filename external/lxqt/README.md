@@ -1,8 +1,8 @@
 # LXQt libraries on MINIX
 
 `libqtxdg` 4.4.0, `liblxqt` 2.4.0, `lxqt-globalkeys` 2.4.0, `lxqt-menu-data` 2.4.0,
-`qtxdg-tools` 4.4.0, `lxqt-panel` 2.4.1 and **`lxqt-session` 2.4.0**, cross-compiled
-for MINIX/amd64.
+`qtxdg-tools` 4.4.0, `lxqt-panel` 2.4.1, **`lxqt-session` 2.4.0** and
+**`qterminal` 2.4.0** (with `qtermwidget` 2.4.0), cross-compiled for MINIX/amd64.
 
 The panel runs and docks itself on wlcompd: the compositor sees a layer surface
 `"dock"` on the top layer, gives it the full screen width (1280x32), and receives
@@ -232,3 +232,59 @@ Qt6Xdg consumer) and `xdg-user-dirs` (see `external/xdg-user-dirs/`).
 - **No autostart entries for things we do not have.**  The globalkeys daemon
   (not built) and xscreensaver (X11) autostart entries are dropped -- an autostart
   entry for a missing binary just makes lxqt-session log a failure at every login.
+
+## qterminal (and qtermwidget)
+
+A terminal emulator for the desktop: `qtermwidget` 2.4.0 is the terminal widget
+library, `qterminal` 2.4.0 the application built on it (patches `06-` and `07-`).
+
+### Build
+
+`qtermwidget` first (it installs a `qtermwidget6` CMake package qterminal finds):
+
+    cmake ../qtermwidget-2.4.0 -GNinja \
+      -DCMAKE_TOOLCHAIN_FILE=<destdir>/usr/lib/cmake/Qt6/qt.toolchain.cmake \
+      -DQT_HOST_PATH=/usr -DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_PROJECT_INCLUDE=<...>/external/qt6/cmake/MinixWaylandShim.cmake \
+      -DMINIX_EXTRA_STANDARD_LIBRARIES="-lutil -lexecinfo -lelf" \
+      -DCMAKE_CXX_FLAGS="-D__minix=3 -D__minix__=3 -D__ELF__=1 -D_NETBSD_SOURCE" \
+      -DQTERMWIDGET_USE_UTEMPTER=OFF -DUSE_UTF8PROC=OFF
+    ninja && DESTDIR=<destdir> ninja install
+
+`qterminal` is the same incantation (add `-DCMAKE_PREFIX_PATH=<destdir>/usr` so it
+finds `qtermwidget6`).  The patches apply with `patch -p1` from the source's parent
+directory (unlike `01-`..`05-`, which are `-p0`).
+
+`-lutil` is not optional: qtermwidget's `kpty.cpp` opens the pty with `openpty(3)`,
+which lives in `libutil` on MINIX, and it is the application link -- not the static
+qtermwidget archive -- that has to resolve it.
+
+### What the patches do, and why
+
+- **STATIC, like everything else.**  qtermwidget hardcodes `add_library(... SHARED)`;
+  a shared library cannot hold the non-PIC static Qt, and a dynamic Qt segfaults
+  before `main()` anyway (see above).  `SHARED` -> `STATIC`.
+
+- **kpty.cpp is written for glibc/Linux ttys.**  Two MINIX-is-BSD fixes: its login
+  accounting `#else` branch calls the glibc `utmp` functions (`pututline`,
+  `updwtmp`, `getutline`), but MINIX -- like the BSDs -- records logins through the
+  POSIX `utmpx` API (`pututxline`, `updwtmpx`, all in libc), so we define
+  `HAVE_UTMPX`/`HAVE_UPDWTMPX` for it; and its `_tcgetattr`/`_tcsetattr` macros fall
+  through to Linux `TCGETS`/`TCSETS` ioctls, so `__minix__` joins the BSD branch that
+  uses `TIOCGETA`/`TIOCSETA`.
+
+- **No X11.**  qterminal's global-shortcut backend and one config path assume X11.
+  The `find_package(X11)` and the qxt backend selection get a
+  `CMAKE_SYSTEM_NAME STREQUAL "Minix"` branch that picks
+  `src/third-party/qxtglobalshortcut_minix.cpp` -- a no-op backend (Wayland does not
+  let a client grab another's keys; wlcompd implements no protocol for it, exactly as
+  for lxqt-globalkeys).
+
+- **Static Qt plugin imports** (`src/minix_static_plugins.cpp`).  qterminal is a
+  plain `add_executable()`, so Qt's automatic plugin-import generation never runs and
+  it aborts with *"Could not find the Qt platform plugin wayland"*.  Only the QPA
+  platform plugin and LayerShellQt's integration are imported (and their archives
+  linked: `Qt6::QWaylandIntegrationPlugin`, `liblayer-shell.a`) -- the image and
+  xdg-shell plugins are already auto-imported by `Qt6::Gui`/`QtWaylandClient`, and
+  re-importing them would duplicate their registration symbols.  The layer-shell one
+  is what qterminal's drop-down mode needs to become a layer surface on wlcompd.

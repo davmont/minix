@@ -555,6 +555,7 @@
 ./usr/bin/progressbar                                   minix-base
 ./usr/bin/ps                                            minix-base      obsolete
 ./usr/bin/pwhash                                        minix-base
+./usr/bin/qterminal                                     minix-base
 ./usr/bin/qtprobe                                       minix-base
 ./usr/bin/qtxdg-mat                                     minix-base
 ./usr/bin/ramdisk                                       minix-base
@@ -1333,6 +1334,8 @@
 ./usr/share/applications/lxqt-reboot.desktop            minix-base
 ./usr/share/applications/lxqt-shutdown.desktop          minix-base
 ./usr/share/applications/lxqt-suspend.desktop           minix-base
+./usr/share/applications/qterminal-drop.desktop         minix-base
+./usr/share/applications/qterminal.desktop              minix-base
 ./usr/share/calendar                                    minix-base
 ./usr/share/calendar/calendar.birthday                  minix-base
 ./usr/share/calendar/calendar.christian                 minix-base

@@ -1,0 +1,51 @@
+--- a/qtermwidget-2.4.0/CMakeLists.txt
++++ b/qtermwidget-2.4.0/CMakeLists.txt
+@@ -146,7 +146,8 @@
+         Runtime
+ )
+ 
+-add_library(${QTERMWIDGET_LIBRARY_NAME} SHARED ${SRCS} ${MOCS} ${UI_SRCS} ${QTERMWIDGET_QM})
++# STATIC: Qt is linked statically on MINIX (dynamic Qt segfaults before main).
++add_library(${QTERMWIDGET_LIBRARY_NAME} STATIC ${SRCS} ${MOCS} ${UI_SRCS} ${QTERMWIDGET_QM})
+ target_link_libraries(${QTERMWIDGET_LIBRARY_NAME} Qt6::Widgets)
+ set_target_properties( ${QTERMWIDGET_LIBRARY_NAME} PROPERTIES
+                        SOVERSION ${QTERMWIDGET_VERSION_MAJOR}
+@@ -162,6 +163,18 @@
+     )
+ endif()
+ 
++# MINIX is BSD-derived: it records logins through the POSIX utmpx API (utmpxname,
++# pututxline, updwtmpx -- all in libc), not the glibc utmp calls the #else branch
++# in kpty.cpp assumes.  Select the utmpx path.  (The tty ioctls are handled in
++# kpty.cpp itself, whose BSD branch now also matches __minix__.)
++if(CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    target_compile_definitions(${QTERMWIDGET_LIBRARY_NAME}
++        PRIVATE
++            "HAVE_UTMPX"
++            "HAVE_UPDWTMPX"
++    )
++endif()
++
+ if(HAVE_UPDWTMPX)
+     target_compile_definitions(${QTERMWIDGET_LIBRARY_NAME}
+         PRIVATE
+--- a/qtermwidget-2.4.0/lib/kpty.cpp
++++ b/qtermwidget-2.4.0/lib/kpty.cpp
+@@ -133,7 +133,7 @@
+ # define _NEW_TTY_CTRL
+ #endif
+ 
+-#if defined (__FreeBSD__) || defined(__FreeBSD_kernel__) || defined (__NetBSD__) || defined (__OpenBSD__) || defined (__bsdi__) || defined(__APPLE__) || defined (__DragonFly__)
++#if defined (__FreeBSD__) || defined(__FreeBSD_kernel__) || defined (__NetBSD__) || defined (__OpenBSD__) || defined (__bsdi__) || defined(__APPLE__) || defined (__DragonFly__) || defined(__minix__)
+ # define _tcgetattr(fd, ttmode) ioctl(fd, TIOCGETA, (char *)ttmode)
+ #else
+ # if defined(_HPUX_SOURCE) || defined(__Lynx__) || defined (__CYGWIN__) || defined(__GNU__)
+@@ -143,7 +143,7 @@
+ # endif
+ #endif
+ 
+-#if defined (__FreeBSD__) || defined(__FreeBSD_kernel__) || defined (__NetBSD__) || defined (__OpenBSD__) || defined (__bsdi__) || defined(__APPLE__) || defined (__DragonFly__)
++#if defined (__FreeBSD__) || defined(__FreeBSD_kernel__) || defined (__NetBSD__) || defined (__OpenBSD__) || defined (__bsdi__) || defined(__APPLE__) || defined (__DragonFly__) || defined(__minix__)
+ # define _tcsetattr(fd, ttmode) ioctl(fd, TIOCSETA, (char *)ttmode)
+ #else
+ # if defined(_HPUX_SOURCE) || defined(__CYGWIN__) || defined(__GNU__)
