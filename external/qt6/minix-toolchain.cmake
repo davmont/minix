@@ -65,8 +65,14 @@ set(CMAKE_CXX_FLAGS_INIT "${MINIX_DEFINES}")
 # found via find_library(), say -- leaves its callees (glib__private__,
 # bindtextdomain) unresolved unless they follow it on the command line.  The
 # extras go FIRST so that -lffi still lands after -lgobject-2.0, which needs it.
+# -ldbus-1: Qt6DBus is built "linked" (FEATURE_dbus_linked), i.e. it calls into
+# libdbus directly rather than dlopen'ing it -- because a static binary cannot
+# dlopen, so the runtime-loaded default leaves Qt's D-Bus permanently
+# disconnected (isConnected()==false, registerService() fails).  libdbus-1.a has
+# to be on the final link line of anything that pulls in Qt6DBus; as a static
+# archive it costs nothing when unreferenced.  Before -lpthread, which it needs.
 set(CMAKE_CXX_STANDARD_LIBRARIES
-    "${MINIX_EXTRA_STANDARD_LIBRARIES} -lffi -lc++ -lm -lpthread -lexecinfo")
+    "${MINIX_EXTRA_STANDARD_LIBRARIES} -lffi -lc++ -lm -ldbus-1 -lpthread -lexecinfo -lelf")
 set(CMAKE_C_STANDARD_LIBRARIES
     "${MINIX_EXTRA_STANDARD_LIBRARIES} -lffi -lm -lpthread -lexecinfo")
 
