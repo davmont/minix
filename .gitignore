@@ -153,3 +153,6 @@ boot/minix/.temp/mod12_init
 
 # build output from tools/llvm-lld (the host ld.lld binary)
 tools/llvm-lld/*-ld.lld
+
+# target ld.lld build product (121MB) - never commit
+external/apache2/llvm/bin/lld/ld.lld

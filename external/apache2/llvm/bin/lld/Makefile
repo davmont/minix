@@ -110,6 +110,28 @@ LLVM_LIBS+= \
 	FrontendDirective \
 	Demangle
 
+# AMDGPU backend is target-only, exactly as in clang's reachover: the host
+# cross-clang's config Targets.def lists only the 6 non-AMDGPU backends, so the
+# host ld.lld's InitializeAllTargets() never references AMDGPU and must not link
+# it (the host lib build excludes it).  The target ld.lld's Targets.def DOES list
+# AMDGPU, so lld/ELF/Driver.cpp's InitializeAllTargets() references
+# LLVMInitializeAMDGPUTargetInfo & co., which only resolve if these are linked.
+# Without this, a full (MKLLVMCMDS=yes) build of the shipped ld.lld fails with
+# "undefined symbol: LLVMInitializeAMDGPUTargetInfo".
+.if !defined(HOSTPROG)
+LLVM_LIBS+= \
+	AMDGPUCodeGen \
+	AMDGPUAsmParser \
+	AMDGPUMCTargetDesc \
+	AMDGPUDisassembler \
+	AMDGPUTargetInfo \
+	AMDGPUUtils \
+	MIRParser \
+	DebugInfoSymbolize \
+	DebugInfoGSYM \
+	DebugInfoPDB
+.endif
+
 .include "${.PARSEDIR}/../../link.mk"
 
 LDADD+=	-lz
