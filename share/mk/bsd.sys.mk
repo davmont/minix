@@ -133,12 +133,6 @@ CXXFLAGS+=	-Wno-error=old-style-cast \
 # until the sources are cleaned up.  Was implicit with the old clang 3.6.
 CFLAGS+=	-fcommon
 
-# MINIX's in-tree binutils ld is 2.23.2 (2013), which predates the relaxable
-# GOT relocations (R_X86_64_GOTPCRELX, binutils >= 2.26) that modern clang emits
-# by default -> "unresolvable R_X86_64_NONE relocation" at PIC/.so link time.
-# Emit the classic R_X86_64_GOTPCREL until binutils is updated.
-CFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
-CXXFLAGS+=	${${ACTIVE_CC} == "clang":? -Wa,-mrelax-relocations=no :}
 
 # MINIX's in-tree C++ code (atf, kyua, lutok, bind tools) is 2014-era NetBSD that
 # still uses std::auto_ptr, removed from the default C++ standard.  libc++ 22 only

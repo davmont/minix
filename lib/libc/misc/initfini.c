@@ -44,9 +44,6 @@ __RCSID("$NetBSD: initfini.c,v 1.11 2013/08/19 22:14:37 matt Exp $");
 void	_libc_init(void) __attribute__((__constructor__, __used__));
 
 void	__guard_setup(void);
-#if defined(__minix) && !defined(_LIBMINC)
-void	__minix_init(void);
-#endif
 void	__libc_thr_init(void);
 void	__libc_atomic_init(void);
 void	__libc_atexit_init(void);
@@ -91,22 +88,6 @@ _libc_init(void)
 		return;
 
 	libc_initialised = 1;
-
-#if defined(__minix) && !defined(_LIBMINC)
-	/*
-	 * Establish the kernel info page and fast IPC vectors as early as
-	 * possible.  __minix_init is itself a constructor, but binutils 2.34
-	 * drops init.o's .init_array entry when linking libc.so (initfini.o's
-	 * _libc_init entry survives), so for DYNAMICALLY linked binaries the
-	 * constructor never runs and _minix_kerninfo stays NULL.  That leaves
-	 * IPC limping along on the static _intr fallback vectors and -- fatally
-	 * -- makes minix_get_user_sp() assert during execve(), so every dynamic
-	 * program aborts the moment it tries to exec.  Call it explicitly here
-	 * (idempotent; runs once via the libc_initialised guard) so it happens
-	 * for both static and dynamic programs regardless of .init_array.
-	 */
-	__minix_init();
-#endif
 
 	if (__ps_strings != NULL)
 		__libc_dlauxinfo = __ps_strings->ps_argvstr +
