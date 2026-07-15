@@ -144,6 +144,26 @@ SUBDIR+= \
 	libLLVMXRay
 .endif
 
+# MINIX: the host tools that replaced binutils -- llvm-ar, llvm-nm, llvm-objcopy
+# (built under tools/llvm-{ar,nm,objcopy}) -- link a set of LLVM libraries that
+# the plain host lib build does not otherwise produce, so a clean build failed to
+# link them ("don't know how to make libLLVM<x>.a"):
+#   - ToolDrivers, ToolDriversDlltool: the driver plumbing and dlltool mode of the
+#     llvm-ar multicall binary.  Otherwise gated behind LLVM_DEVELOPER.
+#   - DebugInfoPDB, DebugInfoSymbolize, DebugInfoGSYM: needed by llvm-nm.
+#     Otherwise built only for the target (guarded !_BSD_HOSTINIT_MK_).
+# Build them for the host too.  This block is host-only (_BSD_HOSTINIT_MK_ is
+# defined when tools/llvm-lib includes bsd.hostinit.mk), so it does not duplicate
+# the target/developer SUBDIR entries above.
+.if defined(_BSD_HOSTINIT_MK_)
+SUBDIR+= \
+	libLLVMToolDrivers \
+	libLLVMToolDriversDlltool \
+	libLLVMDebugInfoPDB \
+	libLLVMDebugInfoSymbolize \
+	libLLVMDebugInfoGSYM
+.endif
+
 SUBDIR+= \
 	libclangAnalysis \
 	libclangAST \

@@ -110,6 +110,22 @@ LLVM_LIBS+= \
 	FrontendDirective \
 	Demangle
 
+# The *target* LLVM is configured with the amdgpu backend (Makefile.inc adds it
+# to LLVM_TARGETS in the non-host branch), so lld/ELF's InitializeAllTargets
+# references LLVMInitializeAMDGPU*.  The host LLVM is not, and the host llvm-lib
+# never builds these archives, so pull them in only for the target build --
+# otherwise the host ld.lld fails with "don't know how to make
+# libLLVMAMDGPUCodeGen.a".
+.if !defined(HOSTPROG)
+LLVM_LIBS+= \
+	AMDGPUCodeGen \
+	AMDGPUTargetInfo \
+	AMDGPUMCTargetDesc \
+	AMDGPUAsmParser \
+	AMDGPUUtils \
+	MIRParser
+.endif
+
 .include "${.PARSEDIR}/../../link.mk"
 
 LDADD+=	-lz
