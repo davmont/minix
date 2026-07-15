@@ -21,16 +21,30 @@ touch-genfiles:
 
 .SUFFIXES:      .mfs .c .o
 
-# Map MACHINE_CPU to BFD architecture name for objcopy -B flag
+# Map MACHINE_CPU to the BFD architecture name for objcopy's -B flag, and to the
+# output-target name for -O.
+#
+# -O used to be given ${MACHINE_GNU_PLATFORM} -- "x86_64-elf64-minix".  That is a
+# BFD target name GNU objcopy derives from the toolchain triple, and only GNU
+# objcopy knows it: llvm-objcopy carries a fixed table of target names and
+# rejects anything else outright ("invalid output format").  Since this is the
+# only place in the tree that names a target that way, and GNU objcopy is equally
+# happy with the generic name -- the object it produces is byte-for-byte the same
+# -- use the generic one, so either objcopy can build the boot ramdisk.
 .if ${MACHINE_CPU} == "x86_64"
 OBJCOPY_ARCH=	i386:x86-64
+OBJCOPY_TARGET=	elf64-x86-64
+.elif ${MACHINE_CPU} == "i386"
+OBJCOPY_ARCH=	i386
+OBJCOPY_TARGET=	elf32-i386
 .else
 OBJCOPY_ARCH=	${MACHINE_CPU}
+OBJCOPY_TARGET=	${MACHINE_GNU_PLATFORM}
 .endif
 
 .mfs.o:
 	${_MKTARGET_CREATE}
-	${OBJCOPY} -Ibinary -B${OBJCOPY_ARCH} -O${MACHINE_GNU_PLATFORM} $< $@
+	${OBJCOPY} -Ibinary -B${OBJCOPY_ARCH} -O${OBJCOPY_TARGET} $< $@
 
 CLEANFILES+=	../ramdisk/image
 # BJG - don't invoke parallel Makes
