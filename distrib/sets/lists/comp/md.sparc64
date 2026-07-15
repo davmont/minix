@@ -149,34 +149,3 @@
 ./usr/lib/sparc_mcmedany.o			comp-c-lib
 ./usr/lib/sparc_mcmedlow.o			comp-c-lib
 ./usr/lib/sparc_mcmedmid.o			comp-c-lib
-./usr/libdata/ldscripts/elf32_sparc.x		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xbn		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xd		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xdc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xdw		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xn		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xr		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xs		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xsc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xsw		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xu		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf32_sparc.xw		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.x		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xbn		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xd		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xdc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xdw		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xn		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xr		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xs		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xsc		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xsw		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xu		comp-util-bin		binutils
-./usr/libdata/ldscripts/elf64_sparc.xw		comp-util-bin		binutils
-./usr/libdata/ldscripts/sparcnbsd.x		comp-util-bin		binutils
-./usr/libdata/ldscripts/sparcnbsd.xbn		comp-util-bin		binutils
-./usr/libdata/ldscripts/sparcnbsd.xn		comp-util-bin		binutils
-./usr/libdata/ldscripts/sparcnbsd.xr		comp-util-bin		binutils
-./usr/libdata/ldscripts/sparcnbsd.xu		comp-util-bin		binutils

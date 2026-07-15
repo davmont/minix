@@ -4,13 +4,9 @@
 #
 #./usr/libdata/lint/llib-ldtrace.ln		comp-c-lintlib		lint,dtrace
 ./etc/mtree/set.comp				comp-sys-root
-./usr/bin/addr2line				comp-debug-bin		binutils
-./usr/bin/ar					comp-util-bin		binutils
-./usr/bin/as					comp-util-bin		binutils
 ./usr/bin/asa					comp-fortran-bin
 ./usr/bin/atf-compile				comp-obsolete		obsolete
 ./usr/bin/c++					comp-cxx-bin		gcccmds
-./usr/bin/c++filt				comp-cxx-bin		binutils
 ./usr/bin/c89					comp-c-bin
 ./usr/bin/c99					comp-c-bin
 ./usr/bin/cc					comp-c-bin		gcccmds
@@ -26,7 +22,6 @@
 ./usr/bin/ctfmerge				comp-util-bin		ctf
 ./usr/bin/cvs					comp-cvs-bin		cvs
 ./usr/bin/cvsbug				comp-cvs-bin		cvs
-./usr/bin/elfedit				comp-util-bin		binutils
 ./usr/bin/f77					comp-fortran-bin	obsolete
 ./usr/bin/fgen					comp-util-bin
 ./usr/bin/flex					comp-c-bin
@@ -44,7 +39,6 @@
 ./usr/bin/genclass				comp-obsolete		obsolete
 ./usr/bin/gettext				comp-c-bin
 ./usr/bin/gettextize				comp-obsolete		obsolete
-./usr/bin/gprof					comp-debug-bin		binutils
 ./usr/bin/ld.mcld				comp-c-bin		mclinker
 ./usr/bin/lex					comp-c-bin
 ./usr/bin/lint					comp-c-bin
@@ -70,19 +64,11 @@
 ./usr/bin/msgunfmt				comp-c-bin
 ./usr/bin/msguniq				comp-c-bin
 ./usr/bin/nbperf				comp-util-bin
-./usr/bin/nm					comp-util-bin		binutils
-./usr/bin/objcopy				comp-util-bin		binutils
-./usr/bin/objdump				comp-util-bin		binutils
 ./usr/bin/p++					comp-cxx-bin		pcc,cxx
 ./usr/bin/pcc					comp-c-bin		pcc
 ./usr/bin/protoize				comp-obsolete		obsolete
-./usr/bin/ranlib				comp-util-bin		binutils
 ./usr/bin/rcs2log				comp-cvs-bin		cvs
-./usr/bin/readelf				comp-util-bin		binutils
 ./usr/bin/rpcgen				comp-c-bin
-./usr/bin/size					comp-util-bin		binutils
-./usr/bin/strings				comp-util-bin		binutils
-./usr/bin/strip					comp-util-bin		binutils
 ./usr/bin/tsort					comp-util-bin
 ./usr/bin/unifdef				comp-util-bin
 ./usr/bin/unifdefall				comp-util-bin
@@ -3739,7 +3725,6 @@
 ./usr/lib/pkgconfig/openssl.pc			comp-crypto-lib		crypto,share
 ./usr/lib/pkgconfig/sqlite3.pc			comp-c-lib
 ./usr/lib/pkgconfig/zlib.pc			comp-c-lib
-./usr/libdata/ldscripts/kmodule			comp-util-share		binutils,kmod
 ./usr/libdata/lint/llib-larchive.ln		comp-c-lintlib		lint
 ./usr/libdata/lint/llib-lasn1.ln		comp-krb5-lintlib	lint,kerberos
 ./usr/libdata/lint/llib-lbind9.ln		comp-bind-lintlib	lint
@@ -4003,12 +3988,8 @@
 ./usr/share/locale/uk/LC_MESSAGES/gettext-tools.mo	comp-c_locale-uk	nls
 ./usr/share/locale/zh_CN/LC_MESSAGES/gettext-tools.mo	comp-c_locale-zh_CN	nls
 ./usr/share/locale/zh_TW/LC_MESSAGES/gettext-tools.mo	comp-c_locale-zh_TW	nls
-./usr/share/man/cat1/addr2line.0		comp-debug-catman	binutils,.cat
-./usr/share/man/cat1/ar.0			comp-util-catman	binutils,.cat
-./usr/share/man/cat1/as.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/asa.0			comp-fortran-catman	.cat
 ./usr/share/man/cat1/c++.0			comp-cxx-catman		gcccmds,.cat
-./usr/share/man/cat1/c++filt.0			comp-cxx-catman		binutils,.cat
 ./usr/share/man/cat1/c89.0			comp-c-catman		.cat
 ./usr/share/man/cat1/c99.0			comp-c-catman		.cat
 ./usr/share/man/cat1/cc.0			comp-c-catman		gcccmds,.cat
@@ -4019,7 +4000,6 @@
 ./usr/share/man/cat1/cvs.0			comp-cvs-catman		cvs,.cat
 ./usr/share/man/cat1/elf2aout.0			comp-sysutil-catman	.cat
 ./usr/share/man/cat1/elf2ecoff.0		comp-sysutil-catman	.cat
-./usr/share/man/cat1/elfedit.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/f77.0			comp-obsolete		obsolete
 ./usr/share/man/cat1/fgen.0			comp-util-catman	.cat
 ./usr/share/man/cat1/flex.0			comp-c-catman		.cat
@@ -4033,8 +4013,6 @@
 ./usr/share/man/cat1/gcov.0			comp-debug-catman	gcccmds,.cat
 ./usr/share/man/cat1/gdb.0			comp-debug-catman	gdb,.cat
 ./usr/share/man/cat1/genassym.0			comp-util-catman	.cat
-./usr/share/man/cat1/gprof.0			comp-debug-catman	binutils,.cat
-./usr/share/man/cat1/ld.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/lex.0			comp-c-catman		.cat
 ./usr/share/man/cat1/lexdoc.0			comp-obsolete		obsolete
 ./usr/share/man/cat1/lint.0			comp-c-catman		.cat
@@ -4056,17 +4034,9 @@
 ./usr/share/man/cat1/msg_window.0		comp-obsolete		obsolete
 ./usr/share/man/cat1/msgc.0			comp-c-catman		.cat
 ./usr/share/man/cat1/nbperf.0			comp-util-catman	.cat
-./usr/share/man/cat1/nm.0			comp-util-catman	binutils,.cat
-./usr/share/man/cat1/objcopy.0			comp-util-catman	binutils,.cat
-./usr/share/man/cat1/objdump.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/openssl_ocsp.0		comp-c-catman		crypto,.cat
-./usr/share/man/cat1/ranlib.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/rcs2log.0			comp-cvs-catman		cvs,.cat
-./usr/share/man/cat1/readelf.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/rpcgen.0			comp-c-catman		.cat
-./usr/share/man/cat1/size.0			comp-util-catman	binutils,.cat
-./usr/share/man/cat1/strings.0			comp-util-catman	binutils,.cat
-./usr/share/man/cat1/strip.0			comp-util-catman	binutils,.cat
 ./usr/share/man/cat1/tsort.0			comp-c-catman		.cat
 ./usr/share/man/cat1/unifdef.0			comp-c-catman		.cat
 ./usr/share/man/cat1/unifdefall.0		comp-c-catman		.cat
@@ -11036,12 +11006,8 @@
 ./usr/share/man/cat9/xc_wait.0			comp-sys-catman		.cat
 ./usr/share/man/cat9/xcall.0			comp-sys-catman		.cat
 ./usr/share/man/cat9/yield.0			comp-sys-catman		.cat
-./usr/share/man/html1/addr2line.html		comp-debug-htmlman	binutils,html
-./usr/share/man/html1/ar.html			comp-util-htmlman	binutils,html
-./usr/share/man/html1/as.html			comp-util-htmlman	binutils,html
 ./usr/share/man/html1/asa.html			comp-fortran-htmlman	html
 ./usr/share/man/html1/c++.html			comp-cxx-htmlman	gcccmds,html
-./usr/share/man/html1/c++filt.html		comp-cxx-htmlman	binutils,html
 ./usr/share/man/html1/c89.html			comp-c-htmlman		html
 ./usr/share/man/html1/c99.html			comp-c-htmlman		html
 ./usr/share/man/html1/cc.html			comp-c-htmlman		gcccmds,html
@@ -11052,7 +11018,6 @@
 ./usr/share/man/html1/cvs.html			comp-cvs-htmlman	cvs,html
 ./usr/share/man/html1/elf2aout.html		comp-sysutil-htmlman	html
 ./usr/share/man/html1/elf2ecoff.html		comp-sysutil-htmlman	html
-./usr/share/man/html1/elfedit.html		comp-util-htmlman	binutils,html
 ./usr/share/man/html1/f77.html			comp-fortran-htmlman	obsolete
 ./usr/share/man/html1/fgen.html			comp-util-htmlman	html
 ./usr/share/man/html1/flex.html			comp-c-htmlman		html
@@ -11065,8 +11030,6 @@
 ./usr/share/man/html1/gcov.html			comp-debug-htmlman	gcccmds,html
 ./usr/share/man/html1/gdb.html			comp-debug-htmlman	gdb,html
 ./usr/share/man/html1/genassym.html		comp-util-htmlman	html
-./usr/share/man/html1/gprof.html		comp-debug-htmlman	binutils,html
-./usr/share/man/html1/ld.html			comp-util-htmlman	binutils,html
 ./usr/share/man/html1/lex.html			comp-c-htmlman		html
 ./usr/share/man/html1/lint.html			comp-c-htmlman		html
 ./usr/share/man/html1/lorder.html		comp-util-htmlman	html
@@ -11075,17 +11038,9 @@
 ./usr/share/man/html1/mkstr.html		comp-c-htmlman		html
 ./usr/share/man/html1/msgc.html			comp-c-htmlman		html
 ./usr/share/man/html1/nbperf.html		comp-util-htmlman	html
-./usr/share/man/html1/nm.html			comp-util-htmlman	binutils,html
-./usr/share/man/html1/objcopy.html		comp-util-htmlman	binutils,html
-./usr/share/man/html1/objdump.html		comp-util-htmlman	binutils,html
 ./usr/share/man/html1/openssl_ocsp.html		comp-c-htmlman		crypto,html
-./usr/share/man/html1/ranlib.html		comp-util-htmlman	binutils,html
 ./usr/share/man/html1/rcs2log.html		comp-cvs-htmlman	cvs,html
-./usr/share/man/html1/readelf.html		comp-util-htmlman	binutils,html
 ./usr/share/man/html1/rpcgen.html		comp-c-htmlman		html
-./usr/share/man/html1/size.html			comp-util-htmlman	binutils,html
-./usr/share/man/html1/strings.html		comp-util-htmlman	binutils,html
-./usr/share/man/html1/strip.html		comp-util-htmlman	binutils,html
 ./usr/share/man/html1/tsort.html		comp-c-htmlman		html
 ./usr/share/man/html1/unifdef.html		comp-c-htmlman		html
 ./usr/share/man/html1/unifdefall.html		comp-c-htmlman		html
@@ -17806,12 +17761,8 @@
 ./usr/share/man/html9/xc_wait.html		comp-sys-htmlman	html
 ./usr/share/man/html9/xcall.html		comp-sys-htmlman	html
 ./usr/share/man/html9/yield.html		comp-sys-htmlman	html
-./usr/share/man/man1/addr2line.1		comp-debug-man		binutils,.man
-./usr/share/man/man1/ar.1			comp-util-man		binutils,.man
-./usr/share/man/man1/as.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/asa.1			comp-fortran-man	.man
 ./usr/share/man/man1/c++.1			comp-cxx-man		gcccmds,.man
-./usr/share/man/man1/c++filt.1			comp-cxx-man		binutils,.man
 ./usr/share/man/man1/c89.1			comp-c-man		.man
 ./usr/share/man/man1/c99.1			comp-c-man		.man
 ./usr/share/man/man1/cc.1			comp-c-man		gcccmds,.man
@@ -17822,7 +17773,6 @@
 ./usr/share/man/man1/cvs.1			comp-cvs-man		cvs,.man
 ./usr/share/man/man1/elf2aout.1			comp-sysutil-man	.man
 ./usr/share/man/man1/elf2ecoff.1		comp-sysutil-man	.man
-./usr/share/man/man1/elfedit.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/f77.1			comp-obsolete		obsolete
 ./usr/share/man/man1/fgen.1			comp-util-man		.man
 ./usr/share/man/man1/flex.1			comp-c-man		.man
@@ -17835,8 +17785,6 @@
 ./usr/share/man/man1/gcov.1			comp-debug-man		gcccmds,.man
 ./usr/share/man/man1/gdb.1			comp-debug-man		gdb,.man
 ./usr/share/man/man1/genassym.1			comp-util-man		.man
-./usr/share/man/man1/gprof.1			comp-debug-man		binutils,.man
-./usr/share/man/man1/ld.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/lex.1			comp-c-man		.man
 ./usr/share/man/man1/lint.1			comp-c-man		.man
 ./usr/share/man/man1/lorder.1			comp-util-man		.man
@@ -17857,17 +17805,9 @@
 ./usr/share/man/man1/msg_window.1		comp-obsolete		obsolete
 ./usr/share/man/man1/msgc.1			comp-c-man		.man
 ./usr/share/man/man1/nbperf.1			comp-util-man		.man
-./usr/share/man/man1/nm.1			comp-util-man		binutils,.man
-./usr/share/man/man1/objcopy.1			comp-util-man		binutils,.man
-./usr/share/man/man1/objdump.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/openssl_ocsp.1		comp-c-man		crypto,.man
-./usr/share/man/man1/ranlib.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/rcs2log.1			comp-cvs-man		cvs,.man
-./usr/share/man/man1/readelf.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/rpcgen.1			comp-c-man		.man
-./usr/share/man/man1/size.1			comp-util-man		binutils,.man
-./usr/share/man/man1/strings.1			comp-util-man		binutils,.man
-./usr/share/man/man1/strip.1			comp-util-man		binutils,.man
 ./usr/share/man/man1/tsort.1			comp-util-man		.man
 ./usr/share/man/man1/unifdef.1			comp-util-man		.man
 ./usr/share/man/man1/unifdefall.1		comp-util-man		.man

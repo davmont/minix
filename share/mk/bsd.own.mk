@@ -199,7 +199,10 @@ MKLLVM?=	yes
 
 .if ${MKLLVM:Uno} == "yes"
 HAVE_LLVM?=	yes
-MKBINUTILS?=	yes # We are installing clang, so trigger binutils.
+# We used to force MKBINUTILS on here "because we are installing clang", back
+# when clang drove GNU as and ld.  It no longer does: the assembler is clang's
+# own, the linker is lld, and ar/nm/objcopy are the llvm-* tools.  Nothing in
+# the toolchain needs GNU binutils, so let MKBINUTILS default to no below.
 .endif # ${MKLLVM:Uno} == "yes"
 
 .if ${HAVE_LLVM:Dyes} == "yes"
