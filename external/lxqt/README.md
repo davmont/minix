@@ -1,7 +1,8 @@
 # LXQt libraries on MINIX
 
-`libqtxdg` 4.4.0, `liblxqt` 2.4.0, `lxqt-globalkeys` 2.4.0, `lxqt-menu-data` 2.4.0
-and **`lxqt-panel` 2.4.1**, cross-compiled for MINIX/amd64.
+`libqtxdg` 4.4.0, `liblxqt` 2.4.0, `lxqt-globalkeys` 2.4.0, `lxqt-menu-data` 2.4.0,
+`qtxdg-tools` 4.4.0, `lxqt-panel` 2.4.1 and **`lxqt-session` 2.4.0**, cross-compiled
+for MINIX/amd64.
 
 The panel runs and docks itself on wlcompd: the compositor sees a layer surface
 `"dock"` on the top layer, gives it the full screen width (1280x32), and receives
@@ -183,3 +184,51 @@ Only the client library and `lxqt-globalkeys-ui` are built; the daemon and its
 config UI are skipped.  The daemon grabs keys through X11, and would be pointless
 anyway -- Wayland does not let a client grab another's keys, and wlcompd implements
 no protocol for it.  Both libraries are STATIC, for the usual reason.
+
+## lxqt-session, and starting the desktop
+
+`lxqt-session` runs the whole thing.  Verified on-target (`drive_session.py`):
+`startlxqt` alone brings up wlcompd, a D-Bus session bus, lxqt-session and the
+panel -- docked -- with no manual environment setup.
+
+    startlxqt        # that is the entire command
+
+Two upstreams come in with it: `qtxdg-tools` (LXQt's xdg-open backend, a plain
+Qt6Xdg consumer) and `xdg-user-dirs` (see `external/xdg-user-dirs/`).
+
+### What the session patch does
+
+- **startlxqt brings the compositor up itself.**  Everywhere else, startlxqt is
+  launched by a display manager or from an already-running compositor, so it only
+  sets the environment.  MINIX has neither -- you log in on a text console and
+  nothing has opened the framebuffer -- so on MINIX startlxqt starts the fb driver
+  and wlcompd, waits for the wayland socket, and only then execs lxqt-session.
+
+- **No session-wide `QT_WAYLAND_SHELL_INTEGRATION`.**  It is tempting to export
+  `layer-shell` from startlxqt, but that would break every other Qt program in the
+  session: LayerShellQt's integration makes *every* window of a process a layer
+  surface (its `createShellSurface()` has no xdg-shell fallback).  lxqt-session
+  itself failed to start that way.  Only the panel wants layer-shell, so the panel
+  asks for it in its own `main()` via `LayerShellQt::Shell::useLayerShell()` --
+  that is the one line the panel patch adds to main.cpp.
+
+- **No X11.**  `find_package(X11 REQUIRED)` becomes optional under `LXQT_HAS_X11`,
+  and the X11-only config GUI (`lxqt-config-session`, all xrdb/XKB/xset) is skipped.
+  Everything the session does with X11 -- key repeat rate, keyboard beep, pointer
+  acceleration, button mapping, numlock, waiting for `_NET_SUPPORTING_WM_CHECK` --
+  is an X11 device or window-manager setting with no meaning on Wayland, where the
+  compositor owns input and *is* the window manager.  Those functions become
+  no-ops under `LXQT_SESSION_NO_X11` (the session already had `isWayland` paths, so
+  the guards are narrow), and `startWm()` in particular just returns: wlcompd is
+  already running, or this process could not be a Wayland client at all.
+
+- **ScreenSaver comes back into liblxqt.**  It had been excluded as X11, but it is
+  not X11-only -- its constructor already has a Wayland branch that runs the
+  configured lock command, and only the XScreenSaver *query* is X11.  lxqt-session
+  and lxqt-leave both need it, so it is built everywhere now with the X11 parts
+  behind `LXQT_NO_X11` (see the liblxqt patch); `isScreenSaverLocked()` returns
+  false on Wayland, where a client cannot observe the lock state.
+
+- **No autostart entries for things we do not have.**  The globalkeys daemon
+  (not built) and xscreensaver (X11) autostart entries are dropped -- an autostart
+  entry for a missing binary just makes lxqt-session log a failure at every login.

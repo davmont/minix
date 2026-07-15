@@ -485,7 +485,9 @@
 ./usr/bin/lspci                                         minix-base
 ./usr/bin/lua                                           minix-base
 ./usr/bin/luac                                          minix-base
+./usr/bin/lxqt-leave                                    minix-base
 ./usr/bin/lxqt-panel                                    minix-base
+./usr/bin/lxqt-session                                  minix-base
 ./usr/bin/lxqtprobe                                     minix-base
 ./usr/bin/lzcat                                         minix-base
 ./usr/bin/lzma                                          minix-base
@@ -554,6 +556,7 @@
 ./usr/bin/ps                                            minix-base      obsolete
 ./usr/bin/pwhash                                        minix-base
 ./usr/bin/qtprobe                                       minix-base
+./usr/bin/qtxdg-mat                                     minix-base
 ./usr/bin/ramdisk                                       minix-base
 ./usr/bin/rarpd                                         minix-base      obsolete
 ./usr/bin/rawspeed                                      minix-base
@@ -594,6 +597,7 @@
 ./usr/bin/sprofdiff                                     minix-base
 ./usr/bin/sqlite3                                       minix-base
 ./usr/bin/srccrc                                        minix-base
+./usr/bin/startlxqt                                     minix-base
 ./usr/bin/stat                                          minix-base
 ./usr/bin/string2key                                    minix-base      crypto
 ./usr/bin/su                                            minix-base
@@ -676,6 +680,8 @@
 ./usr/bin/write                                         minix-base
 ./usr/bin/writeisofs                                    minix-base
 ./usr/bin/xargs                                         minix-base
+./usr/bin/xdg-user-dir                                  minix-base
+./usr/bin/xdg-user-dirs-update                          minix-base
 ./usr/bin/xkbprobe                                      minix-base
 ./usr/bin/xmlwf                                         minix-base
 ./usr/bin/xstr                                          minix-base
@@ -1323,7 +1329,14 @@
 ./usr/service/asr                                       minix-base
 ./usr/share                                             minix-base
 ./usr/share/applications                                minix-base
+./usr/share/applications/lxqt-hibernate.desktop         minix-base
+./usr/share/applications/lxqt-leave.desktop             minix-base
+./usr/share/applications/lxqt-lockscreen.desktop        minix-base
+./usr/share/applications/lxqt-logout.desktop            minix-base
 ./usr/share/applications/lxqt-panel.desktop             minix-base
+./usr/share/applications/lxqt-reboot.desktop            minix-base
+./usr/share/applications/lxqt-shutdown.desktop          minix-base
+./usr/share/applications/lxqt-suspend.desktop           minix-base
 ./usr/share/calendar                                    minix-base
 ./usr/share/calendar/calendar.birthday                  minix-base
 ./usr/share/calendar/calendar.christian                 minix-base
@@ -3346,6 +3359,10 @@
 ./usr/share/lxqt/lxqt-panel/spacer.desktop              minix-base
 ./usr/share/lxqt/lxqt-panel/taskbar.desktop             minix-base
 ./usr/share/lxqt/lxqt-panel/worldclock.desktop          minix-base
+./usr/share/lxqt/lxqt.conf                              minix-base
+./usr/share/lxqt/session.conf                           minix-base
+./usr/share/lxqt/waylandwindowmanagers.conf             minix-base
+./usr/share/lxqt/windowmanagers.conf                    minix-base
 ./usr/share/misc                                        minix-base
 ./usr/share/misc/NetBSD.el                              minix-base
 ./usr/share/misc/acronyms                               minix-base
@@ -3469,6 +3486,8 @@
 ./usr/share/terminfo/terminfo.cdb                       minix-base
 ./usr/share/xkb                                         minix-base
 ./usr/share/xkb/us.xkb                                  minix-base
+./usr/share/xsessions                                   minix-base
+./usr/share/xsessions/lxqt.desktop                      minix-base
 ./usr/share/zoneinfo                                    minix-base
 ./usr/share/zoneinfo/Africa                             minix-base
 ./usr/share/zoneinfo/Africa/Abidjan                     minix-base

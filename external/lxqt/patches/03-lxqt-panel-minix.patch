@@ -1,5 +1,5 @@
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/CMakeLists.txt
---- /tmp/pr/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/CMakeLists.txt
+--- /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-07-14 20:35:50.234580827 +0200
 @@ -15,5 +15,19 @@
      Qt6::Gui
@@ -23,8 +23,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.
 +    add_subdirectory(wayland)
 +    add_subdirectory(xcb)
 +endif()
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
---- /tmp/pr/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
+--- /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-07-14 20:38:09.305666385 +0200
 @@ -26,8 +26,20 @@
      workspace.cpp workspace.hpp
@@ -49,8 +49,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
  
  target_link_libraries(${NAME} ${QTX_LIBRARIES} Qt6::Concurrent Qt6Xdg)
  
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/CMakeLists.txt
---- /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/CMakeLists.txt
+--- /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-07-14 20:36:22.346739060 +0200
 @@ -111,6 +111,22 @@
      lxqt-panel-backend-common
@@ -75,8 +75,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/C
  set_property(TARGET ${PROJECT} PROPERTY ENABLE_EXPORTS TRUE)
  
  install(TARGETS ${PROJECT} RUNTIME DESTINATION bin)
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
---- /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h	1970-01-01 01:00:00.000000000 +0100
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
+--- /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h	1970-01-01 01:00:00.000000000 +0100
 +++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-14 22:48:12.139462563 +0200
 @@ -0,0 +1,30 @@
 +/*
@@ -109,8 +109,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/pan
 +};
 +
 +#endif /* KX11EXTRAS_MINIX_H */
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp
---- /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-07-14 20:36:02.126112071 +0200
 @@ -43,6 +43,9 @@
  #include <QProcessEnvironment>
@@ -144,8 +144,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4
      {
          loader.setFileName(getBackendFilePath(preferredBackend));
          if (loader.load())
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lxqtpanel.cpp
---- /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lxqtpanel.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-07-14 17:00:58.920889903 +0200
 @@ -50,8 +50,19 @@
  #include <XdgDirs>
@@ -217,8 +217,45 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lx
          {
              // qDebug() << "WinIdChange" << hex << effectiveWinId();
              if(effectiveWinId() == 0)
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
---- /tmp/pr/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/panel/main.cpp	2026-07-15 00:14:09.379246156 +0200
+@@ -28,6 +28,10 @@
+ 
+ #include "lxqtpanelapplication.h"
+ 
++#ifdef LXQT_PANEL_STATIC_WM_BACKEND
++#include <LayerShellQt/Shell>
++#endif
++
+ /*! The lxqt-panel is the panel of LXQt.
+   Usage: lxqt-panel [CONFIG_ID]
+     CONFIG_ID      Section name in config file ~/.config/lxqt-panel/panel.conf
+@@ -36,6 +40,22 @@
+ 
+ int main(int argc, char *argv[])
+ {
++#ifdef LXQT_PANEL_STATIC_WM_BACKEND
++    /*
++     * Ask for wlr-layer-shell *here*, in this process, before Qt builds its
++     * platform integration.
++     *
++     * All this does is set QT_WAYLAND_SHELL_INTEGRATION=layer-shell, and it is
++     * tempting to export that from the session script instead -- but that would
++     * be wrong: LayerShellQt's integration makes EVERY window of the process a
++     * layer surface (createShellSurface() has no fallback to xdg-shell), so any
++     * other Qt program in the session would break.  lxqt-session did, which is
++     * how this was found.  Only the panel wants layer-shell, so only the panel
++     * asks for it.
++     */
++    LayerShellQt::Shell::useLayerShell();
++#endif
++
+     LXQtPanelApplication app(argc, argv);
+ 
+     return app.exec();
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
 +++ lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	2026-07-14 17:02:55.980280066 +0200
 @@ -0,0 +1,26 @@
 +/*
@@ -247,8 +284,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4
 +Q_IMPORT_PLUGIN(QGifPlugin)
 +Q_IMPORT_PLUGIN(QICOPlugin)
 +Q_IMPORT_PLUGIN(QJpegPlugin)
-diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugin.cpp
---- /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugin.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/panel/plugin.cpp	2026-07-14 16:58:59.031364353 +0200
 @@ -31,7 +31,11 @@
  #include "pluginsettings_p.h"
@@ -262,8 +299,8 @@ diff -urN /tmp/pr/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugi
  
  #include <QDebug>
  #include <QProcessEnvironment>
-diff -urN /tmp/pr/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp
---- /tmp/pr/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-05-29 12:35:42.000000000 +0200
+diff -urN /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-05-29 12:35:42.000000000 +0200
 +++ lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-07-14 22:48:12.139855250 +0200
 @@ -30,7 +30,14 @@
  #include "../panel/lxqtpanelapplication.h"

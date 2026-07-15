@@ -1,5 +1,5 @@
-diff -urN /tmp/pr3/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt
---- /tmp/pr3/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
+diff -urN /tmp/pf/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt
+--- /tmp/pf/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
 +++ libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt	2026-07-14 12:08:00.469425516 +0200
 @@ -70,7 +70,7 @@
  
@@ -10,8 +10,8 @@ diff -urN /tmp/pr3/libqtxdg-4.4.0/src/qtxdg/CMakeLists.txt libqtxdg-4.4.0/src/qt
      ${libqtxdg_PUBLIC_H_FILES}
      ${libqtxdg_PRIVATE_H_FILES}
      ${libqtxdg_CPP_FILES}
-diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt
---- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
+diff -urN /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt
+--- /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
 +++ libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt	2026-07-14 12:08:00.469640389 +0200
 @@ -16,7 +16,7 @@
  )
@@ -22,8 +22,8 @@ diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/CMakeLists.txt libqtxdg-4.4.
      ${xdgiconloader_CPP_FILES}
      ${xdgiconloader_PRIVATE_INSTALLABLE_H_FILES}
  )
-diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt
---- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
+diff -urN /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt
+--- /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt	2026-04-20 09:07:00.000000000 +0200
 +++ libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt	2026-07-14 17:03:30.937913926 +0200
 @@ -2,10 +2,15 @@
      xdgiconengineplugin.cpp
@@ -42,8 +42,8 @@ diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/plugin/CMakeLists.txt libqtx
  target_compile_definitions(${QTXDGX_ICONENGINEPLUGIN_LIBRARY_NAME}
      PRIVATE
          "QT_NO_KEYWORDS"
-diff -urN /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h
---- /tmp/pr3/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h	2026-04-20 09:07:00.000000000 +0200
+diff -urN /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h
+--- /tmp/pf/libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h	2026-04-20 09:07:00.000000000 +0200
 +++ libqtxdg-4.4.0/src/xdgiconloader/xdgiconloader_p.h	2026-07-14 12:04:38.254720872 +0200
 @@ -34,6 +34,23 @@
  #ifndef XDGICONLOADER_P_H

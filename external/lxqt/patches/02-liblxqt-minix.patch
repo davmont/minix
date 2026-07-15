@@ -1,5 +1,5 @@
-diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/cmake/lxqt-config.cmake.in liblxqt-2.4.0/cmake/lxqt-config.cmake.in
---- /tmp/pristine/liblxqt-2.4.0/cmake/lxqt-config.cmake.in	2026-04-20 09:17:10.000000000 +0200
+diff -urN /tmp/pf/liblxqt-2.4.0/cmake/lxqt-config.cmake.in liblxqt-2.4.0/cmake/lxqt-config.cmake.in
+--- /tmp/pf/liblxqt-2.4.0/cmake/lxqt-config.cmake.in	2026-04-20 09:17:10.000000000 +0200
 +++ liblxqt-2.4.0/cmake/lxqt-config.cmake.in	2026-07-14 12:17:29.270715278 +0200
 @@ -12,7 +12,7 @@
  find_dependency(Qt6DBus @QT_MINIMUM_VERSION@)
@@ -10,9 +10,9 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/cmake/lxqt-config.cmake.in lib
  find_dependency(lxqt2-build-tools @LXQTBT_MINIMUM_VERSION@)
  include(LXQtConfigVars)
  
-diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/CMakeLists.txt
---- /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt	2026-04-20 09:17:10.000000000 +0200
-+++ liblxqt-2.4.0/CMakeLists.txt	2026-07-14 12:14:11.500563066 +0200
+diff -urN /tmp/pf/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/CMakeLists.txt
+--- /tmp/pf/liblxqt-2.4.0/CMakeLists.txt	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/CMakeLists.txt	2026-07-14 23:55:04.101629201 +0200
 @@ -32,6 +32,17 @@
  option(UPDATE_TRANSLATIONS "Update source translation translations/*.ts files" OFF)
  option(BUILD_BACKLIGHT_LINUX_BACKEND "Build the Linux backend for the backlight" ON)
@@ -45,49 +45,52 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/C
      find_package(X11 REQUIRED)
  endif()
  message(STATUS "Building ${PROJECT_NAME} with Qt ${Qt6Core_VERSION}")
-@@ -86,11 +96,11 @@
+@@ -86,11 +96,9 @@
      #lxqtbacklight/linux_backend/linuxbackend.h
  )
  
 -if (NOT APPLE)
-+if (LXQT_HAS_X11)
-     list (APPEND PUB_HDRS
-         lxqtscreensaver.h
-     )
+-    list (APPEND PUB_HDRS
+-        lxqtscreensaver.h
+-    )
 -endif (NOT APPLE)
-+endif (LXQT_HAS_X11)
++list (APPEND PUB_HDRS
++    lxqtscreensaver.h
++)
  
  set(PUBLIC_CLASSES
      HtmlDelegate
-@@ -114,11 +124,11 @@
+@@ -114,11 +122,9 @@
      Globals
      Backlight
  )
 -if (NOT APPLE)
-+if (LXQT_HAS_X11)
-     list (APPEND PUBLIC_CLASSES
-         ScreenSaver
-     )
+-    list (APPEND PUBLIC_CLASSES
+-        ScreenSaver
+-    )
 -endif (NOT APPLE)
-+endif (LXQT_HAS_X11)
++list (APPEND PUBLIC_CLASSES
++    ScreenSaver
++)
  
  set(SRCS
      lxqthtmldelegate.cpp
-@@ -144,11 +154,11 @@
+@@ -144,11 +150,9 @@
      lxqtbacklight/virtual_backend.cpp
  )
  
 -if (NOT APPLE)
-+if (LXQT_HAS_X11)
-     list (APPEND SRCS
-         lxqtscreensaver.cpp
-     )
+-    list (APPEND SRCS
+-        lxqtscreensaver.cpp
+-    )
 -endif (NOT APPLE)
-+endif (LXQT_HAS_X11)
++list (APPEND SRCS
++    lxqtscreensaver.cpp
++)
  
  if (BUILD_BACKLIGHT_LINUX_BACKEND)
      list (APPEND SRCS
-@@ -176,11 +186,11 @@
+@@ -176,11 +180,11 @@
      lxqtbacklight/virtual_backend.h
  )
  
@@ -101,7 +104,7 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/C
  
  if (BUILD_BACKLIGHT_LINUX_BACKEND)
      list (APPEND SRCS
-@@ -305,8 +315,13 @@
+@@ -305,8 +309,13 @@
      COMPONENT Devel
  )
  
@@ -117,7 +120,7 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/C
             ${SRCS}
             ${dbus_generated}
             ${UIS} ${MOCS}
-@@ -317,19 +332,18 @@
+@@ -317,19 +326,18 @@
  
  target_link_libraries(${LXQT_LIBRARY_NAME}
      PUBLIC
@@ -139,12 +142,97 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/CMakeLists.txt liblxqt-2.4.0/C
  
  set_target_properties(${LXQT_LIBRARY_NAME} PROPERTIES
      VERSION   ${LXQT_VERSION}
-diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp liblxqt-2.4.0/lxqtsingleapplication.cpp
---- /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-04-20 09:17:10.000000000 +0200
-+++ liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-07-14 12:13:32.894813816 +0200
-@@ -27,9 +27,15 @@
+diff -urN /tmp/pf/liblxqt-2.4.0/lxqtapplication.cpp liblxqt-2.4.0/lxqtapplication.cpp
+--- /tmp/pf/liblxqt-2.4.0/lxqtapplication.cpp	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/lxqtapplication.cpp	2026-07-15 03:22:53.837739742 +0200
+@@ -109,8 +109,10 @@
+             QObject::connect(mNotifier.data(), &QSocketNotifier::activated, app, [this, signalEmitter] {
+                 int signo = 0;
+                 int ret = read(mSignalSock[1], &signo, sizeof (int));
+-                if (sizeof (int) != ret)
+-                qCritical("unable to read signal from socketpair, %s", strerror(errno));
++                if (sizeof (int) != ret) {
++                    qCritical("unable to read signal from socketpair, %s", strerror(errno));
++                    return;   /* a spurious notifier wakeup is not a signal */
++                }
+                 signalEmitter(signo);
+             });
+         }
+diff -urN /tmp/pf/liblxqt-2.4.0/lxqtscreensaver.cpp liblxqt-2.4.0/lxqtscreensaver.cpp
+--- /tmp/pf/liblxqt-2.4.0/lxqtscreensaver.cpp	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/lxqtscreensaver.cpp	2026-07-14 23:56:22.872368734 +0200
+@@ -44,6 +44,15 @@
+ 
+ #include <QDebug>
+ 
++#ifndef LXQT_NO_X11
++/*
++ * Everything X11 in this file: the XScreenSaver extension and the raw-Xlib
++ * property helpers that exist only to talk to it.  ScreenSaver itself is NOT
++ * X11-only -- its constructor already has a Wayland branch, and locking runs the
++ * configured lock command -- so the class is built everywhere and only these are
++ * compiled out.  See isScreenSaverLocked() below for the one behavioural
++ * consequence.
++ */
+ #include <X11/extensions/scrnsaver.h>
+ 
+ // Avoid polluting everything with X11/Xlib.h:
+@@ -65,8 +74,12 @@
+ using XScopedPtr = std::unique_ptr<T, D>;
+ 
+ 
++#endif /* !LXQT_NO_X11 */
++
+ namespace LXQt {
+ 
++#ifndef LXQT_NO_X11
++
+ static bool GetProperty(XID window, const std::string& property_name, long max_length,
+                  Atom* type, int* format, unsigned long* num_items,
+                  unsigned char** property);
+@@ -133,6 +146,8 @@
+     return true;
+ }
+ 
++#endif /* !LXQT_NO_X11 */
++
+ class ScreenSaverPrivate
+ {
+     Q_DECLARE_TR_FUNCTIONS(LXQt::ScreenSaver)
+@@ -214,6 +229,16 @@
+ 
+ bool ScreenSaverPrivate::isScreenSaverLocked()
+ {
++#ifdef LXQT_NO_X11
++    /*
++     * Asking whether the screen is locked is an XScreenSaver query, and Wayland
++     * has no equivalent -- deliberately: a client cannot observe the compositor's
++     * lock state.  Locking itself still works; it runs the configured lock
++     * command, which is the path the constructor already takes on Wayland.
++     */
++    return false;
++#else
++
+     if (auto *x11Application = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
+     {
+         XScreenSaverInfo *info = nullptr;
+@@ -247,6 +272,7 @@
+         qWarning() << "isScreenSaverLocked() not implemented on Wayland";
+         return false;
+     }
++#endif
+ }
+ 
+ ScreenSaver::ScreenSaver(QObject * parent)
+diff -urN /tmp/pf/liblxqt-2.4.0/lxqtsingleapplication.cpp liblxqt-2.4.0/lxqtsingleapplication.cpp
+--- /tmp/pf/liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-04-20 09:17:10.000000000 +0200
++++ liblxqt-2.4.0/lxqtsingleapplication.cpp	2026-07-15 02:35:49.137501688 +0200
+@@ -26,10 +26,18 @@
+  * END_COMMON_COPYRIGHT_HEADER */
  
  #include "lxqtsingleapplication.h"
++#include <cstdio>
++#define SAMARK(...) do{fprintf(stderr,"SAMARK: " __VA_ARGS__);fflush(stderr);}while(0)
  #include "singleapplicationadaptor.h"
 +#ifndef LXQT_NO_KWINDOWSYSTEM
  #include <KWindowSystem>
@@ -158,7 +246,23 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp libl
  #include <QDBusMessage>
  #include <QWidget>
  #include <QDebug>
-@@ -96,6 +102,15 @@
+@@ -45,6 +53,7 @@
+         QString::fromLatin1("org.lxqt.%1").arg(QApplication::applicationName());
+ 
+     QDBusConnection bus = QDBusConnection::sessionBus();
++    SAMARK("service=%s connected=%d\n", service.toLocal8Bit().constData(), (int)bus.isConnected());
+ 
+     if (!bus.isConnected()) {
+         QLatin1StringView errorMessage("Can't connect to the D-Bus session bus\n"
+@@ -64,6 +73,7 @@
+ 
+     bool registered = (bus.registerService(service) ==
+                        QDBusConnectionInterface::ServiceRegistered);
++    SAMARK("registered=%d\n", (int)registered);
+     if (registered) { // We are the primary instance
+         SingleApplicationAdaptor *mAdaptor = new SingleApplicationAdaptor(this);
+         QLatin1StringView objectPath("/");
+@@ -96,6 +106,15 @@
  {
      if (mActivationWindow) {
          mActivationWindow->show();
@@ -174,7 +278,7 @@ diff -urN -x '*.orig' /tmp/pristine/liblxqt-2.4.0/lxqtsingleapplication.cpp libl
          WId window = mActivationWindow->effectiveWinId();
          KWindowInfo info(window, NET::WMDesktop);
          int windowDesktop = info.desktop();
-@@ -107,6 +122,7 @@
+@@ -107,6 +126,7 @@
              KWindowSystem::activateWindow(w);
           else
              qDebug() << Q_FUNC_INFO << "Got null windowHandle";

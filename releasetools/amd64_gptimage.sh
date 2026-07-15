@@ -38,8 +38,8 @@ set -e
 # Root MFS size (bytes) and inode count.  Must exceed the base contents with
 # headroom for /var, /tmp, /root etc., or the live system runs out of space
 # and inodes at boot.  (4 KB MFS blocks.)
-: ${ROOT_FS_SIZE=$(( 768*1024*1024 ))}
-: ${ROOT_FS_INODES=40000}
+: ${ROOT_FS_SIZE=$(( 1536*1024*1024 ))}
+: ${ROOT_FS_INODES=60000}
 
 if [ ! -f ${BUILDSH} ]; then
 	echo "Please invoke me from the root source dir, where ${BUILDSH} is."

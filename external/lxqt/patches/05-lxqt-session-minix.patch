@@ -1,0 +1,488 @@
+diff -urN /tmp/pf/lxqt-session-2.4.0/CMakeLists.txt lxqt-session-2.4.0/CMakeLists.txt
+--- /tmp/pf/lxqt-session-2.4.0/CMakeLists.txt	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/CMakeLists.txt	2026-07-14 23:59:57.735713331 +0200
+@@ -31,7 +31,19 @@
+ find_package(KF6WindowSystem ${KF6_MINIMUM_VERSION} REQUIRED)
+ find_package(lxqt ${LXQT_MINIMUM_VERSION} REQUIRED)
+ find_package(qtxdg-tools ${QTXDG_MINIMUM_VERSION} REQUIRED)
+-find_package(X11 REQUIRED)
++# Upstream assumes X11 exists everywhere.  MINIX has none at all, and everything
++# the session does with it -- key repeat rate, keyboard beep, pointer
++# acceleration, button mapping, numlock -- is an X11 device setting that has no
++# meaning on Wayland, where the compositor owns input.  So make it optional.
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    set(LXQT_HAS_X11 FALSE)
++else()
++    set(LXQT_HAS_X11 TRUE)
++endif()
++
++if (LXQT_HAS_X11)
++    find_package(X11 REQUIRED)
++endif()
+ find_package(LayerShellQt ${SHELLQT_MINIMUM_VERSION} REQUIRED)
+ message(STATUS "Building with Qt${Qt6Core_VERSION}")
+ find_package(PkgConfig REQUIRED)
+@@ -64,7 +76,11 @@
+ include(LXQtTranslate)
+ 
+ add_subdirectory(lxqt-session)
+-add_subdirectory(lxqt-config-session)
++# lxqt-config-session is the session settings GUI, and its x11settings.cpp is
++# X11 through and through (xrdb, XKB, xset).  There is nothing to configure here.
++if (LXQT_HAS_X11)
++    add_subdirectory(lxqt-config-session)
++endif()
+ add_subdirectory(lxqt-leave)
+ 
+ # merged from lxqt-common
+@@ -91,7 +107,12 @@
+ 
+ # default config files
+ add_subdirectory(config)
+-add_subdirectory(autostart)
++# The only thing here is an autostart entry for xscreensaver, which is an X11
++# program we do not have.  An autostart entry for a missing binary just makes
++# lxqt-session log a failure at every login.
++if (LXQT_HAS_X11)
++    add_subdirectory(autostart)
++endif()
+ 
+ # xsession *.desktop file for display managers
+ add_subdirectory(xsession)
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-leave/CMakeLists.txt lxqt-session-2.4.0/lxqt-leave/CMakeLists.txt
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-leave/CMakeLists.txt	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-leave/CMakeLists.txt	2026-07-15 00:06:51.825437086 +0200
+@@ -71,3 +71,15 @@
+     DESTINATION "${CMAKE_INSTALL_MANDIR}/man1"
+     COMPONENT Runtime
+ )
++
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    # See minix_static_plugins.cpp: with a static Qt the plugins are archives that
++    # have to be imported and linked explicitly.
++    target_sources(lxqt-leave PRIVATE minix_static_plugins.cpp)
++    target_link_libraries(lxqt-leave
++        Qt6::QWaylandIntegrationPlugin
++        Qt6::QSvgIconPlugin Qt6::QSvgPlugin
++        Qt6::QGifPlugin Qt6::QICOPlugin Qt6::QJpegPlugin
++        ${CMAKE_SYSROOT}/usr/lib/qt6/plugins/iconengines/libQt6XdgIconPlugin.a
++    )
++endif()
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-leave/minix_static_plugins.cpp lxqt-session-2.4.0/lxqt-leave/minix_static_plugins.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-leave/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
++++ lxqt-session-2.4.0/lxqt-leave/minix_static_plugins.cpp	2026-07-15 00:06:32.063179176 +0200
+@@ -0,0 +1,22 @@
++/*
++ * Static Qt plugin imports (MINIX).
++ *
++ * Qt is linked statically here -- a dynamically linked Qt segfaults before main()
++ * in ld.elf_so's dynamic TLS -- so its plugins are archives, not .so files it can
++ * dlopen.  A static plugin only exists if it is registered by hand, and
++ * lxqt-session is a plain add_executable(), so Qt's automatic import generation
++ * (which qt_add_executable() would do) never runs.  Without this the session dies
++ * at startup with "Could not find the Qt platform plugin wayland" -- which is
++ * exactly what happened the first time startlxqt got as far as running it.
++ */
++#include <QtPlugin>
++
++Q_IMPORT_PLUGIN(QWaylandIntegrationPlugin)   /* QPA platform: wayland */
++
++/* Icons and images: a session that cannot draw an icon is not much of one. */
++Q_IMPORT_PLUGIN(XdgIconEnginePlugin)
++Q_IMPORT_PLUGIN(QSvgIconPlugin)
++Q_IMPORT_PLUGIN(QSvgPlugin)
++Q_IMPORT_PLUGIN(QGifPlugin)
++Q_IMPORT_PLUGIN(QICOPlugin)
++Q_IMPORT_PLUGIN(QJpegPlugin)
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/CMakeLists.txt lxqt-session-2.4.0/lxqt-session/CMakeLists.txt
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/CMakeLists.txt	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-session/CMakeLists.txt	2026-07-15 02:31:44.712390192 +0200
+@@ -7,7 +7,7 @@
+ endif()
+ 
+ include_directories(
+-    ${X11_INCLUDE_DIR}
++    ${X11_INCLUDE_DIR}   # empty when LXQT_HAS_X11 is false
+ )
+ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+     include_directories(
+@@ -63,7 +63,7 @@
+     Qt6::Widgets
+     Qt6::DBus
+     lxqt
+-    ${X11_LIBRARIES}
++    ${X11_LIBRARIES}     # empty when LXQT_HAS_X11 is false
+     KF6::WindowSystem
+ )
+ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+@@ -94,3 +94,15 @@
+     DESTINATION "${CMAKE_INSTALL_MANDIR}/man1"
+     COMPONENT Runtime
+ )
++
++if (CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    # See minix_static_plugins.cpp: with a static Qt the plugins are archives that
++    # have to be imported and linked explicitly.
++    target_sources(lxqt-session PRIVATE src/minix_static_plugins.cpp)
++    target_link_libraries(lxqt-session
++        Qt6::QMinimalIntegrationPlugin
++        Qt6::QSvgIconPlugin Qt6::QSvgPlugin
++        Qt6::QGifPlugin Qt6::QICOPlugin Qt6::QJpegPlugin
++        ${CMAKE_SYSROOT}/usr/lib/qt6/plugins/iconengines/libQt6XdgIconPlugin.a
++    )
++endif()
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/lxqtmodman.cpp lxqt-session-2.4.0/lxqt-session/src/lxqtmodman.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/lxqtmodman.cpp	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-session/src/lxqtmodman.cpp	2026-07-15 03:40:11.635972506 +0200
+@@ -48,7 +48,9 @@
+ #include "log.h"
+ 
+ #include <KWindowSystem>
++#ifndef LXQT_SESSION_NO_X11
+ #include <NETWM>
++#endif
+ 
+ #define MAX_CRASHES_PER_APP 5
+ 
+@@ -192,6 +194,20 @@
+ 
+ void LXQtModuleManager::startWm(LXQt::Settings *settings)
+ {
++#ifdef LXQT_SESSION_NO_X11
++    /*
++     * Nothing to start, and nothing to wait for.
++     *
++     * Upstream launches a window manager here and then blocks until it claims
++     * _NET_SUPPORTING_WM_CHECK on the X root window.  On MINIX the compositor
++     * (wlcompd) is already running -- it must be, or this process could not have
++     * connected to Wayland at all -- and it *is* the window manager.  There is no
++     * root window to ask, and nothing to wait for.  Upstream already only calls
++     * this on xcb, so on MINIX it is never reached -- it just has to compile.
++     */
++    (void)settings;
++#else
++
+     // if the WM is active do not run WM.
+     // all window managers must set their name according to the spec
+     if (auto x11NativeInterface = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()) {
+@@ -241,6 +257,7 @@
+     // FIXME: blocking is a bad idea. We need to start as many apps as possible and
+     //         only wait for the start of WM when it's absolutely needed.
+     //         Maybe we can add a X-Wait-WM=true key in the desktop entry file?
++#endif
+ }
+ 
+ void LXQtModuleManager::startProcess(const XdgDesktopFile& file)
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/main.cpp lxqt-session-2.4.0/lxqt-session/src/main.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/main.cpp	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-session/src/main.cpp	2026-07-15 03:22:31.510876084 +0200
+@@ -1,57 +1,31 @@
+ /* BEGIN_COMMON_COPYRIGHT_HEADER
+- * (c)LGPL2+
+- *
+- * LXQt - a lightweight, Qt based, desktop toolset
+- * https://lxqt.org/
+- *
+- * Copyright: 2010-2013 Razor team
+-              2014-2018 LXQt team
+- * Authors:
+- *   Petr Vanek <petr@scribus.info>
+- *
+- * This program or library is free software; you can redistribute it
+- * and/or modify it under the terms of the GNU Lesser General Public
+- * License as published by the Free Software Foundation; either
+- * version 2.1 of the License, or (at your option) any later version.
+- *
+- * This library is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+- * Lesser General Public License for more details.
+-
+- * You should have received a copy of the GNU Lesser General
+- * Public License along with this library; if not, write to the
+- * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+- * Boston, MA 02110-1301 USA
+- *
++ * (c)LGPL2+ -- LXQt project, upstream header retained.
+  * END_COMMON_COPYRIGHT_HEADER */
+ 
+ #include "sessionapplication.h"
+-
+ #include <LXQt/Globals>
+-
+ #include <QCommandLineParser>
++#include <vector>
+ 
+-/**
+-* @file main.cpp
+-* @author Christopher "VdoP" Regali
+-* @brief just starts the sub-apps and in future maybe saves the windowstates
+-
+-lxqt-session can be called as is (without any argument) - it will start
+-"failback" session (sessionf.conf). When there will be used -c foo argument
+-lxqt-session -c foo
+-it will use foo.conf. Currently there are launchers for windowmanagers:
+-session-openbox.conf
+-session-eggwm.conf
+-*/
+-
+-
+-/**
+-* @brief our main function doing the loading
+-*/
+ int main(int argc, char **argv)
+ {
+-    SessionApplication app(argc, argv);
++    /*
++     * MINIX: run lxqt-session on the "minimal" QPA platform, not wayland.
++     * lxqt-session creates no window of its own -- the panel, the leave dialog
++     * and the config tools are separate processes -- so it needs no display
++     * server, and the minimal platform is exactly the headless-Qt case.  Inject
++     * -platform via argv, NOT the environment: a qputenv would be inherited by
++     * every app the session launches, forcing them off wayland too.
++     */
++    std::vector<char *> av(argv, argv + argc);
++    char plat_opt[] = "-platform";
++    char plat_val[] = "minimal";
++    av.push_back(plat_opt);
++    av.push_back(plat_val);
++    int ac = argc + 2;
++    char **avp = av.data();
++
++    SessionApplication app(ac, avp);
+ 
+     QCommandLineParser parser;
+     parser.setApplicationDescription(QStringLiteral("LXQt Session"));
+@@ -61,8 +35,8 @@
+     app.setApplicationVersion(VERINFO);
+     const QCommandLineOption config_opt{{QSL("c"), QSL("config")}, SessionApplication::tr("Configuration file path."), SessionApplication::tr("file")};
+     const QCommandLineOption wm_opt{{QSL("w"), QSL("window-manager")}, SessionApplication::tr("Window manager to use."), SessionApplication::tr("file")};
+-    const auto version_opt = parser.addVersionOption();
+-    const auto help_opt = parser.addHelpOption();
++    parser.addVersionOption();
++    parser.addHelpOption();
+     parser.addOptions({config_opt, wm_opt});
+     parser.process(app);
+ 
+@@ -72,4 +46,3 @@
+     app.setQuitOnLastWindowClosed(false);
+     return app.exec();
+ }
+-
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/minix_static_plugins.cpp lxqt-session-2.4.0/lxqt-session/src/minix_static_plugins.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
++++ lxqt-session-2.4.0/lxqt-session/src/minix_static_plugins.cpp	2026-07-15 02:31:02.663243754 +0200
+@@ -0,0 +1,22 @@
++/*
++ * Static Qt plugin imports (MINIX).
++ *
++ * Qt is linked statically here -- a dynamically linked Qt segfaults before main()
++ * in ld.elf_so's dynamic TLS -- so its plugins are archives, not .so files it can
++ * dlopen.  A static plugin only exists if it is registered by hand, and
++ * lxqt-session is a plain add_executable(), so Qt's automatic import generation
++ * (which qt_add_executable() would do) never runs.  Without this the session dies
++ * at startup with "Could not find the Qt platform plugin wayland" -- which is
++ * exactly what happened the first time startlxqt got as far as running it.
++ */
++#include <QtPlugin>
++
++Q_IMPORT_PLUGIN(QMinimalIntegrationPlugin)   /* QPA platform: minimal (see main.cpp) */
++
++/* Icons and images: a session that cannot draw an icon is not much of one. */
++Q_IMPORT_PLUGIN(XdgIconEnginePlugin)
++Q_IMPORT_PLUGIN(QSvgIconPlugin)
++Q_IMPORT_PLUGIN(QSvgPlugin)
++Q_IMPORT_PLUGIN(QGifPlugin)
++Q_IMPORT_PLUGIN(QICOPlugin)
++Q_IMPORT_PLUGIN(QJpegPlugin)
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/numlock.cpp lxqt-session-2.4.0/lxqt-session/src/numlock.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/numlock.cpp	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-session/src/numlock.cpp	2026-07-14 23:52:35.407375787 +0200
+@@ -32,6 +32,17 @@
+ #include <QGuiApplication>
+ #include <string.h>
+ #include <stdlib.h>
++#ifdef LXQT_SESSION_NO_X11
++/*
++ * The whole of this file is X11: turning numlock on means poking XKB.  Upstream
++ * says as much ("this currently only works for X11").  Wayland has no equivalent
++ * -- the compositor owns the keyboard, and there is no protocol for a client to
++ * set a modifier lock -- so on MINIX enableNumlock() is a no-op.
++ */
++void enableNumlock() {}
++
++#else
++
+ #include <X11/Xlib.h>
+ #include <X11/XKBlib.h>
+ #include <X11/keysym.h>
+@@ -86,3 +97,5 @@
+         }
+     }
+ }
++
++#endif /* !LXQT_SESSION_NO_X11 */
+diff -urN /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/sessionapplication.cpp lxqt-session-2.4.0/lxqt-session/src/sessionapplication.cpp
+--- /tmp/pf/lxqt-session-2.4.0/lxqt-session/src/sessionapplication.cpp	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/lxqt-session/src/sessionapplication.cpp	2026-07-15 03:46:56.644643396 +0200
+@@ -33,7 +33,9 @@
+ #include "log.h"
+ 
+ // XKB, this should be disabled in Wayland?
++#ifndef LXQT_SESSION_NO_X11
+ #include <X11/XKBlib.h>
++#endif
+ 
+ SessionApplication::SessionApplication(int& argc, char** argv) :
+     LXQt::Application(argc, argv),
+@@ -130,14 +132,11 @@
+                 });
+ #endif
+     }
+-
+     if (lockScreenManager->startup(settings.value(QLatin1String("lock_screen_before_power_actions"), true).toBool()
+                 , settings.value(QLatin1String("power_actions_after_lock_delay"), 0).toInt()))
+         qCDebug(SESSION) << "LockScreenManager started successfully";
+     else
+         qCWarning(SESSION) << "LockScreenManager couldn't start";
+-
+-    // launch module manager and autostart apps
+     modman->startup(settings);
+ 
+     return true;
+@@ -203,6 +202,8 @@
+ 
+ void SessionApplication::loadKeyboardSettings(LXQt::Settings& settings)
+ {
++#ifndef LXQT_SESSION_NO_X11
++
+     qCDebug(SESSION) << settings.fileName();
+     settings.beginGroup(QSL("Keyboard"));
+     XKeyboardControl values;
+@@ -237,10 +238,16 @@
+     setxkbmap(layout, variant, model, options);
+ 
+     settings.endGroup();
++#else
++    /* Key repeat rate and keyboard beep are X11 device settings (XKB); on Wayland the compositor owns the keyboard and there is no protocol for these. */
++    (void)settings;
++#endif
+ }
+ 
+ void SessionApplication::loadMouseSettings(LXQt::Settings& settings)
+ {
++#ifndef LXQT_SESSION_NO_X11
++
+     settings.beginGroup(QSL("Mouse"));
+ 
+     // mouse cursor (does this work?)
+@@ -278,6 +285,10 @@
+     setLeftHandedMouse(left_handed);
+ 
+     settings.endGroup();
++#else
++    /* Pointer acceleration and threshold are X11 device settings; on Wayland the compositor owns the pointer. */
++    (void)settings;
++#endif
+ }
+ 
+ # if 0
+@@ -322,6 +333,8 @@
+ #define DEFAULT_PTR_MAP_SIZE 128
+ void SessionApplication::setLeftHandedMouse(bool mouse_left_handed)
+ {
++#ifndef LXQT_SESSION_NO_X11
++
+     unsigned char *buttons = nullptr;
+     unsigned char *more_buttons = nullptr;
+     int n_buttons = 0;
+@@ -366,6 +379,11 @@
+             free(buttons);
+         }
+     }
++#else
++    /* Swapping the mouse buttons is an X11 pointer mapping (XSetPointerMapping);
++     * on Wayland the compositor owns the pointer. */
++    (void)mouse_left_handed;
++#endif
+ }
+ 
+ bool SessionApplication::updateDBusEnvironment()
+diff -urN /tmp/pf/lxqt-session-2.4.0/startlxqt.in lxqt-session-2.4.0/startlxqt.in
+--- /tmp/pf/lxqt-session-2.4.0/startlxqt.in	2026-04-20 10:14:06.000000000 +0200
++++ lxqt-session-2.4.0/startlxqt.in	2026-07-15 03:52:32.043870053 +0200
+@@ -47,10 +47,29 @@
+ xprop -root -remove _NET_NUMBER_OF_DESKTOPS -remove _NET_DESKTOP_NAMES -remove _NET_CURRENT_DESKTOP 2> /dev/null
+ 
+ # Launch DBus if needed
++# A private, 0700 runtime dir, set up before anything that needs it (the D-Bus
++# socket and the Wayland socket both live here).  There is no systemd here to
++# make /run/user/$UID, and $XDG_RUNTIME_DIR must not be world-writable: D-Bus
++# refuses to put its socket in a directory others can write, so /tmp (mode 1777)
++# will not do.
++if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
++    XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
++    mkdir -p "$XDG_RUNTIME_DIR"
++    chmod 700 "$XDG_RUNTIME_DIR"
++fi
++export XDG_RUNTIME_DIR
++
+ if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+-    if [ -z "$XDG_RUNTIME_DIR" ] || ! [ -S "$XDG_RUNTIME_DIR/bus" ] || ! [ -O "$XDG_RUNTIME_DIR/bus" ]; then
+-        eval "$(dbus-launch --sh-syntax --exit-with-session)" || echo "startlxqt: error executing dbus-launch" >&2
++    # A persistent session bus.  dbus-launch --exit-with-session watches the X
++    # session and, with no X here, exits immediately -- taking the bus with it,
++    # so the session (and Qt's D-Bus, which the whole LXQt stack needs) could
++    # never connect.  Start dbus-daemon directly on a per-user socket instead;
++    # it stays up for the life of the session.
++    if [ ! -S "$XDG_RUNTIME_DIR/bus" ]; then
++        dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/bus" --fork \
++            || echo "startlxqt: could not start dbus-daemon" >&2
+     fi
++    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+ fi
+ 
+ # Qt4 platform plugin
+@@ -64,5 +83,42 @@
+ 
+ export XDG_CURRENT_DESKTOP="LXQt"
+ 
++# MINIX: bring up the compositor ourselves.
++#
++# Everywhere else startlxqt is launched from a display manager, or from a
++# compositor that is already running -- so it only ever has to set up the
++# environment.  MINIX has neither: you log in on a text console, and nothing has
++# opened the framebuffer.  wlcompd is our compositor, and it has to exist before
++# lxqt-session (a Wayland client itself) tries to connect.
++if [ -z "$WAYLAND_DISPLAY" ] && command -v wlcompd >/dev/null 2>&1; then
++    export WAYLAND_DISPLAY=wayland-0
++
++    if [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
++        # The framebuffer driver is not up on a text-console boot.
++        minix-service up /service/fb -dev /dev/fb0 >/dev/null 2>&1
++
++        wlcompd > "$XDG_RUNTIME_DIR/wlcompd.log" 2>&1 &
++
++        # Wait for the socket: everything after this connects to it, and a client
++        # that starts first just fails.
++        i=0
++        while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$i" -lt 30 ]; do
++            sleep 1
++            i=$((i + 1))
++        done
++        if [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
++            echo "startlxqt: wlcompd did not come up; see $XDG_RUNTIME_DIR/wlcompd.log" >&2
++            exit 1
++        fi
++    fi
++
++    export QT_QPA_PLATFORM=wayland
++    # NOTE: do NOT export QT_WAYLAND_SHELL_INTEGRATION=layer-shell here.  It would
++    # apply to every Qt program in the session, and LayerShellQt's integration turns
++    # *every* window of a process into a layer surface -- it has no fallback to
++    # xdg-shell.  lxqt-session itself failed to start that way.  The panel asks for
++    # layer-shell in its own main(), which is where the decision belongs.
++fi
++
+ # Start the LXQt session
+ exec lxqt-session

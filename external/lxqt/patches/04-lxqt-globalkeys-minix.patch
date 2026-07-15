@@ -1,5 +1,5 @@
-diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/client/CMakeLists.txt lxqt-globalkeys-2.4.0/client/CMakeLists.txt
---- /tmp/pr/lxqt-globalkeys-2.4.0/client/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
+diff -urN /tmp/pf/lxqt-globalkeys-2.4.0/client/CMakeLists.txt lxqt-globalkeys-2.4.0/client/CMakeLists.txt
+--- /tmp/pf/lxqt-globalkeys-2.4.0/client/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
 +++ lxqt-globalkeys-2.4.0/client/CMakeLists.txt	2026-07-14 16:36:23.457688173 +0200
 @@ -153,7 +153,9 @@
  
@@ -12,9 +12,9 @@ diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/client/CMakeLists.txt lxqt-globalkeys-2.
  target_link_libraries(${PROJECT_NAME}
      PUBLIC
          Qt6::Widgets
-diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/CMakeLists.txt lxqt-globalkeys-2.4.0/CMakeLists.txt
---- /tmp/pr/lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
-+++ lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-07-14 16:35:54.597025805 +0200
+diff -urN /tmp/pf/lxqt-globalkeys-2.4.0/CMakeLists.txt lxqt-globalkeys-2.4.0/CMakeLists.txt
+--- /tmp/pf/lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
++++ lxqt-globalkeys-2.4.0/CMakeLists.txt	2026-07-14 23:59:11.810539933 +0200
 @@ -84,8 +84,16 @@
  #************************************************
  
@@ -34,8 +34,21 @@ diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/CMakeLists.txt lxqt-globalkeys-2.4.0/CMa
  add_subdirectory(client)
  add_subdirectory(ui)
  
-diff -urN /tmp/pr/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt lxqt-globalkeys-2.4.0/ui/CMakeLists.txt
---- /tmp/pr/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
+@@ -102,6 +110,11 @@
+ )
+ 
+ # merged from lxqt-common
+-add_subdirectory(autostart)
++# No daemon on MINIX (see above), so nothing to autostart -- and an autostart
++# entry for a binary that does not exist just makes lxqt-session log a failure
++# at every login.
++if (NOT CMAKE_SYSTEM_NAME STREQUAL "Minix")
++    add_subdirectory(autostart)
++endif()
+ add_subdirectory(xdg)
+ 
+diff -urN /tmp/pf/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt lxqt-globalkeys-2.4.0/ui/CMakeLists.txt
+--- /tmp/pf/lxqt-globalkeys-2.4.0/ui/CMakeLists.txt	2026-04-20 09:56:26.000000000 +0200
 +++ lxqt-globalkeys-2.4.0/ui/CMakeLists.txt	2026-07-14 16:36:23.457505379 +0200
 @@ -126,7 +126,9 @@
  
