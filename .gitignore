@@ -153,3 +153,25 @@ boot/minix/.temp/mod12_init
 
 # build output from tools/llvm-lld (the host ld.lld binary)
 tools/llvm-lld/*-ld.lld
+
+# Compiled PROG outputs accidentally committed into their source dirs.  The
+# build regenerates these (PROG=<name> in the Makefile); the in-tree copies are
+# stale artifacts.  Anchored paths only -- a bare "wlprobe" etc. would over-match.
+/minix/commands/cxxprobe/cxxprobe
+/minix/commands/ffiprobe/ffiprobe
+/minix/commands/localeprobe/localeprobe
+/minix/commands/oomprobe/oomprobe
+/minix/commands/wlprobe/wlprobe
+/usr.sbin/ndp/ndp
+
+# libwayland build products: wayland-version.h (sed-generated from .in) and
+# wayland-scanner (a generated HOST tool -- a Linux ELF binary).  Both are in
+# the wayland Makefiles' CLEANFILES and regenerated into ${.OBJDIR}; the build's
+# includes phase already depends on the generated copies, so the committed ones
+# are dead weight.  Anchored paths, per the note above.
+/external/mit/wayland/lib/libwayland-server/wayland-scanner
+/external/mit/wayland/lib/libwayland-server/wayland-version.h
+/external/mit/wayland/lib/libwayland-client/wayland-scanner
+/external/mit/wayland/lib/libwayland-client/wayland-version.h
+/external/mit/wayland/lib/libwayland-cursor/wayland-scanner
+/external/mit/wayland/lib/libwayland-cursor/wayland-version.h
