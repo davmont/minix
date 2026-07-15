@@ -14,12 +14,9 @@
 ./usr/man/man1                                          minix-man
 ./usr/man/man1/..1                                      minix-man       obsolete
 ./usr/man/man1/[.1                                      minix-man
-./usr/man/man1/addr2line.1                              minix-man       binutils
 ./usr/man/man1/alias.1                                  minix-man
 ./usr/man/man1/apropos.1                                minix-man
-./usr/man/man1/ar.1                                     minix-man       binutils
 ./usr/man/man1/arpaname.1                               minix-man
-./usr/man/man1/as.1                                     minix-man       binutils
 ./usr/man/man1/asa.1                                    minix-man
 ./usr/man/man1/ash.1                                    minix-man       obsolete
 ./usr/man/man1/at.1                                     minix-man
@@ -42,7 +39,6 @@
 ./usr/man/man1/bzcat.1                                  minix-man
 ./usr/man/man1/bzip2.1                                  minix-man
 ./usr/man/man1/bzip2recover.1                           minix-man
-./usr/man/man1/c++filt.1                                minix-man       binutils
 ./usr/man/man1/cal.1                                    minix-man
 ./usr/man/man1/calendar.1                               minix-man
 ./usr/man/man1/case.1                                   minix-man       obsolete
@@ -96,7 +92,6 @@
 ./usr/man/man1/ed.1                                     minix-man
 ./usr/man/man1/egrep.1                                  minix-man
 ./usr/man/man1/eject.1                                  minix-man
-./usr/man/man1/elfedit.1                                minix-man       binutils
 ./usr/man/man1/env.1                                    minix-man
 ./usr/man/man1/eval.1                                   minix-man       obsolete
 ./usr/man/man1/ex.1                                     minix-man
@@ -133,7 +128,6 @@
 ./usr/man/man1/getfacl.1                                minix-man
 ./usr/man/man1/getopt.1                                 minix-man
 ./usr/man/man1/getopts.1                                minix-man       obsolete
-./usr/man/man1/gprof.1                                  minix-man       binutils
 ./usr/man/man1/grep.1                                   minix-man
 ./usr/man/man1/groups.1                                 minix-man
 ./usr/man/man1/gunzip.1                                 minix-man
@@ -189,7 +183,6 @@
 ./usr/man/man1/kyua.1                                   minix-man       kyua
 ./usr/man/man1/lam.1                                    minix-man
 ./usr/man/man1/last.1                                   minix-man
-./usr/man/man1/ld.1                                     minix-man       binutils
 ./usr/man/man1/ld.elf_so.1                              minix-man
 ./usr/man/man1/ldd.1                                    minix-man
 ./usr/man/man1/leave.1                                  minix-man
@@ -253,11 +246,8 @@
 ./usr/man/man1/newgrp.1                                 minix-man
 ./usr/man/man1/nice.1                                   minix-man
 ./usr/man/man1/nl.1                                     minix-man
-./usr/man/man1/nm.1                                     minix-man       binutils
 ./usr/man/man1/nohup.1                                  minix-man
 ./usr/man/man1/nsupdate.1                               minix-man
-./usr/man/man1/objcopy.1                                minix-man       binutils
-./usr/man/man1/objdump.1                                minix-man       binutils
 ./usr/man/man1/od.1                                     minix-man
 ./usr/man/man1/openssl.1                                minix-man       crypto
 ./usr/man/man1/openssl_CA.pl.1                          minix-man       crypto
@@ -336,11 +326,9 @@
 ./usr/man/man1/pushd.1                                  minix-man
 ./usr/man/man1/pwd.1                                    minix-man
 ./usr/man/man1/pwhash.1                                 minix-man
-./usr/man/man1/ranlib.1                                 minix-man       binutils
 ./usr/man/man1/rcmd.1                                   minix-man
 ./usr/man/man1/rcp.1                                    minix-man
 ./usr/man/man1/read.1                                   minix-man       obsolete
-./usr/man/man1/readelf.1                                minix-man       binutils
 ./usr/man/man1/readlink.1                               minix-man
 ./usr/man/man1/readonly.1                               minix-man       obsolete
 ./usr/man/man1/recwave.1                                minix-man
@@ -371,7 +359,6 @@
 ./usr/man/man1/shift.1                                  minix-man       obsolete
 ./usr/man/man1/shlock.1                                 minix-man
 ./usr/man/man1/shuffle.1                                minix-man
-./usr/man/man1/size.1                                   minix-man       binutils
 ./usr/man/man1/sleep.1                                  minix-man
 ./usr/man/man1/soelim.1                                 minix-man
 ./usr/man/man1/sort.1                                   minix-man
@@ -381,8 +368,6 @@
 ./usr/man/man1/sqlite3.1                                minix-man
 ./usr/man/man1/stat.1                                   minix-man
 ./usr/man/man1/stop.1                                   minix-man
-./usr/man/man1/strings.1                                minix-man       binutils
-./usr/man/man1/strip.1                                  minix-man       binutils
 ./usr/man/man1/stty.1                                   minix-man
 ./usr/man/man1/su.1                                     minix-man
 ./usr/man/man1/sum.1                                    minix-man

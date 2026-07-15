@@ -10,12 +10,8 @@
 ./etc/mtree                                             minix-comp
 ./etc/mtree/set.minix-comp                              minix-comp
 ./usr                                                   minix-comp
-./usr/bin/addr2line                                     minix-comp      binutils
-./usr/bin/ar                                            minix-comp      binutils
-./usr/bin/as                                            minix-comp      binutils
 ./usr/bin/c++                                           minix-comp      gcccmds
 ./usr/bin/c++                                           minix-comp      llvm,llvmcmds
-./usr/bin/c++filt                                       minix-comp      binutils
 ./usr/bin/cc                                            minix-comp      gcccmds
 ./usr/bin/cc                                            minix-comp      llvm,llvmcmds
 ./usr/bin/clang++                                       minix-comp      llvm,llvmcmds
@@ -24,26 +20,15 @@
 ./usr/bin/clang                                         minix-comp      llvm,llvmcmds
 ./usr/bin/cpp                                           minix-comp      gcccmds
 ./usr/bin/cpp                                           minix-comp      llvm,llvmcmds
-./usr/bin/elfedit                                       minix-comp      binutils
 ./usr/bin/g++                                           minix-comp      gcccmds
 ./usr/bin/gcc                                           minix-comp      gcccmds
 ./usr/bin/gcov                                          minix-comp      gcccmds
 ./usr/bin/gcpp                                          minix-comp      gcccmds
-./usr/bin/gprof                                         minix-comp      binutils
 ./usr/bin/info                                          minix-comp
 ./usr/bin/infokey                                       minix-comp
 ./usr/bin/install-info                                  minix-comp
-./usr/bin/ld                                            minix-comp      binutils
 ./usr/bin/llvm-tblgen                                   minix-comp      llvm,llvmcmds
 ./usr/bin/makeinfo                                      minix-comp
-./usr/bin/nm                                            minix-comp      binutils
-./usr/bin/objcopy                                       minix-comp      binutils
-./usr/bin/objdump                                       minix-comp      binutils
-./usr/bin/ranlib                                        minix-comp      binutils
-./usr/bin/readelf                                       minix-comp      binutils
-./usr/bin/size                                          minix-comp      binutils
-./usr/bin/strings                                       minix-comp      binutils
-./usr/bin/strip                                         minix-comp      binutils
 ./usr/include                                           minix-comp
 ./usr/include/a.out.h                                   minix-comp
 ./usr/include/aio.h                                     minix-comp
@@ -2033,7 +2018,6 @@
 ./usr/lib/bc/libasyn.a                                  minix-comp      bitcode
 ./usr/lib/bc/libaudiodriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libbdev.a                                  minix-comp      bitcode
-./usr/lib/bc/libbfd.a                                   minix-comp      bitcode,binutils
 ./usr/lib/bc/libblacklist.a                             minix-comp      bitcode
 ./usr/lib/bc/libblockdriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libbz2.a                                   minix-comp      bitcode
@@ -2062,7 +2046,6 @@
 ./usr/lib/bc/libfsdriver.a                              minix-comp      bitcode
 ./usr/lib/bc/libgcc_s.a                                 minix-comp      bitcode
 ./usr/lib/bc/libhgfs.a                                  minix-comp      bitcode
-./usr/lib/bc/libiberty.a                                minix-comp      bitcode,binutils
 ./usr/lib/bc/libinputdriver.a                           minix-comp      bitcode
 ./usr/lib/bc/libintl.a                                  minix-comp      bitcode
 ./usr/lib/bc/libisc.a                                   minix-comp      bitcode
@@ -2084,7 +2067,6 @@
 ./usr/lib/bc/libnetdriver.a                             minix-comp      bitcode
 ./usr/lib/bc/libnetpgpverify.a                          minix-comp      bitcode
 ./usr/lib/bc/libnetsock.a                               minix-comp      bitcode,obsolete
-./usr/lib/bc/libopcodes.a                               minix-comp      bitcode,binutils
 ./usr/lib/bc/libpcap.a                                  minix-comp      bitcode
 ./usr/lib/bc/libpci.a                                   minix-comp      bitcode
 ./usr/lib/bc/libprop.a                                  minix-comp      bitcode
@@ -2362,16 +2344,11 @@
 ./usr/share                                             minix-comp      gcccmds
 ./usr/share/info                                        minix-comp
 ./usr/share/info                                        minix-comp      gcccmds
-./usr/share/info/as.info                                minix-comp      binutils
-./usr/share/info/bfd.info                               minix-comp      binutils
-./usr/share/info/binutils.info                          minix-comp      binutils
 ./usr/share/info/cpp.info                               minix-comp      gcccmds
 ./usr/share/info/dir                                    minix-comp
 ./usr/share/info/gcc.info                               minix-comp      gcccmds
-./usr/share/info/gprof.info                             minix-comp      binutils
 ./usr/share/info/info-stnd.info                         minix-comp
 ./usr/share/info/info.info                              minix-comp
-./usr/share/info/ld.info                                minix-comp      binutils
 ./usr/share/info/texinfo.info                           minix-comp
 ./usr/share/info/vi.info                                minix-comp
 ./usr/share/locale/cs/LC_MESSAGES/texinfo.mo            minix-comp      nls
