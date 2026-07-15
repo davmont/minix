@@ -2,10 +2,6 @@
 
 .include <bsd.own.mk>
 
-.if ${MKBINUTILS} != "no"
-SUBDIR+=	binutils
-.endif
-
 .if ${MKGDB} != "no"
 SUBDIR+=        gdb
 .endif

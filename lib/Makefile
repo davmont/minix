@@ -211,10 +211,6 @@ SUBDIR+=        ../external/cddl/osnet/lib/libzpool
 SUBDIR+=	../external/gpl2/lvm2/lib	# depends on libprop
 .endif
 
-.if (${MKBINUTILS} != "no")
-SUBDIR+=	../external/gpl3/binutils/lib	# libbfd depends on libz
-.endif
-
 .if (${MKLIBCXX} != "no")
 SUBDIR+=	../external/bsd/libc++
 .endif
