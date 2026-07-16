@@ -18,3 +18,21 @@ WLOBJDIR.${_LIB}!=	cd ${WLDIR}/lib/lib${_LIB} && ${PRINTOBJDIR}
 .endif
 WLLIB.${_LIB}=	${WLOBJDIR.${_LIB}}/lib${_LIB}.a
 .endfor
+
+# libffi and libxkbcommon are hard prerequisites of the Wayland stack (ffi_call
+# in the marshalling path; the keymap compiler).  Expose their build-tree
+# objdirs so a consumer can link them with -L<objdir> before they are installed
+# into ${DESTDIR} -- a clean or an interrupted "-u" world build reaches these
+# programs while the libraries are still only in their objdirs.
+FFILIBSRCDIR=	${NETBSDSRCDIR}/external/mit/libffi/lib/libffi
+XKBLIBSRCDIR=	${NETBSDSRCDIR}/external/mit/libxkbcommon/lib/libxkbcommon
+.if !defined(FFIOBJDIR)
+FFIOBJDIR!=	cd ${FFILIBSRCDIR} && ${PRINTOBJDIR}
+.MAKEOVERRIDES+=	FFIOBJDIR
+.endif
+.if !defined(XKBOBJDIR)
+XKBOBJDIR!=	cd ${XKBLIBSRCDIR} && ${PRINTOBJDIR}
+.MAKEOVERRIDES+=	XKBOBJDIR
+.endif
+WLLIB.ffi=	${FFIOBJDIR}/libffi.a
+WLLIB.xkbcommon=	${XKBOBJDIR}/libxkbcommon.a
