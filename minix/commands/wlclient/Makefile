@@ -15,8 +15,13 @@ SRCS=	wlclient.c xdg-shell-protocol.c wlr-layer-shell-protocol.c \
 
 CPPFLAGS+=	-I${.OBJDIR}
 
-LDADD+=	-lwayland-client -lffi -lpthread -lm
-DPADD+=	${DESTDIR}/usr/lib/libwayland-client.a ${DESTDIR}/usr/lib/libffi.a
+# libwayland-client and libffi are linked from their build-tree objdirs (the -L
+# below), not ${DESTDIR}/usr/lib, so this links even before they are installed
+# during a clean or interrupted world build.  The -l order is unchanged:
+# libwayland-client depends on libffi, pthread and m, so it must precede them.
+LDADD+=	-L${WLOBJDIR.wayland-client} -L${FFIOBJDIR} \
+	-lwayland-client -lffi -lpthread -lm
+DPADD+=	${WLLIB.wayland-client} ${WLLIB.ffi}
 
 XDG_XML=	${WLDIR}/protocols/xdg-shell/xdg-shell.xml
 LAYER_XML=	${WLDIR}/protocols/wlr-layer-shell/wlr-layer-shell-unstable-v1.xml

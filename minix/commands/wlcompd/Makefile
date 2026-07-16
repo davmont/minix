@@ -20,10 +20,16 @@ CPPFLAGS+=	-I${DESTDIR}/usr/include/pixman-1
 CPPFLAGS+=	-I${DESTDIR}/usr/include/freetype2
 CPPFLAGS+=	-I${.OBJDIR}
 
-LDADD+=	-lwayland-server -lffi -lxkbcommon -lfbgui -lfreetype -lpixman-1 \
+# libwayland-server, libffi and libxkbcommon are linked from their build-tree
+# objdirs (the -L below), not ${DESTDIR}/usr/lib, so this links even before they
+# are installed during a clean or interrupted world build.  libfbgui/libfreetype/
+# libpixman-1 install reliably ahead of this program and stay on the destdir
+# path.  The -l order is unchanged: libwayland-server precedes its dependencies.
+LDADD+=	-L${WLOBJDIR.wayland-server} -L${FFIOBJDIR} -L${XKBOBJDIR} \
+	-lwayland-server -lffi -lxkbcommon -lfbgui -lfreetype -lpixman-1 \
 	-lpthread -lm
-DPADD+=	${DESTDIR}/usr/lib/libwayland-server.a ${DESTDIR}/usr/lib/libffi.a \
-	${DESTDIR}/usr/lib/libxkbcommon.a ${DESTDIR}/usr/lib/libfbgui.a \
+DPADD+=	${WLLIB.wayland-server} ${WLLIB.ffi} ${WLLIB.xkbcommon} \
+	${DESTDIR}/usr/lib/libfbgui.a \
 	${DESTDIR}/usr/lib/libfreetype.a ${DESTDIR}/usr/lib/libpixman-1.a
 
 XDG_XML=	${WLDIR}/protocols/xdg-shell/xdg-shell.xml
