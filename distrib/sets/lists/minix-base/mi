@@ -2188,6 +2188,12 @@
 ./usr/share/i18n/esdb/esdb.dir.db                       minix-base      nls
 ./usr/share/i18n/iconv                                  minix-base      nls
 ./usr/share/i18n/iconv/iconv.dir                        minix-base      nls
+./usr/share/icons                                       minix-base
+./usr/share/icons/hicolor                               minix-base
+./usr/share/icons/hicolor/64x64                         minix-base
+./usr/share/icons/hicolor/64x64/apps                    minix-base
+./usr/share/icons/hicolor/64x64/apps/qterminal.png      minix-base
+./usr/share/icons/hicolor/index.theme                   minix-base
 ./usr/share/info/heimdal.info                           minix-base      crypto
 ./usr/share/keymaps                                     minix-base
 ./usr/share/legal                                       minix-base

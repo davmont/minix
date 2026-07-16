@@ -303,3 +303,22 @@ recipe gets away with a bare `-static`.)
   xdg-shell plugins are already auto-imported by `Qt6::Gui`/`QtWaylandClient`, and
   re-importing them would duplicate their registration symbols.  The layer-shell one
   is what qterminal's drop-down mode needs to become a layer surface on wlcompd.
+
+- **Menu entry and icon.**  `qterminal.desktop` / `qterminal-drop.desktop` (in
+  `/usr/share/applications`, both in the set list) give the panel menu its entry.
+  Upstream sets `Icon=utilities-terminal`, a freedesktop *theme name* that only
+  resolves where a full icon theme is installed -- MINIX has none -- so the patch
+  points both at `Icon=qterminal`, the app's own icon.  libqtxdg resolves it through
+  `XdgIcon::fromTheme` (a name lookup, never a path load), and its loader enumerates
+  a theme only if that theme has an `index.theme`, always falling back to `hicolor`.
+  So shipping the icon needs three things, all in the `minix-base` set list:
+
+      /usr/share/icons/hicolor/64x64/apps/qterminal.png   (qterminal installs this)
+      /usr/share/icons/hicolor/index.theme                (external/lxqt/hicolor-index.theme)
+      /usr/share/applications/qterminal.desktop           (Icon=qterminal)
+
+  `hicolor/index.theme` is not shipped by any package here, so a minimal one is kept
+  at `external/lxqt/hicolor-index.theme` and installed to the sysroot.  Verified
+  on-target: all three land on the running system with `Icon=qterminal`.  (The dirs
+  along that icon path -- `.../icons`, `.../hicolor`, `.../64x64`, `.../apps` -- are
+  in the set list *and* METALOG too; a set-list entry alone does not create a dir.)
