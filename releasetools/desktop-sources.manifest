@@ -1,0 +1,42 @@
+# MINIX desktop (LXQt/Qt6) source manifest — pinned upstream sources.
+#
+# Consumed by releasetools/build-desktop.sh.  One record per line:
+#
+#     <id>  <version>  <url>  <sha256>
+#
+# <id>      matches a build_<id>() function in build-desktop.sh and (for the
+#           extracted tree) the top-level directory the tarball unpacks to.
+# <sha256>  "TOFILL" means the checksum has not been recorded yet.  Run
+#               sh releasetools/build-desktop.sh checksums
+#           to fetch each source once and print the real sha256 lines; paste
+#           them back here and commit.  The driver REFUSES to build against a
+#           TOFILL entry, so a silent content swap upstream cannot slip in.
+#
+# Order here is documentation only; build-desktop.sh fixes the real build order
+# (a component can only be built after its dependencies).  Versions come from
+# the per-package READMEs under external/<pkg>/; keep them in lockstep with the
+# patches there — a version bump usually needs the patches refreshed.
+#
+# NOTE: the Qt host tools (moc/rcc/uic) used via QT_HOST_PATH must be the SAME
+# version as qtbase below (6.11.1).  That is a host prerequisite, not a source.
+
+# id                version   url                                                                                              sha256
+pcre2               10.44     https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.bz2            TOFILL
+glib                2.80.5    https://download.gnome.org/sources/glib/2.80/glib-2.80.5.tar.xz                                   TOFILL
+dbus                1.16.2    https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz                                     TOFILL
+qtbase              6.11.1    https://download.qt.io/official_releases/qt/6.11/6.11.1/submodules/qtbase-everywhere-src-6.11.1.tar.xz  TOFILL
+qtsvg               6.11.1    https://download.qt.io/official_releases/qt/6.11/6.11.1/submodules/qtsvg-everywhere-src-6.11.1.tar.xz    TOFILL
+extra-cmake-modules 6.10.0    https://download.kde.org/stable/frameworks/6.10/extra-cmake-modules-6.10.0.tar.xz                 TOFILL
+kwindowsystem       6.10.0    https://download.kde.org/stable/frameworks/6.10/kwindowsystem-6.10.0.tar.xz                       TOFILL
+layer-shell-qt      6.3.5     https://download.kde.org/stable/plasma/6.3.5/layer-shell-qt-6.3.5.tar.xz                          TOFILL
+lxqt-build-tools    2.4.0     https://github.com/lxqt/lxqt-build-tools/releases/download/2.4.0/lxqt-build-tools-2.4.0.tar.xz     TOFILL
+libqtxdg            4.4.0     https://github.com/lxqt/libqtxdg/releases/download/4.4.0/libqtxdg-4.4.0.tar.xz                     TOFILL
+liblxqt             2.4.0     https://github.com/lxqt/liblxqt/releases/download/2.4.0/liblxqt-2.4.0.tar.xz                       TOFILL
+lxqt-globalkeys     2.4.0     https://github.com/lxqt/lxqt-globalkeys/releases/download/2.4.0/lxqt-globalkeys-2.4.0.tar.xz       TOFILL
+lxqt-menu-data      2.4.0     https://github.com/lxqt/lxqt-menu-data/releases/download/2.4.0/lxqt-menu-data-2.4.0.tar.xz         TOFILL
+qtxdg-tools         4.4.0     https://github.com/lxqt/qtxdg-tools/releases/download/4.4.0/qtxdg-tools-4.4.0.tar.xz               TOFILL
+lxqt-panel          2.4.1     https://github.com/lxqt/lxqt-panel/releases/download/2.4.1/lxqt-panel-2.4.1.tar.xz                 TOFILL
+lxqt-session        2.4.0     https://github.com/lxqt/lxqt-session/releases/download/2.4.0/lxqt-session-2.4.0.tar.xz             TOFILL
+qtermwidget         2.4.0     https://github.com/lxqt/qtermwidget/releases/download/2.4.0/qtermwidget-2.4.0.tar.xz               TOFILL
+qterminal           2.4.0     https://github.com/lxqt/qterminal/releases/download/2.4.0/qterminal-2.4.0.tar.xz                   TOFILL
+xdg-user-dirs       0.18      https://user-dirs.freedesktop.org/releases/xdg-user-dirs-0.18.tar.gz                              TOFILL
