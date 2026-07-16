@@ -251,13 +251,28 @@ library, `qterminal` 2.4.0 the application built on it (patches `06-` and `07-`)
       -DQTERMWIDGET_USE_UTEMPTER=OFF -DUSE_UTF8PROC=OFF
     ninja && DESTDIR=<destdir> ninja install
 
-`qterminal` is the same incantation (add `-DCMAKE_PREFIX_PATH=<destdir>/usr` so it
-finds `qtermwidget6`).  The patches apply with `patch -p1` from the source's parent
-directory (unlike `01-`..`05-`, which are `-p0`).
+`qterminal` is the same incantation plus `-DCMAKE_PREFIX_PATH=<destdir>/usr` (so it
+finds `qtermwidget6`) and the **static-link flags** the executable needs:
+
+    -DCMAKE_EXE_LINKER_FLAGS="-static -fuse-ld=lld -L<destdir>/usr/lib -L<destdir>/lib"
+
+The patches apply with `patch -p1` from the source's parent directory (unlike
+`01-`..`05-`, which are `-p0`).
 
 `-lutil` is not optional: qtermwidget's `kpty.cpp` opens the pty with `openpty(3)`,
 which lives in `libutil` on MINIX, and it is the application link -- not the static
 qtermwidget archive -- that has to resolve it.
+
+**The executable MUST be linked `-static`, and this is not optional either.**
+Without it the binary keeps a `PT_INTERP`, so `ld.elf_so` runs at startup and the
+dynamic-TLS bug segfaults qterminal before `main()` with *no output at all* (exactly
+the failure the panel's notes warn about) -- verified on-target.  The three flags go
+together: `-static` drops the interpreter; `-fuse-ld=lld` is required because the
+binutils drop removed the cross `ld.bfd`, so the linker must be named explicitly, or
+the driver falls back to the *host* `ld.bfd` and cannot find the target libraries;
+and the two `-L` paths are needed because `ld.lld` does not derive the static-library
+search path from `--sysroot` alone.  (The panel predates the binutils drop, so its
+recipe gets away with a bare `-static`.)
 
 ### What the patches do, and why
 
