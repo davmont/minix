@@ -423,7 +423,6 @@
 ./usr/bin/getent                                        minix-base
 ./usr/bin/getfacl                                       minix-base
 ./usr/bin/getopt                                        minix-base
-./usr/bin/glibprobe                                     minix-base
 ./usr/bin/grep                                          minix-base
 ./usr/bin/groups                                        minix-base
 ./usr/bin/gsstool                                       minix-base      crypto
@@ -488,7 +487,6 @@
 ./usr/bin/lxqt-leave                                    minix-base
 ./usr/bin/lxqt-panel                                    minix-base
 ./usr/bin/lxqt-session                                  minix-base
-./usr/bin/lxqtprobe                                     minix-base
 ./usr/bin/lzcat                                         minix-base
 ./usr/bin/lzma                                          minix-base
 ./usr/bin/lzmainfo                                      minix-base
@@ -556,7 +554,6 @@
 ./usr/bin/ps                                            minix-base      obsolete
 ./usr/bin/pwhash                                        minix-base
 ./usr/bin/qterminal                                     minix-base
-./usr/bin/qtprobe                                       minix-base
 ./usr/bin/qtxdg-mat                                     minix-base
 ./usr/bin/ramdisk                                       minix-base
 ./usr/bin/rarpd                                         minix-base      obsolete
