@@ -82,8 +82,10 @@ extract() { # $1=id -> echoes path to the extracted source tree (upstream dir na
 	tarball=$(fetch "$id")
 	# The tarball's own top-level directory name is preserved, because the
 	# per-package patches embed it (glib's are -p0 with a glib-2.80.5/ prefix,
-	# etc.); renaming it would break patch application.
-	top=$(tar -tf "$tarball" | head -1 | cut -d/ -f1)
+	# etc.); renaming it would break patch application.  Capture the full
+	# listing rather than `tar | head`: head closing the pipe early gives tar a
+	# SIGPIPE, which `set -o pipefail` turns into a fatal 141.
+	top=$(tar -tf "$tarball"); top=${top%%/*}
 	dir="$WORK/$top"
 	if [ ! -d "$dir" ]; then
 		log "extract $id -> $top"
