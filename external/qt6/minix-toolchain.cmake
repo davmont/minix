@@ -58,6 +58,15 @@ set(CMAKE_NM           "${MINIX_TOOLS}/x86_64-elf64-minix-nm")
 set(CMAKE_OBJDUMP      "${MINIX_TOOLS}/x86_64-elf64-minix-objdump")
 set(CMAKE_STRIP        "${MINIX_TOOLS}/x86_64-elf64-minix-strip")
 
+# Use the MINIX linker (lld) and the sysroot libraries when linking executables
+# or shared objects.  Without -fuse-ld=lld the cross clang falls back to the
+# build host's /usr/bin/ld.bfd, which cannot link MINIX objects or find
+# libc++/libc in the sysroot; -L points it at them.
+set(_MINIX_LINK "-fuse-ld=lld -L${MINIX_SYSROOT}/usr/lib")
+set(CMAKE_EXE_LINKER_FLAGS_INIT    "${_MINIX_LINK}")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_MINIX_LINK}")
+set(CMAKE_MODULE_LINKER_FLAGS_INIT "${_MINIX_LINK}")
+
 set(MINIX_DEFINES "-D__minix=3 -D__minix__=3 -D__ELF__=1 -D_NETBSD_SOURCE")
 
 set(CMAKE_C_FLAGS_INIT   "${MINIX_DEFINES}")
