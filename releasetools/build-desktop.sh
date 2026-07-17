@@ -201,8 +201,10 @@ build_dbus() {
 	rm -rf "$WORK/dbus-b"; mkdir -p "$WORK/dbus-b"
 	( cd "$WORK/dbus-b" && cmake "$s" -GNinja "${common[@]}" \
 		&& ninja -j"$JOBS" && DESTDIR="$DESTDIR" ninja install )
-	# static archive
-	( cd "$s" && apply_patch "$EXT/dbus/patches/01-dbus-static-lib.patch" )
+	# static archive.  dbus hardcodes add_library(dbus-1 SHARED); flip it to
+	# STATIC with sed rather than the committed patch, whose context (a blank
+	# line before add_library) does not match dbus 1.16.2's CMakeLists.
+	( cd "$s" && sed -i 's/add_library(dbus-1 SHARED/add_library(dbus-1 STATIC/' dbus/CMakeLists.txt )
 	rm -rf "$WORK/dbus-static-b"; mkdir -p "$WORK/dbus-static-b"
 	( cd "$WORK/dbus-static-b" && cmake "$s" -GNinja "${common[@]}" -DBUILD_SHARED_LIBS=OFF \
 		&& ninja -j"$JOBS" dbus-1 && cp lib/libdbus-1.a "$DESTDIR/usr/lib/" )
