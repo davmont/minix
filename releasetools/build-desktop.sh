@@ -387,10 +387,12 @@ build_qterminal() {
 	local s; s=$(extract qterminal)
 	( cd "$s" && apply_patch "$EXT/lxqt/patches/07-qterminal-minix.patch" )
 	rm -rf "$WORK/qterminal-b"; mkdir -p "$WORK/qterminal-b"
+	# BUILD_TESTS=OFF: qterminal gates find_package(Qt6 ... Test) on it, and we
+	# built qtbase with FEATURE_testlib=OFF, so Qt6Test does not exist.
 	( cd "$WORK/qterminal-b" && cross_cmake "$s" \
 		-DCMAKE_PREFIX_PATH="$DESTDIR/usr" \
 		-DMINIX_EXTRA_STANDARD_LIBRARIES="-lutil -lexecinfo -lelf" \
-		-DCMAKE_CXX_FLAGS="$CXXDEF" \
+		-DCMAKE_CXX_FLAGS="$CXXDEF" -DBUILD_TESTS=OFF \
 		&& ninja -j"$JOBS" && DESTDIR="$DESTDIR" ninja install )
 }
 
