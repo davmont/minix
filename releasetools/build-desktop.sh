@@ -244,13 +244,18 @@ build_qtsvg() {
 	# toolchain file + host path + install prefix.
 	local s; s=$(extract qtsvg)
 	rm -rf "$WORK/qtsvg-b"
+	# Install via a plain /usr prefix + DESTDIR (like the LXQt consumers), NOT an
+	# absolute CMAKE_INSTALL_PREFIX: qtsvg goes through Qt's qt.toolchain.cmake,
+	# which layers its own staging on top, so an absolute prefix doubles the path
+	# ($DESTDIR/$DESTDIR/usr/...) even with MINIX_NO_STAGING.
 	cmake -S "$s" -B "$WORK/qtsvg-b" -GNinja \
 		-DCMAKE_TOOLCHAIN_FILE="$DESTDIR/usr/lib/cmake/Qt6/qt.toolchain.cmake" \
 		-DQT_HOST_PATH="$QT_HOST_PATH" \
-		-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX="$DESTDIR/usr" \
+		-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX=/usr \
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
 		-DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
-	ninja -C "$WORK/qtsvg-b" -j"$JOBS"; ninja -C "$WORK/qtsvg-b" install
+	ninja -C "$WORK/qtsvg-b" -j"$JOBS"
+	DESTDIR="$DESTDIR" ninja -C "$WORK/qtsvg-b" install
 }
 
 build_wayland-protocols() {
