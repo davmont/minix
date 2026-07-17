@@ -247,7 +247,7 @@ build_qtsvg() {
 	cmake -S "$s" -B "$WORK/qtsvg-b" -GNinja \
 		-DCMAKE_TOOLCHAIN_FILE="$DESTDIR/usr/lib/cmake/Qt6/qt.toolchain.cmake" \
 		-DQT_HOST_PATH="$QT_HOST_PATH" \
-		-DCMAKE_INSTALL_PREFIX="$DESTDIR/usr" \
+		-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX="$DESTDIR/usr" \
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
 		-DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
 	ninja -C "$WORK/qtsvg-b" -j"$JOBS"; ninja -C "$WORK/qtsvg-b" install
