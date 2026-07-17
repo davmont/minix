@@ -139,6 +139,10 @@ cross_cmake() { # $1=srcdir ; $2..=extra -D flags
 }
 
 CXXDEF="-D__minix=3 -D__minix__=3 -D__ELF__=1 -D_NETBSD_SOURCE"
+# libqtxdg's GIO/mime backend drags in the whole GLib stack (and pcre2/intl via
+# GLib); any executable that links the static libqtxdg must resolve them at the
+# end of its link line.  MINIX_EXTRA_STANDARD_LIBRARIES puts them there.
+GLIBLIBS="-lgio-2.0 -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 -lintl -lpcre2-8 -lz"
 
 # ---------------------------------------------------------------------------
 # Component builds — see external/<pkg>/README.md for the reasoning behind each.
@@ -340,9 +344,11 @@ build_liblxqt() {
 # Confirm against your working build (esp. any -D…=OFF the panel/session need).
 build_lxqt-globalkeys() { lxqt_consumer lxqt-globalkeys -DCMAKE_CXX_FLAGS="$CXXDEF"; }
 build_lxqt-menu-data()  { lxqt_consumer lxqt-menu-data  -DCMAKE_CXX_FLAGS="$CXXDEF"; }
-build_qtxdg-tools()     { lxqt_consumer qtxdg-tools     -DCMAKE_CXX_FLAGS="$CXXDEF"; }
-build_lxqt-panel()      { lxqt_consumer lxqt-panel      -DCMAKE_CXX_FLAGS="$CXXDEF"; }
-build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11"; }
+# qtxdg-tools/lxqt-panel/lxqt-session link the static libqtxdg (or liblxqt), so
+# they need the GLib stack on the final link line.
+build_qtxdg-tools()     { lxqt_consumer qtxdg-tools     -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
+build_lxqt-panel()      { lxqt_consumer lxqt-panel      -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
+build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
 
 build_qtermwidget() {
 	local s; s=$(extract qtermwidget)
