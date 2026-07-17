@@ -325,9 +325,12 @@ build_libqtxdg() {
 		-DQTXDGX_ICONENGINEPLUGIN_INSTALL_PATH=/usr/lib/qt6/plugins/iconengines
 }
 build_liblxqt() {
+	# -DLXQT_NO_X11 activates the patch's guards around lxqtscreensaver's X11
+	# XScreenSaver include (MINIX has no X11).  The CMakeLists only sets the
+	# LXQT_HAS_X11 cmake var; the source guard is a separate compile define.
 	lxqt_consumer liblxqt \
 		-DBUILD_BACKLIGHT_LINUX_BACKEND=OFF \
-		-DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_NO_KWINDOWSYSTEM"
+		-DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_NO_KWINDOWSYSTEM -DLXQT_NO_X11"
 }
 # TODO(verify): the READMEs do not give explicit flag sets for these four; they
 # are plain LXQt/Qt6 consumers, so the shared lxqt_consumer shape is used.
@@ -336,7 +339,7 @@ build_lxqt-globalkeys() { lxqt_consumer lxqt-globalkeys -DCMAKE_CXX_FLAGS="$CXXD
 build_lxqt-menu-data()  { lxqt_consumer lxqt-menu-data  -DCMAKE_CXX_FLAGS="$CXXDEF"; }
 build_qtxdg-tools()     { lxqt_consumer qtxdg-tools     -DCMAKE_CXX_FLAGS="$CXXDEF"; }
 build_lxqt-panel()      { lxqt_consumer lxqt-panel      -DCMAKE_CXX_FLAGS="$CXXDEF"; }
-build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF"; }
+build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11"; }
 
 build_qtermwidget() {
 	local s; s=$(extract qtermwidget)
