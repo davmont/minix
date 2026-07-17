@@ -98,15 +98,20 @@ extract() { # $1=id -> echoes path to the extracted source tree (upstream dir na
 # patches vary: qt6 is -p1, glib and lxqt 01-05 are -p0, lxqt 06-07 -p1).  Skips
 # cleanly if already applied.  $1 = patch file.
 apply_patch() {
+	# Try -p1 (git a/ b/ and versioned-dir patches), -p2 (qtermwidget/qterminal
+	# use an a/<pkg>-<ver>/ double prefix, i.e. -p1-from-parent = -p2-from-tree),
+	# then -p0.  --dry-run picks the level that actually applies.
 	local p="$1" lvl
-	for lvl in 1 0; do
+	for lvl in 1 2 0; do
 		if patch -p"$lvl" --dry-run -N -r - < "$p" >/dev/null 2>&1; then
 			patch -p"$lvl" -N -r - < "$p" >/dev/null; return 0
 		fi
 	done
-	# already applied (reverse-applies clean) -> fine; otherwise a real failure
-	patch -p1 -R --dry-run <"$p" >/dev/null 2>&1 || patch -p0 -R --dry-run <"$p" >/dev/null 2>&1 \
-		|| die "patch does not apply: $p"
+	# already applied? (reverse-applies cleanly at some level) -> fine
+	for lvl in 1 2 0; do
+		patch -p"$lvl" -R --dry-run < "$p" >/dev/null 2>&1 && return 0
+	done
+	die "patch does not apply: $p"
 }
 
 # Snapshot DESTDIR/usr file list, run a component build, then record everything
