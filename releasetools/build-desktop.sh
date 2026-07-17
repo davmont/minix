@@ -347,7 +347,23 @@ build_lxqt-menu-data()  { lxqt_consumer lxqt-menu-data  -DCMAKE_CXX_FLAGS="$CXXD
 # qtxdg-tools/lxqt-panel/lxqt-session link the static libqtxdg (or liblxqt), so
 # they need the GLib stack on the final link line.
 build_qtxdg-tools()     { lxqt_consumer qtxdg-tools     -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
-build_lxqt-panel()      { lxqt_consumer lxqt-panel      -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
+build_lxqt-panel() {
+	# Only the plugins that work on MINIX/Wayland (per external/lxqt/README.md):
+	# mainmenu, fancymenu, quicklaunch, showdesktop, spacer, worldclock, taskbar,
+	# desktopswitch.  Every other plugin needs statgrab/lm_sensors/ALSA/libsysstat
+	# /X11 (hard FATAL_ERROR if absent) or is a module-only plugin a static binary
+	# cannot dlopen.
+	lxqt_consumer lxqt-panel -DCMAKE_CXX_FLAGS="$CXXDEF" \
+		-DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS" \
+		-DMAINMENU_PLUGIN=ON -DFANCYMENU_PLUGIN=ON -DQUICKLAUNCH_PLUGIN=ON \
+		-DSHOWDESKTOP_PLUGIN=ON -DSPACER_PLUGIN=ON -DWORLDCLOCK_PLUGIN=ON \
+		-DTASKBAR_PLUGIN=ON -DDESKTOPSWITCH_PLUGIN=ON \
+		-DCOLORPICKER_PLUGIN=OFF -DCPULOAD_PLUGIN=OFF -DCUSTOMCOMMAND_PLUGIN=OFF \
+		-DDIRECTORYMENU_PLUGIN=OFF -DDOM_PLUGIN=OFF -DKBINDICATOR_PLUGIN=OFF \
+		-DMOUNT_PLUGIN=OFF -DSENSORS_PLUGIN=OFF -DQEYES_PLUGIN=OFF \
+		-DNETWORKMONITOR_PLUGIN=OFF -DSYSSTAT_PLUGIN=OFF -DSTATUSNOTIFIER_PLUGIN=OFF \
+		-DTRAY_PLUGIN=OFF -DVOLUME_PLUGIN=OFF -DBACKLIGHT_PLUGIN=OFF
+}
 build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
 
 build_qtermwidget() {
