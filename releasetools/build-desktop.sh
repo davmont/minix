@@ -395,9 +395,15 @@ cmd_build() {
 }
 
 main() {
+	# Resolve to absolute paths: the build functions cd into per-component build
+	# dirs, so any relative DESTDIR/WORK/source path would re-resolve against the
+	# wrong cwd (a doubled ".../build.amd64/desktop-build/build.amd64/..." path).
+	[ -n "${DESTDIR:-}" ] && [ -d "$DESTDIR" ] && DESTDIR=$(cd "$DESTDIR" && pwd)
+	[ -n "${TOOLDIR:-}" ] && [ -d "$TOOLDIR" ] && TOOLDIR=$(cd "$TOOLDIR" && pwd)
 	: "${DESKTOP_WORK:=${DESTDIR%/*}/desktop-build}"
 	WORK="$DESKTOP_WORK"; DL="$WORK/downloads"
 	mkdir -p "$WORK" "$DL"
+	WORK=$(cd "$WORK" && pwd); DL=$(cd "$DL" && pwd)
 	case "${1:-build}" in
 		build)     cmd_build ;;
 		checksums) cmd_checksums ;;
