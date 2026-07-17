@@ -146,12 +146,18 @@ CXXDEF="-D__minix=3 -D__minix__=3 -D__ELF__=1 -D_NETBSD_SOURCE"
 
 build_pcre2() {
 	# glib needs pcre2 in the sysroot; PIC so anything downstream can go in a .so.
+	# Built with the BASE MINIX toolchain, NOT cross_cmake — cross_cmake points at
+	# Qt's qt.toolchain.cmake, which does not exist until qtbase is installed, and
+	# pcre2 is built before Qt.
 	# TODO(verify): pcre2 has no external/pcre2 README — version 10.44 and this
 	# flag set are inferred.  Confirm the version glib 2.80.5 was built against.
 	local s; s=$(extract pcre2)
 	rm -rf "$WORK/pcre2-b"; mkdir -p "$WORK/pcre2-b"
-	( cd "$WORK/pcre2-b" && cross_cmake "$s" \
-		-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+	( cd "$WORK/pcre2-b" && cmake "$s" -GNinja \
+		-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+		-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF \
 		-DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF \
 		&& ninja -j"$JOBS" && DESTDIR="$DESTDIR" ninja install )
 }
@@ -160,10 +166,15 @@ build_glib() {
 	# meson; see external/glib/README.md.  Patch is -p0 from external/glib.
 	local s; s=$(extract glib)
 	( cd "$s" && apply_patch "$EXT/glib/patches/01-glib-minix.patch" )
+	# Generate the meson cross file from the committed template (meson has no env
+	# substitution, so the paths are filled in here).
+	local xfile="$WORK/glib-minix-cross.ini"
+	sed -e "s#@MINIX_TOOLS@#$TOOLDIR/bin#g" -e "s#@MINIX_SYSROOT@#$DESTDIR#g" \
+		"$EXT/glib/minix-cross.ini" > "$xfile"
 	export PKG_CONFIG_LIBDIR="$DESTDIR/usr/lib/pkgconfig"
 	export PKG_CONFIG_SYSROOT_DIR="$DESTDIR"
 	rm -rf "$WORK/glib-b"
-	meson setup "$WORK/glib-b" "$s" --cross-file "$EXT/glib/minix-cross.ini" \
+	meson setup "$WORK/glib-b" "$s" --cross-file "$xfile" \
 		--default-library=static \
 		-Dtests=false -Dintrospection=disabled -Dman-pages=disabled \
 		-Dnls=disabled -Dlibmount=disabled -Dselinux=disabled -Dxattr=false
@@ -383,6 +394,9 @@ cmd_build() {
 	[ -n "${TOOLDIR:-}" ] || die "TOOLDIR is required"
 	[ -f "$TOOLCHAIN_FILE" ] || die "missing $TOOLCHAIN_FILE (external/qt6 present?)"
 	check_prereqs
+	# The CMake toolchain file and the Wayland shim read these from the
+	# environment so they are not tied to one machine's paths.
+	export MINIX_SYSROOT="$DESTDIR" MINIX_TOOLS="$TOOLDIR/bin"
 	INSTALL_LIST="$WORK/install.list"; : > "$INSTALL_LIST"
 	local c
 	for c in $COMPONENTS; do

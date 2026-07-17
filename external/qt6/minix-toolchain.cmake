@@ -16,10 +16,24 @@ set(CMAKE_SYSTEM_VERSION 3)
 # CMake ships no Platform/Minix.cmake; ours lives here.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-set(MINIX_SRC   "/home/david/Documentos/Code/minix")
-set(MINIX_BUILD "/home/david/Documentos/Code/build")
-set(MINIX_SYSROOT "${MINIX_BUILD}/destdir.amd64")
-set(MINIX_TOOLS   "${MINIX_BUILD}/tooldir.Linux-x86_64/bin")
+# Sysroot and cross tools come from the environment so this file is not tied to
+# one machine: releasetools/build-desktop.sh exports MINIX_SYSROOT (=DESTDIR) and
+# MINIX_TOOLS (=TOOLDIR/bin).  A manual build can export them too; the fallbacks
+# are only a convenience default for one particular checkout.
+if(NOT DEFINED MINIX_SYSROOT)
+    if(DEFINED ENV{MINIX_SYSROOT})
+        set(MINIX_SYSROOT "$ENV{MINIX_SYSROOT}")
+    else()
+        set(MINIX_SYSROOT "/home/david/Documentos/Code/build/destdir.amd64")
+    endif()
+endif()
+if(NOT DEFINED MINIX_TOOLS)
+    if(DEFINED ENV{MINIX_TOOLS})
+        set(MINIX_TOOLS "$ENV{MINIX_TOOLS}")
+    else()
+        set(MINIX_TOOLS "/home/david/Documentos/Code/build/tooldir.Linux-x86_64/bin")
+    endif()
+endif()
 
 set(CMAKE_SYSROOT "${MINIX_SYSROOT}")
 # Only if the project has not chosen for itself.  A project that installs into

@@ -10,7 +10,15 @@
 # CMAKE_PROJECT_INCLUDE_BEFORE means it happens right after project(), before the
 # project's own find_package(Qt6 ...) -- and without patching the project.
 
-set(MINIX_SYSROOT "/home/david/Documentos/Code/build/destdir.amd64")
+# Sysroot from the environment (build-desktop.sh exports MINIX_SYSROOT=DESTDIR);
+# fallback is a convenience default only.
+if(NOT DEFINED MINIX_SYSROOT)
+    if(DEFINED ENV{MINIX_SYSROOT})
+        set(MINIX_SYSROOT "$ENV{MINIX_SYSROOT}")
+    else()
+        set(MINIX_SYSROOT "/home/david/Documentos/Code/build/destdir.amd64")
+    endif()
+endif()
 
 # Prefer static libraries.  Our own toolchain file sets this, but a project that
 # goes through Qt's qt.toolchain.cmake (which chainloads ours) does not keep it,
