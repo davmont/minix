@@ -185,22 +185,26 @@ build_glib() {
 build_dbus() {
 	# Two builds: (1) the daemon + shared libdbus-1.so, (2) a static libdbus-1.a
 	# for linking into Qt (-dbus-linked).  See external/dbus/README.md.
+	# The flags are passed as an array so args that contain spaces
+	# (-DCMAKE_C_STANDARD_LIBRARIES="-lpthread -lexecinfo") stay single args.
 	local s; s=$(extract dbus)
-	local common="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE -DMINIX_NO_STAGING=1
+	local common=(
+		-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" -DMINIX_NO_STAGING=1
 		-DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_SYSCONFDIR=/etc
 		-DCMAKE_INSTALL_LOCALSTATEDIR=/var -DCMAKE_BUILD_TYPE=Release
-		-DCMAKE_C_STANDARD_LIBRARIES=-lpthread\ -lexecinfo
-		-DCMAKE_C_FLAGS=$CXXDEF\ -DHAVE_UNPCBID=1
+		-DCMAKE_C_STANDARD_LIBRARIES="-lpthread -lexecinfo"
+		-DCMAKE_C_FLAGS="$CXXDEF -DHAVE_UNPCBID=1"
 		-DDBUS_BUILD_TESTS=OFF -DDBUS_ENABLE_XML_DOCS=OFF
 		-DDBUS_ENABLE_DOXYGEN_DOCS=OFF -DDBUS_WITH_GLIB=OFF
-		-DENABLE_SYSTEMD=OFF -DDBUS_SESSION_SOCKET_DIR=/tmp"
+		-DENABLE_SYSTEMD=OFF -DDBUS_SESSION_SOCKET_DIR=/tmp
+	)
 	rm -rf "$WORK/dbus-b"; mkdir -p "$WORK/dbus-b"
-	( cd "$WORK/dbus-b" && cmake "$s" -GNinja $common \
+	( cd "$WORK/dbus-b" && cmake "$s" -GNinja "${common[@]}" \
 		&& ninja -j"$JOBS" && DESTDIR="$DESTDIR" ninja install )
 	# static archive
 	( cd "$s" && apply_patch "$EXT/dbus/patches/01-dbus-static-lib.patch" )
 	rm -rf "$WORK/dbus-static-b"; mkdir -p "$WORK/dbus-static-b"
-	( cd "$WORK/dbus-static-b" && cmake "$s" -GNinja $common -DBUILD_SHARED_LIBS=OFF \
+	( cd "$WORK/dbus-static-b" && cmake "$s" -GNinja "${common[@]}" -DBUILD_SHARED_LIBS=OFF \
 		&& ninja -j"$JOBS" dbus-1 && cp lib/libdbus-1.a "$DESTDIR/usr/lib/" )
 }
 
@@ -400,8 +404,16 @@ cmd_build() {
 	INSTALL_LIST="$WORK/install.list"; : > "$INSTALL_LIST"
 	local c
 	for c in $COMPONENTS; do
+		# RESUME=1 skips components already built (stamp in $WORK), so a
+		# re-run picks up where it stopped.  NOTE: a resumed run's install.list
+		# only covers components (re)built this run; do a full run (RESUME unset)
+		# for the ISO overlay so the list is complete.
+		if [ "${RESUME:-0}" = 1 ] && [ -f "$WORK/.done-$c" ]; then
+			log "skip $c (RESUME: already built)"; continue
+		fi
 		log "build component: $c"
 		record_install "$c"
+		touch "$WORK/.done-$c"
 	done
 	sort -u "$INSTALL_LIST" -o "$INSTALL_LIST"
 	log "done — $(wc -l < "$INSTALL_LIST") files installed into $DESTDIR"
