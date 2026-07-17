@@ -26,6 +26,7 @@ glib                2.80.5    https://download.gnome.org/sources/glib/2.80/glib-
 dbus                1.16.2    https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz                                     0ba2a1a4b16afe7bceb2c07e9ce99a8c2c3508e5dec290dbb643384bd6beb7e2
 qtbase              6.11.1    https://download.qt.io/official_releases/qt/6.11/6.11.1/submodules/qtbase-everywhere-src-6.11.1.tar.xz  d9594a31228aa23ad6b531719a29b45f0f3989fe6c136d45767ea179f233c1ac
 qtsvg               6.11.1    https://download.qt.io/official_releases/qt/6.11/6.11.1/submodules/qtsvg-everywhere-src-6.11.1.tar.xz    7f3cf02f4824bf03c2c5859ea6db173bf1482a1daf24e6cdf7bc78cfa26a8a94
+wayland-protocols   1.38      https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.38/downloads/wayland-protocols-1.38.tar.xz  ff17292c05159d2b20ce6cacfe42d7e31a28198fa1429a769b03af7c38581dbe
 extra-cmake-modules 6.10.0    https://download.kde.org/stable/frameworks/6.10/extra-cmake-modules-6.10.0.tar.xz                 506989a0d400913403e669c1912238db053cd6b38dff74b17e2e6f879c79cca0
 kwindowsystem       6.10.0    https://download.kde.org/stable/frameworks/6.10/kwindowsystem-6.10.0.tar.xz                       046b7aa2247811323e48b629884b824a6ffec475df2316256e7ff0b9df677944
 layer-shell-qt      6.3.5     https://download.kde.org/stable/plasma/6.3.5/layer-shell-qt-6.3.5.tar.xz                          7062ca0e50dcce97dd11d8adf1b86d49f1c56423f2341dceb3ea40dc48206e25

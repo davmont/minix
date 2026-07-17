@@ -44,7 +44,7 @@ log() { echo "==> $*" >&2; }
 # matching manifest record.  Native-only helpers (ECM, lxqt-build-tools) install
 # host CMake modules into the sysroot; everything else is cross-compiled.
 COMPONENTS="
-pcre2 glib dbus qtbase qtsvg
+pcre2 glib dbus qtbase qtsvg wayland-protocols
 extra-cmake-modules kwindowsystem layer-shell-qt
 lxqt-build-tools libqtxdg liblxqt lxqt-globalkeys lxqt-menu-data qtxdg-tools
 lxqt-panel lxqt-session qtermwidget qterminal xdg-user-dirs
@@ -251,6 +251,20 @@ build_qtsvg() {
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
 		-DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
 	ninja -C "$WORK/qtsvg-b" -j"$JOBS"; ninja -C "$WORK/qtsvg-b" install
+}
+
+build_wayland-protocols() {
+	# Data only (protocol XML + a .pc); a native meson install into the sysroot.
+	# layer-shell-qt/lxqt-panel's FindWaylandProtocols reads pkgdatadir from
+	# wayland-protocols.pc, and the toolchain's pkg-config searches only the
+	# sysroot, so this must live there rather than being a host package.
+	local s; s=$(extract wayland-protocols)
+	rm -rf "$WORK/wayland-protocols-b"
+	meson setup "$WORK/wayland-protocols-b" "$s" --prefix=/usr -Dtests=false
+	DESTDIR="$DESTDIR" ninja -C "$WORK/wayland-protocols-b" install
+	# meson installs the .pc under share/pkgconfig, but the sysroot pkg-config
+	# only searches lib/pkgconfig — copy it where FindWaylandProtocols looks.
+	cp "$DESTDIR/usr/share/pkgconfig/wayland-protocols.pc" "$DESTDIR/usr/lib/pkgconfig/"
 }
 
 build_extra-cmake-modules() {
