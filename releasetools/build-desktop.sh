@@ -389,9 +389,11 @@ build_qterminal() {
 	rm -rf "$WORK/qterminal-b"; mkdir -p "$WORK/qterminal-b"
 	# BUILD_TESTS=OFF: qterminal gates find_package(Qt6 ... Test) on it, and we
 	# built qtbase with FEATURE_testlib=OFF, so Qt6Test does not exist.
+	# GLIBLIBS: qterminal links liblxqt -> libqtxdg -> GLib (g_dngettext etc.).
+	# -lutil: qtermwidget's kpty uses openpty(3), which lives in libutil.
 	( cd "$WORK/qterminal-b" && cross_cmake "$s" \
 		-DCMAKE_PREFIX_PATH="$DESTDIR/usr" \
-		-DMINIX_EXTRA_STANDARD_LIBRARIES="-lutil -lexecinfo -lelf" \
+		-DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS -lutil -lexecinfo -lelf" \
 		-DCMAKE_CXX_FLAGS="$CXXDEF" -DBUILD_TESTS=OFF \
 		&& ninja -j"$JOBS" && DESTDIR="$DESTDIR" ninja install )
 }
