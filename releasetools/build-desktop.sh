@@ -311,8 +311,11 @@ build_lxqt-build-tools() {
 lxqt_consumer() { # $1=id ; $2..=extra -D flags
 	local id="$1"; shift
 	local s; s=$(extract "$id")
+	# Apply the component's patch if it has one.  Use `if`, not `[ -f ] && …`:
+	# for a patchless component (menu-data, qtxdg-tools) the glob does not expand
+	# and the `&&` chain would return 1, which `set -e` turns into a silent exit.
 	( cd "$s" && for p in "$EXT/lxqt"/patches/*"$id"-minix.patch; do
-		[ -f "$p" ] && apply_patch "$p"; done )
+		if [ -f "$p" ]; then apply_patch "$p"; fi; done )
 	rm -rf "$WORK/$id-b"; mkdir -p "$WORK/$id-b"
 	( cd "$WORK/$id-b" && cross_cmake "$s" \
 		-DLXQT_ETC_XDG_DIR=/etc/xdg -DBUILD_DEV_UTILS=OFF \
