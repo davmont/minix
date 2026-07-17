@@ -343,13 +343,23 @@ check_prereqs() {
 		command -v "$t" >/dev/null || { echo "missing host tool: $t" >&2; miss=1; }
 	done
 	# host Qt of the exact qtbase version, for moc/rcc/uic via QT_HOST_PATH.
-	local want; want=$(manifest_field qtbase 2)
-	local moc; moc=$(command -v moc-qt6 || command -v moc || echo "$QT_HOST_PATH/lib/qt6/libexec/moc")
-	if [ -x "$moc" ]; then
+	# The tools live in Qt's libexec, which is lib64 on multilib distros
+	# (openSUSE/Fedora) and lib elsewhere; ask qmake where, then fall back to
+	# the usual candidates.
+	local want libexec="" moc="" c
+	want=$(manifest_field qtbase 2)
+	if command -v qmake6 >/dev/null; then libexec=$(qmake6 -query QT_INSTALL_LIBEXECS 2>/dev/null)
+	elif command -v qmake >/dev/null; then libexec=$(qmake -query QT_INSTALL_LIBEXECS 2>/dev/null); fi
+	for c in "${libexec:+$libexec/moc}" \
+	         "$QT_HOST_PATH/lib64/qt6/libexec/moc" "$QT_HOST_PATH/lib/qt6/libexec/moc" \
+	         "$(command -v moc-qt6 2>/dev/null)" "$(command -v moc 2>/dev/null)"; do
+		if [ -n "$c" ] && [ -x "$c" ]; then moc="$c"; break; fi
+	done
+	if [ -n "$moc" ]; then
 		"$moc" --version 2>/dev/null | grep -q "$want" \
-			|| echo "WARNING: host moc is not Qt $want (QT_HOST_PATH=$QT_HOST_PATH) — cross build needs a version-exact host Qt" >&2
+			|| echo "WARNING: host moc ($moc) is not Qt $want — the cross build needs a version-exact host Qt" >&2
 	else
-		echo "missing host Qt $want (moc/rcc/uic) — set QT_HOST_PATH to a Qt $want install" >&2; miss=1
+		echo "missing host Qt $want moc/rcc/uic — install it (openSUSE: 'zypper in qt6-base-devel') and/or set QT_HOST_PATH" >&2; miss=1
 	fi
 	[ "$miss" = 0 ] || die "install the missing host prerequisites and retry"
 }
