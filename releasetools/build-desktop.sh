@@ -380,6 +380,15 @@ check_prereqs() {
 	else
 		echo "missing host Qt $want moc/rcc/uic — install it (openSUSE: 'zypper in qt6-base-devel') and/or set QT_HOST_PATH" >&2; miss=1
 	fi
+	# Qt6LinguistTools (lrelease/lupdate): the KF6/LXQt components process .po
+	# translations through them at configure time via ECM.
+	local lrel=""
+	for c in "${libexec:+$libexec/lrelease}" \
+	         "$QT_HOST_PATH/lib64/qt6/libexec/lrelease" "$QT_HOST_PATH/lib/qt6/libexec/lrelease" \
+	         "$(command -v lrelease-qt6 2>/dev/null)" "$(command -v lrelease6 2>/dev/null)" "$(command -v lrelease 2>/dev/null)"; do
+		if [ -n "$c" ] && [ -x "$c" ]; then lrel="$c"; break; fi
+	done
+	[ -n "$lrel" ] || { echo "missing host Qt LinguistTools (lrelease/lupdate) — install it (openSUSE: 'zypper in qt6-linguist-devel')" >&2; miss=1; }
 	[ "$miss" = 0 ] || die "install the missing host prerequisites and retry"
 }
 
