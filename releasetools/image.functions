@@ -187,6 +187,46 @@ END_FSTAB
 }
 
 #
+# Overlay the LXQt/Qt6 desktop onto the image (opt-in, MKDESKTOP=yes).
+#
+# The desktop is an out-of-tree CMake/meson/autotools stack that the reachover
+# world does not build, so build-desktop.sh installs it into DESTDIR and records
+# every file it added in an install list.  Here we copy those files straight from
+# DESTDIR into the ISO tree and emit an mtree "extra.desktop" spec for them --
+# the same pattern the ASR_HACK uses -- because they are not in the packed sets.
+# This runs BEFORE create_input_spec so the extra.* glob picks the spec up.
+#
+workdir_add_desktop()
+{
+	local il="${DESKTOP_INSTALL_LIST:-${DESTDIR%/*}/desktop-build/install.list}"
+	if [ ! -f "${il}" ]; then
+		echo "MKDESKTOP=yes but no desktop install list at ${il}." >&2
+		echo "Run 'DESTDIR=${DESTDIR} TOOLDIR=<tooldir> sh releasetools/build-desktop.sh' first." >&2
+		exit 1
+	fi
+	echo " * Overlaying desktop ($(wc -l < "${il}") files)..."
+	# Directory entries first (shallow to deep), only for dirs the sets did not
+	# already create, so nbmtree does not see a duplicate.
+	awk -F/ '{p=""; for(i=1;i<NF;i++){p=p (i>1?"/":"") $i; print p}}' "${il}" \
+		| sort -u | while read -r d; do
+		if [ ! -d "${ROOT_DIR}/${d}" ]; then
+			mkdir -p "${ROOT_DIR}/${d}"
+			echo "./${d} type=dir uid=0 gid=0 mode=0755" >> ${WORK_DIR}/extra.desktop
+		fi
+	done
+	while read -r f; do
+		[ -e "${DESTDIR}/${f}" ] || continue
+		mkdir -p "${ROOT_DIR}/$(dirname "${f}")"
+		cp -a "${DESTDIR}/${f}" "${ROOT_DIR}/${f}"
+		if [ -L "${DESTDIR}/${f}" ]; then
+			echo "./${f} type=link uid=0 gid=0 mode=0755 link=$(readlink "${DESTDIR}/${f}")" >> ${WORK_DIR}/extra.desktop
+		else
+			echo "./${f} type=file uid=0 gid=0 mode=0$(stat -c '%a' "${DESTDIR}/${f}") size=$(wc -c < "${ROOT_DIR}/${f}")" >> ${WORK_DIR}/extra.desktop
+		fi
+	done < "${il}"
+}
+
+#
 # Extract kernel to designated directory
 #
 # $1: Directory where to extract

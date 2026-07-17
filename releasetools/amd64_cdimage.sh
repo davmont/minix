@@ -15,6 +15,12 @@ set -e
 : ${IMG=minix_amd64.iso}
 : ${BUNDLE_SETS=1}
 
+# Opt-in: overlay the LXQt/Qt6 desktop onto the ISO.  Off by default because the
+# desktop is an out-of-tree build (see releasetools/build-desktop.sh); a plain
+# `release && amd64_cdimage.sh` is unchanged.  With MKDESKTOP=yes the desktop
+# must already be installed into DESTDIR by build-desktop.sh.
+: ${MKDESKTOP=no}
+
 if [ ! -f ${BUILDSH} ]
 then
 	echo "Please invoke me from the root source dir, where ${BUILDSH} is."
@@ -40,6 +46,12 @@ build_workdir "$SETS"
 
 echo "Adding extra files..."
 workdir_add_cd_files
+
+# Overlay the desktop (opt-in).  Must run before create_input_spec.
+if [ "${MKDESKTOP}" = "yes" ]; then
+	echo "Adding desktop (MKDESKTOP=yes)..."
+	workdir_add_desktop
+fi
 
 # add kernel
 workdir_add_kernel minix_default
