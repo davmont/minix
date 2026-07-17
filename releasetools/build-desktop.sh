@@ -46,8 +46,8 @@ log() { echo "==> $*" >&2; }
 COMPONENTS="
 pcre2 glib dbus qtbase qtsvg wayland-protocols
 extra-cmake-modules kwindowsystem layer-shell-qt
-lxqt-build-tools libqtxdg liblxqt lxqt-globalkeys lxqt-menu-data qtxdg-tools
-lxqt-panel lxqt-session qtermwidget qterminal xdg-user-dirs
+lxqt-build-tools libqtxdg liblxqt lxqt-globalkeys lxqt-menu-data qtxdg-tools xdg-user-dirs
+lxqt-panel lxqt-session qtermwidget qterminal
 "
 
 # ---------------------------------------------------------------------------
@@ -364,7 +364,9 @@ build_lxqt-panel() {
 		-DNETWORKMONITOR_PLUGIN=OFF -DSYSSTAT_PLUGIN=OFF -DSTATUSNOTIFIER_PLUGIN=OFF \
 		-DTRAY_PLUGIN=OFF -DVOLUME_PLUGIN=OFF -DBACKLIGHT_PLUGIN=OFF
 }
-build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
+# WITH_LIBUDEV=OFF: MINIX has no udev (the session only uses it for device-hotplug
+# monitoring), and the option is REQUIRED-on by default.
+build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS" -DWITH_LIBUDEV=OFF; }
 
 build_qtermwidget() {
 	local s; s=$(extract qtermwidget)
