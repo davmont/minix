@@ -353,7 +353,7 @@ build_lxqt-panel() {
 	# desktopswitch.  Every other plugin needs statgrab/lm_sensors/ALSA/libsysstat
 	# /X11 (hard FATAL_ERROR if absent) or is a module-only plugin a static binary
 	# cannot dlopen.
-	lxqt_consumer lxqt-panel -DCMAKE_CXX_FLAGS="$CXXDEF" \
+	lxqt_consumer lxqt-panel -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_PANEL_NO_X11" \
 		-DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS" \
 		-DMAINMENU_PLUGIN=ON -DFANCYMENU_PLUGIN=ON -DQUICKLAUNCH_PLUGIN=ON \
 		-DSHOWDESKTOP_PLUGIN=ON -DSPACER_PLUGIN=ON -DWORLDCLOCK_PLUGIN=ON \
