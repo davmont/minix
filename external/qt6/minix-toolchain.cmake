@@ -73,7 +73,14 @@ set(CMAKE_STRIP        "${MINIX_TOOLS}/x86_64-elf64-minix-strip")
 #   norelro         -> no PT_GNU_RELRO / RW split (one RW data segment)
 #   --no-rosegment  -> lld: do not give read-only data its own segment
 set(_MINIX_LINK "-fuse-ld=lld -L${MINIX_SYSROOT}/usr/lib -Wl,-z,noseparate-code -Wl,-z,norelro -Wl,--no-rosegment")
-set(CMAKE_EXE_LINKER_FLAGS_INIT    "${_MINIX_LINK}")
+# Executables MUST be linked -static.  MINIX links its programs statically, and a
+# dynamically linked Qt segfaults during startup before main() -- Qt leans on
+# thread_local, and dynamic TLS is the corner of ld.elf_so least exercised here
+# (see the CMAKE_FIND_LIBRARY_SUFFIXES note below).  Without -static the driver
+# still emits a PT_INTERP=/usr/libexec/ld.elf_so dynamic executable -- even though
+# every library resolves to a .a -- and the desktop crashes before main().
+# -static is EXE-only: a shared object (libdbus-1.so) cannot be linked static.
+set(CMAKE_EXE_LINKER_FLAGS_INIT    "-static ${_MINIX_LINK}")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_MINIX_LINK}")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "${_MINIX_LINK}")
 
