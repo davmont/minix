@@ -87,10 +87,14 @@ extract() { # $1=id -> echoes path to the extracted source tree (upstream dir na
 	# SIGPIPE, which `set -o pipefail` turns into a fatal 141.
 	top=$(tar -tf "$tarball"); top=${top%%/*}
 	dir="$WORK/$top"
-	if [ ! -d "$dir" ]; then
-		log "extract $id -> $top"
-		tar -xf "$tarball" -C "$WORK"
-	fi
+	# Always extract to a PRISTINE tree.  extract() only runs for a component that
+	# is being (re)built -- a stamped/done one is skipped before build_<id> is
+	# called -- so re-extracting is never wasted.  Reusing a leftover tree from an
+	# earlier run breaks patching: the patch is already (partially) applied, so it
+	# neither applies forward nor reverses cleanly and apply_patch aborts.
+	rm -rf "$dir"
+	log "extract $id -> $top"
+	tar -xf "$tarball" -C "$WORK"
 	echo "$dir"
 }
 
@@ -114,18 +118,44 @@ apply_patch() {
 	die "patch does not apply: $p"
 }
 
-# Snapshot DESTDIR/usr file list, run a component build, then record everything
-# it added into $INSTALL_LIST (set in cmd_build; used by amd64_cdimage.sh to
-# overlay the desktop onto the ISO).
+# The desktop install list (consumed by amd64_cdimage.sh's MKDESKTOP overlay) is
+# harvested from each build system's OWN install manifest at the end of the run
+# (see harvest_install_list), not from a before/after snapshot of DESTDIR.  A
+# snapshot silently misses anything already present (a re-run over a populated
+# DESTDIR) or anything `ninja install` reports "up-to-date" and skips -- so it
+# produced an empty list on exactly the re-runs people actually do.
 INSTALL_LIST=""
-record_install() { # $1=id ; runs build_<id> between two snapshots
-	local id="$1" before after
-	before=$(mktemp); after=$(mktemp)
-	( cd "$DESTDIR" && find usr etc var -type f -o -type l 2>/dev/null ) | sort > "$before" || true
-	"build_$id"
-	( cd "$DESTDIR" && find usr etc var -type f -o -type l 2>/dev/null ) | sort > "$after" || true
-	comm -13 "$before" "$after" >> "$INSTALL_LIST"
-	rm -f "$before" "$after"
+
+# Build every component's install manifest into $INSTALL_LIST.  Sources:
+#   cmake  -> <builddir>/install_manifest.txt
+#   meson  -> `meson introspect --installed`
+#   autotools (xdg-user-dirs) -> its fixed, known install set
+# Paths are normalised to DESTDIR-relative (strip a leading $DESTDIR and any
+# leading /), malformed entries dropped, and only paths that really exist kept.
+harvest_install_list() {
+	local raw; raw=$(mktemp)
+	# cmake components (native + cross): install_manifest.txt lists installed paths
+	find "$WORK" -maxdepth 2 -name install_manifest.txt -exec awk 1 {} + >> "$raw" 2>/dev/null || true
+	# meson components: introspect each meson build dir (has a meson-info/ dir)
+	local b
+	for b in "$WORK"/*-b; do
+		[ -d "$b/meson-info" ] || continue
+		( cd "$b" && meson introspect --installed 2>/dev/null \
+		  | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(v) for v in d.values()]' ) >> "$raw" 2>/dev/null || true
+	done
+	# xdg-user-dirs (autotools, no manifest): its known install set for the pinned
+	# 0.18 with --disable-nls --disable-documentation.
+	local f
+	for f in usr/bin/xdg-user-dir usr/bin/xdg-user-dirs-update \
+	         etc/xdg/user-dirs.conf etc/xdg/user-dirs.defaults; do
+		[ -e "$DESTDIR/$f" ] && echo "/$f" >> "$raw"
+	done
+	# normalise: strip $DESTDIR prefix and leading /, drop malformed (/./ or //),
+	# keep only paths that exist, unique.
+	sed -e "s#^${DESTDIR}/##" -e 's#^/##' "$raw" \
+	  | grep -vE '/\./|//|^$' | sort -u \
+	  | while read -r p; do [ -e "$DESTDIR/$p" ] && printf '%s\n' "$p"; done > "$INSTALL_LIST"
+	rm -f "$raw"
 }
 
 # Common cross-CMake configure for the LXQt/KF6 consumers.  Callers add the
@@ -486,21 +516,20 @@ cmd_build() {
 	# The CMake toolchain file and the Wayland shim read these from the
 	# environment so they are not tied to one machine's paths.
 	export MINIX_SYSROOT="$DESTDIR" MINIX_TOOLS="$TOOLDIR/bin"
-	INSTALL_LIST="$WORK/install.list"; : > "$INSTALL_LIST"
+	INSTALL_LIST="$WORK/install.list"
 	local c
 	for c in $COMPONENTS; do
-		# RESUME=1 skips components already built (stamp in $WORK), so a
-		# re-run picks up where it stopped.  NOTE: a resumed run's install.list
-		# only covers components (re)built this run; do a full run (RESUME unset)
-		# for the ISO overlay so the list is complete.
+		# RESUME=1 skips components already built (stamp in $WORK), so a re-run
+		# picks up where it stopped.  The install list is harvested from install
+		# manifests at the end, so it is complete regardless of RESUME.
 		if [ "${RESUME:-0}" = 1 ] && [ -f "$WORK/.done-$c" ]; then
 			log "skip $c (RESUME: already built)"; continue
 		fi
 		log "build component: $c"
-		record_install "$c"
+		"build_$c"
 		touch "$WORK/.done-$c"
 	done
-	sort -u "$INSTALL_LIST" -o "$INSTALL_LIST"
+	harvest_install_list
 	log "done — $(wc -l < "$INSTALL_LIST") files installed into $DESTDIR"
 	log "install list: $INSTALL_LIST"
 }
