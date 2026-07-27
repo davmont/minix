@@ -87,10 +87,14 @@ extract() { # $1=id -> echoes path to the extracted source tree (upstream dir na
 	# SIGPIPE, which `set -o pipefail` turns into a fatal 141.
 	top=$(tar -tf "$tarball"); top=${top%%/*}
 	dir="$WORK/$top"
-	if [ ! -d "$dir" ]; then
-		log "extract $id -> $top"
-		tar -xf "$tarball" -C "$WORK"
-	fi
+	# Always extract to a PRISTINE tree.  extract() only runs for a component that
+	# is being (re)built -- a stamped/done one is skipped before build_<id> is
+	# called -- so re-extracting is never wasted.  Reusing a leftover tree from an
+	# earlier run breaks patching: the patch is already (partially) applied, so it
+	# neither applies forward nor reverses cleanly and apply_patch aborts.
+	rm -rf "$dir"
+	log "extract $id -> $top"
+	tar -xf "$tarball" -C "$WORK"
 	echo "$dir"
 }
 
