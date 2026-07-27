@@ -239,6 +239,11 @@ build_dbus() {
 		-DCMAKE_INSTALL_LOCALSTATEDIR=/var -DCMAKE_BUILD_TYPE=Release
 		-DCMAKE_C_STANDARD_LIBRARIES="-lpthread -lexecinfo"
 		-DCMAKE_C_FLAGS="$CXXDEF -DHAVE_UNPCBID=1"
+		# Override the toolchain's -static EXE flags: the dbus DAEMON links its
+		# own libdbus-1.so, and -static cannot link a shared object ("attempted
+		# static link of dynamic object").  dbus-daemon is a plain C program with
+		# no Qt/thread_local, so a dynamic link runs fine on MINIX.
+		-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld\ -L"$DESTDIR"/usr/lib\ -Wl,-z,noseparate-code\ -Wl,-z,norelro\ -Wl,--no-rosegment
 		-DDBUS_BUILD_TESTS=OFF -DDBUS_ENABLE_XML_DOCS=OFF
 		-DDBUS_ENABLE_DOXYGEN_DOCS=OFF -DDBUS_WITH_GLIB=OFF
 		-DENABLE_SYSTEMD=OFF -DDBUS_SESSION_SOCKET_DIR=/tmp
@@ -446,7 +451,7 @@ build_xdg-user-dirs() {
 	( cd "$s" && \
 	  CC="$T/x86_64-elf64-minix-clang" \
 	  CFLAGS="-O2 $CXXDEF --sysroot=$DESTDIR" \
-	  LDFLAGS="--sysroot=$DESTDIR -fuse-ld=lld -L$DESTDIR/usr/lib -Wl,-z,noseparate-code -Wl,-z,norelro -Wl,--no-rosegment" \
+	  LDFLAGS="--sysroot=$DESTDIR -static -fuse-ld=lld -L$DESTDIR/usr/lib -Wl,-z,noseparate-code -Wl,-z,norelro -Wl,--no-rosegment" \
 	  ./configure --host=x86_64-elf64-minix --build=x86_64-linux-gnu \
 		--prefix=/usr --disable-nls --disable-documentation && \
 	  make -j"$JOBS" LIBS="-lintl" && \
