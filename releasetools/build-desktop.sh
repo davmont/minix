@@ -180,15 +180,21 @@ build_glib() {
 	local xfile="$WORK/glib-minix-cross.ini"
 	sed -e "s#@MINIX_TOOLS@#$TOOLDIR/bin#g" -e "s#@MINIX_SYSROOT@#$DESTDIR#g" \
 		"$EXT/glib/minix-cross.ini" > "$xfile"
-	export PKG_CONFIG_LIBDIR="$DESTDIR/usr/lib/pkgconfig"
-	export PKG_CONFIG_SYSROOT_DIR="$DESTDIR"
 	rm -rf "$WORK/glib-b"
-	meson setup "$WORK/glib-b" "$s" --cross-file "$xfile" \
-		--default-library=static \
-		-Dtests=false -Dintrospection=disabled -Dman-pages=disabled \
-		-Dnls=disabled -Dlibmount=disabled -Dselinux=disabled -Dxattr=false
-	ninja -C "$WORK/glib-b" -j"$JOBS"
-	DESTDIR="$DESTDIR" ninja -C "$WORK/glib-b" install
+	# Scope the sysroot pkg-config env to a subshell: exporting it into the whole
+	# script leaks into later NATIVE builds (wayland-protocols' meson, ECM's
+	# cmake) and points their host pkg-config at the sysroot, where host tools
+	# like wayland-scanner do not exist -> "wayland-scanner found: NO".
+	(
+		export PKG_CONFIG_LIBDIR="$DESTDIR/usr/lib/pkgconfig"
+		export PKG_CONFIG_SYSROOT_DIR="$DESTDIR"
+		meson setup "$WORK/glib-b" "$s" --cross-file "$xfile" \
+			--default-library=static \
+			-Dtests=false -Dintrospection=disabled -Dman-pages=disabled \
+			-Dnls=disabled -Dlibmount=disabled -Dselinux=disabled -Dxattr=false
+		ninja -C "$WORK/glib-b" -j"$JOBS"
+		DESTDIR="$DESTDIR" ninja -C "$WORK/glib-b" install
+	)
 }
 
 build_dbus() {
@@ -274,7 +280,12 @@ build_wayland-protocols() {
 	# sysroot, so this must live there rather than being a host package.
 	local s; s=$(extract wayland-protocols)
 	rm -rf "$WORK/wayland-protocols-b"
-	meson setup "$WORK/wayland-protocols-b" "$s" --prefix=/usr -Dtests=false
+	# Native meson build: its meson.build requires host wayland-scanner via
+	# pkg-config (unconditionally, even with -Dtests=false).  Force host
+	# pkg-config by clearing any sysroot pkg-config env that may be set, so it
+	# resolves the host's wayland-scanner rather than looking in the sysroot.
+	env -u PKG_CONFIG_LIBDIR -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_PATH \
+		meson setup "$WORK/wayland-protocols-b" "$s" --prefix=/usr -Dtests=false
 	DESTDIR="$DESTDIR" ninja -C "$WORK/wayland-protocols-b" install
 	# meson installs the .pc under share/pkgconfig, but the sysroot pkg-config
 	# only searches lib/pkgconfig — copy it where FindWaylandProtocols looks.
@@ -420,6 +431,10 @@ check_prereqs() {
 	for t in curl tar sha256sum cmake ninja meson patch pkg-config; do
 		command -v "$t" >/dev/null || { echo "missing host tool: $t" >&2; miss=1; }
 	done
+	# wayland-protocols' meson build needs the host wayland-scanner (via
+	# pkg-config) at configure time.  openSUSE ships it in wayland-devel.
+	command -v wayland-scanner >/dev/null || pkg-config --exists wayland-scanner 2>/dev/null \
+		|| { echo "missing host wayland-scanner — install it (openSUSE: 'zypper in wayland-devel')" >&2; miss=1; }
 	# host Qt of the exact qtbase version, for moc/rcc/uic via QT_HOST_PATH.
 	# The tools live in Qt's libexec, which is lib64 on multilib distros
 	# (openSUSE/Fedora) and lib elsewhere; ask qmake where, then fall back to
