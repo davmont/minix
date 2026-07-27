@@ -218,6 +218,12 @@ workdir_add_desktop()
 		[ -e "${DESTDIR}/${f}" ] || continue
 		mkdir -p "${ROOT_DIR}/$(dirname "${f}")"
 		cp -a "${DESTDIR}/${f}" "${ROOT_DIR}/${f}"
+		# Always emit the entry, even for a file the base sets already provide (a
+		# desktop-tuned copy of a base file, e.g. etc/rc.cd).  extra.desktop is
+		# cat'd AFTER set* in create_input_spec, and nbmtree lets the later entry
+		# override the earlier -- so this carries the CORRECT size.  (Emitting no
+		# entry and relying on the set* one silently truncates the file to the base
+		# copy's size.)
 		if [ -L "${DESTDIR}/${f}" ]; then
 			echo "./${f} type=link uid=0 gid=0 mode=0755 link=$(readlink "${DESTDIR}/${f}")" >> ${WORK_DIR}/extra.desktop
 		else
