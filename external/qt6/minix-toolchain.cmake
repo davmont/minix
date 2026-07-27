@@ -62,7 +62,17 @@ set(CMAKE_STRIP        "${MINIX_TOOLS}/x86_64-elf64-minix-strip")
 # or shared objects.  Without -fuse-ld=lld the cross clang falls back to the
 # build host's /usr/bin/ld.bfd, which cannot link MINIX objects or find
 # libc++/libc in the sysroot; -L points it at them.
-set(_MINIX_LINK "-fuse-ld=lld -L${MINIX_SYSROOT}/usr/lib")
+#
+# The -z/--no-rosegment triplet collapses the ELF to exactly TWO PT_LOAD
+# segments, which is what MINIX's loader requires: ld.elf_so
+# (libexec/ld.elf_so/map_object.c) rejects any object with nsegs != 2 --
+# "wrong number of segments (4 != 2)" -- and every reachover MINIX binary is
+# linked this way.  Default lld emits 4 (separate rodata via -z separate-code,
+# plus a RELRO split), so a Qt/dbus binary built without these fails to exec:
+#   noseparate-code -> merge rodata into the text segment (no separate R seg)
+#   norelro         -> no PT_GNU_RELRO / RW split (one RW data segment)
+#   --no-rosegment  -> lld: do not give read-only data its own segment
+set(_MINIX_LINK "-fuse-ld=lld -L${MINIX_SYSROOT}/usr/lib -Wl,-z,noseparate-code -Wl,-z,norelro -Wl,--no-rosegment")
 set(CMAKE_EXE_LINKER_FLAGS_INIT    "${_MINIX_LINK}")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_MINIX_LINK}")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "${_MINIX_LINK}")

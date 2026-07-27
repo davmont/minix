@@ -446,7 +446,7 @@ build_xdg-user-dirs() {
 	( cd "$s" && \
 	  CC="$T/x86_64-elf64-minix-clang" \
 	  CFLAGS="-O2 $CXXDEF --sysroot=$DESTDIR" \
-	  LDFLAGS="--sysroot=$DESTDIR -fuse-ld=lld -L$DESTDIR/usr/lib" \
+	  LDFLAGS="--sysroot=$DESTDIR -fuse-ld=lld -L$DESTDIR/usr/lib -Wl,-z,noseparate-code -Wl,-z,norelro -Wl,--no-rosegment" \
 	  ./configure --host=x86_64-elf64-minix --build=x86_64-linux-gnu \
 		--prefix=/usr --disable-nls --disable-documentation && \
 	  make -j"$JOBS" LIBS="-lintl" && \
