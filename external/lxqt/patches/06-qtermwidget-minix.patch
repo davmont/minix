@@ -49,3 +49,39 @@
  # define _tcsetattr(fd, ttmode) ioctl(fd, TIOCSETA, (char *)ttmode)
  #else
  # if defined(_HPUX_SOURCE) || defined(__CYGWIN__) || defined(__GNU__)
+--- a/qtermwidget-2.4.0/lib/kptydevice.cpp
++++ b/qtermwidget-2.4.0/lib/kptydevice.cpp
+@@ -135,6 +135,33 @@
+         }
+         readBuffer.unreserve(available - readBytes); // *should* be a no-op
+     }
++#if defined(__minix)
++    else {
++        /*
++         * MINIX has no FIONREAD (nor TIOCINQ) on a pty master -- the tty
++         * driver simply does not implement it -- so the ioctl above fails and
++         * the byte-count path is skipped, leaving readBytes == 0.  Without
++         * this the very first activation would take the !readBytes branch
++         * below, disable the notifier and declare EOF, and the terminal would
++         * never show a single byte of the shell's output.
++         *
++         * Fall back to a plain read.  The master fd is O_NONBLOCK (set in
++         * finishOpen()), so read() returns whatever is queued, 0 at real EOF,
++         * or -1/EAGAIN on a spurious wakeup with nothing to read.
++         */
++        const int chunk = 4096;
++        char *ptr = readBuffer.reserve(chunk);
++        NO_INTR(readBytes, read(q->masterFd(), ptr, chunk));
++        if (readBytes < 0) {
++            readBuffer.unreserve(chunk);
++            if (errno == EAGAIN || errno == EWOULDBLOCK)
++                return true;    /* nothing yet; keep the notifier enabled */
++            q->setErrorString(QLatin1String("Error reading from PTY"));
++            return false;
++        }
++        readBuffer.unreserve(chunk - readBytes);
++    }
++#endif
+ 
+     if (!readBytes) {
+         readNotifier->setEnabled(false);
