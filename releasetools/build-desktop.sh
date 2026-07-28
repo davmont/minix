@@ -268,22 +268,35 @@ build_qtbase() {
 	( cd "$s" && for p in "$QT6DIR"/patches/*.patch; do apply_patch "$p"; done
 	  cp -r "$QT6DIR/mkspecs/minix-clang" mkspecs/ )
 	rm -rf "$WORK/qtbase-b"
-	cmake -S "$s" -B "$WORK/qtbase-b" -GNinja \
-		-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
-		-DQT_HOST_PATH="$QT_HOST_PATH" \
-		-DQT_QMAKE_TARGET_MKSPEC=minix-clang \
-		-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX="$DESTDIR/usr" \
-		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-		-DINPUT_opengl=no -DINPUT_egl=no -DINPUT_xcb=no -DINPUT_dbus=no \
-		-DINPUT_glib=no -DINPUT_icu=no -DINPUT_fontconfig=no \
-		-DINPUT_harfbuzz=qt -DINPUT_pcre=qt -DINPUT_libpng=qt -DINPUT_libjpeg=qt \
-		-DINPUT_zlib=system -DINPUT_freetype=system \
-		-DFEATURE_libudev=OFF -DFEATURE_evdev=OFF -DFEATURE_libinput=OFF \
-		-DFEATURE_sql=OFF -DFEATURE_testlib=OFF -DFEATURE_network=OFF \
-		-DFEATURE_printsupport=OFF \
-		-DFEATURE_dbus_linked=ON -DDBus1_LIBRARY="$DESTDIR/usr/lib/libdbus-1.a" \
-		-DFEATURE_concurrent=ON \
-		-DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
+	# xkbcommon: Qt's Wayland keyboard handler (keyboard_key) turns evdev
+	# keycodes into keysyms and text through xkbcommon.  Without the feature it
+	# takes its "xkbcommon not available, not performing key mapping" path and
+	# drops every keystroke -- no Qt app on the desktop can be typed into, the
+	# terminal included.  libxkbcommon is already in the sysroot (wlcompd links
+	# it), but Qt's WrapXkbcommon only finds it when pkg-config is aimed there.
+	# Do that in a subshell, like the glib build above, so the sysroot
+	# pkg-config env does not leak into the native tool builds that follow.
+	(
+		export PKG_CONFIG_LIBDIR="$DESTDIR/usr/lib/pkgconfig"
+		export PKG_CONFIG_SYSROOT_DIR="$DESTDIR"
+		cmake -S "$s" -B "$WORK/qtbase-b" -GNinja \
+			-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+			-DQT_HOST_PATH="$QT_HOST_PATH" \
+			-DQT_QMAKE_TARGET_MKSPEC=minix-clang \
+			-DMINIX_NO_STAGING=1 -DCMAKE_INSTALL_PREFIX="$DESTDIR/usr" \
+			-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+			-DINPUT_opengl=no -DINPUT_egl=no -DINPUT_xcb=no -DINPUT_dbus=no \
+			-DINPUT_glib=no -DINPUT_icu=no -DINPUT_fontconfig=no \
+			-DINPUT_harfbuzz=qt -DINPUT_pcre=qt -DINPUT_libpng=qt -DINPUT_libjpeg=qt \
+			-DINPUT_zlib=system -DINPUT_freetype=system \
+			-DFEATURE_libudev=OFF -DFEATURE_evdev=OFF -DFEATURE_libinput=OFF \
+			-DFEATURE_sql=OFF -DFEATURE_testlib=OFF -DFEATURE_network=OFF \
+			-DFEATURE_printsupport=OFF \
+			-DFEATURE_xkbcommon=ON -DFEATURE_xkbcommon_x11=OFF \
+			-DFEATURE_dbus_linked=ON -DDBus1_LIBRARY="$DESTDIR/usr/lib/libdbus-1.a" \
+			-DFEATURE_concurrent=ON \
+			-DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
+	)
 	ninja -C "$WORK/qtbase-b" -j"$JOBS"
 	ninja -C "$WORK/qtbase-b" install
 }
