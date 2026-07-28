@@ -768,6 +768,20 @@ surface_destroy(struct wl_resource *resource)
 	if (C.cursor == s)
 		C.cursor = NULL;
 
+	/*
+	 * s->layer_surface still carries s as its user_data and has a destroy
+	 * handler (layer_surface_resource_destroy) that dereferences it.  On
+	 * wl_client teardown the wl_map is walked in an unspecified order, so that
+	 * resource can be destroyed after this wl_surface -- clear the back-pointer
+	 * so the handler sees NULL and bails rather than touching freed memory.
+	 * Without this, closing a layer-shell client (e.g. lxqt-panel aborting when
+	 * its menu popup is clicked) faults wlcompd with a NULL wl_list_remove and
+	 * takes the whole session down.  The xdg_* and subsurface resources use a
+	 * NULL destroy handler, so they are already safe.
+	 */
+	if (s->layer_surface != NULL)
+		wl_resource_set_user_data(s->layer_surface, NULL);
+
 	free(s);
 }
 
