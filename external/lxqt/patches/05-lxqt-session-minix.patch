@@ -443,10 +443,17 @@ diff -urN /tmp/pf/lxqt-session-2.4.0/startlxqt.in lxqt-session-2.4.0/startlxqt.i
  fi
  
  # Qt4 platform plugin
-@@ -64,5 +83,42 @@
+@@ -64,5 +83,49 @@
  
  export XDG_CURRENT_DESKTOP="LXQt"
  
++# MINIX: Qt's built-in font directory is baked to the build-host prefix
++# (.../destdir.amd64/usr/lib/fonts) and does not exist on the target, so Qt finds
++# no font and every widget renders blank text.  Point Qt at the DejaVu TrueType
++# fonts shipped in minix-base (./usr/share/fonts/TTF); QBasicFontDatabase scans
++# QT_QPA_FONTDIR directly, no fontconfig needed.
++export QT_QPA_FONTDIR=/usr/share/fonts/TTF
++
 +# MINIX: bring up the compositor ourselves.
 +#
 +# Everywhere else startlxqt is launched from a display manager, or from a

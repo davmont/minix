@@ -51,10 +51,16 @@ if [ -x /usr/bin/startlxqt ]; then
 	# ("No space on device" -> nopage read SIGSEGV in lxqt-session).  These are
 	# RAM, so only grow them when the desktop is actually installed -- the base
 	# CD still boots in its usual small footprint.
+	#
+	# But these are a straight reservation of physical RAM, so keep them modest:
+	# the earlier 128M /root + 64M /tmp (~216M total) left almost nothing at
+	# -m 256 and the whole session died with "anon_pagefault: out of memory".
+	# ~112M total here leaves the desktop workable from ~512M upward; give the VM
+	# 1G+ for comfort.
 	create_ramdisk ram0 /var 8192
-	create_ramdisk ram1 /tmp 65536
-	create_ramdisk ram2 /usr/run 16384
-	create_ramdisk ram3 /root 131072
+	create_ramdisk ram1 /tmp 49152
+	create_ramdisk ram2 /usr/run 8192
+	create_ramdisk ram3 /root 49152
 else
 	create_ramdisk ram0 /var 2048
 	create_ramdisk ram1 /tmp 128
