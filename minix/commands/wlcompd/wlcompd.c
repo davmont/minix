@@ -401,6 +401,7 @@ clip_off(void)
 
 static void render_surface(struct surface *s);
 static void layer_send_configure(struct surface *s);
+static void keyboard_focus(struct surface *s);
 
 /* Draw a surface's content and then everything hanging off it, in order. */
 static void
@@ -876,7 +877,6 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 		if (!s->mapped) {
 			s->mapped = 1;
 			if (s->role == ROLE_TOPLEVEL) {
-				C.focus = s;
 				/*
 				 * Announce it only now.  A toplevel exists as a
 				 * wl_surface well before it has a buffer, and a
@@ -884,7 +884,21 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 				 * screen yet is just a flicker.
 				 */
 				ftl_announce(s);
-				ftl_focus_changed();
+				/*
+				 * Give the freshly-mapped window keyboard focus
+				 * through keyboard_focus(), not a bare
+				 * "C.focus = s".  The assignment sets the focus
+				 * variable but never sends wl_keyboard.enter, and
+				 * a later click can't repair it: keyboard_focus()
+				 * early-returns when C.focus already equals the
+				 * surface.  The client would then be handed key
+				 * events for a surface it was never told it holds
+				 * focus on, and a Wayland client (Qt) discards
+				 * those -- so the terminal could show output but
+				 * never accept a keystroke.  keyboard_focus()
+				 * sends the enter and also does ftl_focus_changed.
+				 */
+				keyboard_focus(s);
 			}
 			dmg_add_surface(s);
 			wlog("%s mapped %dx%d \"%s\"\n",
