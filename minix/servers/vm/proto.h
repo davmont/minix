@@ -104,6 +104,7 @@ void vm_freepages(vir_bytes vir, int pages);
 void pt_init_mem(void);
 void pt_check(struct vmproc *vmp);
 int pt_new(pt_t *pt);
+void pt_clear_lwp_alias(pt_t *pt);
 void pt_free(pt_t *pt);
 int pt_map_in_range(struct vmproc *src_vmp, struct vmproc *dst_vmp,
 	vir_bytes start, vir_bytes end);

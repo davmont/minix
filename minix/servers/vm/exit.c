@@ -43,6 +43,24 @@ void free_proc(struct vmproc *vmp)
 		if(leader->vm_lwp_refcount > 0)
 			leader->vm_lwp_refcount--;
 		map_free_proc(vmp);
+		/*
+		 * This thread's vm_pt ALIASES the group leader's page directory
+		 * (do_fork's VMFF_LWP path did `vmc->vm_pt = vmp->vm_pt`, a
+		 * struct copy of the leader's pt_dir/pt_dir_phys/pml4/pdpt and
+		 * pt_pt[] shadows).  clear_proc() frees the slot but leaves
+		 * vm_pt untouched, so the alias would survive into the next
+		 * do_fork() that reuses this slot: pt_new() sees pt_dir != NULL,
+		 * skips allocation, and reuses -- zeroing -- the leader's still
+		 * live directory (or a freed one, if the group is gone).  That
+		 * corrupts the leader's address space and later trips
+		 * pt_ptalloc()'s `!pt_pt[pde]` assert (dir cleared group-wide,
+		 * shadow left dangling) -> vm(8) panic / reboot.
+		 *
+		 * Drop the alias here so a reused slot gets a fresh, dedicated
+		 * directory from pt_new().  Do NOT free the pages -- they belong
+		 * to the leader and are released when the last member exits.
+		 */
+		pt_clear_lwp_alias(&vmp->vm_pt);
 		region_init(&vmp->vm_regions_avl);
 #if VMSTATS
 		vmp->vm_bytecopies = 0;
