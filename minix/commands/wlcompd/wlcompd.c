@@ -64,6 +64,7 @@
 #include "wlr-layer-shell-server-protocol.h"
 #include "wlr-foreign-toplevel-server-protocol.h"
 #include "ext-workspace-server-protocol.h"
+#include "xdg-decoration-server-protocol.h"
 #include "hid_evdev.h"
 
 #define KEYMAP_PATH	"/usr/share/xkb/us.xkb"
@@ -2025,6 +2026,90 @@ bind_layer_shell(struct wl_client *client, void *data, uint32_t version,
 	wl_resource_set_implementation(r, &layer_shell_impl, NULL, NULL);
 }
 
+/* -------------------------------------------------- xdg-decoration -------- */
+/*
+ * wlcompd always draws server-side decorations (the title bar with a close box;
+ * see render_surface()).  Advertise xdg-decoration and answer every request with
+ * SERVER_SIDE: without this a Qt/GTK client falls back to drawing its OWN
+ * client-side title bar on top of ours, so every window shows two title bars.
+ * We keep no per-decoration state -- the answer is always the same.
+ */
+static void
+tdeco_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+tdeco_set_mode(struct wl_client *c, struct wl_resource *r, uint32_t mode)
+{
+	(void)c; (void)mode;
+	zxdg_toplevel_decoration_v1_send_configure(r,
+	    ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+}
+
+static void
+tdeco_unset_mode(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	zxdg_toplevel_decoration_v1_send_configure(r,
+	    ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+}
+
+static const struct zxdg_toplevel_decoration_v1_interface tdeco_impl = {
+	.destroy	= tdeco_destroy,
+	.set_mode	= tdeco_set_mode,
+	.unset_mode	= tdeco_unset_mode,
+};
+
+static void
+decomgr_destroy(struct wl_client *c, struct wl_resource *r)
+{
+	(void)c;
+	wl_resource_destroy(r);
+}
+
+static void
+decomgr_get_toplevel_decoration(struct wl_client *c, struct wl_resource *r,
+    uint32_t id, struct wl_resource *toplevel)
+{
+	struct wl_resource *d;
+
+	(void)toplevel;
+	d = wl_resource_create(c, &zxdg_toplevel_decoration_v1_interface,
+	    wl_resource_get_version(r), id);
+	if (d == NULL) {
+		wl_client_post_no_memory(c);
+		return;
+	}
+	wl_resource_set_implementation(d, &tdeco_impl, NULL, NULL);
+	/* The initial configure is also our final answer: server-side. */
+	zxdg_toplevel_decoration_v1_send_configure(d,
+	    ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+}
+
+static const struct zxdg_decoration_manager_v1_interface decomgr_impl = {
+	.destroy		 = decomgr_destroy,
+	.get_toplevel_decoration = decomgr_get_toplevel_decoration,
+};
+
+static void
+bind_deco_manager(struct wl_client *client, void *data, uint32_t version,
+    uint32_t id)
+{
+	struct wl_resource *r;
+
+	(void)data;
+	r = wl_resource_create(client, &zxdg_decoration_manager_v1_interface,
+	    version, id);
+	if (r == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(r, &decomgr_impl, NULL, NULL);
+}
+
 /* -------------------------------------------------- wl_data_device (clip) */
 
 
@@ -3601,7 +3686,10 @@ main(int argc, char **argv)
 	    wl_global_create(C.display, &ext_workspace_manager_v1_interface, 1,
 		NULL, bind_ws_manager) == NULL ||
 	    wl_global_create(C.display, &xdg_wm_base_interface, 3, NULL,
-		bind_wm_base) == NULL) {
+		bind_wm_base) == NULL ||
+	    /* Server-side decorations, so clients do not draw their own on top. */
+	    wl_global_create(C.display, &zxdg_decoration_manager_v1_interface, 1,
+		NULL, bind_deco_manager) == NULL) {
 		wlog("wl_global_create failed\n");
 		return 1;
 	}
