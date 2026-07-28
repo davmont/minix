@@ -1,0 +1,33 @@
+--- a/src/plugins/platforms/wayland/qwaylandwindow.cpp
++++ b/src/plugins/platforms/wayland/qwaylandwindow.cpp
+@@ -1800,12 +1800,30 @@
+     if (mWaitingForFrameCallback)
+         return;
+ 
++#if defined(__minix)
++    /*
++     * MINIX: put the frame callback on the default event queue, not the
++     * dedicated frameEventQueue.  The latter is drained by its own
++     * SelfDispatch thread (m_frameEventQueueThread), which does not deliver
++     * events here -- two threads sharing the one wl_display fd through
++     * wl_display_prepare_read never hand the frame queue to the frame thread,
++     * so handleFrameCallback() is never called, mWaitingForFrameCallback stays
++     * set, and QWidget::update() produces no further paintEvent: the window
++     * paints exactly one frame and then freezes (a terminal that never shows
++     * its output, no cursor blink, no redraw).  The default queue is dispatched
++     * from the main thread and works, so route the callback there instead.
++     */
++    mFrameCallback = wl_surface_frame(mSurface->object());
++    wl_callback_add_listener(mFrameCallback, &QWaylandWindow::callbackListener, this);
++    mWaitingForFrameCallback = true;
++#else
+     struct ::wl_surface *wrappedSurface = reinterpret_cast<struct ::wl_surface *>(wl_proxy_create_wrapper(mSurface->object()));
+     wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(wrappedSurface), mDisplay->frameEventQueue());
+     mFrameCallback = wl_surface_frame(wrappedSurface);
+     wl_proxy_wrapper_destroy(wrappedSurface);
+     wl_callback_add_listener(mFrameCallback, &QWaylandWindow::callbackListener, this);
+     mWaitingForFrameCallback = true;
++#endif
+ 
+     // Start a timer for handling the case when the compositor stops sending frame callbacks.
+     if (mFrameCallbackTimeout > 0) {
