@@ -107,15 +107,19 @@
 
 #if defined(__minix)
 /*
- * MINIX libc is built without _REENTRANT, and its <reentrant.h> does not
- * define mutex_t (that is pthread-only).  MINIX base userland is single-
- * threaded, so jemalloc's internal locks are compiled out to no-ops (see the
- * malloc_mutex_* macros below) and mutex_t is only a placeholder for the
- * unconditional lock fields in the arena/chunk structures.  A future
- * _REENTRANT MINIX libc can replace these with real locks.
+ * jemalloc's internal locks on MINIX.  MINIX libc is built without _REENTRANT
+ * and has no pthread mutex_t, but a program that links libpthread calls
+ * malloc()/free() from several threads at once -- Qt's Wayland event and frame
+ * threads plus the main thread, for instance.  With the locks compiled out that
+ * concurrency corrupts the heap (an intermittent SIGSEGV surfaces later, deep
+ * in an unrelated allocation).  Use the low-level __cpu_simple_lock spinlocks:
+ * they are plain compiler atomics with no _REENTRANT dependency, and gating
+ * them on __isthreaded keeps a single-threaded process entirely lock-free.
  */
-typedef int mutex_t;
-#define MUTEX_INITIALIZER 0
+#include <machine/lock.h>
+extern int __isthreaded;	/* libc's "more than one thread exists" flag */
+typedef __cpu_simple_lock_t mutex_t;
+#define MUTEX_INITIALIZER __SIMPLELOCK_UNLOCKED
 /* MINIX has no utrace(2); compile the allocation-trace hook out to a no-op. */
 #undef xutrace
 #define xutrace(a, b)		((void)(a), (void)(b))
@@ -410,7 +414,7 @@ static malloc_mutex_t init_lock = {_SPINLOCK_INITIALIZER};
 /* Set to true once the allocator has been initialized. */
 static bool malloc_initialized = false;
 
-#ifdef _REENTRANT
+#if defined(_REENTRANT) || defined(__minix)
 /* Used to avoid initialization races. */
 static mutex_t init_lock = MUTEX_INITIALIZER;
 #endif
@@ -724,7 +728,7 @@ static size_t		arena_maxclass; /* Max size class for arenas. */
  * Chunks.
  */
 
-#ifdef _REENTRANT
+#if defined(_REENTRANT) || defined(__minix)
 /* Protects chunk-related data structures. */
 static malloc_mutex_t	chunks_mtx;
 #endif
@@ -778,7 +782,7 @@ static void		*base_pages;
 static void		*base_next_addr;
 static void		*base_past_addr; /* Addr immediately past base_pages. */
 static chunk_node_t	*base_chunk_nodes; /* LIFO cache of chunk nodes. */
-#ifdef _REENTRANT
+#if defined(_REENTRANT) || defined(__minix)
 static malloc_mutex_t	base_mtx;
 #endif
 #ifdef MALLOC_STATS
@@ -797,7 +801,7 @@ static size_t		base_mapped;
 static arena_t		**arenas;
 static unsigned		narenas;
 static unsigned		next_arena;
-#ifdef _REENTRANT
+#if defined(_REENTRANT) || defined(__minix)
 static malloc_mutex_t	arenas_mtx; /* Protects arenas initialization. */
 #endif
 
@@ -964,12 +968,11 @@ static bool	malloc_init_hard(void);
 #define	malloc_mutex_lock(m)	mutex_lock(m)
 #define	malloc_mutex_unlock(m)	mutex_unlock(m)
 #elif defined(__minix)
-/* Single-threaded base userland: locks are no-ops.  The macro arguments are
- * intentionally not evaluated, so the _REENTRANT-only mutex objects they
- * reference need not exist. */
-#define	malloc_mutex_init(m)	((void)0)
-#define	malloc_mutex_lock(m)	((void)0)
-#define	malloc_mutex_unlock(m)	((void)0)
+/* Real spinlocks (see the __cpu_simple_lock note where mutex_t is defined);
+ * they only contend when the process is actually multi-threaded. */
+#define	malloc_mutex_init(m)	__cpu_simple_lock_init(m)
+#define	malloc_mutex_lock(m)	do { if (__isthreaded) __cpu_simple_lock(m); } while (/*CONSTCOND*/0)
+#define	malloc_mutex_unlock(m)	do { if (__isthreaded) __cpu_simple_unlock(m); } while (/*CONSTCOND*/0)
 #else	/* __NetBSD__ */
 static inline void
 malloc_mutex_init(malloc_mutex_t *a_mutex)
