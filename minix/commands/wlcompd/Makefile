@@ -13,7 +13,8 @@ PROG=	wlcompd
 MAN=
 
 SRCS=	wlcompd.c xdg-shell-protocol.c wlr-layer-shell-protocol.c \
-	wlr-foreign-toplevel-protocol.c ext-workspace-protocol.c
+	wlr-foreign-toplevel-protocol.c ext-workspace-protocol.c \
+	xdg-decoration-protocol.c
 
 # pixman and freetype headers live in their own subdirectories.
 CPPFLAGS+=	-I${DESTDIR}/usr/include/pixman-1
@@ -42,6 +43,10 @@ FTL_XML=	${WLDIR}/protocols/wlr-foreign-toplevel/wlr-foreign-toplevel-management
 # ext-workspace: virtual desktops.  The panel's pager (the "desktopswitch"
 # plugin) drives them through this; nothing else in Wayland exposes them.
 WS_XML=		${WLDIR}/protocols/ext-workspace/ext-workspace-v1.xml
+# xdg-decoration: lets us tell Qt/GTK clients to use server-side decorations, so
+# the compositor draws the (single) title bar instead of the client drawing its
+# own on top of ours -- see the get_toplevel_decoration handler in wlcompd.c.
+DECO_XML=	${WLDIR}/protocols/xdg-decoration/xdg-decoration-unstable-v1.xml
 WL_SCANNER=	${.OBJDIR}/wayland-scanner
 
 CLEANFILES+=	wayland-scanner wayland-version.h \
@@ -49,7 +54,8 @@ CLEANFILES+=	wayland-scanner wayland-version.h \
 		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h \
 		wlr-foreign-toplevel-protocol.c \
 		wlr-foreign-toplevel-server-protocol.h \
-		ext-workspace-protocol.c ext-workspace-server-protocol.h
+		ext-workspace-protocol.c ext-workspace-server-protocol.h \
+		xdg-decoration-protocol.c xdg-decoration-server-protocol.h
 
 wayland-version.h: ${WLSRCDIR}/src/wayland-version.h.in
 	${_MKTARGET_CREATE}
@@ -99,11 +105,20 @@ ext-workspace-server-protocol.h: wayland-scanner ${WS_XML}
 	${_MKTARGET_CREATE}
 	${WL_SCANNER} server-header < ${WS_XML} > ${.TARGET}
 
+xdg-decoration-protocol.c: wayland-scanner ${DECO_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} private-code < ${DECO_XML} > ${.TARGET}
+
+xdg-decoration-server-protocol.h: wayland-scanner ${DECO_XML}
+	${_MKTARGET_CREATE}
+	${WL_SCANNER} server-header < ${DECO_XML} > ${.TARGET}
+
 DPSRCS+=	xdg-shell-protocol.c xdg-shell-server-protocol.h \
 		wlr-layer-shell-protocol.c wlr-layer-shell-server-protocol.h \
 		wlr-foreign-toplevel-protocol.c \
 		wlr-foreign-toplevel-server-protocol.h \
-		ext-workspace-protocol.c ext-workspace-server-protocol.h
+		ext-workspace-protocol.c ext-workspace-server-protocol.h \
+		xdg-decoration-protocol.c xdg-decoration-server-protocol.h
 
 .include <bsd.prog.mk>
 
