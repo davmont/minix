@@ -443,7 +443,7 @@ diff -urN /tmp/pf/lxqt-session-2.4.0/startlxqt.in lxqt-session-2.4.0/startlxqt.i
  fi
  
  # Qt4 platform plugin
-@@ -64,5 +83,49 @@
+@@ -64,5 +83,54 @@
  
  export XDG_CURRENT_DESKTOP="LXQt"
  
@@ -492,4 +492,10 @@ diff -urN /tmp/pf/lxqt-session-2.4.0/startlxqt.in lxqt-session-2.4.0/startlxqt.i
 +fi
 +
  # Start the LXQt session
- exec lxqt-session
+-exec lxqt-session
++# MINIX: on a framebuffer-console boot the tty and wlcompd both own /dev/fb0, so
++# anything the session prints lands as text on top of the composited desktop
++# (wlcompd only repaints damaged regions, never the log spew).  Send the session
++# and its children's output to a log so the framebuffer stays clean; wlcompd's
++# first frame already cleared the earlier boot text.
++exec lxqt-session >"$XDG_RUNTIME_DIR/lxqt-session.log" 2>&1
