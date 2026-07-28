@@ -560,6 +560,21 @@ static int pt_ptalloc(pt_t *pt, int pde, u32_t flags)
 	 * storage for the page table.
 	 */
 	assert(!(pt->pt_dir[pde] & ARCH_VM_PDE_PRESENT));
+
+	/*
+	 * A stale shadow pointer can survive a thread-group sibling tearing
+	 * down a shared page table.  Group members share one physical page
+	 * directory (pt_dir_phys), so clearing a directory entry drops the
+	 * table for the whole group, but only the freeing member's per-proc
+	 * pt_pt[] shadow is updated -- the others are left dangling.  The
+	 * directory entry is not present here (asserted just above), so no
+	 * member maps a table at this pde now; the pointer is stale.  Drop it
+	 * and allocate a fresh table, rather than aborting VM.  (This is the
+	 * mirror of the pt_dir-present-but-shadow-stale case that
+	 * pt_ptalloc_in_range() already recovers via recover_shared_ptpt().)
+	 */
+	if(pt->pt_pt[pde] != NULL)
+		pt->pt_pt[pde] = NULL;
 	assert(!pt->pt_pt[pde]);
 
 	/* Get storage for the page table. The allocation call may in fact
