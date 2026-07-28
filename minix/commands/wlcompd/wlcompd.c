@@ -298,7 +298,39 @@ static const pixman_color_t c_title = { 0x3a3a, 0x5a5a, 0x8888, 0xffff };
 static const pixman_color_t c_tfoc  = { 0x4a4a, 0x8a8a, 0xcccc, 0xffff };
 static const pixman_color_t c_ttext = { 0xffff, 0xffff, 0xffff, 0xffff };
 static const pixman_color_t c_cur   = { 0xffff, 0xffff, 0xffff, 0xffff };
+static const pixman_color_t c_curb  = { 0x0000, 0x0000, 0x0000, 0xffff };
 static const pixman_color_t c_grip  = { 0x8888, 0x9999, 0xaaaa, 0xffff };
+
+/*
+ * Fallback pointer, used when a client has not set its own cursor (no XCursor
+ * theme is installed here, so that is the common case).  A white arrow with a
+ * black outline, so it stays visible over both the dark wallpaper and the light
+ * panels/menus -- unlike the old plain white block ('X' = black outline,
+ * '.' = white fill, ' ' = transparent).  Hotspot is the top-left tip.
+ */
+#define CURSOR_W 12
+#define CURSOR_H 19
+static const char *const cursor_bits[CURSOR_H] = {
+	"X",
+	"XX",
+	"X.X",
+	"X..X",
+	"X...X",
+	"X....X",
+	"X.....X",
+	"X......X",
+	"X.......X",
+	"X........X",
+	"X.........X",
+	"X......XXXX",
+	"X...X..X",
+	"X..XX..X",
+	"X.X X..X",
+	"XX  X..X",
+	"X    X..X",
+	"     X..X",
+	"     XXXX",
+};
 
 /*
  * Damage is a region, not a bounding box.  A box is fine for one window and a
@@ -462,7 +494,18 @@ render_cursor(void)
 		    C.cx - cur->hx, C.cy - cur->hy, cur->w, cur->h);
 		clip_off();
 	} else {
-		fill_damaged(&c_cur, C.cx, C.cy, CURW, CURH);
+		int cy, cx;
+		for (cy = 0; cy < CURSOR_H; cy++) {
+			const char *row = cursor_bits[cy];
+			for (cx = 0; row[cx] != '\0'; cx++) {
+				if (row[cx] == 'X')
+					fill_damaged(&c_curb, C.cx + cx,
+					    C.cy + cy, 1, 1);
+				else if (row[cx] == '.')
+					fill_damaged(&c_cur, C.cx + cx,
+					    C.cy + cy, 1, 1);
+			}
+		}
 	}
 }
 
