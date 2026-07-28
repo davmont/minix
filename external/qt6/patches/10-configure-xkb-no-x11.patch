@@ -1,0 +1,18 @@
+--- a/src/gui/configure.cmake
++++ b/src/gui/configure.cmake
+@@ -203,9 +203,12 @@
+         COMPONENTS XINPUT PROVIDED_TARGETS XCB::XINPUT MODULE_NAME gui QMAKE_LIB xcb_xinput)
+ endif()
+ qt_add_qmake_lib_dependency(xcb_xinput xcb)
+-if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+-    qt_find_package(XKB 0.9.0 MODULE PROVIDED_TARGETS XKB::XKB MODULE_NAME gui QMAKE_LIB xkbcommon)
+-endif()
++# MINIX: xkbcommon is needed by the Wayland keyboard path too, not just X11 --
++# without it QWaylandInputDevice::keyboard_key() cannot map keycodes and drops
++# every keystroke.  Upstream only looks for it when X11 is supported, so on a
++# no-X11 (Wayland-only) build the feature can never turn on.  Look for it
++# unconditionally; if absent, the feature simply stays off as before.
++qt_find_package(XKB 0.9.0 MODULE PROVIDED_TARGETS XKB::XKB MODULE_NAME gui QMAKE_LIB xkbcommon)
+ if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+     qt_find_package(XKB_COMMON_X11 0.9.0 MODULE
+         PROVIDED_TARGETS PkgConfig::XKB_COMMON_X11 MODULE_NAME gui QMAKE_LIB xkbcommon_x11)
