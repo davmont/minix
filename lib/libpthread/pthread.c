@@ -580,6 +580,26 @@ pthread__create_tramp(void *cookie)
 
 	self = cookie;
 
+#if defined(__minix)
+	/*
+	 * Close a thread-startup race unique to the MINIX LWP model.  On MINIX
+	 * an LWP is a process sharing this one's address space, and its lwpid is
+	 * stored into self->pt_lid by the *parent*, in userland, right after the
+	 * PM_LWP_CREATE syscall returns (see _lwp_create()).  But PM makes the
+	 * child runnable the moment it is created, so under SMP the child can be
+	 * scheduled on another CPU and run all the way into its start function --
+	 * and into pthread_cond_timedwait()/mutex parking, which assert pt_lid !=
+	 * 0 -- before the parent's store has executed.  The result is a spurious
+	 * "self->pt_lid != 0" abort in, e.g., Qt's Wayland event thread.
+	 *
+	 * Make the child authoritative for its own lid instead of trusting the
+	 * parent's timing: _lwp_self() returns this LWP's endpoint, the exact
+	 * value the parent will (redundantly) store.  Do it first, before the
+	 * pt_lid read below or any locking.
+	 */
+	self->pt_lid = _lwp_self();
+#endif /* __minix */
+
 	/*
 	 * Throw away some stack in a feeble attempt to reduce cache
 	 * thrash.  May help for SMT processors.  XXX We should not
