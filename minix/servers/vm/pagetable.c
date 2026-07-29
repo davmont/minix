@@ -560,21 +560,6 @@ static int pt_ptalloc(pt_t *pt, int pde, u32_t flags)
 	 * storage for the page table.
 	 */
 	assert(!(pt->pt_dir[pde] & ARCH_VM_PDE_PRESENT));
-
-	/*
-	 * A stale shadow pointer can survive a thread-group sibling tearing
-	 * down a shared page table.  Group members share one physical page
-	 * directory (pt_dir_phys), so clearing a directory entry drops the
-	 * table for the whole group, but only the freeing member's per-proc
-	 * pt_pt[] shadow is updated -- the others are left dangling.  The
-	 * directory entry is not present here (asserted just above), so no
-	 * member maps a table at this pde now; the pointer is stale.  Drop it
-	 * and allocate a fresh table, rather than aborting VM.  (This is the
-	 * mirror of the pt_dir-present-but-shadow-stale case that
-	 * pt_ptalloc_in_range() already recovers via recover_shared_ptpt().)
-	 */
-	if(pt->pt_pt[pde] != NULL)
-		pt->pt_pt[pde] = NULL;
 	assert(!pt->pt_pt[pde]);
 
 	/* Get storage for the page table. The allocation call may in fact
@@ -1099,6 +1084,33 @@ int pt_checkrange(pt_t *pt, vir_bytes v,  size_t bytes,
 /*===========================================================================*
  *				pt_new			     		     *
  *===========================================================================*/
+/*===========================================================================*
+ *				pt_clear_lwp_alias			     *
+ *===========================================================================*/
+void pt_clear_lwp_alias(pt_t *pt)
+{
+/* An LWP (thread) member's vm_pt is a struct copy of its group leader's:
+ * pt_dir/pt_dir_phys (and pml4/pdpt on amd64) point at the leader's shared
+ * page directory, and pt_pt[] shadows the leader's page tables.  When the
+ * thread exits we must forget this alias WITHOUT freeing anything -- the pages
+ * belong to the leader.  Zeroing the pointers makes a later pt_new() on the
+ * reused slot allocate a fresh, private directory instead of reusing (and
+ * zeroing) the leader's live one.
+ */
+	int i;
+
+	pt->pt_dir = NULL;
+	pt->pt_dir_phys = 0;
+#if defined(__x86_64__)
+	pt->pt_pml4 = NULL;
+	pt->pt_pml4_phys = 0;
+	pt->pt_pdpt = NULL;
+	pt->pt_pdpt_phys = 0;
+#endif
+	for(i = 0; i < ARCH_VM_DIR_ENTRIES; i++)
+		pt->pt_pt[i] = NULL;
+}
+
 int pt_new(pt_t *pt)
 {
 /* Allocate a pagetable root. Allocate a page-aligned page directory
