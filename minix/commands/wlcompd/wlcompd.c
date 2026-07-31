@@ -432,6 +432,34 @@ clip_off(void)
 	pixman_image_set_clip_region32(fbgui_surface(C.fb), NULL);
 }
 
+/*
+ * Keep a toplevel's title bar (and as much of it as possible) on screen.  A
+ * window sized to the whole framebuffer -- a "maximised"/fullscreen Qt app that
+ * took the output size -- would otherwise sit at its spawn offset (60,60) with
+ * its title bar clipped and its right/bottom edges off screen, so the user
+ * never sees the decoration.  Pin such a window to the top-left; the title bar
+ * then sits at y=0 and the content fills below it.
+ */
+static void
+clamp_toplevel_onscreen(struct surface *s)
+{
+	int fw = fbgui_width(C.fb), fh = fbgui_height(C.fb);
+
+	/* Only reposition near-fullscreen windows; a normal window may legitimately
+	 * be dragged partly off-screen, so leave those alone. */
+	if (s->w < fw - 40 && s->h < fh - 40)
+		return;
+
+	if (s->x + s->w > fw)
+		s->x = (s->w >= fw) ? 0 : (fw - s->w);
+	if (s->x < 0)
+		s->x = 0;
+	if (s->y + TITLEH + s->h > fh)
+		s->y = 0;			/* title bar flush to the top */
+	if (s->y < 0)
+		s->y = 0;
+}
+
 static void render_surface(struct surface *s);
 static void layer_send_configure(struct surface *s);
 static void keyboard_focus(struct surface *s);
@@ -918,6 +946,8 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 	}
 
 	if (surface_take_buffer(s, s->pending_buffer) == 0) {
+		if (s->role == ROLE_TOPLEVEL)
+			clamp_toplevel_onscreen(s);
 		if (!s->mapped) {
 			s->mapped = 1;
 			if (s->role == ROLE_TOPLEVEL) {
