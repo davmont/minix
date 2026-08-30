@@ -329,3 +329,28 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfigurati
          {
              // C++11 rocks!
              QTimer *timer = new QTimer(this);
+--- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-08-31 00:43:08.883342140 +0200
++++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-08-31 00:41:30.061899254 +0200
+@@ -708,13 +708,16 @@
+ 
+ void LXQtFancyMenuWindow::runCommandHelper(const QString &cmd)
+ {
+-    if(QProcess::startDetached(cmd, QStringList()))
++    // MINIX/Wayland: hide this Qt::Popup BEFORE launching the target or showing
++    // any dialog.  Creating another surface -- the launched app's window, or the
++    // QMessageBox below -- while this popup still holds the Wayland grab crashes
++    // the panel (which RS then relaunches).  Hiding first releases the grab, and
++    // the warning is parented to nullptr (a real top-level) like the other
++    // QMessageBox uses in this file, never to the popup.
++    hide();
++    if(!QProcess::startDetached(cmd, QStringList()))
+     {
+-        hide();
+-    }
+-    else
+-    {
+-        QMessageBox::warning(this, tr("No Executable"),
++        QMessageBox::warning(nullptr, tr("No Executable"),
+                              tr("Cannot find <b>%1</b> executable.").arg(cmd));
+     }
+ }
