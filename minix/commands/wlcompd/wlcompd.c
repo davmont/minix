@@ -975,11 +975,13 @@ surf_commit(struct wl_client *c, struct wl_resource *r)
 				keyboard_focus(s);
 			}
 			dmg_add_surface(s);
-			wlog("%s mapped %dx%d \"%s\"\n",
+			wlog("%s mapped %dx%d \"%s\" at %d,%d\n",
+			    s->role == ROLE_TOPLEVEL ? "toplevel" :
 			    s->role == ROLE_POPUP ? "popup" :
 			    s->role == ROLE_SUBSURFACE ? "subsurface" :
+			    s->role == ROLE_LAYER ? "layer" :
 			    s->role == ROLE_CURSOR ? "cursor" : "surface",
-			    s->w, s->h, s->title);
+			    s->w, s->h, s->title, s->x, s->y);
 		} else if (s->w != ow || s->h != oh) {
 			/*
 			 * Both extents: the new one to draw it, the old one to
