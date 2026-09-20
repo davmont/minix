@@ -231,8 +231,8 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cp
  /*! The lxqt-panel is the panel of LXQt.
    Usage: lxqt-panel [CONFIG_ID]
      CONFIG_ID      Section name in config file ~/.config/lxqt-panel/panel.conf
-@@ -36,6 +40,22 @@
- 
+@@ -36,6 +40,40 @@
+
  int main(int argc, char *argv[])
  {
 +#ifdef LXQT_PANEL_STATIC_WM_BACKEND
@@ -252,7 +252,25 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cp
 +#endif
 +
      LXQtPanelApplication app(argc, argv);
- 
+
++#ifdef LXQT_PANEL_STATIC_WM_BACKEND
++    /*
++     * useLayerShell() above put QT_WAYLAND_SHELL_INTEGRATION=layer-shell into
++     * this process's environment so that Qt would choose the layer-shell
++     * integration when the panel created its first window while building `app`
++     * just above.  Qt reads that variable lazily -- once, on the first
++     * shell-surface creation -- and then caches the choice, which has now
++     * happened, so the variable has served its purpose for the panel.
++     *
++     * If it is left set, though, every program the panel launches from its menus
++     * inherits it and also comes up as a fullscreen, undecorated layer surface
++     * (a terminal with no title bar, a menu that fills the screen).  Clear it now
++     * that Qt has consumed it: the panel keeps layer-shell for its own windows,
++     * and the apps it spawns fall back to the default xdg-shell and are decorated.
++     */
++    qunsetenv("QT_WAYLAND_SHELL_INTEGRATION");
++#endif
++
      return app.exec();
 diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
