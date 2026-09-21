@@ -350,19 +350,32 @@ diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCa
              QTimer *timer = new QTimer(this);
 diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt
 --- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt	2026-09-21 17:12:55.296914136 +0200
-@@ -29,6 +29,7 @@
++++ lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt	2026-09-21 18:23:27.160246464 +0200
+@@ -29,6 +29,8 @@
      lxqt-globalkeys-ui
      Qt6::Xml
      Qt6::DBus
++    Qt6::Svg
 +    LayerShellQt::Interface
  )
  
  BUILD_LXQT_PLUGIN(${PLUGIN})
 diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp	2026-09-21 17:17:32.905916566 +0200
-@@ -147,6 +147,14 @@
++++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp	2026-09-21 18:27:11.531336279 +0200
+@@ -43,6 +43,11 @@
+ #include <XdgMenuWidget>
+ #include <XdgIcon>
+ 
++#include <QIcon>
++#include <QPixmap>
++#include <QPainter>
++#include <QSvgRenderer>
++
+ #include <QStandardPaths>
+ #include <QClipboard>
+ #include <QMimeData>
+@@ -147,6 +152,14 @@
          return;
  
      willShowWindow(mWindow);
@@ -377,9 +390,42 @@ diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCa
      // Just using Qt`s activateWindow() won't work on some WMs like Kwin.
      // Solution is to execute menu 1ms later using timer
      mWindow->move(calculatePopupWindowPos(mWindow->sizeHint()).topLeft());
+@@ -322,6 +335,32 @@
+     } else
+     {
+         mButton.setStyleSheet(QString());
++        // MINIX: no default start-menu graphic ships (helix.svg is absent), so the
++        // button was blank.  Render a small raccoon face from an embedded SVG so
++        // the start button always has an icon.
++        static const char raccoonSvg[] =
++            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
++            "<path d='M13 22 L19 5 L31 19 Z' fill='#7d7d7d'/>"
++            "<path d='M51 22 L45 5 L33 19 Z' fill='#7d7d7d'/>"
++            "<path d='M17 20 L20 10 L27 19 Z' fill='#3b3b3b'/>"
++            "<path d='M47 20 L44 10 L37 19 Z' fill='#3b3b3b'/>"
++            "<ellipse cx='32' cy='35' rx='22' ry='20' fill='#9a9a9a'/>"
++            "<path d='M32 30 Q46 32 42 46 Q38 55 32 55 Q26 55 22 46 Q18 32 32 30 Z' fill='#f0f0f0'/>"
++            "<path d='M11 31 Q20 23 29 30 Q31 32 32 34 Q33 32 35 30 Q44 23 53 31 "
++            "Q51 42 40 41 Q34 40 32 35 Q30 40 24 41 Q13 42 11 31 Z' fill='#262626'/>"
++            "<circle cx='22.5' cy='33' r='4.6' fill='#ffffff'/>"
++            "<circle cx='41.5' cy='33' r='4.6' fill='#ffffff'/>"
++            "<circle cx='23.2' cy='33.5' r='2.2' fill='#111111'/>"
++            "<circle cx='40.8' cy='33.5' r='2.2' fill='#111111'/>"
++            "<path d='M32 44 Q37 44 35 48 Q33 51 32 51 Q31 51 29 48 Q27 44 32 44 Z' fill='#1a1a1a'/>"
++            "</svg>";
++        QSvgRenderer renderer(QByteArray::fromRawData(raccoonSvg, int(sizeof(raccoonSvg) - 1)));
++        QPixmap pm(64, 64);
++        pm.fill(Qt::transparent);
++        QPainter p(&pm);
++        renderer.render(&p);
++        p.end();
++        mButton.setIcon(QIcon(pm));
+     }
+ }
+ 
 diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-09-21 17:13:22.539918859 +0200
++++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-09-21 18:20:27.538229894 +0200
 @@ -40,6 +40,8 @@
  #include <QMenu>
  #include <QWindow>
@@ -389,7 +435,7 @@ diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCa
  #include <QStandardPaths>
  #include <QDir>
  #include <QMimeData>
-@@ -253,6 +255,30 @@
+@@ -253,6 +255,39 @@
  
      // Filter navigation keys
      mSearchEdit->installEventFilter(this);
@@ -411,16 +457,25 @@ diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCa
 +            layer->setScope(QStringLiteral("menu"));
 +            layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
 +            layer->setCloseOnDismissed(true);
-+            // Unanchored: not constrained on either axis, so the desired size is
-+            // the window's real size, not 0.  Set this last so the resulting
-+            // anchorsChanged re-sends the size.
-+            layer->setAnchors(LayerShellQt::Window::Anchors());
++            // Anchor to the bottom-left corner so the menu opens from the start
++            // button like a normal start menu.  Anchoring only two *adjacent*
++            // edges (not left+right or top+bottom) leaves the surface
++            // unconstrained -- setDesiredSize() then sends the real size instead
++            // of 0 -- while pinning it to that corner.  A bottom margin equal to
++            // the panel's default height keeps it just above the panel rather
++            // than under it.  Set anchors last so the resulting anchorsChanged
++            // re-sends the size.
++            layer->setMargins(QMargins(0, 0, 0, 32));
++            LayerShellQt::Window::Anchors anchors;
++            anchors.setFlag(LayerShellQt::Window::AnchorBottom);
++            anchors.setFlag(LayerShellQt::Window::AnchorLeft);
++            layer->setAnchors(anchors);
 +        }
 +    }
  }
  
  LXQtFancyMenuWindow::~LXQtFancyMenuWindow()
-@@ -708,13 +734,16 @@
+@@ -708,14 +743,22 @@
  
  void LXQtFancyMenuWindow::runCommandHelper(const QString &cmd)
  {
@@ -439,7 +494,14 @@ diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCa
 +    if(!QProcess::startDetached(cmd, QStringList()))
      {
 -        QMessageBox::warning(this, tr("No Executable"),
-+        QMessageBox::warning(nullptr, tr("No Executable"),
-                              tr("Cannot find <b>%1</b> executable.").arg(cmd));
+-                             tr("Cannot find <b>%1</b> executable.").arg(cmd));
++        // MINIX/Wayland: this window lives in the panel process, which runs with
++        // the wlr-layer-shell integration, so ANY window it creates -- including a
++        // QMessageBox -- becomes a layer surface, and a modal dialog on this
++        // compositor tears the whole session down (the panel dies and the screen
++        // goes blank).  The target (e.g. lxqt-config, lxqt-about) may simply not
++        // be installed; log it instead of popping a dialog that would crash LXQt.
++        qWarning("LXQtFancyMenu: cannot run \"%s\" (not installed?)", qPrintable(cmd));
      }
  }
+ 
