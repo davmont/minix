@@ -1,6 +1,6 @@
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/CMakeLists.txt
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/CMakeLists.txt
 --- /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-07-14 20:35:50.234580827 +0200
++++ lxqt-panel-2.4.1/panel/backends/CMakeLists.txt	2026-07-28 22:45:56.196765167 +0200
 @@ -15,5 +15,19 @@
      Qt6::Gui
  )
@@ -23,9 +23,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/CMakeLists.txt lxqt-panel-2.4.
 +    add_subdirectory(wayland)
 +    add_subdirectory(xcb)
 +endif()
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
 --- /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-07-14 20:38:09.305666385 +0200
++++ lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt	2026-07-28 22:45:56.196911219 +0200
 @@ -26,8 +26,20 @@
      workspace.cpp workspace.hpp
  )
@@ -49,9 +49,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/backends/wayland/wlroots/CMakeLists.txt
  
  target_link_libraries(${NAME} ${QTX_LIBRARIES} Qt6::Concurrent Qt6Xdg)
  
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/CMakeLists.txt
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/CMakeLists.txt
 --- /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-07-14 20:36:22.346739060 +0200
++++ lxqt-panel-2.4.1/panel/CMakeLists.txt	2026-07-28 22:45:56.196969307 +0200
 @@ -111,6 +111,22 @@
      lxqt-panel-backend-common
  )
@@ -75,9 +75,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/CMakeLists.txt lxqt-panel-2.4.1/panel/C
  set_property(TARGET ${PROJECT} PROPERTY ENABLE_EXPORTS TRUE)
  
  install(TARGETS ${PROJECT} RUNTIME DESTINATION bin)
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/panel/kx11extras_minix.h
 --- /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h	1970-01-01 01:00:00.000000000 +0100
-+++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-14 22:48:12.139462563 +0200
++++ lxqt-panel-2.4.1/panel/kx11extras_minix.h	2026-07-28 22:45:56.197051600 +0200
 @@ -0,0 +1,30 @@
 +/*
 + * MINIX: KWindowSystem is built without X11 support (there is no X11 here at
@@ -109,9 +109,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/kx11extras_minix.h lxqt-panel-2.4.1/pan
 +};
 +
 +#endif /* KX11EXTRAS_MINIX_H */
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-07-14 20:36:02.126112071 +0200
++++ lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp	2026-07-28 22:45:56.197118224 +0200
 @@ -43,6 +43,9 @@
  #include <QProcessEnvironment>
  
@@ -144,9 +144,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanelapplication.cpp lxqt-panel-2.4
      {
          loader.setFileName(getBackendFilePath(preferredBackend));
          if (loader.load())
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lxqtpanel.cpp
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lxqtpanel.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-07-14 17:00:58.920889903 +0200
++++ lxqt-panel-2.4.1/panel/lxqtpanel.cpp	2026-07-28 22:45:56.197272642 +0200
 @@ -50,8 +50,19 @@
  #include <XdgDirs>
  
@@ -217,9 +217,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/lxqtpanel.cpp lxqt-panel-2.4.1/panel/lx
          {
              // qDebug() << "WinIdChange" << hex << effectiveWinId();
              if(effectiveWinId() == 0)
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cpp
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/main.cpp	2026-07-15 00:14:09.379246156 +0200
++++ lxqt-panel-2.4.1/panel/main.cpp	2026-09-21 01:00:05.016108591 +0200
 @@ -28,6 +28,10 @@
  
  #include "lxqtpanelapplication.h"
@@ -231,8 +231,8 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cp
  /*! The lxqt-panel is the panel of LXQt.
    Usage: lxqt-panel [CONFIG_ID]
      CONFIG_ID      Section name in config file ~/.config/lxqt-panel/panel.conf
-@@ -36,6 +40,40 @@
-
+@@ -36,7 +40,41 @@
+ 
  int main(int argc, char *argv[])
  {
 +#ifdef LXQT_PANEL_STATIC_WM_BACKEND
@@ -252,7 +252,7 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cp
 +#endif
 +
      LXQtPanelApplication app(argc, argv);
-
+ 
 +#ifdef LXQT_PANEL_STATIC_WM_BACKEND
 +    /*
 +     * useLayerShell() above put QT_WAYLAND_SHELL_INTEGRATION=layer-shell into
@@ -272,9 +272,10 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/main.cpp lxqt-panel-2.4.1/panel/main.cp
 +#endif
 +
      return app.exec();
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
+ }
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4.1/panel/minix_static_plugins.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	1970-01-01 01:00:00.000000000 +0100
-+++ lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	2026-07-14 17:02:55.980280066 +0200
++++ lxqt-panel-2.4.1/panel/minix_static_plugins.cpp	2026-07-28 22:45:56.197475760 +0200
 @@ -0,0 +1,26 @@
 +/*
 + * Static Qt plugin imports (MINIX).
@@ -302,9 +303,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/minix_static_plugins.cpp lxqt-panel-2.4
 +Q_IMPORT_PLUGIN(QGifPlugin)
 +Q_IMPORT_PLUGIN(QICOPlugin)
 +Q_IMPORT_PLUGIN(QJpegPlugin)
-diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugin.cpp
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugin.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/panel/plugin.cpp	2026-07-14 16:58:59.031364353 +0200
++++ lxqt-panel-2.4.1/panel/plugin.cpp	2026-07-28 22:45:56.197530432 +0200
 @@ -31,7 +31,11 @@
  #include "pluginsettings_p.h"
  #include "lxqtpanel.h"
@@ -317,9 +318,9 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/panel/plugin.cpp lxqt-panel-2.4.1/panel/plugi
  
  #include <QDebug>
  #include <QProcessEnvironment>
-diff -urN /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp
 --- /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-05-29 12:35:42.000000000 +0200
-+++ lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-07-14 22:48:12.139855250 +0200
++++ lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfiguration.cpp	2026-07-28 22:45:56.197613206 +0200
 @@ -30,7 +30,14 @@
  #include "../panel/lxqtpanelapplication.h"
  #include "../panel/backends/ilxqtabstractwmiface.h"
@@ -347,13 +348,87 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfigurati
          {
              // C++11 rocks!
              QTimer *timer = new QTimer(this);
---- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-08-31 00:43:08.883342140 +0200
-+++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-08-31 00:41:30.061899254 +0200
-@@ -708,13 +708,16 @@
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt
+--- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/plugin-fancymenu/CMakeLists.txt	2026-09-21 17:12:55.296914136 +0200
+@@ -29,6 +29,7 @@
+     lxqt-globalkeys-ui
+     Qt6::Xml
+     Qt6::DBus
++    LayerShellQt::Interface
+ )
+ 
+ BUILD_LXQT_PLUGIN(${PLUGIN})
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenu.cpp	2026-09-21 17:17:32.905916566 +0200
+@@ -147,6 +147,14 @@
+         return;
+ 
+     willShowWindow(mWindow);
++    // MINIX/Wayland: the panel runs with the wlr-layer-shell QPA integration, so
++    // this popup becomes a layer surface.  A layer surface only stays at its own
++    // size if the client sends a non-zero set_size before the surface is
++    // configured; otherwise the compositor stretches it to fill the output (a
++    // fullscreen, borderless menu).  Give the window a definite size *before*
++    // show() creates the layer surface so LayerShellQt reports it as the desired
++    // size.
++    mWindow->resize(mWindow->sizeHint());
+     // Just using Qt`s activateWindow() won't work on some WMs like Kwin.
+     // Solution is to execute menu 1ms later using timer
+     mWindow->move(calculatePopupWindowPos(mWindow->sizeHint()).topLeft());
+diff -urN -x '*.o' -x '*.a' -x '*_autogen' -x CMakeFiles -x '*.ninja' -x CMakeCache.txt -x '*.cmake' /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp
+--- /tmp/pf/lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-05-29 12:35:42.000000000 +0200
++++ lxqt-panel-2.4.1/plugin-fancymenu/lxqtfancymenuwindow.cpp	2026-09-21 17:13:22.539918859 +0200
+@@ -40,6 +40,8 @@
+ #include <QMenu>
+ #include <QWindow>
+ #include <QScreen>
++#include <QGuiApplication>
++#include <LayerShellQt/Window>
+ #include <QStandardPaths>
+ #include <QDir>
+ #include <QMimeData>
+@@ -253,6 +255,30 @@
+ 
+     // Filter navigation keys
+     mSearchEdit->installEventFilter(this);
++
++    // MINIX/Wayland: the panel process runs with the wlr-layer-shell QPA
++    // integration, so this popup would otherwise become a *layer* surface.  With
++    // LayerShellQt's default all-edge anchors, setDesiredSize() forces set_size(0,0)
++    // (see QWaylandLayerSurface::setDesiredSize), which the compositor stretches to
++    // fill the whole output -- a fullscreen, borderless menu.  Give the surface an
++    // explicit layer and, crucially, clear the anchors so our real window size is
++    // sent instead of 0; the compositor then centres the menu at that size.
++    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland")))
++    {
++        create(); // realize the backing QWindow before configuring its layer surface
++        if (windowHandle())
++        {
++            LayerShellQt::Window *layer = LayerShellQt::Window::get(windowHandle());
++            layer->setLayer(LayerShellQt::Window::LayerOverlay);
++            layer->setScope(QStringLiteral("menu"));
++            layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
++            layer->setCloseOnDismissed(true);
++            // Unanchored: not constrained on either axis, so the desired size is
++            // the window's real size, not 0.  Set this last so the resulting
++            // anchorsChanged re-sends the size.
++            layer->setAnchors(LayerShellQt::Window::Anchors());
++        }
++    }
+ }
+ 
+ LXQtFancyMenuWindow::~LXQtFancyMenuWindow()
+@@ -708,13 +734,16 @@
  
  void LXQtFancyMenuWindow::runCommandHelper(const QString &cmd)
  {
 -    if(QProcess::startDetached(cmd, QStringList()))
+-    {
+-        hide();
+-    }
+-    else
 +    // MINIX/Wayland: hide this Qt::Popup BEFORE launching the target or showing
 +    // any dialog.  Creating another surface -- the launched app's window, or the
 +    // QMessageBox below -- while this popup still holds the Wayland grab crashes
@@ -363,10 +438,6 @@ diff -urN /tmp/pf/lxqt-panel-2.4.1/plugin-desktopswitch/desktopswitchconfigurati
 +    hide();
 +    if(!QProcess::startDetached(cmd, QStringList()))
      {
--        hide();
--    }
--    else
--    {
 -        QMessageBox::warning(this, tr("No Executable"),
 +        QMessageBox::warning(nullptr, tr("No Executable"),
                               tr("Cannot find <b>%1</b> executable.").arg(cmd));
