@@ -41,3 +41,5 @@ lxqt-session        2.4.0     https://github.com/lxqt/lxqt-session/releases/down
 qtermwidget         2.4.0     https://github.com/lxqt/qtermwidget/releases/download/2.4.0/qtermwidget-2.4.0.tar.xz               ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304
 qterminal           2.4.0     https://github.com/lxqt/qterminal/releases/download/2.4.0/qterminal-2.4.0.tar.xz                   aeb6cf5ff7f31f0b89e60f6cc1c83c4d6fbed57717196d2ebba2bc0dcb8436d4
 xdg-user-dirs       0.18      https://user-dirs.freedesktop.org/releases/xdg-user-dirs-0.18.tar.gz                              ec6f06d7495cdba37a732039f9b5e1578bcb296576fde0da40edb2f52220df3c
+lxqt-about          2.4.0     https://github.com/lxqt/lxqt-about/releases/download/2.4.0/lxqt-about-2.4.0.tar.xz             77263dd1b3582791b7134c590a2aee641fb7423ee5f89cf05378529276445fae
+lxqt-config         2.4.0     https://github.com/lxqt/lxqt-config/releases/download/2.4.0/lxqt-config-2.4.0.tar.xz           8943a0d61993e068fa71aac85eb1eb93ac32064928ee1c8c1ff9666b45e1610e

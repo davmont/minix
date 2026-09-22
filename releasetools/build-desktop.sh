@@ -47,7 +47,7 @@ COMPONENTS="
 pcre2 glib dbus qtbase qtsvg wayland-protocols
 extra-cmake-modules kwindowsystem layer-shell-qt
 lxqt-build-tools libqtxdg liblxqt lxqt-globalkeys lxqt-menu-data qtxdg-tools xdg-user-dirs
-lxqt-panel lxqt-session qtermwidget qterminal
+lxqt-panel lxqt-session qtermwidget qterminal lxqt-about lxqt-config
 "
 
 # ---------------------------------------------------------------------------
@@ -431,6 +431,17 @@ build_lxqt-panel() {
 # WITH_LIBUDEV=OFF: MINIX has no udev (the session only uses it for device-hotplug
 # monitoring), and the option is REQUIRED-on by default.
 build_lxqt-session()    { lxqt_consumer lxqt-session    -DCMAKE_CXX_FLAGS="$CXXDEF -DLXQT_SESSION_NO_X11" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS" -DWITH_LIBUDEV=OFF; }
+# lxqt-about: a plain LXQt/Qt6 consumer (about dialog).  Links lxqt -> libqtxdg ->
+# GLib, so it needs the GLib stack on the final link line like qterminal/session.
+build_lxqt-about()      { lxqt_consumer lxqt-about      -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS"; }
+# lxqt-config: the Configuration Center.  Only the X11/KScreen-free modules build
+# on MINIX -- the launcher (src), locale and file-associations.  Appearance pulls
+# in liblxqt-config-cursor (X11 XCursor); input/monitor/brightness need X11 or
+# KScreen.  Disable those via the upstream WITH_* options (no patch needed for
+# that); the patch only registers the wayland QPA plugin in each built executable.
+build_lxqt-config()     { lxqt_consumer lxqt-config     -DCMAKE_CXX_FLAGS="$CXXDEF" -DMINIX_EXTRA_STANDARD_LIBRARIES="$GLIBLIBS" \
+	-DWITH_INPUT=OFF -DWITH_APPEARANCE=OFF -DWITH_MONITOR=OFF -DWITH_BRIGHTNESS=OFF \
+	-DWITH_LOCALE=ON -DWITH_FILE_ASSOCIATIONS=ON; }
 
 build_qtermwidget() {
 	local s; s=$(extract qtermwidget)
