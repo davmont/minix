@@ -103,17 +103,23 @@ arch_init(void)
 	int s;
 	unsigned char mach_id, cmos_state;
 
+	/*
+	 * The legacy BIOS machine-ID byte at FFFF:000E identifies an IBM PC/AT-
+	 * class machine, historically used here as a proxy for "has a CMOS RTC".
+	 * It is not populated under UEFI -- amd64 boots via UEFI/GRUB -- so the
+	 * read either fails or returns an unrecognized value there, and bailing
+	 * out left the system clock unset (stuck near the epoch).  The CMOS RTC at
+	 * I/O ports 0x70/0x71 is architecturally present on every x86 PC
+	 * regardless of firmware, so treat the machine-ID probe as advisory only:
+	 * log an unreadable or unrecognized value and fall through to the CMOS
+	 * status register, which is the authoritative "is this RTC sane" check.
+	 */
 	if ((s = sys_readbios(MACH_ID_ADDR, &mach_id, sizeof(mach_id))) != OK) {
-		log_warn(&log, "sys_readbios failed: %d.\n", s);
-
-		return -1;
-	}
-
-	if (mach_id != PS_386 && mach_id != PC_AT) {
-		log_warn(&log, "Machine ID unknown.");
-		log_warn(&log, "Machine ID byte = %02x\n", mach_id);
-
-		return -1;
+		log_info(&log, "sys_readbios failed: %d; "
+		    "assuming a standard CMOS RTC.\n", s);
+	} else if (mach_id != PS_386 && mach_id != PC_AT) {
+		log_info(&log, "Machine ID byte = %02x (unrecognized, e.g. UEFI); "
+		    "assuming a standard CMOS RTC.\n", mach_id);
 	}
 
 	cmos_state = read_register(CMOS_STATUS);
