@@ -3561,6 +3561,32 @@ on_mouse(int fd, uint32_t mask, void *data)
 		}
 
 		/*
+		 * Outside-click dismissal for a keyboard-grabbing layer-shell
+		 * menu.  The LXQt application menu is a wlr-layer-shell surface
+		 * that takes keyboard focus (it has a search box); unlike an
+		 * xdg_popup it has no popup_done, so it only closes when it
+		 * loses keyboard focus -- that is why picking a menu entry, which
+		 * gives the launched window focus, dismisses it.  A click that
+		 * lands on the desktop or on a non-keyboard layer (the wallpaper)
+		 * moves focus nowhere below, so the menu would stay focused and
+		 * on screen while the panel's menu button reverts to "not
+		 * pressed": the two desync and the menu then looks stuck and the
+		 * panel unclickable.  Turn such an outside click into the one
+		 * signal Qt closes a menu on -- withdraw the menu's keyboard
+		 * focus.  Clicks on a toplevel or another keyboard-interactive
+		 * layer move focus on their own, just below, so skip those.
+		 */
+		if (pressed && C.focus != NULL && C.focus->role == ROLE_LAYER &&
+		    C.focus->lkbd !=
+			ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE &&
+		    root != C.focus &&
+		    (root == NULL || root->role != ROLE_TOPLEVEL) &&
+		    !(root != NULL && root->role == ROLE_LAYER &&
+		      root->lkbd !=
+			ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE))
+			keyboard_focus(NULL);
+
+		/*
 		 * A panel that asked for keyboard interactivity takes focus when
 		 * it is clicked -- that is what "on demand" means, and without it
 		 * a panel with a search box could never be typed into.
