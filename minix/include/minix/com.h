@@ -596,6 +596,13 @@
 					 * address space, or NULL to use the
 					 * dumped process's own registers */
 
+/* Additional parameter for VFS_PM_EXIT_REPLY / VFS_PM_CORE_REPLY: whether the
+ * exiting process was a session leader that still held a controlling terminal.
+ * Only such a "controlling process" exit hangs up its process group (POSIX);
+ * PM can not tell on its own (it does not track controlling terminals), so VFS,
+ * which does, reports it here.  m7_i3 is unused by both of those replies. */
+#  define VFS_PM_CTTY_HANGUP	m7_i3	/* controlling-terminal session leader? */
+
 /*===========================================================================*
  *                Messages used from VFS to file servers		     *
  *===========================================================================*/

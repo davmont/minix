@@ -362,6 +362,18 @@ handle_vfs_reply(void)
   case VFS_PM_EXIT_REPLY:
 	assert(rmp->mp_flags & EXITING);
 
+	/* POSIX: when a controlling process (a session leader that still holds a
+	 * controlling terminal) terminates, hang up its process group.  PM does
+	 * not track controlling terminals, so VFS -- which does -- tells us in
+	 * VFS_PM_CTTY_HANGUP whether this exit qualifies.  This replaces the old
+	 * unconditional "session leader exited" SIGHUP in exit_proc(), which fired
+	 * for every process-group leader and so hung up the group of any process
+	 * that had merely called setsid() without a controlling terminal (e.g. the
+	 * short-lived helper that QProcess::startDetached() double-forks).
+	 * check_sig() skips the exiting leader itself (it is EXITING). */
+	if (m_in.VFS_PM_CTTY_HANGUP)
+		check_sig(-rmp->mp_procgrp, SIGHUP, FALSE /* ksig */);
+
 	/* Publish the exit event. Continue exiting the process after that. */
 	publish_event(rmp);
 

@@ -739,7 +739,6 @@ exit_proc(
  */
   register int proc_nr, proc_nr_e;
   int r;
-  pid_t procgrp;
   clock_t user_time, sys_time;
   message m;
 
@@ -755,9 +754,6 @@ exit_proc(
 
   proc_nr = (int) (rmp - mproc);	/* get process slot number */
   proc_nr_e = rmp->mp_endpoint;
-
-  /* Remember a session leader's process group. */
-  procgrp = (rmp->mp_pid == mp->mp_procgrp) ? mp->mp_procgrp : 0;
 
   /* If the exited process has a timer pending, kill it. */
   if (rmp->mp_flags & ALARM_ON) set_alarm(rmp, (clock_t) 0);
@@ -878,8 +874,15 @@ exit_proc(
 	}
   }
 
-  /* Send a hangup to the process' process group if it was a session leader. */
-  if (procgrp != 0) check_sig(-procgrp, SIGHUP, FALSE /* ksig */);
+  /* A "controlling process" (a session leader that still holds a controlling
+   * terminal) hangs up its process group when it exits.  That used to be done
+   * here for every process-group leader, but PM can not tell whether the leader
+   * actually had a controlling terminal -- so it wrongly hung up the group of a
+   * process that had only called setsid() (no controlling terminal), such as the
+   * detached helper that QProcess::startDetached() double-forks.  The hangup is
+   * now sent from handle_vfs_reply() (VFS_PM_EXIT_REPLY), gated on the
+   * VFS_PM_CTTY_HANGUP flag that VFS -- which does track controlling terminals --
+   * reports.  See servers/pm/main.c and servers/vfs/main.c. */
 }
 
 /*===========================================================================*

@@ -671,6 +671,7 @@ void replycode(endpoint_t whom, int result)
 void service_pm_postponed(void)
 {
   int r, term_signal;
+  int ctty_hangup;
   vir_bytes core_path, core_regs;
   vir_bytes exec_path, stack_frame, pc, newsp, ps_str;
   size_t exec_path_len, stack_frame_len;
@@ -708,11 +709,17 @@ void service_pm_postponed(void)
 
 	assert(proc_e == fp->fp_endpoint);
 
+	/* Tell PM whether this was a controlling-terminal session leader, so it
+	 * can decide whether to hang up the process group (POSIX).  Read it now,
+	 * before pm_exit() -> free_proc() tears the fproc down. */
+	ctty_hangup = (fp->fp_flags & FP_SESLDR) && fp->fp_tty != 0;
+
 	pm_exit();
 
 	/* Reply dummy status to PM for synchronization */
 	m_out.m_type = VFS_PM_EXIT_REPLY;
 	m_out.VFS_PM_ENDPT = proc_e;
+	m_out.VFS_PM_CTTY_HANGUP = ctty_hangup;
 
 	break;
 
@@ -747,12 +754,18 @@ void service_pm_postponed(void)
 
 	assert(proc_e == fp->fp_endpoint);
 
+	/* As in VFS_PM_EXIT: report controlling-terminal session leadership to
+	 * PM before the fproc is torn down, so a crashing shell still hangs up
+	 * its process group. */
+	ctty_hangup = (fp->fp_flags & FP_SESLDR) && fp->fp_tty != 0;
+
 	r = pm_dumpcore(term_signal, core_path, core_regs);
 
 	/* Reply status to PM */
 	m_out.m_type = VFS_PM_CORE_REPLY;
 	m_out.VFS_PM_ENDPT = proc_e;
 	m_out.VFS_PM_STATUS = r;
+	m_out.VFS_PM_CTTY_HANGUP = ctty_hangup;
 
 	break;
 
