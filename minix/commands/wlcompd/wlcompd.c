@@ -829,8 +829,28 @@ surface_destroy(struct wl_resource *resource)
 		ftl_closed(s);
 
 	if (C.focus == s) {
-		C.focus = top_toplevel();
-		ftl_focus_changed();
+		/*
+		 * Hand keyboard focus to the next window through keyboard_focus(),
+		 * not a bare "C.focus = ..." assignment.  The assignment sets the
+		 * focus variable but never sends wl_keyboard.enter to the new focus,
+		 * and it poisons every later keyboard_focus(): that function
+		 * early-returns when C.focus already equals its argument, so the new
+		 * window could never be handed the enter it needs and a Wayland
+		 * client (Qt) would discard all key events -- e.g. after closing one
+		 * window the remaining terminal could show output but never accept a
+		 * keystroke.  Clear C.focus first so keyboard_focus() does not try to
+		 * send a leave to the surface being destroyed; keyboard_focus() also
+		 * calls ftl_focus_changed() (fall back to it directly if nothing is
+		 * left to focus).  This mirrors the map path (see keyboard_focus(s)
+		 * when a toplevel maps).
+		 */
+		struct surface *next = top_toplevel();
+
+		C.focus = NULL;
+		if (next != NULL)
+			keyboard_focus(next);
+		else
+			ftl_focus_changed();
 	}
 	if (C.ptr_focus == s)
 		C.ptr_focus = NULL;
