@@ -59,7 +59,7 @@ QUICK_TESTS = ("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
 # Where the tests live on the image and how much ramdisk they get (KB).
 TESTS_DIR = "/usr/tests/minix-posix"
 RAMDISK_DEV = "/dev/ram4"
-RAMDISK_KB = 24576
+RAMDISK_KB = 131072       # testmfs/testisofs build multi-MB images in cwd
 
 MARK = "QT_DONE"          # what the shell prints when a command is done
 PROMPT = "QT#"            # a prompt no MINIX message can produce
@@ -218,7 +218,10 @@ def tap_verdict(name, out):
         return "fail"
     if re.search(r"^ok test %s\b" % re.escape(name), out, re.M):
         return "ok"
-    if re.search(r"warning: skipping test%s\b" % re.escape(name), out):
+    # Not built for this architecture: run says one of these two things,
+    # depending on whether other tests were named alongside it.
+    if re.search(r"warning: skipping test%s\b" % re.escape(name), out) or \
+            "No test binaries found" in out:
         return "skip"
     return "fail"
 
