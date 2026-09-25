@@ -565,12 +565,18 @@ else
 	# Now start the build.
 	#
 	sh ${BUILDSH} -j ${JOBS} -m ${ARCH} -O ${OBJ} -D ${DESTDIR} ${BUILDVARS} -U -u release
+fi
 
-	# The amd64 arch tree does not include sys/arch/i386/stand, so the
-	# BIOS-stage bootloaders (boot_monitor, bootxx_*) are built here as a
-	# separate step.  The i386/stand Makefiles detect MACHINE_ARCH=x86_64
-	# and add the required -m32 cross-compilation flags automatically.
-	if [ "${ARCH}" = "amd64" ]
+# The amd64 arch tree does not include sys/arch/i386/stand, so the
+# BIOS-stage bootloaders (boot_monitor, bootxx_*) are built here as a
+# separate step.  The i386/stand Makefiles detect MACHINE_ARCH=x86_64
+# and add the required -m32 cross-compilation flags automatically.
+# This runs even with CREATE_IMAGE_ONLY=1: a DESTDIR populated by a plain
+# `build.sh release` (as CI does) has no usr/mdec, and the step is
+# incremental, so it costs nothing when the loaders are already there.
+if [ "${ARCH}" = "amd64" ]
+then
+	if [ ! -f ${DESTDIR}/usr/mdec/boot_monitor ]
 	then
 		echo "Building i386 bootloaders for ${DESTDIR}/usr/mdec..."
 		# Build only the three subdirectories that produce binaries consumed
