@@ -175,3 +175,6 @@ tools/llvm-lld/*-ld.lld
 /external/mit/wayland/lib/libwayland-client/wayland-version.h
 /external/mit/wayland/lib/libwayland-cursor/wayland-scanner
 /external/mit/wayland/lib/libwayland-cursor/wayland-version.h
+
+# releasetools/qemutest.py output
+/qemutest-logs/

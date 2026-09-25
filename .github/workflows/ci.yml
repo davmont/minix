@@ -1,0 +1,85 @@
+# Build the amd64 release, cut a bootable ISO, boot it under QEMU and run the
+# POSIX test suite.  This is the regression gate for every PR.
+#
+# Hosted runners have no KVM, so QEMU runs in TCG mode; the ISO still reaches
+# login in under a minute and the quick suite in well under an hour.  The
+# expensive part is the first build of the host cross toolchain (in-tree
+# LLVM 22); it is cached by the hash of its sources, so later runs only
+# rebuild what changed.
+
+name: ci
+
+on:
+  push:
+    branches: [devel, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OBJ: obj.amd64
+  JOBS: 4
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang zlib1g-dev python3 qemu-system-x86
+
+      - name: Restore cross toolchain
+        id: tooldir
+        uses: actions/cache@v4
+        with:
+          path: |
+            obj.amd64/tooldir.Linux-x86_64
+            obj.amd64/tools
+          key: tooldir-${{ runner.os }}-${{ hashFiles('build.sh', 'tools/**', 'share/mk/**', 'external/apache2/llvm/**', 'usr.bin/make/**') }}
+
+      - name: Build the amd64 release
+        # MKLLVMCMDS=no leaves out the on-target clang (hours of build time
+        # for something the tests do not exercise); the host cross clang is
+        # unaffected.
+        run: |
+          sh build.sh -m amd64 -U -u -j${JOBS} -O ${OBJ} -V MKLLVMCMDS=no release
+
+      - name: Build the ISO
+        run: |
+          OBJ=${OBJ} UEFI=no CREATE_IMAGE_ONLY=1 IMG=minix_amd64.iso \
+            bash releasetools/amd64_cdimage.sh
+
+      - name: Boot test
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso \
+            --suite boot --log-dir qemutest-logs/boot
+
+      - name: POSIX quick suite
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso \
+            --suite quick --log-dir qemutest-logs/quick
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemutest-logs
+          path: qemutest-logs
+          if-no-files-found: ignore
+
+      - name: Upload ISO
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: minix_amd64.iso
+          path: minix_amd64.iso
+          retention-days: 7
+          compression-level: 0

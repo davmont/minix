@@ -146,6 +146,23 @@ OBJ=../obj.amd64 bash releasetools/amd64_cdimage.sh
 
 The build produces `minix_amd64.iso` in the current directory.
 
+### Testing an image
+
+`releasetools/qemutest.py` boots an ISO under QEMU, logs in over the serial
+console and runs the POSIX test suite that every ISO now carries in
+`/usr/tests/minix-posix`.  It uses KVM when `/dev/kvm` is available and plain
+TCG otherwise, so it runs unchanged on a laptop and on a hosted CI runner.
+
+```sh
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite boot    # boots to login
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite quick   # check-install subset
+python3 releasetools/qemutest.py --iso minix_amd64.iso --tests "1 2 3" # a hand-picked list
+```
+
+The exit code is 0 only when every test passed; the serial transcript and the
+TAP output land in `qemutest-logs/`.  `.github/workflows/ci.yml` runs the same
+script on every push and pull request.
+
 ### Running in QEMU
 
 > **Important — `-cpu host` is required for amd64.**
