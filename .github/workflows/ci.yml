@@ -36,14 +36,31 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential clang zlib1g-dev python3 qemu-system-x86
 
+      # The toolchain cache is restored and saved as two explicit steps so
+      # that a two-hour LLVM build is kept even when a later step fails
+      # (actions/cache's implicit save only runs after a successful job).
       - name: Restore cross toolchain
         id: tooldir
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             obj.amd64/tooldir.Linux-x86_64
             obj.amd64/tools
           key: tooldir-${{ runner.os }}-${{ hashFiles('build.sh', 'tools/**', 'share/mk/**', 'external/apache2/llvm/**', 'usr.bin/make/**') }}
+
+      - name: Build the cross toolchain
+        if: steps.tooldir.outputs.cache-hit != 'true'
+        run: |
+          sh build.sh -m amd64 -U -u -j${JOBS} -O ${OBJ} -V MKLLVMCMDS=no tools
+
+      - name: Save cross toolchain
+        if: always() && steps.tooldir.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            obj.amd64/tooldir.Linux-x86_64
+            obj.amd64/tools
+          key: ${{ steps.tooldir.outputs.cache-primary-key }}
 
       - name: Build the amd64 release
         # MKLLVMCMDS=no leaves out the on-target clang (hours of build time
