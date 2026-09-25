@@ -591,10 +591,25 @@ static int get_work(void)
   register struct fproc *rp;
 
   if (reviving != 0) {
-	/* Find a suspended process. */
-	for (rp = &fproc[0]; rp < &fproc[NR_PROCS]; rp++)
+	/* Find a suspended process to revive.  Scan round-robin rather than
+	 * always from slot 0: when several processes (e.g. threads sharing one
+	 * pipe fd) are revived together for a single write, a plain low-to-high
+	 * scan always dispatches the same lowest-numbered reader first, and it
+	 * consumes the data while the others re-suspend.  The remaining readers
+	 * then starve indefinitely.  Rotating the starting slot hands the data
+	 * to a different waiter each time, which is the fair (and hang-free)
+	 * behaviour multiple concurrent blocking readers expect.
+	 */
+	static int revive_rr = 0;
+	int i;
+
+	for (i = 0; i < NR_PROCS; i++) {
+		revive_rr++;
+		if (revive_rr >= NR_PROCS) revive_rr = 0;
+		rp = &fproc[revive_rr];
 		if (rp->fp_pid != PID_FREE && (rp->fp_flags & FP_REVIVED))
 			return unblock(rp); /* So main loop can process job */
+	}
 
 	panic("VFS: get_work couldn't revive anyone");
   }
