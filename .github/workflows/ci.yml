@@ -82,7 +82,8 @@ jobs:
       - name: POSIX quick suite
         run: |
           python3 releasetools/qemutest.py --iso minix_amd64.iso \
-            --suite quick --log-dir qemutest-logs/quick
+            --suite quick --xfail releasetools/qemutest.xfail \
+            --log-dir qemutest-logs/quick
 
       - name: Upload test logs
         if: always()

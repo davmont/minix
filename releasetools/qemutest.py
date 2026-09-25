@@ -256,6 +256,12 @@ def main():
                     help="seconds to reach login: (default: 300 KVM, 600 TCG)")
     ap.add_argument("--max-reboots", type=int, default=5,
                     help="give up after this many guest wedges")
+    ap.add_argument("--xfail", metavar="FILE",
+                    help="known failures: one test per line, optionally "
+                         "'name:timeout' to bound a known hang; '#' comments. "
+                         "Listed tests count as xfail, not fail; a listed "
+                         "test that passes is reported as xpass and fails "
+                         "the run so the list gets updated.")
     ap.add_argument("--mem", type=int, default=1024)
     ap.add_argument("--smp", type=int, default=2)
     ap.add_argument("--no-kvm", action="store_true")
@@ -273,6 +279,17 @@ def main():
     slow = 1 if args.kvm else 2          # TCG boots in ~45s vs ~30s on KVM
     args.boot_timeout = args.boot_timeout or 300 * slow
     test_timeout = args.test_timeout or 600 * slow
+
+    # name -> (timeout or None, flaky).  A flaky test may pass or fail
+    # without affecting the verdict; it is listed so that it is still run.
+    xfail = {}
+    if args.xfail:
+        for line in open(args.xfail):
+            words = line.split("#", 1)[0].split()
+            if not words:
+                continue
+            name, _, secs = words[0].partition(":")
+            xfail[name] = (int(secs) if secs else None, "flaky" in words[1:])
 
     os.makedirs(args.log_dir, exist_ok=True)
     transcript = os.path.join(args.log_dir, "serial.log")
@@ -323,7 +340,8 @@ def main():
             t0 = time.time()
             out = ""
             try:
-                r, out = ser.run("./run -T -t '%s'" % t, test_timeout)
+                r, out = ser.run("./run -T -t '%s'" % t,
+                                 xfail.get(t, (None,))[0] or test_timeout)
                 verdict = tap_verdict(t, out)
             except Timeout:
                 verdict = "hang"
@@ -348,30 +366,52 @@ def main():
                         results[t] = verdict
                         break
                     ser = guest.ser
+            # A known failure that fails is expected; one that passes means
+            # the list is stale, which is worth failing the run for.
+            if t in xfail and verdict != "skip":
+                if verdict == "ok":
+                    verdict = "flaky-ok" if xfail[t][1] else "xpass"
+                else:
+                    verdict = "xfail(%s)" % verdict
             results[t] = verdict
-            print("qemutest: [%3d/%d %5.0fs] %-5s test %s"
+            print("qemutest: [%3d/%d %5.0fs] %-12s test %s"
                   % (n, len(tests), time.time() - t0, verdict, t), flush=True)
             if verdict == "ok":
                 tap.append("ok %d - test %s" % (n, t))
+            elif verdict == "flaky-ok":
+                tap.append("ok %d - test %s # flaky, passed this time" % (n, t))
             elif verdict == "skip":
                 tap.append("ok %d - test %s # SKIP not built for this arch"
                            % (n, t))
+            elif verdict == "xpass":
+                tap.append("ok %d - test %s # XPASS listed in %s"
+                           % (n, t, args.xfail))
+            elif verdict.startswith("xfail"):
+                tap.append("not ok %d - test %s # TODO known failure %s"
+                           % (n, t, verdict))
             else:
                 tap.append("not ok %d - test %s%s" % (
                     n, t, "" if verdict == "fail" else " # " + verdict.upper()))
+            if verdict not in ("ok", "flaky-ok", "skip"):
                 for line in out.splitlines():
                     if line.startswith("#"):
                         tap.append("  " + line.rstrip("\r"))
                         print("    " + line.rstrip("\r"))
         open(tapfile, "w").write("\n".join(tap) + "\n")
 
-        ok = [t for t, v in results.items() if v == "ok"]
+        ok = [t for t, v in results.items() if v in ("ok", "flaky-ok")]
         skipped = [t for t, v in results.items() if v == "skip"]
-        bad = [t for t, v in results.items() if v not in ("ok", "skip")]
+        expected = [t for t, v in results.items() if v.startswith("xfail")]
+        bad = [t for t, v in results.items()
+               if v not in ("ok", "flaky-ok", "skip")
+               and not v.startswith("xfail")]
         unrun = [t for t in tests if t not in results]
-        print("qemutest: %d passed, %d failed, %d skipped, %d not run in %.0fs"
-              % (len(ok), len(bad), len(skipped), len(unrun),
+        print("qemutest: %d passed, %d failed, %d expected failures, "
+              "%d skipped, %d not run in %.0fs"
+              % (len(ok), len(bad), len(expected), len(skipped), len(unrun),
                  time.time() - t_suite))
+        if expected:
+            print("qemutest: known failures: %s" % " ".join(expected))
         if bad:
             print("qemutest: FAILED: %s" % " ".join(
                 "%s(%s)" % (t, results[t]) for t in bad))

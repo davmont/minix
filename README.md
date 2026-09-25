@@ -160,7 +160,10 @@ python3 releasetools/qemutest.py --iso minix_amd64.iso --tests "1 2 3" # a hand-
 ```
 
 The exit code is 0 only when every test passed; the serial transcript and the
-TAP output land in `qemutest-logs/`.  `.github/workflows/ci.yml` runs the same
+TAP output land in `qemutest-logs/`.  `releasetools/qemutest.xfail` lists the
+known failures on amd64: pass it with `--xfail` and those count as expected,
+anything new fails the run, and a listed test that starts passing fails the run
+until it is removed from the list.  `.github/workflows/ci.yml` runs the same
 script on every push and pull request.
 
 ### Running in QEMU
