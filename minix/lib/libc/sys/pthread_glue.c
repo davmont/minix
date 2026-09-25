@@ -157,15 +157,9 @@ rasctl(void *addr, size_t len, int op)
 }
 
 /*
- * pthread_atfork(3): minimal — MINIX does not run registered fork handlers yet.
- * (No threaded fork() use in the base system.)
+ * pthread_atfork(3) is implemented in fork.c (it has to wrap the PM fork
+ * message), so no stub is needed here.
  */
-int
-pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void))
-{
-	(void)prepare; (void)parent; (void)child;
-	return 0;
-}
 
 /* --- _sys_<call>: raw (non-cancellable) syscall variants libpthread calls
  *     directly.  MINIX libc has no _sys_ layer, so map them to the normal
