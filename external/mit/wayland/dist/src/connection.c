@@ -175,6 +175,26 @@ wl_connection_create(int fd)
 	if (connection == NULL)
 		return NULL;
 
+	/*
+	 * Force the Wayland socket into non-blocking mode.  Neither
+	 * wl_os_accept_cloexec() (server side) nor the connect path (client
+	 * side) sets O_NONBLOCK, and accept(2)/socket(2) here leave the fd
+	 * blocking.  Both wl_connection_flush() and wl_connection_read() are
+	 * written to report EAGAIN and let the caller wait for readiness via
+	 * poll(); on a blocking fd a full send buffer instead stalls the whole
+	 * process inside flush().  On MINIX the per-socket buffer is small
+	 * (UDS: 32 KiB), so an ordinary burst -- e.g. a panel's taskbar update
+	 * when a new toplevel maps -- fills it and both the compositor and the
+	 * client can wedge (each blocked writing to a buffer the other has
+	 * stopped draining).  Non-blocking turns that into the EAGAIN the event
+	 * loops already handle.
+	 */
+	{
+		int fl = fcntl(fd, F_GETFL, 0);
+		if (fl != -1)
+			(void) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+	}
+
 	connection->fd = fd;
 
 	return connection;
