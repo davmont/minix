@@ -119,7 +119,12 @@ class Serial:
         # One character at a time: the tty input buffer is 256 bytes and a
         # burst longer than that is silently truncated.
         for ch in text:
-            self.sock.sendall(ch.encode())
+            try:
+                self.sock.sendall(ch.encode())
+            except OSError as e:
+                # QEMU is gone (a panic resets the guest and -no-reboot
+                # exits); the caller treats this like any other hang.
+                raise Timeout("guest gone: %s" % e)
             time.sleep(0.02)
 
     def run(self, cmd, timeout):
