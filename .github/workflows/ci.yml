@@ -90,8 +90,8 @@ jobs:
   # lin_lin_copy: read_cr3() != ptproc->p_cr3, with one vCPU as well as two
   # -- a kernel bug on the T1 list.  Once it is fixed, drop --no-kvm and
   # reinstate the udev rule for a ~10x faster run.  TCG on this hardware is
-  # slow enough that four timer-driven tests stall; the qemutest-tcg.xfail
-  # list bounds and expects those.
+  # slow enough that a few timer-driven and syscall-heavy tests stall; the
+  # qemutest-tcg.xfail list bounds and expects those.
   test:
     needs: build
     runs-on: ubuntu-24.04
