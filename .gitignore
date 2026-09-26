@@ -93,7 +93,9 @@ minix/drivers/storage/ramdisk/image
 
 # Additional build artifacts
 a.out
-boot/
+# Only the top-level image work dir: a bare "boot/" also swallowed the
+# sys/arch/i386/stand/boot loader sources.
+/boot/
 *.map
 *.sym
 vers.c
