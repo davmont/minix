@@ -169,6 +169,10 @@ class Guest:
                 "-cdrom", args.iso, "-boot", "d",
                 "-display", "none", "-monitor", "none", "-no-reboot",
                 "-serial", "unix:%s,server,nowait" % sock]
+        if args.drive:
+            # Second IDE disk on the one controller: c0d1 in the guest.
+            cmd += ["-drive", "file=%s,if=ide,index=1,format=raw"
+                    % args.drive]
         self.qemu = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE)
         self.ser = Serial(sock, log)
@@ -199,6 +203,32 @@ class Guest:
         r, out = self.ser.run(setup, 300)
         if r != 0:
             return "could not stage the tests on a ramdisk:\n" + out
+        return None
+
+    def stage_pjdfstest(self):
+        """Put pjdfstest on a writable filesystem and cd into its tests:
+        either the second disk (--drive) or a copy of /usr/tests/pjdfstest
+        from the image on a fresh ramdisk.  Returns an error message, or
+        None."""
+        if self.args.drive:
+            r, out = self.ser.run("mount /dev/c0d1 /mnt >/dev/null && "
+                                  "test -x /mnt/pjdfstest && cd /mnt/tests",
+                                  120)
+            if r != 0:
+                return "could not mount the suite disk on /mnt:\n" + out
+            return None
+        r, out = self.ser.run("test -x /usr/tests/pjdfstest/pjdfstest", 30)
+        if r != 0:
+            return ("/usr/tests/pjdfstest is not on the image (build the "
+                    "ISO with the minix-tests set)")
+        setup = ("ramdisk %d %s >/dev/null && mkfs.mfs %s >/dev/null && "
+                 "mount %s /mnt >/dev/null && "
+                 "(cd /usr/tests/pjdfstest && pax -rw . /mnt) && "
+                 "cd /mnt/tests" % (RAMDISK_KB, RAMDISK_DEV, RAMDISK_DEV,
+                                    RAMDISK_DEV))
+        r, out = self.ser.run(setup, 300)
+        if r != 0:
+            return "could not stage pjdfstest on a ramdisk:\n" + out
         return None
 
     def stop(self):
@@ -240,20 +270,28 @@ def fresh_guest(args, log):
         g.stop()
         print("qemutest: the image did not boot to a root shell")
         return None
-    if args.suite != "boot" and args.suite != "kyua":
+    msg = None
+    if args.suite in ("quick", "full") or args.tests:
         msg = g.stage_tests()
-        if msg:
-            g.stop()
-            print("qemutest: " + msg)
-            return None
+    elif args.suite == "pjdfstest":
+        msg = g.stage_pjdfstest()
+    if msg:
+        g.stop()
+        print("qemutest: " + msg)
+        return None
     return g
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--iso", required=True)
-    ap.add_argument("--suite", choices=["boot", "quick", "full", "kyua"],
+    ap.add_argument("--suite",
+                    choices=["boot", "quick", "full", "kyua", "pjdfstest"],
                     default="boot")
+    ap.add_argument("--drive", metavar="IMG",
+                    help="raw disk image attached as the second IDE disk "
+                         "(/dev/c0d1 in the guest); the pjdfstest suite "
+                         "expects the suite there")
     ap.add_argument("--tests", help="explicit test list, e.g. '1 2 3 sh1'")
     ap.add_argument("--test-timeout", type=int, default=0,
                     help="seconds per test (default: 600 KVM, 1200 TCG)")
@@ -332,13 +370,40 @@ def main():
             print("qemutest: kyua ok=%d not-ok=%d" % (good, bad))
             return 1 if bad else 0
 
-        if args.tests:
-            tests = args.tests.split()
-        elif args.suite == "quick":
-            tests = QUICK_TESTS.split()
+        if args.suite == "pjdfstest":
+            # One .t script per test; each prints its own TAP.  Any
+            # "not ok" that is not a TODO fails the script.
+            r, out = ser.run("find . -name '*.t' | sort", 60)
+            tests = [l.strip()[2:] for l in out.splitlines()
+                     if l.strip().startswith("./") and l.strip().endswith(".t")]
+
+            def cmd_for(t):
+                return "sh %s" % t
+
+            def verdict_for(t, out):
+                m = re.search(r"^1\.\.(\d+)(.*)$", out, re.M)
+                if not m:
+                    return "fail"                    # no TAP plan at all
+                if m.group(1) == "0" and "SKIP" in m.group(2):
+                    return "skip"                    # unsupported here
+                if re.search(r"^not ok\b(?!.*# ?TODO)", out, re.M):
+                    return "fail"
+                done = len(re.findall(r"^(not )?ok\b", out, re.M))
+                # Fewer results than planned: the script died part-way.
+                return "ok" if done >= int(m.group(1)) else "fail"
         else:
-            r, out = ser.run("./run -l", 30)
-            tests = out.split()
+            if args.tests:
+                tests = args.tests.split()
+            elif args.suite == "quick":
+                tests = QUICK_TESTS.split()
+            else:
+                r, out = ser.run("./run -l", 30)
+                tests = out.split()
+
+            def cmd_for(t):
+                return "./run -T -t '%s'" % t
+
+            verdict_for = tap_verdict
 
         results = {}
         tap = ["1..%d" % len(tests)]
@@ -348,9 +413,9 @@ def main():
             t0 = time.time()
             out = ""
             try:
-                r, out = ser.run("./run -T -t '%s'" % t,
+                r, out = ser.run(cmd_for(t),
                                  xfail.get(t, (None,))[0] or test_timeout)
-                verdict = tap_verdict(t, out)
+                verdict = verdict_for(t, out)
             except Timeout:
                 verdict = "hang"
                 try:

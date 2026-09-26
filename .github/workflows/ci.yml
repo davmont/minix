@@ -98,6 +98,12 @@ jobs:
             --suite quick --xfail releasetools/qemutest.xfail \
             --log-dir qemutest-logs/quick
 
+      - name: pjdfstest (POSIX file-system conformance)
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso \
+            --suite pjdfstest --xfail releasetools/qemutest-pjdfstest.xfail \
+            --test-timeout 300 --log-dir qemutest-logs/pjdfstest
+
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
