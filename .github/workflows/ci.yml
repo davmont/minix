@@ -1,11 +1,13 @@
 # Build the amd64 release, cut a bootable ISO, boot it under QEMU and run the
-# POSIX test suite.  This is the regression gate for every PR.
+# POSIX test suites.  This is the regression gate for every PR.
 #
-# Hosted runners have no KVM, so QEMU runs in TCG mode; the ISO still reaches
-# login in under a minute and the quick suite in well under an hour.  The
-# expensive part is the first build of the host cross toolchain (in-tree
-# LLVM 22); it is cached by the hash of its sources, so later runs only
-# rebuild what changed.
+# Two stages.  `build` compiles the release (about 2h15 on a hosted runner
+# with the cross toolchain cached; the toolchain itself -- in-tree LLVM 22 --
+# is cached by the hash of its sources and only rebuilt when they change) and
+# publishes the ISO as an artifact.  The `test` jobs download it and each run
+# one shard of a suite, in parallel.  Sharding matters because the guests
+# run under TCG here (see below), which is slow enough that the unsharded
+# quick suite alone overruns GitHub's six-hour job limit.
 
 name: ci
 
@@ -24,7 +26,7 @@ env:
   JOBS: 4
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -34,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential clang zlib1g-dev python3 qemu-system-x86
+            build-essential clang zlib1g-dev python3
 
       # The toolchain cache is restored and saved as two explicit steps so
       # that a two-hour LLVM build is kept even when a later step fails
@@ -74,45 +76,86 @@ jobs:
           OBJ=${OBJ} UEFI=no CREATE_IMAGE_ONLY=1 IMG=minix_amd64.iso \
             bash releasetools/amd64_cdimage.sh
 
-      # The guests run under TCG here.  GitHub's Linux runners do have
-      # /dev/kvm (a udev rule opens it), but under that nested KVM the MINIX
-      # kernel panics during boot -- minix/kernel/arch/x86_64/memory.c:201,
-      # lin_lin_copy: read_cr3() != ptproc->p_cr3, with one vCPU as well as
-      # two -- a kernel bug on the T1 list.  Once it is fixed, drop --no-kvm
-      # and reinstate the udev rule for a ~10x faster run.  TCG on this
-      # hardware is slow enough that four timer-driven tests stall; the
-      # qemutest-tcg.xfail list bounds and expects those.
-      - name: Boot test
-        run: |
-          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
-            --suite boot --log-dir qemutest-logs/boot
-
-      - name: POSIX quick suite
-        run: |
-          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
-            --suite quick --xfail releasetools/qemutest.xfail \
-            --xfail releasetools/qemutest-tcg.xfail \
-            --log-dir qemutest-logs/quick
-
-      - name: pjdfstest (POSIX file-system conformance)
-        run: |
-          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
-            --suite pjdfstest --xfail releasetools/qemutest-pjdfstest.xfail \
-            --test-timeout 600 --log-dir qemutest-logs/pjdfstest
-
-      - name: Upload test logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qemutest-logs
-          path: qemutest-logs
-          if-no-files-found: ignore
-
       - name: Upload ISO
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: minix_amd64.iso
           path: minix_amd64.iso
           retention-days: 7
           compression-level: 0
+
+  # The guests run under TCG here.  GitHub's Linux runners do have /dev/kvm
+  # (a udev rule opens it), but under that nested KVM the MINIX kernel
+  # panics during boot -- minix/kernel/arch/x86_64/memory.c:201,
+  # lin_lin_copy: read_cr3() != ptproc->p_cr3, with one vCPU as well as two
+  # -- a kernel bug on the T1 list.  Once it is fixed, drop --no-kvm and
+  # reinstate the udev rule for a ~10x faster run.  TCG on this hardware is
+  # slow enough that four timer-driven tests stall; the qemutest-tcg.xfail
+  # list bounds and expects those.
+  test:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: quick
+            shard: 1/4
+          - suite: quick
+            shard: 2/4
+          - suite: quick
+            shard: 3/4
+          - suite: quick
+            shard: 4/4
+          - suite: pjdfstest
+            shard: 1/2
+          - suite: pjdfstest
+            shard: 2/2
+    name: test (${{ matrix.suite }} ${{ matrix.shard }})
+    env:
+      LOGS: qemutest-logs/${{ matrix.suite }}-${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3 qemu-system-x86
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: minix_amd64.iso
+
+      # Every shard boots the image first, so a boot regression shows up in
+      # all of them at once, within a couple of minutes.
+      - name: Boot test
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite boot --log-dir ${LOGS}/boot
+
+      - name: POSIX quick suite
+        if: matrix.suite == 'quick'
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite quick --shard ${{ matrix.shard }} \
+            --xfail releasetools/qemutest.xfail \
+            --xfail releasetools/qemutest-tcg.xfail \
+            --log-dir ${LOGS}/quick
+
+      - name: pjdfstest (POSIX file-system conformance)
+        if: matrix.suite == 'pjdfstest'
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite pjdfstest --shard ${{ matrix.shard }} \
+            --xfail releasetools/qemutest-pjdfstest.xfail \
+            --test-timeout 600 --log-dir ${LOGS}/pjdfstest
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemutest-logs-${{ matrix.suite }}-${{ strategy.job-index }}
+          path: qemutest-logs
+          if-no-files-found: ignore

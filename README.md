@@ -157,14 +157,18 @@ TCG otherwise, so it runs unchanged on a laptop and on a hosted CI runner.
 python3 releasetools/qemutest.py --iso minix_amd64.iso --suite boot    # boots to login
 python3 releasetools/qemutest.py --iso minix_amd64.iso --suite quick   # check-install subset
 python3 releasetools/qemutest.py --iso minix_amd64.iso --tests "1 2 3" # a hand-picked list
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite pjdfstest # file-system conformance
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite quick --shard 1/4 # a quarter of it
 ```
 
 The exit code is 0 only when every test passed; the serial transcript and the
 TAP output land in `qemutest-logs/`.  `releasetools/qemutest.xfail` lists the
 known failures on amd64: pass it with `--xfail` and those count as expected,
 anything new fails the run, and a listed test that starts passing fails the run
-until it is removed from the list.  `.github/workflows/ci.yml` runs the same
-script on every push and pull request.
+until it is removed from the list.  `--shard K/N` runs every Nth test starting
+at the Kth, so N machines can split a suite.  `.github/workflows/ci.yml` builds
+the ISO once on every push and pull request and runs the quick suite and
+pjdfstest across six such shards under TCG.
 
 ### Running in QEMU
 

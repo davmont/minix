@@ -293,6 +293,9 @@ def main():
                          "(/dev/c0d1 in the guest); the pjdfstest suite "
                          "expects the suite there")
     ap.add_argument("--tests", help="explicit test list, e.g. '1 2 3 sh1'")
+    ap.add_argument("--shard", metavar="K/N",
+                    help="run only every Nth test starting at the Kth "
+                         "(1-based), so N runs in parallel cover the suite")
     ap.add_argument("--test-timeout", type=int, default=0,
                     help="seconds per test (default: 600 KVM, 1200 TCG)")
     ap.add_argument("--boot-timeout", type=int, default=0,
@@ -322,6 +325,16 @@ def main():
     if shutil.which(args.qemu) is None:
         print("%s not found" % args.qemu, file=sys.stderr)
         return 4
+    if args.tests and args.suite == "boot":
+        args.suite = "quick"             # --tests alone means "run these"
+    shard = None
+    if args.shard:
+        m = re.match(r"^(\d+)/(\d+)$", args.shard)
+        if not m or not 1 <= int(m.group(1)) <= int(m.group(2)):
+            print("bad --shard %s, want K/N with 1 <= K <= N" % args.shard,
+                  file=sys.stderr)
+            return 4
+        shard = (int(m.group(1)) - 1, int(m.group(2)))
     args.kvm = kvm_usable() and not args.no_kvm
     slow = 1 if args.kvm else 2          # TCG boots in ~45s vs ~30s on KVM
     args.boot_timeout = args.boot_timeout or 300 * slow
@@ -405,6 +418,11 @@ def main():
                 return "./run -T -t '%s'" % t
 
             verdict_for = tap_verdict
+
+        if shard:
+            # Round-robin, so the slow tests spread across the shards.
+            tests = tests[shard[0]::shard[1]]
+            print("qemutest: shard %s, %d tests" % (args.shard, len(tests)))
 
         results = {}
         tap = ["1..%d" % len(tests)]
