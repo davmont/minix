@@ -263,7 +263,9 @@ def main():
                          "test that passes is reported as xpass and fails "
                          "the run so the list gets updated.")
     ap.add_argument("--mem", type=int, default=1024)
-    ap.add_argument("--smp", type=int, default=2)
+    ap.add_argument("--smp", type=int, default=0,
+                    help="CPUs (default: 2 on KVM, 1 on TCG -- SMP bring-up "
+                         "under TCG hangs intermittently after switch_to_user)")
     ap.add_argument("--no-kvm", action="store_true")
     ap.add_argument("--qemu", default="qemu-system-x86_64")
     ap.add_argument("--log-dir", default="qemutest-logs")
@@ -276,6 +278,7 @@ def main():
         print("%s not found" % args.qemu, file=sys.stderr)
         return 4
     args.kvm = kvm_usable() and not args.no_kvm
+    args.smp = args.smp or (2 if args.kvm else 1)
     slow = 1 if args.kvm else 2          # TCG boots in ~45s vs ~30s on KVM
     args.boot_timeout = args.boot_timeout or 300 * slow
     test_timeout = args.test_timeout or 600 * slow
