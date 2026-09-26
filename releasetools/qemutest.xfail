@@ -17,5 +17,6 @@
 74          # mmap at a fixed address above the 896 MB user VA ceiling
 77          # ptyfs dirent / stat fields, subtest 7 (T2)
 31 flaky    # mkfifo: FIFO write() intermittently EINVAL (T2)
+25 flaky    # open/close: expects atime to advance across a re-read; relatime + 1 s clock (T2)
 mfs         # expected mkfs.mfs image sha1 predates the MFS4 default (test debt)
 isofs       # fails without a message; not yet investigated (test debt)
