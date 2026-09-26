@@ -263,11 +263,21 @@ def tap_verdict(name, out):
 
 def fresh_guest(args, log):
     """Boot, log in and stage the tests, or return None with a message."""
-    g = Guest(args, log)
-    try:
-        g.login()
-    except Timeout:
-        g.stop()
+    for attempt in range(1 + args.boot_retries):
+        g = Guest(args, log)
+        try:
+            g.login()
+            break
+        except Timeout:
+            g.stop()
+            # The last serial line says how far the kernel got; under TCG
+            # the boot intermittently stalls inside kmain() (after the
+            # KMAIN marker, before BSP-finish-entry) -- a T1 kernel item.
+            text = g.ser.buf.decode("latin1").replace("\r", "").strip()
+            last = text.rsplit("\n", 1)[-1] if text else "(no output)"
+            print("qemutest: boot %d/%d stalled after '%s'" % (
+                attempt + 1, 1 + args.boot_retries, last), flush=True)
+    else:
         print("qemutest: the image did not boot to a root shell")
         return None
     msg = None
@@ -298,6 +308,10 @@ def main():
                          "(1-based), so N runs in parallel cover the suite")
     ap.add_argument("--test-timeout", type=int, default=0,
                     help="seconds per test (default: 600 KVM, 1200 TCG)")
+    ap.add_argument("--boot-retries", type=int, default=2,
+                    help="extra boot attempts when the image does not "
+                         "reach login: (default 2: under TCG about one "
+                         "boot in six stalls early in kmain)")
     ap.add_argument("--boot-timeout", type=int, default=0,
                     help="seconds to reach login: (default: 300 KVM, 600 TCG)")
     ap.add_argument("--max-reboots", type=int, default=5,
