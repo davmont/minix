@@ -1,0 +1,13 @@
+# Extra known failures when the guest runs under QEMU TCG on a slow host
+# (hosted CI runners), merged with qemutest.xfail via a second --xfail.
+#
+# These four tests are timer-driven (alarm/setitimer/signal timing).  On a
+# runner where TCG needs about five minutes just to reach login:, they print
+# their TAP plan and never see their alarm fire; the guest itself stays
+# responsive and the next test runs.  They pass on KVM and on a fast TCG
+# host.  Bounded to two minutes so a stall costs little.  Roadmap: T1,
+# tick-based timers under a host that steals most of the guest's time.
+1:120 flaky
+5:120 flaky
+37:120 flaky
+41:120 flaky

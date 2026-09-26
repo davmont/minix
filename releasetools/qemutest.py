@@ -299,8 +299,9 @@ def main():
                     help="seconds to reach login: (default: 300 KVM, 600 TCG)")
     ap.add_argument("--max-reboots", type=int, default=5,
                     help="give up after this many guest wedges")
-    ap.add_argument("--xfail", metavar="FILE",
-                    help="known failures: one test per line, optionally "
+    ap.add_argument("--xfail", metavar="FILE", action="append", default=[],
+                    help="known failures (may be repeated; the lists are "
+                         "merged): one test per line, optionally "
                          "'name:timeout' to bound a known hang; '#' comments. "
                          "Listed tests count as xfail, not fail; a listed "
                          "test that passes is reported as xpass and fails "
@@ -329,8 +330,8 @@ def main():
     # name -> (timeout or None, flaky).  A flaky test may pass or fail
     # without affecting the verdict; it is listed so that it is still run.
     xfail = {}
-    if args.xfail:
-        for line in open(args.xfail):
+    for path in args.xfail:
+        for line in open(path):
             words = line.split("#", 1)[0].split()
             if not words:
                 continue
@@ -458,7 +459,7 @@ def main():
                            % (n, t))
             elif verdict == "xpass":
                 tap.append("ok %d - test %s # XPASS listed in %s"
-                           % (n, t, args.xfail))
+                           % (n, t, " ".join(args.xfail)))
             elif verdict.startswith("xfail"):
                 tap.append("not ok %d - test %s # TODO known failure %s"
                            % (n, t, verdict))
