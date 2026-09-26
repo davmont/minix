@@ -146,6 +146,30 @@ OBJ=../obj.amd64 bash releasetools/amd64_cdimage.sh
 
 The build produces `minix_amd64.iso` in the current directory.
 
+### Testing an image
+
+`releasetools/qemutest.py` boots an ISO under QEMU, logs in over the serial
+console and runs the POSIX test suite that every ISO now carries in
+`/usr/tests/minix-posix`.  It uses KVM when `/dev/kvm` is available and plain
+TCG otherwise, so it runs unchanged on a laptop and on a hosted CI runner.
+
+```sh
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite boot    # boots to login
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite quick   # check-install subset
+python3 releasetools/qemutest.py --iso minix_amd64.iso --tests "1 2 3" # a hand-picked list
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite pjdfstest # file-system conformance
+python3 releasetools/qemutest.py --iso minix_amd64.iso --suite quick --shard 1/4 # a quarter of it
+```
+
+The exit code is 0 only when every test passed; the serial transcript and the
+TAP output land in `qemutest-logs/`.  `releasetools/qemutest.xfail` lists the
+known failures on amd64: pass it with `--xfail` and those count as expected,
+anything new fails the run, and a listed test that starts passing fails the run
+until it is removed from the list.  `--shard K/N` runs every Nth test starting
+at the Kth, so N machines can split a suite.  `.github/workflows/ci.yml` builds
+the ISO once on every push and pull request and runs the quick suite and
+pjdfstest across six such shards under TCG.
+
 ### Running in QEMU
 
 > **Important — `-cpu host` is required for amd64.**

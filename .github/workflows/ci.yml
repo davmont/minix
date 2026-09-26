@@ -1,0 +1,161 @@
+# Build the amd64 release, cut a bootable ISO, boot it under QEMU and run the
+# POSIX test suites.  This is the regression gate for every PR.
+#
+# Two stages.  `build` compiles the release (about 2h15 on a hosted runner
+# with the cross toolchain cached; the toolchain itself -- in-tree LLVM 22 --
+# is cached by the hash of its sources and only rebuilt when they change) and
+# publishes the ISO as an artifact.  The `test` jobs download it and each run
+# one shard of a suite, in parallel.  Sharding matters because the guests
+# run under TCG here (see below), which is slow enough that the unsharded
+# quick suite alone overruns GitHub's six-hour job limit.
+
+name: ci
+
+on:
+  push:
+    branches: [devel, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OBJ: obj.amd64
+  JOBS: 4
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang zlib1g-dev python3
+
+      # The toolchain cache is restored and saved as two explicit steps so
+      # that a two-hour LLVM build is kept even when a later step fails
+      # (actions/cache's implicit save only runs after a successful job).
+      - name: Restore cross toolchain
+        id: tooldir
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            obj.amd64/tooldir.Linux-x86_64
+            obj.amd64/tools
+          key: tooldir-${{ runner.os }}-${{ hashFiles('build.sh', 'tools/**', 'share/mk/**', 'external/apache2/llvm/**', 'usr.bin/make/**') }}
+
+      - name: Build the cross toolchain
+        if: steps.tooldir.outputs.cache-hit != 'true'
+        run: |
+          sh build.sh -m amd64 -U -u -j${JOBS} -O ${OBJ} -V MKLLVMCMDS=no tools
+
+      - name: Save cross toolchain
+        if: always() && steps.tooldir.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            obj.amd64/tooldir.Linux-x86_64
+            obj.amd64/tools
+          key: ${{ steps.tooldir.outputs.cache-primary-key }}
+
+      - name: Build the amd64 release
+        # MKLLVMCMDS=no leaves out the on-target clang (hours of build time
+        # for something the tests do not exercise); the host cross clang is
+        # unaffected.
+        run: |
+          sh build.sh -m amd64 -U -u -j${JOBS} -O ${OBJ} -V MKLLVMCMDS=no release
+
+      - name: Build the ISO
+        run: |
+          OBJ=${OBJ} UEFI=no CREATE_IMAGE_ONLY=1 IMG=minix_amd64.iso \
+            bash releasetools/amd64_cdimage.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: minix_amd64.iso
+          path: minix_amd64.iso
+          retention-days: 7
+          compression-level: 0
+
+  # The guests run under TCG here.  GitHub's Linux runners do have /dev/kvm
+  # (a udev rule opens it), but under that nested KVM the MINIX kernel
+  # panics during boot -- minix/kernel/arch/x86_64/memory.c:201,
+  # lin_lin_copy: read_cr3() != ptproc->p_cr3, with one vCPU as well as two
+  # -- a kernel bug on the T1 list.  Once it is fixed, drop --no-kvm and
+  # reinstate the udev rule for a ~10x faster run.  TCG on this hardware is
+  # slow enough that a few timer-driven and syscall-heavy tests stall; the
+  # qemutest-tcg.xfail list bounds and expects those.
+  test:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: quick
+            shard: 1/4
+          - suite: quick
+            shard: 2/4
+          - suite: quick
+            shard: 3/4
+          - suite: quick
+            shard: 4/4
+          - suite: pjdfstest
+            shard: 1/2
+          - suite: pjdfstest
+            shard: 2/2
+    name: test (${{ matrix.suite }} ${{ matrix.shard }})
+    env:
+      LOGS: qemutest-logs/${{ matrix.suite }}-${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3 qemu-system-x86
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: minix_amd64.iso
+
+      # Every shard boots the image first, so a boot regression shows up in
+      # all of them at once, within a couple of minutes.
+      - name: Boot test
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite boot --log-dir ${LOGS}/boot
+
+      - name: POSIX quick suite
+        if: matrix.suite == 'quick'
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite quick --shard ${{ matrix.shard }} \
+            --xfail releasetools/qemutest.xfail \
+            --xfail releasetools/qemutest-tcg.xfail \
+            --log-dir ${LOGS}/quick
+
+      - name: pjdfstest (POSIX file-system conformance)
+        if: matrix.suite == 'pjdfstest'
+        run: |
+          python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
+            --suite pjdfstest --shard ${{ matrix.shard }} \
+            --xfail releasetools/qemutest-pjdfstest.xfail \
+            --test-timeout 600 --log-dir ${LOGS}/pjdfstest
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemutest-logs-${{ matrix.suite }}-${{ strategy.job-index }}
+          path: qemutest-logs
+          if-no-files-found: ignore

@@ -859,6 +859,25 @@
 ./usr/tests/minix-posix/blocktest
 ./usr/tests/minix-posix/ddekit
 ./usr/tests/minix-posix/rmibtest
+./usr/tests/pjdfstest
+./usr/tests/pjdfstest/tests
+./usr/tests/pjdfstest/tests/chflags
+./usr/tests/pjdfstest/tests/chmod
+./usr/tests/pjdfstest/tests/chown
+./usr/tests/pjdfstest/tests/ftruncate
+./usr/tests/pjdfstest/tests/granular
+./usr/tests/pjdfstest/tests/link
+./usr/tests/pjdfstest/tests/mkdir
+./usr/tests/pjdfstest/tests/mkfifo
+./usr/tests/pjdfstest/tests/mknod
+./usr/tests/pjdfstest/tests/open
+./usr/tests/pjdfstest/tests/posix_fallocate
+./usr/tests/pjdfstest/tests/rename
+./usr/tests/pjdfstest/tests/rmdir
+./usr/tests/pjdfstest/tests/symlink
+./usr/tests/pjdfstest/tests/truncate
+./usr/tests/pjdfstest/tests/unlink
+./usr/tests/pjdfstest/tests/utimensat
 
 # this one is for term(1)
 /set type=dir uid=0 gid=5 mode=775

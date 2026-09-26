@@ -39,7 +39,7 @@ BINMODE=444
 
 .PATH:	${.CURDIR}/.. ${.CURDIR}/../../lib
 
-LDFLAGS+= -nostdlib -Wl,-N -Wl,-e,start
+LDFLAGS+= -static -nostdlib -Wl,-N -Wl,-e,start
 CPPFLAGS+= -DBOOTXX
 # CPPFLAGS+= -D__daddr_t=int32_t
 CPPFLAGS+= -I ${.CURDIR}/../../lib -I ${.OBJDIR}
@@ -155,11 +155,11 @@ CLEANFILES+= ${PROG}.sym ${PROG}.map
 ${PROG}: ${OBJS} ${LIBLIST} ${LDSCRIPT}
 	${_MKTARGET_LINK}
 .if defined(__MINIX)
-	${CC} -o ${PROG}.sym ${LDFLAGS} -Wl,--section-start=.text=${PRIMARY_LOAD_ADDRESS} \
-		-T ${LDSCRIPT} -Wl,-Map,${PROG}.map -Wl,-cref ${OBJS} ${LIBLIST}
+	${CC} -o ${PROG}.sym ${LDFLAGS} -Wl,--section-start=.text=${PRIMARY_LOAD_ADDRESS} -Wl,--image-base=0 \
+		-T ${LDSCRIPT} -Wl,-Map,${PROG}.map -Wl,--cref ${OBJS} ${LIBLIST}
 .else
-	${CC} -o ${PROG}.sym ${LDFLAGS} -Wl,-Ttext,${PRIMARY_LOAD_ADDRESS} \
-		-T ${LDSCRIPT} -Wl,-Map,${PROG}.map -Wl,-cref ${OBJS} ${LIBLIST}
+	${CC} -o ${PROG}.sym ${LDFLAGS} -Wl,-Ttext,${PRIMARY_LOAD_ADDRESS} -Wl,--image-base=0 \
+		-T ${LDSCRIPT} -Wl,-Map,${PROG}.map -Wl,--cref ${OBJS} ${LIBLIST}
 .endif # defined(__MINIX)
 	${OBJCOPY} -O binary ${PROG}.sym ${PROG}
 	@ sz=$$(${TOOL_STAT} -f '%z' ${PROG}); \

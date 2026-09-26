@@ -1,0 +1,22 @@
+# Known failures of the POSIX quick suite on amd64, for releasetools/qemutest.py
+# --xfail.  One test per line; "name:seconds" bounds a known hang so CI does not
+# wait the full per-test timeout for it; "name flaky" accepts either outcome.
+# A listed test that starts passing is reported as XPASS and fails the run:
+# remove it from this list in the same change that fixes it.
+#
+# Baseline taken 2026-09-25 on devel (PR #361).  See the roadmap doc for the
+# track each one belongs to.
+
+79:120      # PM signal robustness: VM page-fault loop -> kernel panic (T1)
+42:120      # ptrace: hangs and takes the console down (T1)
+71:1200 flaky  # storage hierarchy: 2 min on a fast disk, past 10 min on a slow one (T3)
+75 flaky    # getrusage: ru_utime rounds to 0 under HZ=60 tick accounting (T2)
+45          # strtoll at the 64-bit boundary returns a value, not ERANGE (T2)
+53          # 64-bit helper arithmetic (T2)
+66          # signed division / modulo (T2)
+74          # mmap at a fixed address above the 896 MB user VA ceiling
+77          # ptyfs dirent / stat fields, subtest 7 (T2)
+31 flaky    # mkfifo: FIFO write() intermittently EINVAL (T2)
+25 flaky    # open/close: expects atime to advance across a re-read; relatime + 1 s clock (T2)
+mfs         # expected mkfs.mfs image sha1 predates the MFS4 default (test debt)
+isofs       # fails without a message; not yet investigated (test debt)
