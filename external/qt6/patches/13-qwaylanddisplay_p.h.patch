@@ -1,0 +1,13 @@
+--- a/src/plugins/platforms/wayland/qwaylanddisplay_p.h
++++ b/src/plugins/platforms/wayland/qwaylanddisplay_p.h
+@@ -284,6 +284,10 @@
+ 
+     void initEventThread();
+ 
++    // MINIX: stop/recreate the Wayland event-reader threads around fork().
++    void quiesceEventThreadsForFork();
++    void resumeEventThreadsAfterFork();
++
+ public Q_SLOTS:
+     void flushRequests();
+ 

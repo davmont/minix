@@ -1,0 +1,110 @@
+--- a/src/plugins/platforms/wayland/qwaylanddisplay.cpp
++++ b/src/plugins/platforms/wayland/qwaylanddisplay.cpp
+@@ -69,6 +69,7 @@
+ #include <QtCore/QDebug>
+ 
+ #include <errno.h>
++#include <pthread.h> // MINIX: pthread_atfork() for the fork() quiesce below
+ 
+ #include <tuple> // for std::tie
+ 
+@@ -142,8 +143,17 @@
+         if (m_pipefd[1] != -1 && write(m_pipefd[1], "\0", 1) == -1)
+             qWarning("Failed to write to the pipe: %s.", strerror(errno));
+ 
+-        m_quitting.storeRelaxed(true);
+-        m_cond.wakeOne();
++        // Set the flag and wake the reader with m_mutex held.  Without the lock
++        // this races with waitForReading()'s check-then-wait: if wakeOne() lands
++        // between the while() test and m_cond.wait(), the wakeup is lost and
++        // wait() (the join below) hangs forever.  That is harmless in the normal
++        // teardown path but deadlocks when stop() is called from the fork()
++        // quiesce handler.
++        {
++            QMutexLocker l(&m_mutex);
++            m_quitting.storeRelaxed(true);
++            m_cond.wakeOne();
++        }
+ 
+         wait();
+     }
+@@ -531,6 +541,64 @@
+ // We have to wait until we have an eventDispatcher before creating the eventThread,
+ // otherwise forceRoundTrip() may block inside _events_read() because eventThread is
+ // polling.
++// MINIX: keep the Wayland event-reader threads quiescent across fork().
++//
++// qtwayland uses a split reader: the main thread calls wl_display_prepare_read()
++// and an EventThread poll()s and calls wl_display_read_events().  A fork() (as
++// QProcess::startDetached() does to launch a program) can catch that machinery
++// mid-read.  The child exec()s immediately and is fine, but the *parent* is then
++// left unable to create new Wayland surfaces -- concretely, the LXQt panel's
++// start menu never re-appears after launching an app, because get_layer_surface
++// requests never reach the compositor.  Stopping both reader threads before the
++// fork and recreating them afterwards leaves wl_display in a clean state on the
++// parent side.  (fork() rather than vfork() is forced on MINIX in
++// qprocess_unix.cpp so that these handlers actually run.)
++static QWaylandDisplay *s_forkDisplay = nullptr;
++static bool s_inForkChild = false;
++
++void QWaylandDisplay::quiesceEventThreadsForFork()
++{
++    if (m_eventThread)
++        m_eventThread->stop();
++    if (m_frameEventQueueThread)
++        m_frameEventQueueThread->stop();
++}
++
++void QWaylandDisplay::resumeEventThreadsAfterFork()
++{
++    m_eventThread.reset(
++            new EventThread(mDisplay, /* default queue */ nullptr, EventThread::EmitToDispatch));
++    connect(m_eventThread.get(), &EventThread::needReadAndDispatch, this,
++            &QWaylandDisplay::flushRequests, Qt::QueuedConnection);
++    connect(m_eventThread.get(), &EventThread::waylandError, this,
++            &QWaylandDisplay::checkWaylandError, Qt::QueuedConnection);
++    m_eventThread->start();
++
++    // The frame event queue itself still exists; only its reader thread stopped.
++    if (m_frameEventQueue) {
++        m_frameEventQueueThread.reset(
++                new EventThread(mDisplay, m_frameEventQueue, EventThread::SelfDispatch));
++        m_frameEventQueueThread->start();
++    }
++}
++
++static void qwl_fork_prepare()
++{
++    if (s_forkDisplay && !s_inForkChild)
++        s_forkDisplay->quiesceEventThreadsForFork();
++}
++static void qwl_fork_parent()
++{
++    if (s_forkDisplay && !s_inForkChild)
++        s_forkDisplay->resumeEventThreadsAfterFork();
++}
++static void qwl_fork_child()
++{
++    // This process is about to exec() (or _exit()); don't touch the threads, and
++    // make any fork() it does itself a no-op for these handlers.
++    s_inForkChild = true;
++}
++
+ void QWaylandDisplay::initEventThread()
+ {
+     m_eventThread.reset(
+@@ -546,6 +614,14 @@
+     m_frameEventQueueThread.reset(
+             new EventThread(mDisplay, m_frameEventQueue, EventThread::SelfDispatch));
+     m_frameEventQueueThread->start();
++
++    // MINIX: register the fork() quiesce handlers once (see the note above).
++    s_forkDisplay = this;
++    static bool s_atforkRegistered = false;
++    if (!s_atforkRegistered) {
++        pthread_atfork(qwl_fork_prepare, qwl_fork_parent, qwl_fork_child);
++        s_atforkRegistered = true;
++    }
+ }
+ 
+ void QWaylandDisplay::checkWaylandError()

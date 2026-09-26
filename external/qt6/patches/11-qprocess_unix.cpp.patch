@@ -1,0 +1,21 @@
+--- a/src/corelib/io/qprocess_unix.cpp
++++ b/src/corelib/io/qprocess_unix.cpp
+@@ -694,6 +694,18 @@
+     return false;
+ #endif
+ 
++#if defined(__minix)
++    // MINIX: vfork() suspends the calling process and lends its address space to
++    // the child until the child exec()s or exits.  In a multithreaded Qt process
++    // that is unsafe: qtwayland runs a Wayland event-reader thread, and freezing
++    // every thread but the forking one (with the address space borrowed out from
++    // under them) wedges that reader.  The concrete symptom is that the LXQt
++    // panel freezes the instant it launches an app via QProcess::startDetached().
++    // Plain fork() gives the child its own address space and leaves the parent's
++    // threads running, so use it here.
++    return false;
++#endif
++
+     // Dynamically detect whether libasan or libtsan are loaded into the
+     // process' memory. We need this because the user's code may be compiled
+     // with ASan or TSan, but not Qt.

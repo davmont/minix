@@ -93,6 +93,29 @@ socket semantics, all of which MINIX has.
                           and yields genuinely shared pages.  Without this Qt
                           connects, creates a surface, and never produces a
                           single pixel.
+  11  qprocess_unix.cpp   Never use vfork() on MINIX.  vfork() suspends the
+                          calling process and lends its address space to the
+                          child until it exec()s -- unsafe in this multithreaded
+                          Qt process, where it wedges qtwayland's event-reader
+                          thread.  The symptom is the LXQt panel freezing the
+                          instant it launches an app via startDetached(); plain
+                          fork() (own address space, parent threads keep running)
+                          fixes it.
+  12  qwaylanddisplay.cpp Quiesce the Wayland event-reader threads across fork().
+  13  qwaylanddisplay_p.h Even with plain fork() (patch 11), a fork() taken while
+                          qtwayland's split reader is mid-read (main thread in
+                          wl_display_prepare_read(), the EventThread in poll()/
+                          read_events()) leaves the *parent* unable to create new
+                          Wayland surfaces afterwards.  The visible symptom: the
+                          LXQt start menu never reappears after you launch an app
+                          from it (get_layer_surface requests stop reaching the
+                          compositor).  pthread_atfork() handlers stop both reader
+                          threads before the fork and recreate them after, so
+                          wl_display is left clean on the parent side.  Patch 12
+                          also fixes a lost-wakeup in EventThread::stop() (set the
+                          quit flag and wake the reader under m_mutex) that would
+                          otherwise hang the join when stop() runs from the atfork
+                          handler.  Patch 13 declares the two helper methods.
 
 Several MINIX libc gaps were found by this port and fixed in the tree rather
 than worked around here -- fdatasync, madvise/posix_madvise and dup3 were all
