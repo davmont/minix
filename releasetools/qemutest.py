@@ -39,6 +39,7 @@ usage or host problem.
 """
 
 import argparse
+import json
 import os
 import re
 import select
@@ -159,6 +160,7 @@ class Guest:
         self.log = log
         self.tmp = tempfile.mkdtemp(prefix="qemutest.")
         sock = os.path.join(self.tmp, "serial.sock")
+        self.qmp = os.path.join(self.tmp, "qmp.sock")
         cmd = [args.qemu]
         if args.kvm:
             cmd += ["-enable-kvm", "-cpu", "host"]
@@ -168,7 +170,8 @@ class Guest:
         cmd += ["-smp", str(args.smp), "-m", str(args.mem),
                 "-cdrom", args.iso, "-boot", "d",
                 "-display", "none", "-monitor", "none", "-no-reboot",
-                "-serial", "unix:%s,server,nowait" % sock]
+                "-serial", "unix:%s,server,nowait" % sock,
+                "-qmp", "unix:%s,server,nowait" % self.qmp]
         if args.drive:
             # Second IDE disk on the one controller: c0d1 in the guest.
             cmd += ["-drive", "file=%s,if=ide,index=1,format=raw"
@@ -176,6 +179,26 @@ class Guest:
         self.qemu = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE)
         self.ser = Serial(sock, log)
+
+    def registers(self):
+        """The vCPU registers via QMP ("info registers"), or "" if QEMU is
+        not answering.  Used to see where a stalled boot is spinning."""
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(5)
+            s.connect(self.qmp)
+            f = s.makefile("rw")
+            f.readline()                            # greeting
+            for cmd in ('{"execute":"qmp_capabilities"}',
+                        '{"execute":"human-monitor-command","arguments":'
+                        '{"command-line":"info registers"}}'):
+                f.write(cmd + "\n")
+                f.flush()
+                reply = json.loads(f.readline())
+            s.close()
+            return reply.get("return", "")
+        except (OSError, ValueError):
+            return ""
 
     def login(self):
         """Boot to a root shell with a unique prompt.  Raises Timeout."""
@@ -269,14 +292,26 @@ def fresh_guest(args, log):
             g.login()
             break
         except Timeout:
-            g.stop()
             # The last serial line says how far the kernel got; under TCG
             # the boot intermittently stalls inside kmain() (after the
             # KMAIN marker, before BSP-finish-entry) -- a T1 kernel item.
+            # Three register samples show whether it spins in one place
+            # (RIP in the log dir, to symbolize against the kernel).
             text = g.ser.buf.decode("latin1").replace("\r", "").strip()
             last = text.rsplit("\n", 1)[-1] if text else "(no output)"
-            print("qemutest: boot %d/%d stalled after '%s'" % (
-                attempt + 1, 1 + args.boot_retries, last), flush=True)
+            rips = []
+            with open(os.path.join(args.log_dir,
+                                   "stall-%d.regs" % (attempt + 1)), "w") as f:
+                for _ in range(3):
+                    regs = g.registers()
+                    f.write(regs + "\n----\n")
+                    m = re.search(r"RIP=([0-9a-f]+)", regs)
+                    rips.append(m.group(1) if m else "?")
+                    time.sleep(2)
+            g.stop()
+            print("qemutest: boot %d/%d stalled after '%s', RIP %s" % (
+                attempt + 1, 1 + args.boot_retries, last, " ".join(rips)),
+                flush=True)
     else:
         print("qemutest: the image did not boot to a root shell")
         return None

@@ -84,6 +84,15 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+      # Unstripped kernel, to symbolize the RIP samples qemutest.py takes
+      # when a boot stalls (nm -n kernel | awk '$1 <= rip' | tail -1).
+      - name: Upload kernel symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-elf
+          path: obj.amd64/minix/kernel/kernel
+          retention-days: 7
+
   # The guests run under TCG here.  GitHub's Linux runners do have /dev/kvm
   # (a udev rule opens it), but under that nested KVM the MINIX kernel
   # panics during boot -- minix/kernel/arch/x86_64/memory.c:201,
@@ -127,6 +136,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: minix_amd64.iso
+
+      # Which host this shard drew: the early-boot stall under TCG seems to
+      # follow the machine (three attempts in a row on one runner, none on
+      # the others), so the model is worth correlating.
+      - name: Host info
+        run: |
+          lscpu | grep -E 'Model name|^CPU\(s\)|Hypervisor'
+          qemu-system-x86_64 --version | head -1
 
       # Every shard boots the image first, so a boot regression shows up in
       # all of them at once, within a couple of minutes.
