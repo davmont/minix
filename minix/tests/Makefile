@@ -18,6 +18,7 @@ LDADD+=		-lm
 
 .include <bsd.own.mk>
 
+SUBDIR+=		pjdfstest
 SUBDIR+=		blocktest
 SUBDIR+=		ddekit
 SUBDIR+=		rmibtest

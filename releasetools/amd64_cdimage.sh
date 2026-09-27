@@ -11,7 +11,9 @@ set -e
 : ${TOOLCHAIN_TRIPLET=x86_64-elf64-minix-}
 : ${BUILDSH=build.sh}
 
-: ${SETS="minix-base minix-man"}
+# minix-tests (1.2 MB) puts /usr/tests/minix-posix on every ISO so
+# releasetools/qemutest.py can run the POSIX suite against the image as built.
+: ${SETS="minix-base minix-man minix-tests"}
 : ${IMG=minix_amd64.iso}
 : ${BUNDLE_SETS=1}
 

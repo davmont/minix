@@ -33,7 +33,7 @@ BINMODE=	444
 
 .PATH:		${.CURDIR}/..
 
-LDFLAGS+=	-nostdlib -Wl,-e,start
+LDFLAGS+=	-static -nostdlib -Wl,-e,start
 CPPFLAGS+=	-I. -I${.CURDIR}/../lib -I${S}
 CPPFLAGS+=	-DPRIMARY_LOAD_ADDRESS=${PRIMARY_LOAD_ADDRESS}
 CPPFLAGS+=	-DSECONDARY_LOAD_ADDRESS=${SECONDARY_LOAD_ADDRESS}
@@ -54,10 +54,10 @@ CLEANFILES+=	${PROG}.tmp
 ${PROG}: ${OBJS}
 	${_MKTARGET_LINK}
 .if defined(__MINIX)
-	${CC} -o ${PROG}.tmp ${LDFLAGS} -Wl,--section-start=.text=${PRIMARY_LOAD_ADDRESS} \
+	${CC} -o ${PROG}.tmp ${LDFLAGS} -Wl,--section-start=.text=${PRIMARY_LOAD_ADDRESS} -Wl,--image-base=0 \
 	    ${OBJS}
 .else
-	${CC} -o ${PROG}.tmp ${LDFLAGS} -Wl,-Ttext,${PRIMARY_LOAD_ADDRESS} \
+	${CC} -o ${PROG}.tmp ${LDFLAGS} -Wl,-Ttext,${PRIMARY_LOAD_ADDRESS} -Wl,--image-base=0 \
 	    ${OBJS}
 .endif
 	@ set -- $$( ${NM} -t d ${PROG}.tmp | grep '\<free_space\>' \

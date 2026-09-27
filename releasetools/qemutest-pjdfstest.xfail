@@ -1,0 +1,63 @@
+# Known failures of pjdfstest on amd64/MFS4, for releasetools/qemutest.py
+# --suite pjdfstest --xfail.  Same format as qemutest.xfail.  Baseline taken
+# 2026-09-26: 184 of 238 scripts pass.  Remove a script here in the change
+# that fixes it; XPASS fails the run.
+
+# A NULL path must fail with EFAULT; libc dereferences it and the helper dies
+# (link/17 and rename/17 segfault the same way).
+chmod/10.t
+chown/10.t
+ftruncate/14.t
+link/17.t
+mkdir/12.t
+mkfifo/12.t
+mknod/10.t
+open/21.t
+rename/17.t
+rmdir/15.t
+symlink/12.t
+truncate/14.t
+unlink/13.t
+
+# utimensat(dirfd, relative) is rejected: the *at() calls resolve only
+# AT_FDCWD or absolute paths (the VFS has no dirfd support yet).
+utimensat/00.t
+utimensat/01.t
+utimensat/02.t
+utimensat/04.t
+utimensat/05.t
+utimensat/06.t
+utimensat/07.t
+utimensat/08.t
+utimensat/09.t
+
+# O_NOFOLLOW is accepted and ignored: open() follows the symlink, no ELOOP.
+open/06.t
+open/16.t
+
+# truncate() of a directory returns EINVAL instead of EISDIR;
+# ftruncate() of a read-only descriptor returns EBADF instead of EINVAL.
+ftruncate/09.t
+truncate/09.t
+ftruncate/00.t
+
+# Permission semantics for an unprivileged user: set-id bits must clear on
+# a write by a non-owner, chown may only move to a group the caller is in,
+# and the sticky bit must restrict unlink/rmdir to the file's owner.
+chmod/11.t
+chmod/12.t
+chown/00.t
+chown/05.t
+chown/07.t
+rmdir/11.t
+unlink/11.t
+
+# Long path handling: components and targets past the MFS limits do not
+# fail with ENAMETOOLONG the way POSIX expects.
+link/01.t
+rename/09.t
+rename/10.t
+rename/12.t
+symlink/01.t
+symlink/02.t
+symlink/03.t

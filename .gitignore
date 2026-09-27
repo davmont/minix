@@ -93,7 +93,9 @@ minix/drivers/storage/ramdisk/image
 
 # Additional build artifacts
 a.out
-boot/
+# Only the top-level image work dir: a bare "boot/" also swallowed the
+# sys/arch/i386/stand/boot loader sources.
+/boot/
 *.map
 *.sym
 vers.c
@@ -175,3 +177,6 @@ tools/llvm-lld/*-ld.lld
 /external/mit/wayland/lib/libwayland-client/wayland-version.h
 /external/mit/wayland/lib/libwayland-cursor/wayland-scanner
 /external/mit/wayland/lib/libwayland-cursor/wayland-version.h
+
+# releasetools/qemutest.py output
+/qemutest-logs/
