@@ -561,7 +561,8 @@ static int calib_clk_handler(irq_hook_t * UNUSED(hook))
 	probe_ticks++;
 	read_tsc_64(&tsc);
 	tcrt = lapic_read(LAPIC_TIMER_CCR);
-
+	if (probe_ticks <= CALIB_TRACE)
+		calib_tick_tsc[probe_ticks - 1] = tsc;
 
 	if (probe_ticks == 1) {
 		lapic_tctr0 = tcrt;

@@ -49,30 +49,72 @@ static u64_t tsc0, tsc1;
  */
 #define CALIB_TIMEOUT_CYCLES	20000000000ULL
 
+/* TSC at each of the first probe ticks, for the timeout diagnostic. */
+u64_t calib_tick_tsc[CALIB_TRACE];
+static u64_t calib_start_tsc;
+
+#define RFLAGS_IF	(1UL << 9)
+
+static inline unsigned long read_rflags(void)
+{
+	unsigned long f;
+	__asm__ __volatile__("pushfq; popq %0" : "=r"(f));
+	return f;
+}
+
+/* Latched channel-0 count: shows whether the PIT is counting at all. */
+static unsigned pit_count(void)
+{
+	unsigned lo, hi;
+	outb(TIMER_MODE, LATCH_COUNT);
+	lo = inb(TIMER0);
+	hi = inb(TIMER0);
+	return lo | (hi << 8);
+}
+
 /*
  * Spin with interrupts enabled until the PIT has delivered `want` IRQ 0
  * ticks into *ticks.  Returns 1 when it has, 0 on timeout after printing
- * what arrived and how the master 8259 looks, so a machine whose timer
- * interrupt is dead says so instead of hanging silently.
+ * what arrived, when, and how the PIT and the master 8259 look, so a
+ * machine whose timer interrupt is dead says so instead of hanging
+ * silently.
  */
 int wait_for_pit_ticks(volatile unsigned *ticks, unsigned want,
 	const char *who)
 {
-	u64_t start, now;
-	unsigned imr, irr, isr;
+	u64_t now, t;
+	unsigned imr, irr, isr, c0, c1, i;
 
-	read_tsc_64(&start);
-	intr_enable();
+	read_tsc_64(&calib_start_tsc);
 	while (*ticks < want) {
-		intr_enable();
+		/*
+		 * A hardware interrupt taken in kernel mode returns with IF
+		 * cleared (CLEAR_IF in mpx.S), so re-enable after each tick
+		 * -- but only then.  Under TCG every sti ends a translation
+		 * block, and the tight sti loop this used to be is suspected
+		 * of starving QEMU's timer thread on busy hosts (CI saw 3
+		 * ticks in 8 s).
+		 */
+		if (!(read_rflags() & RFLAGS_IF))
+			intr_enable();
+		arch_pause();
 		read_tsc_64(&now);
-		if (now - start > CALIB_TIMEOUT_CYCLES) {
+		if (now - calib_start_tsc > CALIB_TIMEOUT_CYCLES) {
 			intr_disable();
 			i8259_status(&imr, &irr, &isr);
+			c0 = pit_count();
+			do { read_tsc_64(&t); } while (t - now < 100000000ULL);
+			c1 = pit_count();
 			printf("%s: only %u of %u PIT ticks in %llu TSC cycles; "
-			    "i8259 master imr=%02x irr=%02x isr=%02x\n",
-			    who, *ticks, want, (unsigned long long)(now - start),
-			    imr, irr, isr);
+			    "i8259 master imr=%02x irr=%02x isr=%02x; "
+			    "PIT count %u -> %u over 1e8 cycles; ticks at",
+			    who, *ticks, want,
+			    (unsigned long long)(now - calib_start_tsc),
+			    imr, irr, isr, c0, c1);
+			for (i = 0; i < *ticks && i < CALIB_TRACE; i++)
+				printf(" +%llu", (unsigned long long)
+				    (calib_tick_tsc[i] - calib_start_tsc));
+			printf("\n");
 			return 0;
 		}
 	}
@@ -160,7 +202,8 @@ static int calib_cpu_handler(irq_hook_t * UNUSED(hook))
 
 	probe_ticks++;
 	read_tsc_64(&tsc);
-
+	if (probe_ticks <= CALIB_TRACE)
+		calib_tick_tsc[probe_ticks - 1] = tsc;
 
 	if (probe_ticks == 1) {
 		tsc0 = tsc;
