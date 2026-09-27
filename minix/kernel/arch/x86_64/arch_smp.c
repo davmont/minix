@@ -329,6 +329,13 @@ void smp_init(void)
 	if (!lapic_enable(bsp_cpu_id)) {
 		__smp_mark("SMP_INIT-bsp_lapic_FAILED");
 		printf("ERROR : failed to initialize BSP Local APIC\n");
+		/*
+		 * Route PIC interrupts through LINT0 again and forget the
+		 * LAPIC, or init_local_timer() would still program a LAPIC
+		 * timer whose bus frequency was never measured.
+		 */
+		lapic_disable();
+		lapic_addr = 0x0;
 		goto uniproc_fallback;
 	}
 	__smp_mark("SMP_INIT-post-lapic_enable");

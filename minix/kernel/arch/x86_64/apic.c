@@ -586,7 +586,12 @@ static int spurious_irq_handler(irq_hook_t * UNUSED(hook))
 	return 1;
 }
 
-static void apic_calibrate_clocks(unsigned cpu)
+/*
+ * Measure the LAPIC bus and TSC frequencies against the PIT.  Returns 1 on
+ * success; 0 when the PIT's IRQ 0 never came, with the LAPIC left as it
+ * was found so the caller can fall back to the legacy PIC timer.
+ */
+static int apic_calibrate_clocks(unsigned cpu)
 {
 	u32_t lvtt, val, lapic_delta;
 	u64_t tsc_delta;
@@ -647,14 +652,19 @@ static void apic_calibrate_clocks(unsigned cpu)
 	 * corner case for APIC timer calibration
 	 */
 	BKL_UNLOCK();
-	intr_enable();
 
 	/* loop for some time to get a sample */
-	while(probe_ticks < PROBE_TICKS) {
-		intr_enable();
+	if (!wait_for_pit_ticks(&probe_ticks, PROBE_TICKS,
+	    "apic_calibrate_clocks")) {
+		BKL_LOCK();
+		stop_8253A_timer();
+		rm_irq_handler(&calib_clk);
+		rm_irq_handler(&spurious_irq);
+		printf("apic: LINT0=0x%x SVR=0x%x; falling back to the "
+		    "legacy PIC timer\n", lapic_read(LAPIC_LINT0),
+		    lapic_read(LAPIC_SIVR));
+		return 0;
 	}
-
-	intr_disable();
 	BKL_LOCK();
 
 	/* remove the probe */
@@ -671,6 +681,7 @@ static void apic_calibrate_clocks(unsigned cpu)
 	cpu_set_freq(cpuid, cpu_freq);
 	cpu_info[cpuid].freq = (unsigned long)(cpu_freq / 1000000);
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
+	return 1;
 }
 
 /*
@@ -975,7 +986,8 @@ int lapic_enable(unsigned cpu)
 	(void) lapic_read (LAPIC_SIVR);
 	apic_eoi();
 
-	apic_calibrate_clocks(cpu);
+	if (!apic_calibrate_clocks(cpu))
+		return 0;
 	BOOT_VERBOSE(printf("APIC timer calibrated\n"));
 
 	/*

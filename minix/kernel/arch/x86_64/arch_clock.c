@@ -4,6 +4,7 @@
 
 #include "kernel/clock.h"
 #include "kernel/interrupt.h"
+#include "hw_intr.h"
 #include <minix/u64.h>
 
 #include <sys/sched.h> /* for CP_*, CPUSTATES */
@@ -34,9 +35,50 @@
 
 static irq_hook_t pic_timer_hook;		/* interrupt handler hook */
 
-static unsigned probe_ticks;
+static volatile unsigned probe_ticks;
 static u64_t tsc0, tsc1;
 #define PROBE_TICKS	(system_hz / 10)
+
+/*
+ * Wall-time bound on waiting for the PIT during clock calibration, in TSC
+ * cycles.  The TSC rate is exactly what is being measured, so assume the
+ * fastest plausible clock: 20e9 cycles is 2 s at 10 GHz and 10 s at 2 GHz,
+ * against a probe that needs 100 ms.  Under QEMU TCG on some hosted CI
+ * runners IRQ 0 never arrives at all, and without this bound the kernel
+ * spun forever in the probe loop before printing anything.
+ */
+#define CALIB_TIMEOUT_CYCLES	20000000000ULL
+
+/*
+ * Spin with interrupts enabled until the PIT has delivered `want` IRQ 0
+ * ticks into *ticks.  Returns 1 when it has, 0 on timeout after printing
+ * what arrived and how the master 8259 looks, so a machine whose timer
+ * interrupt is dead says so instead of hanging silently.
+ */
+int wait_for_pit_ticks(volatile unsigned *ticks, unsigned want,
+	const char *who)
+{
+	u64_t start, now;
+	unsigned imr, irr, isr;
+
+	read_tsc_64(&start);
+	intr_enable();
+	while (*ticks < want) {
+		intr_enable();
+		read_tsc_64(&now);
+		if (now - start > CALIB_TIMEOUT_CYCLES) {
+			intr_disable();
+			i8259_status(&imr, &irr, &isr);
+			printf("%s: only %u of %u PIT ticks in %llu TSC cycles; "
+			    "i8259 master imr=%02x irr=%02x isr=%02x\n",
+			    who, *ticks, want, (unsigned long long)(now - start),
+			    imr, irr, isr);
+			return 0;
+		}
+	}
+	intr_disable();
+	return 1;
+}
 
 static unsigned tsc_per_ms[CONFIG_MAX_CPUS];
 static unsigned tsc_per_tick[CONFIG_MAX_CPUS];
@@ -144,15 +186,14 @@ static void estimate_cpu_freq(void)
 
 	/* just in case we are in an SMP single cpu fallback mode */
 	BKL_UNLOCK();
-	/* set the PIC timer to get some time */
-	intr_enable();
-
-	/* loop for some time to get a sample */
-	while(probe_ticks < PROBE_TICKS) {
-		intr_enable();
-	}
-
-	intr_disable();
+	/*
+	 * Loop for some time to get a sample.  With no APIC to fall back
+	 * from, a dead IRQ 0 leaves nothing to drive the clock: stop here
+	 * with the diagnostic rather than hang.
+	 */
+	if (!wait_for_pit_ticks(&probe_ticks, PROBE_TICKS,
+	    "estimate_cpu_freq"))
+		panic("no PIT interrupts: cannot calibrate the clock");
 	/* just in case we are in an SMP single cpu fallback mode */
 	BKL_LOCK();
 
