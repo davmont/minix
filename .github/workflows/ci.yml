@@ -152,6 +152,10 @@ jobs:
           python3 releasetools/qemutest.py --iso minix_amd64.iso --no-kvm \
             --suite boot --log-dir ${LOGS}/boot
 
+      # 40 minutes per test: the hosted runners are about twice as slow as a
+      # desktop under TCG, and the syscall-heavy tests (30, 38, 70) take
+      # 800-1300 s there -- the default 20 minutes was a coin flip for them.
+      # Known hangs are bounded individually in the xfail lists.
       - name: POSIX quick suite
         if: matrix.suite == 'quick'
         run: |
@@ -159,7 +163,7 @@ jobs:
             --suite quick --shard ${{ matrix.shard }} \
             --xfail releasetools/qemutest.xfail \
             --xfail releasetools/qemutest-tcg.xfail \
-            --log-dir ${LOGS}/quick
+            --test-timeout 2400 --log-dir ${LOGS}/quick
 
       - name: pjdfstest (POSIX file-system conformance)
         if: matrix.suite == 'pjdfstest'
