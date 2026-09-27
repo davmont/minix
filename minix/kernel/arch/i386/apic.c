@@ -514,7 +514,9 @@ static void apic_calibrate_clocks(unsigned cpu)
 	lapic_delta = lapic_tctr0 - lapic_tctr1;
 	tsc_delta = tsc1 - tsc0;
 
-	lapic_bus_freq[cpuid] = system_hz * lapic_delta / (PROBE_TICKS - 1);
+	/* 64-bit: 60 * 83M overflows u32 on QEMU's 1 GHz LAPIC (see x86_64). */
+	lapic_bus_freq[cpuid] = (u32_t)((u64_t)system_hz * lapic_delta /
+	    (PROBE_TICKS - 1));
 	BOOT_VERBOSE(printf("APIC bus freq %u MHz\n",
 				lapic_bus_freq[cpuid] / 1000000));
 	cpu_freq = (tsc_delta / (PROBE_TICKS - 1)) * make64(system_hz, 0);
