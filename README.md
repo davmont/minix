@@ -168,7 +168,9 @@ anything new fails the run, and a listed test that starts passing fails the run
 until it is removed from the list.  `--shard K/N` runs every Nth test starting
 at the Kth, so N machines can split a suite.  `.github/workflows/ci.yml` builds
 the ISO once on every push and pull request and runs the quick suite and
-pjdfstest across six such shards under TCG.
+pjdfstest across six such shards under the runner's KVM, plus both suites
+once more on a two-CPU guest (`--smp 2`); a manual run with `tcg=true` takes
+the slow TCG path.
 
 ### Running in QEMU
 

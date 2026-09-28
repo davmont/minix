@@ -360,9 +360,9 @@ def main():
                          "the run so the list gets updated.")
     ap.add_argument("--mem", type=int, default=1024)
     ap.add_argument("--smp", type=int, default=1,
-                    help="CPUs (default 1: with 2, SMP bring-up hangs "
-                         "intermittently under TCG and panics under nested "
-                         "KVM in memory.c lin_lin_copy; pass 2 to test SMP)")
+                    help="CPUs (default 1; 2 exercises the SMP paths, fine "
+                         "under KVM, hangs intermittently at bring-up "
+                         "under TCG)")
     ap.add_argument("--no-kvm", action="store_true")
     ap.add_argument("--qemu", default="qemu-system-x86_64")
     ap.add_argument("--log-dir", default="qemutest-logs")
