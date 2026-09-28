@@ -129,9 +129,20 @@ jobs:
             shard: 1/2
           - suite: pjdfstest
             shard: 2/2
-    name: test (${{ matrix.suite }} ${{ matrix.shard }})
+          # SMP coverage: the same suites once more on a two-CPU guest, in
+          # a single shard each (cheap under KVM).  This is where the
+          # kernel's SMP paths -- runqueue and BKL locking, IPIs, per-CPU
+          # timers -- get exercised on every PR.
+          - suite: quick
+            shard: 1/1
+            smp: 2
+          - suite: pjdfstest
+            shard: 1/1
+            smp: 2
+    name: test (${{ matrix.suite }} ${{ matrix.shard }}${{ matrix.smp && format(' smp{0}', matrix.smp) || '' }})
     env:
-      LOGS: qemutest-logs/${{ matrix.suite }}-${{ matrix.shard }}
+      LOGS: qemutest-logs/${{ matrix.suite }}-${{ matrix.shard }}${{ matrix.smp && format('-smp{0}', matrix.smp) || '' }}
+      SMP: ${{ matrix.smp || 1 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -165,7 +176,7 @@ jobs:
       - name: Boot test
         run: |
           python3 releasetools/qemutest.py --iso minix_amd64.iso ${ACCEL} \
-            --suite boot --log-dir ${LOGS}/boot
+            --smp ${SMP} --suite boot --log-dir ${LOGS}/boot
 
       # 40 minutes per test for the TCG case: the hosted runners are about
       # twice as slow as a desktop there, and the syscall-heavy tests (30,
@@ -176,7 +187,7 @@ jobs:
         if: matrix.suite == 'quick'
         run: |
           python3 releasetools/qemutest.py --iso minix_amd64.iso ${ACCEL} \
-            --suite quick --shard ${{ matrix.shard }} \
+            --smp ${SMP} --suite quick --shard ${{ matrix.shard }} \
             --xfail releasetools/qemutest.xfail \
             --xfail releasetools/qemutest-tcg.xfail \
             --test-timeout 2400 --log-dir ${LOGS}/quick
@@ -185,7 +196,7 @@ jobs:
         if: matrix.suite == 'pjdfstest'
         run: |
           python3 releasetools/qemutest.py --iso minix_amd64.iso ${ACCEL} \
-            --suite pjdfstest --shard ${{ matrix.shard }} \
+            --smp ${SMP} --suite pjdfstest --shard ${{ matrix.shard }} \
             --xfail releasetools/qemutest-pjdfstest.xfail \
             --test-timeout 600 --log-dir ${LOGS}/pjdfstest
 
@@ -193,6 +204,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qemutest-logs-${{ matrix.suite }}-${{ strategy.job-index }}
+          name: qemutest-logs-${{ matrix.suite }}-${{ strategy.job-index }}${{ matrix.smp && format('-smp{0}', matrix.smp) || '' }}
           path: qemutest-logs
           if-no-files-found: ignore

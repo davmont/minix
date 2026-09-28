@@ -28,10 +28,10 @@ marker that the shell prints only once the command has finished; the echo
 is split-quoted so the command's own echo can never match it.
 
 Tests run one at a time, each under its own timeout.  A test that hangs is
-interrupted; if the guest no longer answers at all (some hangs take the
-console down with them) the VM is thrown away, a fresh one is booted and
-staged, and the run carries on with the next test.  The run script's -T
-flag produces TAP, which is parsed per test.
+interrupted and its VM thrown away (^C reaches only the foreground job, and
+what a storage or VM test leaves behind can hang the tests after it); a
+fresh guest is booted and staged, and the run carries on with the next
+test.  The run script's -T flag produces TAP, which is parsed per test.
 
 Exit codes: 0 all tests passed, 1 some test failed or hung, 2 the image
 did not boot or log in, 3 the host could not keep a guest running, 4 bad
@@ -349,8 +349,9 @@ def main():
                          "boot in six stalls early in kmain)")
     ap.add_argument("--boot-timeout", type=int, default=0,
                     help="seconds to reach login: (default: 300 KVM, 600 TCG)")
-    ap.add_argument("--max-reboots", type=int, default=5,
-                    help="give up after this many guest wedges")
+    ap.add_argument("--max-reboots", type=int, default=10,
+                    help="give up after this many hung or wedged tests "
+                         "(each costs a reboot: ~40 s on KVM)")
     ap.add_argument("--xfail", metavar="FILE", action="append", default=[],
                     help="known failures (may be repeated; the lists are "
                          "merged): one test per line, optionally "
@@ -360,9 +361,9 @@ def main():
                          "the run so the list gets updated.")
     ap.add_argument("--mem", type=int, default=1024)
     ap.add_argument("--smp", type=int, default=1,
-                    help="CPUs (default 1: with 2, SMP bring-up hangs "
-                         "intermittently under TCG and panics under nested "
-                         "KVM in memory.c lin_lin_copy; pass 2 to test SMP)")
+                    help="CPUs (default 1; 2 exercises the SMP paths, fine "
+                         "under KVM, hangs intermittently at bring-up "
+                         "under TCG)")
     ap.add_argument("--no-kvm", action="store_true")
     ap.add_argument("--qemu", default="qemu-system-x86_64")
     ap.add_argument("--log-dir", default="qemutest-logs")
@@ -485,28 +486,32 @@ def main():
                                  xfail.get(t, (None,))[0] or test_timeout)
                 verdict = verdict_for(t, out)
             except Timeout:
+                # A hung test is thrown away together with its guest: ^C
+                # only reaches the foreground job, and what a storage or VM
+                # test leaves running behind it has been seen to hang the
+                # next three tests (CI run 36409953145).  "wedge" says the
+                # console itself had died; either way the run continues on
+                # a fresh, freshly staged guest.
                 verdict = "hang"
                 try:
                     ser.interrupt()
                 except Timeout:
-                    # The console is gone with the test.  Start over on a
-                    # fresh guest so the remaining tests still run.
                     verdict = "wedge"
-                    reboots += 1
-                    guest.stop()
-                    if reboots > args.max_reboots:
-                        print("qemutest: guest wedged %d times, giving up"
-                              % reboots)
-                        results[t] = verdict
-                        break
-                    print("qemutest: test %s took the guest down; "
-                          "rebooting (%d/%d)"
-                          % (t, reboots, args.max_reboots), flush=True)
-                    guest = fresh_guest(args, log)
-                    if guest is None:
-                        results[t] = verdict
-                        break
-                    ser = guest.ser
+                reboots += 1
+                guest.stop()
+                if reboots > args.max_reboots:
+                    print("qemutest: guest rebooted %d times, giving up"
+                          % reboots)
+                    results[t] = verdict
+                    break
+                print("qemutest: test %s %s; rebooting (%d/%d)"
+                      % (t, "took the guest down" if verdict == "wedge"
+                         else "hung", reboots, args.max_reboots), flush=True)
+                guest = fresh_guest(args, log)
+                if guest is None:
+                    results[t] = verdict
+                    break
+                ser = guest.ser
             # A known failure that fails is expected; one that passes means
             # the list is stale, which is worth failing the run for.
             if t in xfail and verdict != "skip":

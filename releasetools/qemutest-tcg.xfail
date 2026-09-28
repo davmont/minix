@@ -28,3 +28,7 @@
 # hosted runners once the clock ran at the right rate (PR #362).  Half an
 # hour lets it finish there without holding the shard hostage.
 70:1800 flaky
+
+# Storage hierarchy: 450 s on the hosted runners under TCG when it works.
+# Overrides the KVM-sized bound in qemutest.xfail (the later list wins).
+71:1200 flaky
