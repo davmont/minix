@@ -7,6 +7,7 @@ void irq_8259_mask(int irq);
 void irq_8259_eoi(int irq);
 void irq_handle(int irq);
 void i8259_disable(void);
+void i8259_status(unsigned *imr, unsigned *irr, unsigned *isr);
 void eoi_8259_master(void);
 void eoi_8259_slave(void);
 

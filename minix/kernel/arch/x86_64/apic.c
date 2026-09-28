@@ -561,7 +561,8 @@ static int calib_clk_handler(irq_hook_t * UNUSED(hook))
 	probe_ticks++;
 	read_tsc_64(&tsc);
 	tcrt = lapic_read(LAPIC_TIMER_CCR);
-
+	if (probe_ticks <= CALIB_TRACE)
+		calib_tick_tsc[probe_ticks - 1] = tsc;
 
 	if (probe_ticks == 1) {
 		lapic_tctr0 = tcrt;
@@ -586,7 +587,12 @@ static int spurious_irq_handler(irq_hook_t * UNUSED(hook))
 	return 1;
 }
 
-static void apic_calibrate_clocks(unsigned cpu)
+/*
+ * Measure the LAPIC bus and TSC frequencies against the PIT.  Returns 1 on
+ * success; 0 when the PIT's IRQ 0 never came, with the LAPIC left as it
+ * was found so the caller can fall back to the legacy PIC timer.
+ */
+static int apic_calibrate_clocks(unsigned cpu)
 {
 	u32_t lvtt, val, lapic_delta;
 	u64_t tsc_delta;
@@ -647,14 +653,19 @@ static void apic_calibrate_clocks(unsigned cpu)
 	 * corner case for APIC timer calibration
 	 */
 	BKL_UNLOCK();
-	intr_enable();
 
 	/* loop for some time to get a sample */
-	while(probe_ticks < PROBE_TICKS) {
-		intr_enable();
+	if (!wait_for_pit_ticks(&probe_ticks, PROBE_TICKS,
+	    "apic_calibrate_clocks")) {
+		BKL_LOCK();
+		stop_8253A_timer();
+		rm_irq_handler(&calib_clk);
+		rm_irq_handler(&spurious_irq);
+		printf("apic: LINT0=0x%x SVR=0x%x; falling back to the "
+		    "legacy PIC timer\n", lapic_read(LAPIC_LINT0),
+		    lapic_read(LAPIC_SIVR));
+		return 0;
 	}
-
-	intr_disable();
 	BKL_LOCK();
 
 	/* remove the probe */
@@ -664,13 +675,39 @@ static void apic_calibrate_clocks(unsigned cpu)
 	lapic_delta = lapic_tctr0 - lapic_tctr1;
 	tsc_delta = tsc1 - tsc0;
 
-	lapic_bus_freq[cpuid] = system_hz * lapic_delta / (PROBE_TICKS - 1);
+	/*
+	 * 64-bit arithmetic: QEMU's LAPIC counts at 1 GHz, so system_hz *
+	 * lapic_delta (60 * 83M) overflows 32 bits and used to yield ~140
+	 * MHz for a 1000 MHz bus -- every ICR one-shot fired 7x early and
+	 * the clock ran 7x fast wherever TSC-deadline mode was not used.
+	 */
+	lapic_bus_freq[cpuid] = (u32_t)((u64_t)system_hz * lapic_delta /
+	    (PROBE_TICKS - 1));
 	BOOT_VERBOSE(printf("APIC bus freq %u MHz\n",
 				lapic_bus_freq[cpuid] / 1000000));
 	cpu_freq = (tsc_delta / (PROBE_TICKS - 1)) * make64(system_hz, 0);
 	cpu_set_freq(cpuid, cpu_freq);
 	cpu_info[cpuid].freq = (unsigned long)(cpu_freq / 1000000);
 	BOOT_VERBOSE(cpu_print_freq(cpuid));
+	{
+		/*
+		 * Cross-check the bus frequency straight against the TSC
+		 * (masked timer, DCR=1, 1e8 cycles), so a calibration that
+		 * went wrong is visible in the boot messages.
+		 */
+		unsigned c0, c1;
+		u64_t t0, t;
+		lapic_write(LAPIC_TIMER_ICR, 0xffffffff);
+		read_tsc_64(&t0);
+		c0 = lapic_read(LAPIC_TIMER_CCR);
+		do { read_tsc_64(&t); } while (t - t0 < 100000000ULL);
+		c1 = lapic_read(LAPIC_TIMER_CCR);
+		printf("apic: LAPIC bus %u MHz (direct check %u MHz), TSC %u "
+		    "MHz\n", lapic_bus_freq[cpuid] / 1000000,
+		    (unsigned)((u64_t)(c0 - c1) * cpu_info[cpuid].freq /
+		    (t - t0)), (unsigned)cpu_info[cpuid].freq);
+	}
+	return 1;
 }
 
 /*
@@ -975,7 +1012,8 @@ int lapic_enable(unsigned cpu)
 	(void) lapic_read (LAPIC_SIVR);
 	apic_eoi();
 
-	apic_calibrate_clocks(cpu);
+	if (!apic_calibrate_clocks(cpu))
+		return 0;
 	BOOT_VERBOSE(printf("APIC timer calibrated\n"));
 
 	/*
@@ -990,6 +1028,8 @@ int lapic_enable(unsigned cpu)
 		BOOT_VERBOSE(printf("apic: TSC-deadline timer enabled on cpu %d "
 		    "(TSC %u MHz)\n", cpu, cpu_info[cpu].freq));
 	}
+	printf("apic: timer mode %s\n",
+	    use_tsc_deadline ? "TSC-deadline" : "one-shot ICR");
 
 	return 1;
 }

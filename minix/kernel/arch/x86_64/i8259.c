@@ -63,6 +63,21 @@ void irq_8259_mask(const int irq)
 	outb(ctl_mask, inb(ctl_mask) | (1 << (irq & 0x7)));
 }
 
+/*
+ * Snapshot of the master 8259: mask, request and in-service registers.
+ * For diagnostics when an expected interrupt (the PIT's IRQ 0 during
+ * clock calibration) never shows up.
+ */
+void i8259_status(unsigned *imr, unsigned *irr, unsigned *isr)
+{
+	*imr = inb(INT_CTLMASK);
+	outb(INT_CTL, 0x0a);		/* OCW3: read IRR */
+	*irr = inb(INT_CTL);
+	outb(INT_CTL, 0x0b);		/* OCW3: read ISR */
+	*isr = inb(INT_CTL);
+	outb(INT_CTL, 0x0a);		/* back to the reset default */
+}
+
 /* Disable 8259 - write 0xFF in OCW1 master and slave. */
 void i8259_disable(void)
 {

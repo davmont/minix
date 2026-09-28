@@ -22,3 +22,9 @@
 27:600 flaky
 28:600 flaky
 32:600 flaky
+
+# Pure syscall throughput: two processes doing 5000 x 1000 lseek()s.  59 s
+# on KVM, 565 s under TCG on a desktop, past the default 20 minutes on the
+# hosted runners once the clock ran at the right rate (PR #362).  Half an
+# hour lets it finish there without holding the shard hostage.
+70:1800 flaky

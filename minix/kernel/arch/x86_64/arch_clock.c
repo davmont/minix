@@ -4,6 +4,7 @@
 
 #include "kernel/clock.h"
 #include "kernel/interrupt.h"
+#include "hw_intr.h"
 #include <minix/u64.h>
 
 #include <sys/sched.h> /* for CP_*, CPUSTATES */
@@ -34,9 +35,92 @@
 
 static irq_hook_t pic_timer_hook;		/* interrupt handler hook */
 
-static unsigned probe_ticks;
+static volatile unsigned probe_ticks;
 static u64_t tsc0, tsc1;
 #define PROBE_TICKS	(system_hz / 10)
+
+/*
+ * Wall-time bound on waiting for the PIT during clock calibration, in TSC
+ * cycles.  The TSC rate is exactly what is being measured, so assume the
+ * fastest plausible clock: 20e9 cycles is 2 s at 10 GHz and 10 s at 2 GHz,
+ * against a probe that needs 100 ms.  Under QEMU TCG on some hosted CI
+ * runners IRQ 0 never arrives at all, and without this bound the kernel
+ * spun forever in the probe loop before printing anything.
+ */
+#define CALIB_TIMEOUT_CYCLES	20000000000ULL
+
+/* TSC at each of the first probe ticks, for the timeout diagnostic. */
+u64_t calib_tick_tsc[CALIB_TRACE];
+static u64_t calib_start_tsc;
+
+#define RFLAGS_IF	(1UL << 9)
+
+static inline unsigned long read_rflags(void)
+{
+	unsigned long f;
+	__asm__ __volatile__("pushfq; popq %0" : "=r"(f));
+	return f;
+}
+
+/* Latched channel-0 count: shows whether the PIT is counting at all. */
+static unsigned pit_count(void)
+{
+	unsigned lo, hi;
+	outb(TIMER_MODE, LATCH_COUNT);
+	lo = inb(TIMER0);
+	hi = inb(TIMER0);
+	return lo | (hi << 8);
+}
+
+/*
+ * Spin with interrupts enabled until the PIT has delivered `want` IRQ 0
+ * ticks into *ticks.  Returns 1 when it has, 0 on timeout after printing
+ * what arrived, when, and how the PIT and the master 8259 look, so a
+ * machine whose timer interrupt is dead says so instead of hanging
+ * silently.
+ */
+int wait_for_pit_ticks(volatile unsigned *ticks, unsigned want,
+	const char *who)
+{
+	u64_t now, t;
+	unsigned imr, irr, isr, c0, c1, i;
+
+	read_tsc_64(&calib_start_tsc);
+	while (*ticks < want) {
+		/*
+		 * A hardware interrupt taken in kernel mode returns with IF
+		 * cleared (CLEAR_IF in mpx.S), so re-enable after each tick
+		 * -- but only then.  Under TCG every sti ends a translation
+		 * block, and the tight sti loop this used to be is suspected
+		 * of starving QEMU's timer thread on busy hosts (CI saw 3
+		 * ticks in 8 s).
+		 */
+		if (!(read_rflags() & RFLAGS_IF))
+			intr_enable();
+		arch_pause();
+		read_tsc_64(&now);
+		if (now - calib_start_tsc > CALIB_TIMEOUT_CYCLES) {
+			intr_disable();
+			i8259_status(&imr, &irr, &isr);
+			c0 = pit_count();
+			do { read_tsc_64(&t); } while (t - now < 100000000ULL);
+			c1 = pit_count();
+			printf("%s: only %u of %u PIT ticks in %llu TSC cycles; "
+			    "i8259 master imr=%02x irr=%02x isr=%02x; "
+			    "PIT count %u -> %u over 1e8 cycles; ticks at",
+			    who, *ticks, want,
+			    (unsigned long long)(now - calib_start_tsc),
+			    imr, irr, isr, c0, c1);
+			for (i = 0; i < *ticks && i < CALIB_TRACE; i++)
+				printf(" +%llu", (unsigned long long)
+				    (calib_tick_tsc[i] - calib_start_tsc));
+			printf("\n");
+			return 0;
+		}
+	}
+	intr_disable();
+	return 1;
+}
 
 static unsigned tsc_per_ms[CONFIG_MAX_CPUS];
 static unsigned tsc_per_tick[CONFIG_MAX_CPUS];
@@ -118,7 +202,8 @@ static int calib_cpu_handler(irq_hook_t * UNUSED(hook))
 
 	probe_ticks++;
 	read_tsc_64(&tsc);
-
+	if (probe_ticks <= CALIB_TRACE)
+		calib_tick_tsc[probe_ticks - 1] = tsc;
 
 	if (probe_ticks == 1) {
 		tsc0 = tsc;
@@ -144,15 +229,14 @@ static void estimate_cpu_freq(void)
 
 	/* just in case we are in an SMP single cpu fallback mode */
 	BKL_UNLOCK();
-	/* set the PIC timer to get some time */
-	intr_enable();
-
-	/* loop for some time to get a sample */
-	while(probe_ticks < PROBE_TICKS) {
-		intr_enable();
-	}
-
-	intr_disable();
+	/*
+	 * Loop for some time to get a sample.  With no APIC to fall back
+	 * from, a dead IRQ 0 leaves nothing to drive the clock: stop here
+	 * with the diagnostic rather than hang.
+	 */
+	if (!wait_for_pit_ticks(&probe_ticks, PROBE_TICKS,
+	    "estimate_cpu_freq"))
+		panic("no PIT interrupts: cannot calibrate the clock");
 	/* just in case we are in an SMP single cpu fallback mode */
 	BKL_LOCK();
 
