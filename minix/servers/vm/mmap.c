@@ -605,3 +605,41 @@ int do_munmap(message *m)
 	return map_unmap_range(vmp, addr, len);
 }
 
+/*===========================================================================*
+ *				do_mprotect				     *
+ *===========================================================================*/
+int do_mprotect(message *m)
+{
+	struct vmproc *vmp;
+	vir_bytes addr, len;
+	int n, prot, r;
+
+	if((r=vm_isokendpt(m->m_source, &n)) != OK)
+		panic("do_mprotect: message from strange source: %d",
+			m->m_source);
+	vmp = &vmproc[n];
+
+	/* A thread shares its group leader's address space, whose region
+	 * tree the leader's vmproc owns (see handle_pagefault()). */
+	if(vmp->vm_lwp_leader != NO_LWP_LEADER) {
+		assert(vmp->vm_lwp_leader >= 0 &&
+			vmp->vm_lwp_leader < NR_PROCS);
+		vmp = &vmproc[vmp->vm_lwp_leader];
+	}
+
+	addr = (vir_bytes) m->m_lc_vm_mprotect.addr;
+	len = m->m_lc_vm_mprotect.len;
+	prot = m->m_lc_vm_mprotect.prot;
+
+	if(addr % VM_PAGE_SIZE)
+		return EINVAL;
+	if(prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return EINVAL;
+	if(len == 0)
+		return OK;
+	if(len > (vir_bytes) -1 - (VM_PAGE_SIZE - 1))
+		return ENOMEM;
+
+	return map_protect_range(vmp, addr, roundup(len, VM_PAGE_SIZE), prot);
+}
+

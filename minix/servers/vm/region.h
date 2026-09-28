@@ -89,6 +89,17 @@ typedef struct vir_region {
  * eat the very last pages the reserve exists to keep for system services.
  */
 #define VR_USERMEM	0x800	/* System-owned, but user memory in effect */
+/*
+ * mprotect(PROT_NONE): the region stays mapped (its pages and contents are
+ * kept) but every access faults with SIGSEGV; map_ph_writept() writes its
+ * PTEs non-present.
+ */
+#define VR_NOACCESS	0x1000
+/*
+ * mprotect() removed write access from a region whose writability VM does not
+ * grant by itself (VR_SHARED, VR_DIRECT); only such a region may get it back.
+ */
+#define VR_WASWRITABLE	0x2000
 
 /* Mapping type: */
 #define VR_ANON		0x100	/* Memory to be cleared and allocated */

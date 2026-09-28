@@ -9,8 +9,8 @@
  * NOT covered here: _lwp_wait(2) (real PM call, see _lwp_wait.c) and per-thread
  * signals/_lwp_kill (lwp_stubs.c).
  *
- * TODO: replace the best-effort public stubs (mprotect, sched_yield) and the
- * _sched_* stubs with real implementations.
+ * TODO: replace the best-effort public stub sched_yield and the _sched_*
+ * stubs with real implementations.
  */
 #include <sys/cdefs.h>
 /*
@@ -111,16 +111,19 @@ sched_yield(void)
 }
 
 /*
- * mprotect(2): MINIX has no page-protection-change call yet.  libpthread uses
- * it only to install stack guard pages and treats failure as fatal to thread
- * creation, so report success (the guard simply is not enforced).
- * TODO: real protection via VM.
+ * mprotect(2): VM changes the protection of the page-aligned range.  Among
+ * others, libpthread relies on it for thread stack guard pages.
  */
 int
 mprotect(void *addr, size_t len, int prot)
 {
-	(void)addr; (void)len; (void)prot;
-	return 0;
+	message m;
+
+	memset(&m, 0, sizeof(m));
+	m.m_lc_vm_mprotect.addr = addr;
+	m.m_lc_vm_mprotect.len = len;
+	m.m_lc_vm_mprotect.prot = prot;
+	return _syscall(VM_PROC_NR, VM_MPROTECT, &m);
 }
 
 /* clock_nanosleep(2): implement via nanosleep(2) (TIMER_ABSTIME -> relative). */
