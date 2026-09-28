@@ -821,6 +821,7 @@
 #define VM_BASIC_CALLS \
     VM_BRK, VM_MMAP, VM_MUNMAP, VM_MAP_PHYS, VM_UNMAP_PHYS, VM_INFO, \
     VM_RLIMIT, /* every process may get/set its own RLIMIT_AS/DATA */ \
+    VM_MPROTECT, /* every process may change its own page protection */ \
     VM_GETRUSAGE /* VM_GETRUSAGE is to be removed from this list ASAP */
 
 /*===========================================================================*
