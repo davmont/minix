@@ -7,7 +7,7 @@
 # Baseline taken 2026-09-25 on devel (PR #361).  See the roadmap doc for the
 # track each one belongs to.
 
-79:120      # PM signal robustness: VM page-fault loop -> kernel panic (T1)
+79:120 flaky  # PM signal robustness: VM page-fault loop -> kernel panic (T1); passes on some hosts (Xeon 8573C, CI run 36435789108)
 42:120      # ptrace: hangs and takes the console down (T1)
 71:1200 flaky  # storage hierarchy: 2 min on a fast disk, past 10 min on a slow one (T3)
 75 flaky    # getrusage: ru_utime rounds to 0 under HZ=60 tick accounting (T2)
