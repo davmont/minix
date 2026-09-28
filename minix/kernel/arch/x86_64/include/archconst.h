@@ -110,6 +110,9 @@
 #define CR4_OSXMMEXCPT      (1 << 10)  /* SSE #XM exception enable */
 #define CR4_FSGSBASE        (1 << 16)  /* Enable RDFSBASE/WRFSBASE etc. */
 #define CR4_PCIDE           (1 << 17)  /* Process-Context ID Enable */
+/* CR3 bits that are not the page-table base when PCIDE is on: the PCID in
+ * bits 11:0 and the no-flush hint in bit 63. */
+#define CR3_PTBASE_MASK     0x7FFFFFFFFFFFF000ULL
 #define CR4_OSXSAVE         (1 << 18)  /* XSAVE/XRSTOR and AVX enable */
 
 /* CR0 bits */
