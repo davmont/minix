@@ -451,6 +451,9 @@ void cpu_enable_features(void)
     }
 
     write_cr4(cr4);
+    /* Unconditional: PCID mode changes what CR3 holds, and only some
+     * hypervisors expose it, so say which world this boot lives in. */
+    printf("cpu: PCID %s\n", use_pcid ? "enabled" : "not available");
 }
 
 /*===========================================================================*

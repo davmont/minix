@@ -198,7 +198,14 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
 
 	assert(get_cpulocal_var(ptproc));
 	assert(get_cpulocal_var(proc_ptr));
-	assert(read_cr3() == get_cpulocal_var(ptproc)->p_seg.p_cr3);
+	/*
+	 * With CR4.PCIDE set, CR3 carries the PCID in bits 11:0 (and bit 63 is
+	 * the no-flush hint), so compare only the page-table base.  This assert
+	 * fired on every PCID-capable hypervisor (the CI runners' nested KVM):
+	 * the desktop KVM and TCG never exposed PCID, so the path was untested.
+	 */
+	assert((read_cr3() & CR3_PTBASE_MASK) ==
+	    (get_cpulocal_var(ptproc)->p_seg.p_cr3 & CR3_PTBASE_MASK));
 
 	procslot = get_cpulocal_var(ptproc)->p_nr;
 	assert(procslot >= 0);
