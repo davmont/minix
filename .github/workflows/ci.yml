@@ -5,9 +5,9 @@
 # with the cross toolchain cached; the toolchain itself -- in-tree LLVM 22 --
 # is cached by the hash of its sources and only rebuilt when they change) and
 # publishes the ISO as an artifact.  The `test` jobs download it and each run
-# one shard of a suite, in parallel.  Sharding matters because the guests
-# run under TCG here (see below), which is slow enough that the unsharded
-# quick suite alone overruns GitHub's six-hour job limit.
+# one shard of a suite, in parallel, under the runner's KVM (about ten
+# minutes a shard; a manual run with tcg=true takes 40-70 minutes a shard
+# and needs the sharding to stay under GitHub's six-hour job limit).
 
 name: ci
 
@@ -17,12 +17,12 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      kvm:
-        description: "Run the guests under the runner's (nested) KVM instead of TCG"
+      tcg:
+        description: "Run the guests under TCG instead of the runner's KVM"
         type: boolean
         default: false
 
-# A manual run gets its own group so that dispatching a KVM run on a PR
+# A manual run gets its own group so that dispatching a TCG run on a PR
 # branch does not cancel that branch's regular run, or vice versa.
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
@@ -31,8 +31,9 @@ concurrency:
 env:
   OBJ: obj.amd64
   JOBS: 4
-  # Empty when a manual run asks for KVM; --no-kvm (TCG) otherwise.
-  ACCEL: ${{ !inputs.kvm && '--no-kvm' || '' }}
+  # --no-kvm (TCG) only when a manual run asks for it; the harness itself
+  # falls back to TCG when /dev/kvm is missing.
+  ACCEL: ${{ inputs.tcg && '--no-kvm' || '' }}
 
 jobs:
   build:
@@ -102,15 +103,12 @@ jobs:
           path: obj.amd64/minix/kernel/kernel
           retention-days: 7
 
-  # The guests run under TCG here.  GitHub's Linux runners do have /dev/kvm
-  # (a udev rule opens it), but under that nested KVM the MINIX kernel
-  # panics during boot -- minix/kernel/arch/x86_64/memory.c:201,
-  # lin_lin_copy: read_cr3() != ptproc->p_cr3, with one vCPU as well as two
-  # -- a kernel bug on the T1 list.  A manual run with kvm=true tries the
-  # runner's KVM instead (the udev rule below opens /dev/kvm); once that
-  # is reliable, make it the default for a ~10x faster run.  TCG on this
-  # hardware is slow enough that a few timer-driven and syscall-heavy
-  # tests stall; the qemutest-tcg.xfail list bounds and expects those.
+  # The guests run under the runner's (nested) KVM: GitHub's Linux runners
+  # have /dev/kvm, and a udev rule below opens it.  The kernel used to panic
+  # there (lin_lin_copy's CR3 assert was blind to PCID, PR #363); a manual
+  # run with tcg=true still exercises the TCG path, where a few timer-driven
+  # and syscall-heavy tests stall -- the qemutest-tcg.xfail list bounds and
+  # expects those, and is harmless under KVM where they simply pass.
   test:
     needs: build
     runs-on: ubuntu-24.04
@@ -148,7 +146,7 @@ jobs:
           name: minix_amd64.iso
 
       - name: Open /dev/kvm
-        if: inputs.kvm
+        if: ${{ !inputs.tcg }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -156,9 +154,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      # Which host this shard drew: the early-boot stall under TCG seems to
-      # follow the machine (three attempts in a row on one runner, none on
-      # the others), so the model is worth correlating.
+      # Which host this shard drew, for correlating anything host-specific.
       - name: Host info
         run: |
           lscpu | grep -E 'Model name|^CPU\(s\)|Hypervisor'
@@ -171,10 +167,11 @@ jobs:
           python3 releasetools/qemutest.py --iso minix_amd64.iso ${ACCEL} \
             --suite boot --log-dir ${LOGS}/boot
 
-      # 40 minutes per test: the hosted runners are about twice as slow as a
-      # desktop under TCG, and the syscall-heavy tests (30, 38, 70) take
-      # 800-1300 s there -- the default 20 minutes was a coin flip for them.
-      # Known hangs are bounded individually in the xfail lists.
+      # 40 minutes per test for the TCG case: the hosted runners are about
+      # twice as slow as a desktop there, and the syscall-heavy tests (30,
+      # 38, 70) take 800-1300 s.  Known hangs are bounded individually in
+      # the xfail lists, so the long default only costs time on tests that
+      # are genuinely still running.
       - name: POSIX quick suite
         if: matrix.suite == 'quick'
         run: |
