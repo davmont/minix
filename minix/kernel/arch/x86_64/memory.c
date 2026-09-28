@@ -152,7 +152,7 @@ static phys_bytes createpde(
 	const struct proc *pr,
 	const phys_bytes linaddr,
 	phys_bytes *bytes,
-	int free_pde_idx,
+	int write,
 	int *changed)
 {
 	*changed = 0;
@@ -169,8 +169,22 @@ static phys_bytes createpde(
 		}
 
 		phys_bytes phys;
-		if (vm_lookup(pr, linaddr, &phys, NULL) != OK) {
+		u64_t pte;
+		if (vm_lookup(pr, linaddr, &phys, &pte) != OK) {
 			/* Page not mapped — signal zero bytes available. */
+			*bytes = 0;
+			return 0;
+		}
+		/*
+		 * The copy goes through the physmap, where the process's own
+		 * protection does not apply, so check it here: a destination
+		 * page the process may not write -- read-only, or copy-on-write
+		 * and still shared with another process after fork() -- is
+		 * handed to VM like an unmapped one.  VM breaks the COW sharing
+		 * or refuses the copy with EFAULT.  Without this, read(2) into a
+		 * COW page wrote into the frame the parent still maps.
+		 */
+		if (write && !(pte & AMD64_VM_WRITE)) {
 			*bytes = 0;
 			return 0;
 		}
