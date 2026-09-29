@@ -603,6 +603,16 @@ typedef struct {
 } mess_lc_pm_sig;
 _ASSERT_MSG_SIZE(mess_lc_pm_sig);
 
+/* PM_SIGALTSTACK: request (with set != 0) and reply (the previous state). */
+typedef struct {
+	void *sp;		/* ss_sp */
+	size_t size;		/* ss_size */
+	int flags;		/* ss_flags: SS_DISABLE or 0 */
+	int set;		/* request: install sp/size/flags */
+	uint8_t padding[40];	/* exactly 56 bytes on i386 */
+} mess_lc_pm_sigaltstack;
+_ASSERT_MSG_SIZE(mess_lc_pm_sigaltstack);
+
 typedef struct {
 	int how;
 	vir_bytes ctx;
@@ -2641,6 +2651,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_setgid	m_lc_pm_setgid;
 		mess_lc_pm_setuid	m_lc_pm_setuid;
 		mess_lc_pm_sig		m_lc_pm_sig;
+		mess_lc_pm_sigaltstack	m_lc_pm_sigaltstack;
 		mess_lc_pm_sigset	m_lc_pm_sigset;
 		mess_lc_pm_sprof	m_lc_pm_sprof;
 		mess_lc_pm_sysuname	m_lc_pm_sysuname;

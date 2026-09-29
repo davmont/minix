@@ -64,8 +64,9 @@
 #define PM_LWP_PARK		(PM_BASE + 51)	/* _lwp_park(2) — block thread */
 #define PM_LWP_UNPARK		(PM_BASE + 52)	/* _lwp_unpark(2) — wake thread */
 #define PM_LWP_WAIT		(PM_BASE + 53)	/* _lwp_wait(2) — join a thread */
+#define PM_SIGALTSTACK		(PM_BASE + 54)	/* sigaltstack(2) */
 
-#define NR_PM_CALLS		54	/* highest number from base plus one */
+#define NR_PM_CALLS		55	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

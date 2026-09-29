@@ -88,6 +88,7 @@ do_fork(void)
   *rmc = *rmp;			/* copy parent's process slot to child's */
   rmc->mp_sigact = mpsigact[next_child];	/* restore mp_sigact ptr */
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
+  mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
 	rmc->mp_tracer = NO_TRACER;		/* no tracer attached */
@@ -197,6 +198,10 @@ do_lwp_create(void)
   *rmc = *rmp;				/* copy parent's slot */
   rmc->mp_sigact = mpsigact[next_lwp];	/* restore mp_sigact ptr */
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
+  /* A new thread starts without an alternate signal stack. */
+  mpaltstack[next_lwp].ss_sp = NULL;
+  mpaltstack[next_lwp].ss_size = 0;
+  mpaltstack[next_lwp].ss_flags = SS_DISABLE;
   rmc->mp_tracer = NO_TRACER;
   rmc->mp_trace_flags = 0;
   (void) sigemptyset(&rmc->mp_sigtrace);
@@ -651,6 +656,7 @@ do_srv_fork(void)
   *rmc = *rmp;			/* copy parent's process slot to child's */
   rmc->mp_sigact = mpsigact[next_child];	/* restore mp_sigact ptr */
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
+  mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
 	rmc->mp_tracer = NO_TRACER;		/* no tracer attached */

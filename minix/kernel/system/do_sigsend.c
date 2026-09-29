@@ -46,8 +46,13 @@ int do_sigsend(struct proc * caller, message * m_ptr)
    * signal delivery. Do not change registers here. See the comment below.
    */
 
-  /* Compute the user stack pointer where sigframe will start. */
+  /* Compute the user stack pointer where sigframe will start: the top of the
+   * alternate signal stack for an SA_ONSTACK handler, unless the process is
+   * already running on it (a signal in a signal handler). */
   smsg.sm_stkptr = arch_get_sp(rp);
+  if (smsg.sm_altsize != 0 && (smsg.sm_stkptr <= smsg.sm_altbase ||
+	smsg.sm_stkptr > smsg.sm_altbase + smsg.sm_altsize))
+	smsg.sm_stkptr = smsg.sm_altbase + smsg.sm_altsize;
   frp = (struct sigframe_sigcontext *) smsg.sm_stkptr - 1;
 
 #if defined(__x86_64__)
@@ -190,8 +195,13 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 	if (smsg.sm_addr != 0)
 		fr.sf_si.si_addr = (void *) smsg.sm_addr;
 
-	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU;
+	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU | _UC_STACK;
 	fr.sf_uc.uc_sigmask = smsg.sm_mask;
+	if (smsg.sm_altsize != 0) {
+		fr.sf_uc.uc_stack.ss_sp = (void *) smsg.sm_altbase;
+		fr.sf_uc.uc_stack.ss_size = smsg.sm_altsize;
+	} else
+		fr.sf_uc.uc_stack.ss_flags = SS_DISABLE;
 	fr.sf_uc.uc_mcontext.__gregs[_REG_GS] = fr.sf_sc.sc_gs;
 	fr.sf_uc.uc_mcontext.__gregs[_REG_FS] = fr.sf_sc.sc_fs;
 	fr.sf_uc.uc_mcontext.__gregs[_REG_R15] = fr.sf_sc.sc_r15;

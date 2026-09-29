@@ -41,6 +41,10 @@ EXTERN struct pm_siginfo mpsiginfo[NR_PROCS][_NSIG];
  * knows better (kill(2), a child's exit) has set it. */
 EXTERN struct pm_siginfo sig_origin;
 
+/* sigaltstack(2): the alternate signal stack of each process (and thread);
+ * ss_flags is SS_DISABLE when there is none. */
+EXTERN stack_t mpaltstack[NR_PROCS];
+
 EXTERN struct mproc {
   char mp_exitstatus;		/* storage for status when process exits */
   char mp_sigstatus;		/* storage for signal # for killed procs */

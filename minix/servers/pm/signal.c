@@ -192,6 +192,43 @@ int do_sigreturn(void)
 }
 
 /*===========================================================================*
+ *				do_sigaltstack				     *
+ *===========================================================================*/
+int do_sigaltstack(void)
+{
+/* Perform the core of sigaltstack(2): report the alternate signal stack and,
+ * if asked, install a new one.  Whether the caller is running on the stack
+ * (SS_ONSTACK, and EPERM for changing it then) is decided by libc, which
+ * knows its own stack pointer.
+ */
+  stack_t *as = &mpaltstack[who_p];
+  stack_t new;
+
+  if (m_in.m_lc_pm_sigaltstack.set) {
+	new.ss_sp = m_in.m_lc_pm_sigaltstack.sp;
+	new.ss_size = m_in.m_lc_pm_sigaltstack.size;
+	new.ss_flags = m_in.m_lc_pm_sigaltstack.flags;
+	if (new.ss_flags & ~SS_DISABLE)
+		return EINVAL;
+	if (!(new.ss_flags & SS_DISABLE) && new.ss_size < MINSIGSTKSZ)
+		return ENOMEM;
+  }
+
+  mp->mp_reply.m_lc_pm_sigaltstack.sp = as->ss_sp;
+  mp->mp_reply.m_lc_pm_sigaltstack.size = as->ss_size;
+  mp->mp_reply.m_lc_pm_sigaltstack.flags = as->ss_flags;
+
+  if (m_in.m_lc_pm_sigaltstack.set) {
+	if (new.ss_flags & SS_DISABLE) {
+		new.ss_sp = NULL;
+		new.ss_size = 0;
+	}
+	*as = new;
+  }
+  return OK;
+}
+
+/*===========================================================================*
  *				do_kill					     *
  *===========================================================================*/
 int do_kill(void)
@@ -871,6 +908,10 @@ sig_send(
   sigmsg.sm_uid = mpsiginfo[slot][signo].ps_uid;
   sigmsg.sm_status = mpsiginfo[slot][signo].ps_status;
   sigmsg.sm_addr = mpsiginfo[slot][signo].ps_addr;
+  if ((sigflags & SA_ONSTACK) && !(mpaltstack[slot].ss_flags & SS_DISABLE)) {
+	sigmsg.sm_altbase = (vir_bytes) mpaltstack[slot].ss_sp;
+	sigmsg.sm_altsize = mpaltstack[slot].ss_size;
+  }
   for (i = 1; i < _NSIG; i++) {
 	if (sigismember(&rmp->mp_sigact[signo].sa_mask, i))
 		sigaddset(&rmp->mp_sigmask, i);

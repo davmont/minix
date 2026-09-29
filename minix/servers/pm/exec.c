@@ -182,6 +182,10 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 			sigemptyset(&rmp->mp_sigact[sn].sa_mask);
 		}
 	}
+	/* The alternate signal stack was in the old image. */
+	mpaltstack[rmp - mproc].ss_sp = NULL;
+	mpaltstack[rmp - mproc].ss_size = 0;
+	mpaltstack[rmp - mproc].ss_flags = SS_DISABLE;
 
 	/* Cause a signal if this process is traced.
 	 * Do this before making the process runnable again!

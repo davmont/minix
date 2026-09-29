@@ -81,6 +81,11 @@ struct sigmsg {
   uid_t sm_uid;			/* si_uid: real uid of the sender */
   int sm_status;		/* si_status: exit status or signal (SIGCHLD) */
   vir_bytes sm_addr;		/* si_addr: faulting address, if known */
+  /* SA_ONSTACK with an alternate stack set up (sigaltstack(2)): the kernel
+   * builds the frame there unless the process is already running on it.
+   * sm_altsize 0: no alternate stack. */
+  vir_bytes sm_altbase;
+  vir_bytes sm_altsize;
 };
 #define SMF_SIGINFO	0x01	/* handler was installed with SA_SIGINFO */
 

@@ -32,6 +32,7 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_GETMCONTEXT)	= do_getmcontext,	/* getmcontext(2) */
 	CALL(PM_SETMCONTEXT)	= do_setmcontext,	/* setmcontext(2) */
 	CALL(PM_SIGACTION)	= do_sigaction,		/* sigaction(2) */
+	CALL(PM_SIGALTSTACK)	= do_sigaltstack,	/* sigaltstack(2) */
 	CALL(PM_SIGSUSPEND)	= do_sigsuspend,	/* sigsuspend(2) */
 	CALL(PM_SIGPENDING)	= do_sigpending,	/* sigpending(2) */
 	CALL(PM_SIGPROCMASK)	= do_sigprocmask,	/* sigprocmask(2) */
