@@ -158,6 +158,9 @@ static int map_sanitycheck_pt(struct vmproc *vmp,
 	int rw;
 	int r;
 
+	if(vr->flags & VR_NOACCESS)
+		return OK;
+
 	if(pr_writable(vr, pr))
 		rw = PTF_WRITE;
 	else
@@ -280,6 +283,18 @@ int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 	assert(!(vr->vaddr % VM_PAGE_SIZE));
 	assert(!(pr->offset % VM_PAGE_SIZE));
 	assert(pb->refcount > 0);
+
+	/* mprotect(PROT_NONE): keep the page, but make every access fault.
+	 * Writing the PTE non-present (rather than skipping it) also revokes
+	 * a mapping made before the protection changed. */
+	if(vr->flags & VR_NOACCESS) {
+		if(pt_writemap(vmp, &vmp->vm_pt, vr->vaddr + pr->offset,
+			MAP_NONE, VM_PAGE_SIZE, 0, WMF_OVERWRITE) != OK) {
+			printf("VM: map_writept: noaccess pt_writemap failed\n");
+			return ENOMEM;
+		}
+		return OK;
+	}
 
 	/* A block with no physical page: nothing to map, and writing a PTE
 	 * for MAP_NONE would create a present mapping to a bogus frame.  It
@@ -1336,6 +1351,91 @@ int map_unmap_range(struct vmproc *vmp, vir_bytes unmap_start, vir_bytes length)
 
 	return OK;
 
+}
+
+/*========================================================================*
+ *			  map_protect_range				  *
+ *========================================================================*/
+/*
+ * mprotect(2).  Give [start, start + length) the protection 'prot'
+ * (PROT_* bits), splitting regions at the range's ends as needed, and
+ * rewrite the page table entries of the pages already present.
+ *
+ * x86 has no write-only or execute-only pages: PROT_WRITE implies read, and
+ * any of READ/WRITE/EXEC makes the pages readable.  PROT_EXEC is otherwise
+ * not enforced yet (no NX in user PTEs).
+ */
+int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
+	int prot)
+{
+	vir_bytes limit, a;
+	struct vir_region *vr;
+	int r;
+
+	assert(!(start % VM_PAGE_SIZE));
+	assert(!(length % VM_PAGE_SIZE));
+	limit = start + length;
+	if(limit <= start)
+		return ENOMEM;
+
+	/* Check the whole range before changing anything, so that a failing
+	 * call leaves the address space as it was. */
+	for(a = start; a < limit; a = vr->vaddr + vr->length) {
+		/* POSIX: ENOMEM when part of the range is not mapped. */
+		if(!(vr = map_lookup(vmp, a, NULL)))
+			return ENOMEM;
+		/* A range end inside a region needs a split. */
+		if((start > vr->vaddr || limit < vr->vaddr + vr->length) &&
+		    !vr->def_memtype->ev_split)
+			return ENOTSUP;
+		/* Write access to shared or physical memory is VM's to grant;
+		 * mprotect() may only give back what it took away. */
+		if((prot & PROT_WRITE) && (vr->flags & (VR_SHARED|VR_DIRECT)) &&
+		    !(vr->flags & (VR_WRITABLE|VR_WASWRITABLE)))
+			return EACCES;
+	}
+
+	for(a = start; a < limit; a = vr->vaddr + vr->length) {
+		struct vir_region *vr1, *vr2;
+		vir_bytes off;
+		u16_t flags;
+
+		vr = map_lookup(vmp, a, NULL);
+		assert(vr);
+
+		if(vr->vaddr < a) {
+			if((r = split_region(vmp, vr, &vr1, &vr2,
+			    a - vr->vaddr)) != OK)
+				return r;
+			vr = vr2;
+		}
+		if(vr->vaddr + vr->length > limit) {
+			if((r = split_region(vmp, vr, &vr1, &vr2,
+			    limit - vr->vaddr)) != OK)
+				return r;
+			vr = vr1;
+		}
+
+		flags = vr->flags & ~(VR_WRITABLE | VR_NOACCESS);
+		if(prot & PROT_WRITE)
+			flags |= VR_WRITABLE;
+		else if((vr->flags & VR_WRITABLE) &&
+		    (vr->flags & (VR_SHARED|VR_DIRECT)))
+			flags |= VR_WASWRITABLE;
+		if(!(prot & (PROT_READ | PROT_WRITE | PROT_EXEC)))
+			flags |= VR_NOACCESS;
+		vr->flags = flags;
+
+		for(off = 0; off < vr->length; off += VM_PAGE_SIZE) {
+			struct phys_region *ph;
+			if(!(ph = physblock_get(vr, off)))
+				continue;
+			if((r = map_ph_writept(vmp, vr, ph)) != OK)
+				return r;
+		}
+	}
+
+	return OK;
 }
 
 /*========================================================================*

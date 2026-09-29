@@ -50,12 +50,13 @@ import sys
 import tempfile
 import time
 
-# The subset that minix/tests/check-install runs, minus the interactive prompt.
+# The subset that minix/tests/check-install runs, minus the interactive prompt,
+# plus the newer tests that are quick and need no network (95: mprotect).
 QUICK_TESTS = ("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
                "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 "
                "41 42 43 44 45 46 47 49 50 51 52 53 54 55 56 57 58 59 "
                "61 62 63 64 66 67 68 69 70 71 72 73 74 75 76 77 78 79 "
-               "sh1 interp mfs isofs")
+               "95 sh1 interp mfs isofs")
 
 # Where the tests live on the image and how much ramdisk they get (KB).
 TESTS_DIR = "/usr/tests/minix-posix"

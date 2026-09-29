@@ -81,6 +81,7 @@ int unmap_memory(endpoint_t sour, endpoint_t dest, vir_bytes virt_s,
 /* mmap.c */
 int do_mmap(message *msg);
 int do_munmap(message *msg);
+int do_mprotect(message *msg);
 int do_map_phys(message *msg);
 int do_unmap_phys(message *msg);
 int do_remap(message *m);
@@ -158,6 +159,8 @@ int map_region_extend_upto_v(struct vmproc *vmp, vir_bytes vir);
 int map_unmap_region(struct vmproc *vmp, struct vir_region *vr,
 	vir_bytes offset, vir_bytes len);
 int map_unmap_range(struct vmproc *vmp, vir_bytes, vir_bytes);
+int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
+	int prot);
 int map_free_proc(struct vmproc *vmp);
 int map_proc_copy(struct vmproc *dst, struct vmproc *src);
 int map_proc_copy_range(struct vmproc *dst, struct vmproc *src, struct

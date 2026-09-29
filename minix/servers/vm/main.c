@@ -575,6 +575,7 @@ void init_vm(void)
 	/* Basic VM calls. */
 	CALLMAP(VM_MMAP, do_mmap);
 	CALLMAP(VM_MUNMAP, do_munmap);
+	CALLMAP(VM_MPROTECT, do_mprotect);
 	CALLMAP(VM_MAP_PHYS, do_map_phys);
 	CALLMAP(VM_UNMAP_PHYS, do_munmap);
 

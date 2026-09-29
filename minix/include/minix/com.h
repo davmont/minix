@@ -802,10 +802,14 @@
 
 #define VM_RS_PREPARE		(VM_RQ_BASE+48)
 
-/* Total.  Must exceed the highest CALLMAP()ed call index: VM_RLIMIT is
- * VM_RQ_BASE+50, so the vm_calls[] table needs 51 entries.  (VM_SWAPON at
+/* mprotect(2): change the protection of a page-aligned range of the
+ * caller's address space.  Uses m_lc_vm_mprotect. */
+#define VM_MPROTECT		(VM_RQ_BASE+51)
+
+/* Total.  Must exceed the highest CALLMAP()ed call index: VM_MPROTECT is
+ * VM_RQ_BASE+51, so the vm_calls[] table needs 52 entries.  (VM_SWAPON at
  * +49 is dispatched directly from VM's main loop, not through CALLMAP.) */
-#define NR_VM_CALLS				51
+#define NR_VM_CALLS				52
 #define VM_CALL_MASK_SIZE			BITMAP_CHUNKS(NR_VM_CALLS)
 
 /* not handled as a normal VM call, thus at the end of the reserved rage */
@@ -817,6 +821,7 @@
 #define VM_BASIC_CALLS \
     VM_BRK, VM_MMAP, VM_MUNMAP, VM_MAP_PHYS, VM_UNMAP_PHYS, VM_INFO, \
     VM_RLIMIT, /* every process may get/set its own RLIMIT_AS/DATA */ \
+    VM_MPROTECT, /* every process may change its own page protection */ \
     VM_GETRUSAGE /* VM_GETRUSAGE is to be removed from this list ASAP */
 
 /*===========================================================================*

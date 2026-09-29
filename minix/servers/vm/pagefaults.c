@@ -143,6 +143,15 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 		return;
 	}
 
+	/* mprotect(PROT_NONE): no access at all. */
+	if(region->flags & VR_NOACCESS) {
+		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
+			panic("sys_kill failed: %d", s);
+		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
+			panic("do_pagefaults: sys_vmctl failed: %d", ep);
+		return;
+	}
+
 	/* If process was writing, see if it's writable. */
 	if(!(region->flags & VR_WRITABLE) && wr) {
 		printf("VM: pagefault: SIGSEGV %d ro map 0x%lx %s\n",
@@ -415,6 +424,8 @@ static int handle_memory_step(struct hm_state *hmstate, int retry)
 			map_printmap(hmstate->vmp);
 			printf("VM: do_memory: memory doesn't exist\n");
 #endif
+			return EFAULT;
+		} else if(region->flags & VR_NOACCESS) {
 			return EFAULT;
 		} else if(!(region->flags & VR_WRITABLE) && hmstate->wrflag) {
 #if VERBOSE
