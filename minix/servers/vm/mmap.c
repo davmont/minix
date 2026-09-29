@@ -33,6 +33,24 @@
 #include "region.h"
 
 
+/*
+ * Region flags for an mmap() protection: writable only with PROT_WRITE, no
+ * code without PROT_EXEC (NX), and no access at all for PROT_NONE -- the
+ * same rules as mprotect() (map_protect_range()).
+ */
+static u32_t prot_vrflags(int prot)
+{
+	u32_t vrflags = 0;
+
+	if(prot & PROT_WRITE)
+		vrflags |= VR_WRITABLE;
+	if(!(prot & PROT_EXEC))
+		vrflags |= VR_NOEXEC;
+	if(!(prot & (PROT_READ | PROT_WRITE | PROT_EXEC)))
+		vrflags |= VR_NOACCESS;
+	return vrflags;
+}
+
 static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 	u32_t vmm_flags, size_t len, u32_t vrflags,
 	mem_type_t *mt, int execpriv)
@@ -90,7 +108,7 @@ static int mmap_file(struct vmproc *vmp,
 	int vmfd, off_t file_offset, int flags,
 	ino_t ino, dev_t dev, u64_t filesize, vir_bytes addr, vir_bytes len,
 	vir_bytes *retaddr, u16_t clearend, int writable, int exec,
-	int mayclosefd)
+	int noaccess, int mayclosefd)
 {
 /* VFS has replied to a VMVFSREQ_FDLOOKUP request. */
 	struct vir_region *vr;
@@ -100,6 +118,7 @@ static int mmap_file(struct vmproc *vmp,
 
 	if(writable) vrflags |= VR_WRITABLE;
 	if(!exec) vrflags |= VR_NOEXEC;
+	if(noaccess) vrflags |= VR_NOACCESS;
 
 	/* Do some page alignments. */
 	if((page_offset = (file_offset % VM_PAGE_SIZE))) {
@@ -161,7 +180,7 @@ int do_vfs_mmap(message *m)
 		m->m_vm_vfs_mmap.ino, m->m_vm_vfs_mmap.dev,
 		(u64_t) LONG_MAX * VM_PAGE_SIZE,
 		m->m_vm_vfs_mmap.vaddr, m->m_vm_vfs_mmap.len, &v,
-		clearend, !!(flags & MVM_WRITABLE), !!(flags & MVM_EXEC), 0);
+		clearend, !!(flags & MVM_WRITABLE), !!(flags & MVM_EXEC), 0, 0);
 }
 
 static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
@@ -190,7 +209,9 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 			(u64_t) replymsg->VMV_SIZE_PAGES*PAGE_SIZE,
 			(vir_bytes) origmsg->m_mmap.addr,
 			origmsg->m_mmap.len, &v, 0, writable,
-			!!(origmsg->m_mmap.prot & PROT_EXEC), 1);
+			!!(origmsg->m_mmap.prot & PROT_EXEC),
+			!(origmsg->m_mmap.prot & (PROT_READ|PROT_WRITE|PROT_EXEC)),
+			1);
 	}
 
 	/* Unblock requesting process. */
@@ -262,8 +283,7 @@ int do_mmap(message *m)
 		} else	mt = &mem_type_anon;
 
 		if(!(vr = mmap_region(vmp, addr, m->m_mmap.flags, len,
-			VR_WRITABLE | VR_ANON |
-			((m->m_mmap.prot & PROT_EXEC) ? 0 : VR_NOEXEC),
+			VR_ANON | prot_vrflags(m->m_mmap.prot),
 			mt, execpriv))) {
 			return ENOMEM;
 		}
