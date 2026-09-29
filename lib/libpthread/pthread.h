@@ -52,6 +52,11 @@ void	pthread_exit(void *) __attribute__((__noreturn__));
 int	pthread_join(pthread_t, void **);
 int	pthread_equal(pthread_t, pthread_t);
 pthread_t	pthread_self(void);
+#if defined(__minix)
+/* On NetBSD <signal.h> declares this; MINIX's <signal.h> can only do so
+ * inside libpthread, where pthread_t is visible (see there). */
+int	pthread_kill(pthread_t, int);
+#endif
 int	pthread_detach(pthread_t);
 
 int	pthread_getrrtimer_np(void);

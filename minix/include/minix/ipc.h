@@ -507,6 +507,14 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_lwp_unpark);
 
 typedef struct {
+	int32_t		target;		/* lwpid to signal */
+	int		sig;		/* signal number; 0: only check */
+
+	uint8_t padding[48];
+} mess_lc_pm_lwp_kill;
+_ASSERT_MSG_SIZE(mess_lc_pm_lwp_kill);
+
+typedef struct {
 	int32_t		wait_for;	/* lwpid to join, or 0 for any sibling */
 
 	uint8_t padding[52];
@@ -2639,6 +2647,7 @@ typedef struct noxfer_message {
 		mess_pm_lc_lwp		m_pm_lc_lwp;
 		mess_lc_pm_lwp_park	m_lc_pm_lwp_park;
 		mess_lc_pm_lwp_unpark	m_lc_pm_lwp_unpark;
+		mess_lc_pm_lwp_kill	m_lc_pm_lwp_kill;
 		mess_lc_pm_lwp_wait	m_lc_pm_lwp_wait;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
 		mess_lc_pm_groups	m_lc_pm_groups;

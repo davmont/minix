@@ -65,5 +65,6 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_LWP_EXIT)	= do_lwp_exit,		/* _lwp_exit(2) */
 	CALL(PM_LWP_PARK)	= do_lwp_park,		/* _lwp_park(2) */
 	CALL(PM_LWP_UNPARK)	= do_lwp_unpark,	/* _lwp_unpark(2) */
+	CALL(PM_LWP_KILL)	= do_lwp_kill,		/* _lwp_kill(2) */
 	CALL(PM_LWP_WAIT)	= do_lwp_wait		/* _lwp_wait(2) */
 };
