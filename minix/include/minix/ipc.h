@@ -1026,7 +1026,7 @@ typedef struct {
 	void		*addr;		/* page aligned */
 	size_t		len;
 	int		prot;		/* PROT_READ | PROT_WRITE | PROT_EXEC */
-	uint8_t		padding[36];
+	uint8_t		padding[44];	/* exactly 56 bytes on i386 */
 } mess_lc_vm_mprotect;
 _ASSERT_MSG_SIZE(mess_lc_vm_mprotect);
 
@@ -2026,7 +2026,12 @@ typedef struct {
 	endpoint_t endpt;	/* process number for inform */
 	int sig;		/* signal number to send */
 	void *sigctx;		/* pointer to signal context */
-	uint8_t padding[28];
+	/* SYS_KILL and SYS_GETKSIG: what a fault signal (fault_sig) is about,
+	 * for the siginfo_t of an SA_SIGINFO handler; fault_code 0 = none. */
+	int fault_sig;
+	int fault_code;		/* si_code: SEGV_MAPERR, SEGV_ACCERR, ... */
+	void *fault_addr;	/* si_addr */
+	uint8_t padding[16];	/* exactly 56 bytes on i386 */
 } mess_sigcalls;
 _ASSERT_MSG_SIZE(mess_sigcalls);
 

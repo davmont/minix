@@ -136,7 +136,8 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 					ep, addr, pf_errstr(err));
 			sys_diagctl_stacktrace(ep);
 		}
-		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
+		if((s=sys_kill_fault(vmp->vm_endpoint, SIGSEGV, SEGV_MAPERR,
+		    addr)) != OK)
 			panic("sys_kill failed: %d", s);
 		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
 			panic("do_pagefaults: sys_vmctl failed: %d", ep);
@@ -149,7 +150,8 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	 * would fault on the same instruction forever. */
 	if((region->flags & VR_NOACCESS) ||
 	    ((region->flags & VR_NOEXEC) && PFERR_EXEC(err))) {
-		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
+		if((s=sys_kill_fault(vmp->vm_endpoint, SIGSEGV, SEGV_ACCERR,
+		    addr)) != OK)
 			panic("sys_kill failed: %d", s);
 		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
 			panic("do_pagefaults: sys_vmctl failed: %d", ep);
@@ -160,7 +162,8 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 	if(!(region->flags & VR_WRITABLE) && wr) {
 		printf("VM: pagefault: SIGSEGV %d ro map 0x%lx %s\n",
 				ep, addr, pf_errstr(err));
-		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
+		if((s=sys_kill_fault(vmp->vm_endpoint, SIGSEGV, SEGV_ACCERR,
+		    addr)) != OK)
 			panic("sys_kill failed: %d", s);
 		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
 			panic("do_pagefaults: sys_vmctl failed: %d", ep);

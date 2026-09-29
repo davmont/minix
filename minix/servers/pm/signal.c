@@ -197,8 +197,25 @@ int do_sigreturn(void)
 int do_kill(void)
 {
 /* Perform the kill(pid, signo) system call. */
+  int r;
 
-  return check_sig(m_in.m_lc_pm_sig.pid, m_in.m_lc_pm_sig.nr, FALSE /* ksig */);
+  set_sig_origin(SI_USER, mp->mp_pid, mp->mp_realuid, 0, 0);
+  r = check_sig(m_in.m_lc_pm_sig.pid, m_in.m_lc_pm_sig.nr, FALSE /* ksig */);
+  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+  return r;
+}
+
+/*===========================================================================*
+ *				set_sig_origin				     *
+ *===========================================================================*/
+void set_sig_origin(int code, pid_t pid, uid_t uid, int status, vir_bytes addr)
+{
+/* Set what sig_proc() records as the origin of the signals it raises. */
+  sig_origin.ps_addr = addr;
+  sig_origin.ps_code = code;
+  sig_origin.ps_pid = pid;
+  sig_origin.ps_uid = uid;
+  sig_origin.ps_status = status;
 }
 
 /*===========================================================================*
@@ -331,7 +348,17 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
   	id = proc_id;
   	break;
   }
+  {
+	/* A fault the kernel reported with this signal (VM's SIGSEGV for a
+	 * bad page fault): its si_code and address, for SA_SIGINFO. */
+	int fsig, fcode;
+	vir_bytes faddr;
+
+	if (sys_getksig_fault(&fsig, &fcode, &faddr) && fsig == signo)
+		set_sig_origin(fcode, 0, 0, 0, faddr);
+  }
   check_sig(id, signo, TRUE /* ksig */);
+  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
   mp->mp_procgrp = 0;			/* restore proper PM process group */
 
   /* If SIGSNDELAY is set, an earlier sys_stop() failed because the process was
@@ -407,6 +434,9 @@ sig_proc(
   if ((rmp->mp_flags & (IN_USE | EXITING)) != IN_USE) {
 	panic("PM: signal %d sent to exiting process %d\n", signo, slot);
   }
+
+  /* Remember where this instance came from, for an SA_SIGINFO handler. */
+  mpsiginfo[slot][signo] = sig_origin;
 
   if (trace == TRUE && rmp->mp_tracer != NO_TRACER && signo != SIGKILL) {
 	/* Signal should be passed to the debugger first.
@@ -695,10 +725,16 @@ check_pending(register struct mproc *rmp)
   for (i = 1; i < _NSIG; i++) {
 	if (sigismember(&rmp->mp_sigpending, i) &&
 		!sigismember(&rmp->mp_sigmask, i)) {
+		struct pm_siginfo saved = sig_origin;
+
 		ksig = sigismember(&rmp->mp_ksigpending, i);
 		sigdelset(&rmp->mp_sigpending, i);
 		sigdelset(&rmp->mp_ksigpending, i);
+		/* Raising it again: keep the origin recorded when it was
+		 * first raised. */
+		sig_origin = mpsiginfo[rmp - mproc][i];
 		sig_proc(rmp, i, FALSE /*trace*/, ksig);
+		sig_origin = saved;
 
 		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
 			/* Signals must be rechecked upon return from the new
@@ -816,6 +852,7 @@ sig_send(
   int i, r, sigflags, slot;
 
   assert(rmp->mp_flags & PROC_STOPPED);
+  memset(&sigmsg, 0, sizeof(sigmsg));
 
   sigflags = rmp->mp_sigact[signo].sa_flags;
   slot = (int) (rmp - mproc);
@@ -828,6 +865,12 @@ sig_send(
   sigmsg.sm_sighandler =
 	(vir_bytes) rmp->mp_sigact[signo].sa_handler;
   sigmsg.sm_sigreturn = rmp->mp_sigreturn;
+  sigmsg.sm_flags = (sigflags & SA_SIGINFO) ? SMF_SIGINFO : 0;
+  sigmsg.sm_code = mpsiginfo[slot][signo].ps_code;
+  sigmsg.sm_pid = mpsiginfo[slot][signo].ps_pid;
+  sigmsg.sm_uid = mpsiginfo[slot][signo].ps_uid;
+  sigmsg.sm_status = mpsiginfo[slot][signo].ps_status;
+  sigmsg.sm_addr = mpsiginfo[slot][signo].ps_addr;
   for (i = 1; i < _NSIG; i++) {
 	if (sigismember(&rmp->mp_sigact[signo].sa_mask, i))
 		sigaddset(&rmp->mp_sigmask, i);

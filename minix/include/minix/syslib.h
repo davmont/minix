@@ -204,6 +204,9 @@ int sys_kill(endpoint_t proc_ep, int sig);
 int sys_sigsend(endpoint_t proc_ep, struct sigmsg *sig_ctxt);
 int sys_sigreturn(endpoint_t proc_ep, struct sigmsg *sig_ctxt);
 int sys_getksig(endpoint_t *proc_ep, sigset_t *k_sig_map);
+int sys_kill_fault(endpoint_t proc_ep, int signr, int code, vir_bytes addr);
+/* The fault behind the signals the last sys_getksig() returned, if any. */
+int sys_getksig_fault(int *signo, int *code, vir_bytes *addr);
 int sys_endksig(endpoint_t proc_ep);
 
 /* NOTE: two different approaches were used to distinguish the device I/O

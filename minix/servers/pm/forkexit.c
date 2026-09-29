@@ -1133,7 +1133,15 @@ check_parent(
   }
   else {
 	/* Parent is not waiting. */
+	if (child->mp_sigstatus)
+		set_sig_origin(((unsigned char) child->mp_sigstatus & WCOREFLAG) ?
+		    CLD_DUMPED : CLD_KILLED, child->mp_pid, child->mp_realuid,
+		    (unsigned char) child->mp_sigstatus & ~WCOREFLAG, 0);
+	else
+		set_sig_origin(CLD_EXITED, child->mp_pid, child->mp_realuid,
+		    child->mp_exitstatus & 0xff, 0);
 	sig_proc(p_mp, SIGCHLD, TRUE /*trace*/, FALSE /* ksig */);
+	set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
   }
 }
 

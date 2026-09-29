@@ -22,6 +22,25 @@
 typedef struct sigaction ixfer_sigaction;
 EXTERN ixfer_sigaction mpsigact[NR_PROCS][_NSIG];
 
+/*
+ * Where each pending signal came from, for the siginfo_t of an SA_SIGINFO
+ * handler: recorded by sig_proc() when the signal is raised, handed to the
+ * kernel by sig_send() when it is delivered.  Signals do not queue, so one
+ * record per signal, from its latest instance.  Kept out of struct mproc,
+ * whose layout other services read.
+ */
+struct pm_siginfo {
+  int ps_code;			/* SI_USER, CLD_EXITED, ..., or SI_NOINFO */
+  pid_t ps_pid;
+  uid_t ps_uid;
+  int ps_status;
+  vir_bytes ps_addr;		/* fault address (SIGSEGV, ...) */
+};
+EXTERN struct pm_siginfo mpsiginfo[NR_PROCS][_NSIG];
+/* The origin sig_proc() records; SI_NOINFO except while a caller that
+ * knows better (kill(2), a child's exit) has set it. */
+EXTERN struct pm_siginfo sig_origin;
+
 EXTERN struct mproc {
   char mp_exitstatus;		/* storage for status when process exits */
   char mp_sigstatus;		/* storage for signal # for killed procs */

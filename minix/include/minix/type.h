@@ -74,7 +74,15 @@ struct sigmsg {
   vir_bytes sm_sighandler;	/* address of handler */
   vir_bytes sm_sigreturn;	/* address of _sigreturn in C library */
   vir_bytes sm_stkptr;		/* user stack pointer */
+  /* For an SA_SIGINFO handler (sm_flags & SMF_SIGINFO): the siginfo_t. */
+  int sm_flags;
+  int sm_code;			/* si_code: SI_USER, CLD_EXITED, ... */
+  pid_t sm_pid;			/* si_pid: sender, or the child for SIGCHLD */
+  uid_t sm_uid;			/* si_uid: real uid of the sender */
+  int sm_status;		/* si_status: exit status or signal (SIGCHLD) */
+  vir_bytes sm_addr;		/* si_addr: faulting address, if known */
 };
+#define SMF_SIGINFO	0x01	/* handler was installed with SA_SIGINFO */
 
 /* Structure used for computing per-process average CPU utilization. */
 struct cpuavg {

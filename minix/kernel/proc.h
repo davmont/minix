@@ -300,6 +300,19 @@ struct proc {
 
 EXTERN struct proc proc[NR_TASKS + NR_PROCS];	/* process table */
 
+/*
+ * The fault behind a pending signal (SYS_KILL with fault info, e.g. VM's
+ * SIGSEGV for a bad page fault), handed to the signal manager by
+ * SYS_GETKSIG for the siginfo_t.  Kept out of struct proc, whose layout is
+ * shared with user space.
+ */
+struct ksig_fault {
+	int kf_sig;		/* signal it belongs to; 0 = none */
+	int kf_code;
+	vir_bytes kf_addr;
+};
+EXTERN struct ksig_fault ksig_fault[NR_TASKS + NR_PROCS];
+
 int mini_send(struct proc *caller_ptr, endpoint_t dst_e, message *m_ptr,
 	int flags);
 

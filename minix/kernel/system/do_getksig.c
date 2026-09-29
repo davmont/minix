@@ -31,6 +31,14 @@ int do_getksig(struct proc * caller, message * m_ptr)
           m_ptr->m_sigcalls.endpt = rp->p_endpoint;
           m_ptr->m_sigcalls.map = rp->p_pending;	/* pending signals map */
           (void) sigemptyset(&rp->p_pending); 	/* clear map in the kernel */
+	  {
+		/* and the fault behind one of them, if any */
+		struct ksig_fault *kf = &ksig_fault[proc_nr(rp) + NR_TASKS];
+		m_ptr->m_sigcalls.fault_sig = kf->kf_sig;
+		m_ptr->m_sigcalls.fault_code = kf->kf_code;
+		m_ptr->m_sigcalls.fault_addr = (void *) kf->kf_addr;
+		kf->kf_sig = 0;
+	  }
 	  RTS_UNSET(rp, RTS_SIGNALED);		/* blocked by SIG_PENDING */
           return(OK);
       }

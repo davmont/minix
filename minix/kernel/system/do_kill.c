@@ -31,6 +31,14 @@ int do_kill(struct proc * caller, message * m_ptr)
   if (sig_nr >= _NSIG) return(EINVAL);
   if (iskerneln(proc_nr)) return(EPERM);
 
+  /* Remember what the fault was about, for the signal manager. */
+  if (m_ptr->m_sigcalls.fault_code != 0) {
+	struct ksig_fault *kf = &ksig_fault[proc_nr + NR_TASKS];
+	kf->kf_sig = sig_nr;
+	kf->kf_code = m_ptr->m_sigcalls.fault_code;
+	kf->kf_addr = (vir_bytes) m_ptr->m_sigcalls.fault_addr;
+  }
+
   /* Set pending signal to be processed by the signal manager. */
   cause_sig(proc_nr, sig_nr);
 
