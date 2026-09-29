@@ -143,6 +143,9 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   register char *sig_ptr;
   message mess;
 
+  /* Signals raised without a known origin say so in their siginfo_t. */
+  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+
   /* Initialize process table, including timers. */
   for (rmp=&mproc[0]; rmp<&mproc[NR_PROCS]; rmp++) {
 	init_timer(&rmp->mp_timer);

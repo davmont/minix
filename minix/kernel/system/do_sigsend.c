@@ -22,7 +22,11 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 
   struct sigmsg smsg;
   register struct proc *rp;
-  struct sigframe_sigcontext fr, *frp;
+  /* Static, not on the 4 KB kernel stack: with the SA_SIGINFO siginfo_t
+   * and ucontext_t the frame is 1.7 KB.  Kernel calls run under the BKL,
+   * and the frame is rebuilt from scratch on every (re)try. */
+  static struct sigframe_sigcontext fr;
+  struct sigframe_sigcontext *frp;
   int proc_nr, r;
 #if defined(__i386__) || defined(__x86_64__)
   reg_t new_fp;
@@ -174,6 +178,45 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   /* Initialize the sigframe structure. */
   fpu_sigcontext(rp, &fr, &fr.sf_sc);
 
+#if defined(__x86_64__)
+  if (smsg.sm_flags & SMF_SIGINFO) {
+	/* SA_SIGINFO: what raised the signal, and the interrupted context. */
+	fr.sf_si.si_signo = smsg.sm_signo;
+	fr.sf_si.si_code = smsg.sm_code;
+	fr.sf_si.si_pid = smsg.sm_pid;
+	fr.sf_si.si_uid = smsg.sm_uid;
+	if (smsg.sm_signo == SIGCHLD)
+		fr.sf_si.si_status = smsg.sm_status;
+	if (smsg.sm_addr != 0)
+		fr.sf_si.si_addr = (void *) smsg.sm_addr;
+
+	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU;
+	fr.sf_uc.uc_sigmask = smsg.sm_mask;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_GS] = fr.sf_sc.sc_gs;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_FS] = fr.sf_sc.sc_fs;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R15] = fr.sf_sc.sc_r15;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R14] = fr.sf_sc.sc_r14;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R13] = fr.sf_sc.sc_r13;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R12] = fr.sf_sc.sc_r12;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R11] = fr.sf_sc.sc_r11;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R10] = fr.sf_sc.sc_r10;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R9] = fr.sf_sc.sc_r9;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_R8] = fr.sf_sc.sc_r8;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RBP] = fr.sf_sc.sc_rbp;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RDI] = fr.sf_sc.sc_rdi;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RSI] = fr.sf_sc.sc_rsi;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RDX] = fr.sf_sc.sc_rdx;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RCX] = fr.sf_sc.sc_rcx;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RBX] = fr.sf_sc.sc_rbx;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RAX] = fr.sf_sc.sc_rax;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RIP] = fr.sf_sc.sc_rip;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_CS] = fr.sf_sc.sc_cs;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RFLAGS] = fr.sf_sc.sc_rflags;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_RSP] = fr.sf_sc.sc_rsp;
+	fr.sf_uc.uc_mcontext.__gregs[_REG_SS] = fr.sf_sc.sc_ss;
+  }
+#endif
+
   /* Copy the sigframe structure to the user's stack. */
   if ((r = data_copy_vmcheck(caller, KERNEL, (vir_bytes)&fr,
 		m_ptr->m_sigcalls.endpt, (vir_bytes)frp,
@@ -202,8 +245,14 @@ int do_sigsend(struct proc * caller, message * m_ptr)
    * recover it without depending on the exact stack offset of the frame. */
   rp->p_reg.rbp = new_fp;
   rp->p_reg.rdi = (reg_t) smsg.sm_signo;
-  rp->p_reg.rsi = (reg_t) fr.sf_code;
-  rp->p_reg.rdx = (reg_t) fr.sf_scp;
+  if (smsg.sm_flags & SMF_SIGINFO) {
+	/* void handler(int signo, siginfo_t *info, void *ucontext) */
+	rp->p_reg.rsi = (reg_t) &frp->sf_si;
+	rp->p_reg.rdx = (reg_t) &frp->sf_uc;
+  } else {
+	rp->p_reg.rsi = (reg_t) fr.sf_code;
+	rp->p_reg.rdx = (reg_t) fr.sf_scp;
+  }
   rp->p_reg.r15 = (reg_t) fr.sf_scp;
 #elif defined(__arm__)
   /* use the ARM link register to set the return address from the signal

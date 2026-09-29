@@ -70,6 +70,8 @@ int do_sprofile(void);
 
 /* signal.c */
 int do_kill(void);
+void set_sig_origin(int code, pid_t pid, uid_t uid, int status,
+	vir_bytes addr);
 int do_srv_kill(void);
 int process_ksig(endpoint_t proc_nr_e, int signo);
 int check_sig(pid_t proc_id, int signo, int ksig);
