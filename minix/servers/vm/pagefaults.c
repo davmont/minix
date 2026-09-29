@@ -143,8 +143,12 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 		return;
 	}
 
-	/* mprotect(PROT_NONE): no access at all. */
-	if(region->flags & VR_NOACCESS) {
+	/* mprotect(PROT_NONE): no access at all.  And no code runs from a
+	 * region without execute permission: the page is present (NX made the
+	 * fetch fault), so map_pf() would find nothing to do and the process
+	 * would fault on the same instruction forever. */
+	if((region->flags & VR_NOACCESS) ||
+	    ((region->flags & VR_NOEXEC) && PFERR_EXEC(err))) {
 		if((s=sys_kill(vmp->vm_endpoint, SIGSEGV)) != OK)
 			panic("sys_kill failed: %d", s);
 		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)

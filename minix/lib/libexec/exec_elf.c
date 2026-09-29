@@ -202,6 +202,8 @@ int libexec_load_elf(struct exec_info *execi)
 			printf("libexec: warning: unreadable segment\n");
 		}
 
+		if(ph->p_flags & PF_X)
+			mmap_prot |= PROT_EXEC;
 		if(ph->p_flags & PF_W) {
 			mmap_prot |= PROT_WRITE;
 #if ELF_DEBUG

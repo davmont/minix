@@ -58,6 +58,7 @@
 #define AMD64_VM_PFE_P	0x01	/* fault due to present-page protection */
 #define AMD64_VM_PFE_W	0x02	/* caused by write */
 #define AMD64_VM_PFE_U	0x04	/* CPU was in user mode */
+#define AMD64_VM_PFE_I	0x10	/* caused by an instruction fetch */
 
 /* CR0 bits */
 #define AMD64_CR0_PE		0x00000001UL

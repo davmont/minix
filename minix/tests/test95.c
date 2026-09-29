@@ -5,7 +5,8 @@
  * of the mapping is unaffected (the region is split at the range ends),
  * protection can be given back without losing the contents, it survives
  * fork(), kernel copies into a protected buffer are refused, and a kernel
- * copy into a page shared copy-on-write after fork() breaks the sharing.
+ * copy into a page shared copy-on-write after fork() breaks the sharing,
+ * and code cannot run from memory without execute permission (NX).
  */
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -234,6 +235,56 @@ test_cow_copy(void)
 	if (munmap(p, PAGES * pagesize) != 0) e(10);
 }
 
+#if defined(__x86_64__) || defined(__i386__)
+/* mov $42,%eax; ret */
+static const unsigned char ret42[] = { 0xb8, 0x2a, 0x00, 0x00, 0x00, 0xc3 };
+
+/* Call the code at p; return its result, or -1 if running it faulted. */
+static int
+run_code(void *p)
+{
+	int (*fn)(void) = (int (*)(void))p;
+	int before = faults, r = -1;
+
+	if (sigsetjmp(jb, 1) == 0)
+		r = fn();
+	return faults != before ? -1 : r;
+}
+
+/*
+ * No-execute: code written to memory mapped without PROT_EXEC -- anonymous
+ * mmap, the stack, the heap -- must not run; mprotect(PROT_EXEC) makes it
+ * runnable.
+ */
+static void
+test_noexec(void)
+{
+	unsigned char stackcode[64];
+	unsigned char *p, *h;
+
+	subtest = 8;
+	p = map_pages();
+	memcpy(p, ret42, sizeof(ret42));
+	if (run_code(p) != -1) e(1);
+	if (mprotect(p, pagesize, PROT_READ | PROT_EXEC) != 0) e(2);
+	if (run_code(p) != 42) e(3);
+	if (!faults_on(p, 1)) e(4);		/* read+exec: writes fault */
+	if (mprotect(p, pagesize, PROT_READ | PROT_WRITE) != 0) e(5);
+	if (run_code(p) != -1) e(6);
+	if (munmap(p, PAGES * pagesize) != 0) e(7);
+
+	memcpy(stackcode, ret42, sizeof(ret42));
+	if (run_code(stackcode) != -1) e(8);
+
+	if ((h = malloc(4 * pagesize)) == NULL) e(9);
+	memcpy(h, ret42, sizeof(ret42));
+	if (run_code(h) != -1) e(10);
+	free(h);
+}
+#else
+static void test_noexec(void) { }
+#endif
+
 int
 main(int argc, char **argv)
 {
@@ -254,6 +305,7 @@ main(int argc, char **argv)
 	test_kernel_copy();
 	test_data();
 	test_cow_copy();
+	test_noexec();
 
 	quit();
 	return 0;
