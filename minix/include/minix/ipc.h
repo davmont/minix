@@ -1026,7 +1026,7 @@ typedef struct {
 	void		*addr;		/* page aligned */
 	size_t		len;
 	int		prot;		/* PROT_READ | PROT_WRITE | PROT_EXEC */
-	uint8_t		padding[36];
+	uint8_t		padding[44];	/* exactly 56 bytes on i386 */
 } mess_lc_vm_mprotect;
 _ASSERT_MSG_SIZE(mess_lc_vm_mprotect);
 
