@@ -615,6 +615,7 @@ do_lwp_kill(void)
  * of pthread_kill(3).  Signal 0 only checks that the thread exists.
  */
   struct mproc *target;
+  struct pm_siginfo saved;
   int slot, sig, my_group, its_group;
 
   sig = m_in.m_lc_pm_lwp_kill.sig;
@@ -636,9 +637,10 @@ do_lwp_kill(void)
   if (sig == 0)
 	return OK;
 
+  saved = sig_origin;
   set_sig_origin(SI_LWP, mp->mp_pid, mp->mp_realuid, 0, 0);
   sig_proc(target, sig, TRUE /*trace*/, FALSE /*ksig*/);
-  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+  sig_origin = saved;
   return OK;
 }
 
