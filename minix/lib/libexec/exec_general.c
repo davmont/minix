@@ -40,10 +40,12 @@ int libexec_alloc_mmap_prealloc_cleared(struct exec_info *execi, vir_bytes vaddr
 	return OK;
 }
 
+/* Demand-zero memory: the bss past a segment's file data, and the stack.
+ * No code runs there, so it is mapped without execute permission (NX). */
 int libexec_alloc_mmap_ondemand(struct exec_info *execi, vir_bytes vaddr, size_t len)
 {
 	if(minix_mmap_for(execi->proc_e, (void *) vaddr, len,
-		PROT_READ|PROT_WRITE|PROT_EXEC,
+		PROT_READ|PROT_WRITE,
 		MAP_ANON|MAP_FIXED, -1, 0) == MAP_FAILED) {
 		return ENOMEM;
 	}

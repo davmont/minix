@@ -32,6 +32,7 @@ int minix_vfs_mmap(endpoint_t who, off_t offset, size_t len,
 
 /* minix vfs mmap flags */
 #define MVM_WRITABLE	0x8000
+#define MVM_EXEC	0x4000	/* program text: may be executed */
 
 /* VM kernel request types. */
 #define VMPTYPE_NONE		0

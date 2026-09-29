@@ -165,6 +165,8 @@ static int map_sanitycheck_pt(struct vmproc *vmp,
 		rw = PTF_WRITE;
 	else
 		rw = PTF_READ;
+	if(vr->flags & VR_NOEXEC)
+		rw |= PTF_NOEXEC;
 
 	r = pt_writemap(vmp, &vmp->vm_pt, vr->vaddr + pr->offset,
 	  pb->phys, VM_PAGE_SIZE, PTF_PRESENT | PTF_USER | rw, WMF_VERIFY);
@@ -310,6 +312,9 @@ int map_ph_writept(struct vmproc *vmp, struct vir_region *vr,
 		flags |= PTF_WRITE;
 	else
 		flags |= PTF_READ;
+
+	if(vr->flags & VR_NOEXEC)
+		flags |= PTF_NOEXEC;
 
 
 	if(vr->def_memtype->pt_flags)
@@ -1362,8 +1367,8 @@ int map_unmap_range(struct vmproc *vmp, vir_bytes unmap_start, vir_bytes length)
  * rewrite the page table entries of the pages already present.
  *
  * x86 has no write-only or execute-only pages: PROT_WRITE implies read, and
- * any of READ/WRITE/EXEC makes the pages readable.  PROT_EXEC is otherwise
- * not enforced yet (no NX in user PTEs).
+ * any of READ/WRITE/EXEC makes the pages readable.  Without PROT_EXEC the
+ * pages get the NX bit (VR_NOEXEC).
  */
 int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 	int prot)
@@ -1416,9 +1421,11 @@ int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 			vr = vr1;
 		}
 
-		flags = vr->flags & ~(VR_WRITABLE | VR_NOACCESS);
+		flags = vr->flags & ~(VR_WRITABLE | VR_NOACCESS | VR_NOEXEC);
 		if(prot & PROT_WRITE)
 			flags |= VR_WRITABLE;
+		if(!(prot & PROT_EXEC))
+			flags |= VR_NOEXEC;
 		else if((vr->flags & VR_WRITABLE) &&
 		    (vr->flags & (VR_SHARED|VR_DIRECT)))
 			flags |= VR_WASWRITABLE;

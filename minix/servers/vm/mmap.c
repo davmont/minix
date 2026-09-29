@@ -89,7 +89,8 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 static int mmap_file(struct vmproc *vmp,
 	int vmfd, off_t file_offset, int flags,
 	ino_t ino, dev_t dev, u64_t filesize, vir_bytes addr, vir_bytes len,
-	vir_bytes *retaddr, u16_t clearend, int writable, int mayclosefd)
+	vir_bytes *retaddr, u16_t clearend, int writable, int exec,
+	int mayclosefd)
 {
 /* VFS has replied to a VMVFSREQ_FDLOOKUP request. */
 	struct vir_region *vr;
@@ -98,6 +99,7 @@ static int mmap_file(struct vmproc *vmp,
 	u32_t vrflags = 0;
 
 	if(writable) vrflags |= VR_WRITABLE;
+	if(!exec) vrflags |= VR_NOEXEC;
 
 	/* Do some page alignments. */
 	if((page_offset = (file_offset % VM_PAGE_SIZE))) {
@@ -159,7 +161,7 @@ int do_vfs_mmap(message *m)
 		m->m_vm_vfs_mmap.ino, m->m_vm_vfs_mmap.dev,
 		(u64_t) LONG_MAX * VM_PAGE_SIZE,
 		m->m_vm_vfs_mmap.vaddr, m->m_vm_vfs_mmap.len, &v,
-		clearend, flags, 0);
+		clearend, !!(flags & MVM_WRITABLE), !!(flags & MVM_EXEC), 0);
 }
 
 static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
@@ -187,7 +189,8 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 			replymsg->VMV_INO, replymsg->VMV_DEV,
 			(u64_t) replymsg->VMV_SIZE_PAGES*PAGE_SIZE,
 			(vir_bytes) origmsg->m_mmap.addr,
-			origmsg->m_mmap.len, &v, 0, writable, 1);
+			origmsg->m_mmap.len, &v, 0, writable,
+			!!(origmsg->m_mmap.prot & PROT_EXEC), 1);
 	}
 
 	/* Unblock requesting process. */
@@ -259,7 +262,9 @@ int do_mmap(message *m)
 		} else	mt = &mem_type_anon;
 
 		if(!(vr = mmap_region(vmp, addr, m->m_mmap.flags, len,
-			VR_WRITABLE | VR_ANON, mt, execpriv))) {
+			VR_WRITABLE | VR_ANON |
+			((m->m_mmap.prot & PROT_EXEC) ? 0 : VR_NOEXEC),
+			mt, execpriv))) {
 			return ENOMEM;
 		}
 	} else {

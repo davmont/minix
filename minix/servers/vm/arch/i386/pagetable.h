@@ -41,6 +41,9 @@ typedef u32_t pte_t;
 #define PFERR_PROT(e)	(((e) & I386_VM_PFE_P))
 #define PFERR_WRITE(e)	((e) & I386_VM_PFE_W)
 #define PFERR_READ(e)	(!((e) & I386_VM_PFE_W))
+#define PFERR_EXEC(e)	0
+#define PTF_NOEXEC	0	/* no NX support */
+#define PTF_NOEXEC_BIT	0
 
 #define VM_PAGE_SIZE	I386_PAGE_SIZE
 

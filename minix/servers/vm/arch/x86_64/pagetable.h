@@ -26,6 +26,13 @@ typedef u64_t pte_t;
 #define PTF_USER	AMD64_VM_USER
 #define PTF_GLOBAL	AMD64_VM_GLOBAL
 #define PTF_NOCACHE	(AMD64_VM_PWT | AMD64_VM_PCD)
+/*
+ * No-execute.  The NX bit is bit 63 of the PTE, beyond the 32-bit flags that
+ * pt_writemap() takes, so the flag uses an available bit (9) and
+ * pt_writemap() turns it into AMD64_VM_NX when it writes the entry.
+ */
+#define PTF_NOEXEC	0x200
+#define PTF_NOEXEC_BIT	AMD64_VM_NX
 
 #define ARCH_VM_DIR_ENTRIES	AMD64_VM_DIR_ENTRIES
 #define ARCH_BIG_PAGE_SIZE	AMD64_BIG_PAGE_SIZE
@@ -42,12 +49,13 @@ typedef u64_t pte_t;
 
 /* For arch-specific PT routines to check that no bits outside regular
  * flags are set. */
-#define PTF_ALLFLAGS	(PTF_READ|PTF_WRITE|PTF_PRESENT|PTF_USER|PTF_GLOBAL|PTF_NOCACHE)
+#define PTF_ALLFLAGS	(PTF_READ|PTF_WRITE|PTF_PRESENT|PTF_USER|PTF_GLOBAL|PTF_NOCACHE|PTF_NOEXEC)
 
 #define PFERR_NOPAGE(e)	(!((e) & AMD64_VM_PFE_P))
 #define PFERR_PROT(e)	(((e) & AMD64_VM_PFE_P))
 #define PFERR_WRITE(e)	((e) & AMD64_VM_PFE_W)
 #define PFERR_READ(e)	(!((e) & AMD64_VM_PFE_W))
+#define PFERR_EXEC(e)	((e) & AMD64_VM_PFE_I)	/* instruction fetch */
 
 #define VM_PAGE_SIZE	AMD64_PAGE_SIZE
 

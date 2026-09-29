@@ -41,6 +41,9 @@
 #define PFERR_NOPAGE(e) (!PFERR_PROT(e))
 #define PFERR_WRITE(e)	((e) & ARM_VM_PFE_W)
 #define PFERR_READ(e)	(!((e) & ARM_VM_PFE_W))
+#define PFERR_EXEC(e)	0
+#define PTF_NOEXEC	0	/* no NX support */
+#define PTF_NOEXEC_BIT	0
 
 #define VM_PAGE_SIZE    ARM_PAGE_SIZE
 

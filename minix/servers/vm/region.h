@@ -100,6 +100,13 @@ typedef struct vir_region {
  * grant by itself (VR_SHARED, VR_DIRECT); only such a region may get it back.
  */
 #define VR_WASWRITABLE	0x2000
+/*
+ * No code may run here: the PTEs get the NX bit.  Set for mappings made
+ * without PROT_EXEC (anonymous and file mmap, the data, bss and stack an exec
+ * sets up), and by mprotect() without PROT_EXEC.  Regions VM creates itself,
+ * boot images and program text keep execute permission.
+ */
+#define VR_NOEXEC	0x4000
 
 /* Mapping type: */
 #define VR_ANON		0x100	/* Memory to be cleared and allocated */

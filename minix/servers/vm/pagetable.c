@@ -583,7 +583,7 @@ static int pt_ptalloc(pt_t *pt, int pde, u32_t flags)
 	 * relying on the PTE for protection.
 	 */
 #if defined(__i386__) || defined(__x86_64__)
-	pt->pt_dir[pde] = (pt_phys & ARCH_VM_ADDR_MASK) | flags
+	pt->pt_dir[pde] = (pt_phys & ARCH_VM_ADDR_MASK) | (flags & ~PTF_NOEXEC)
 		| ARCH_VM_PDE_PRESENT | ARCH_VM_PTE_USER | ARCH_VM_PTE_RW;
 #elif defined(__arm__)
 	pt->pt_dir[pde] = (pt_phys & ARCH_VM_PDE_MASK)
@@ -957,7 +957,9 @@ int pt_writemap(struct vmproc * vmp,
 
 		/* Entry we will write. */
 #if defined(__i386__) || defined(__x86_64__)
-		entry = (physaddr & ARCH_VM_ADDR_MASK) | flags;
+		entry = (physaddr & ARCH_VM_ADDR_MASK) | (flags & ~PTF_NOEXEC);
+		if(flags & PTF_NOEXEC)
+			entry |= PTF_NOEXEC_BIT;
 #elif defined(__arm__)
 		entry = (physaddr & ARM_VM_PTE_MASK) | flags;
 #endif
