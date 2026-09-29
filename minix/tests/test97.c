@@ -2,10 +2,13 @@
  *
  * A handler installed with SA_SIGINFO gets (signo, siginfo_t *, ucontext_t *):
  * the siginfo_t says where the signal came from -- the sender's pid and uid
- * for kill(2), the child and its fate for SIGCHLD -- and the ucontext_t holds
+ * for kill(2), the child and its fate for SIGCHLD, the address and cause of a
+ * SIGSEGV -- and the ucontext_t holds
  * the interrupted context.  A plain handler keeps working as before.
  */
+#include <sys/mman.h>
 #include <sys/wait.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <ucontext.h>
 
@@ -122,6 +125,54 @@ test_sigchld(void)
 	signal(SIGCHLD, SIG_DFL);
 }
 
+static sigjmp_buf jb;
+
+static void
+segv_handler(int sig, siginfo_t *si, void *ctx)
+{
+	handler(sig, si, ctx);
+	siglongjmp(jb, 1);
+}
+
+/* A bad access: SIGSEGV with the address and why -- SEGV_ACCERR for a page
+ * the process may not write, SEGV_MAPERR for one that is not mapped. */
+static void
+test_segv(void)
+{
+	struct sigaction sa;
+	volatile char *p;
+	long pagesize = sysconf(_SC_PAGESIZE);
+
+	subtest = 4;
+	memset(&sa, 0, sizeof(sa));
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_SIGINFO;
+	sa.sa_sigaction = segv_handler;
+	if (sigaction(SIGSEGV, &sa, NULL) != 0) e(1);
+
+	p = mmap(NULL, 2 * pagesize, PROT_READ, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if (p == MAP_FAILED) e(2);
+
+	got = 0;
+	if (sigsetjmp(jb, 1) == 0)
+		p[100] = 1;
+	if (got != SIGSEGV) e(3);
+	if (info.si_signo != SIGSEGV) e(4);
+	if (info.si_code != SEGV_ACCERR) e(5);
+	if (info.si_addr != (void *)(p + 100)) e(6);
+
+	if (munmap((void *)(p + pagesize), pagesize) != 0) e(7);
+	got = 0;
+	if (sigsetjmp(jb, 1) == 0)
+		(void)p[pagesize + 8];
+	if (got != SIGSEGV) e(8);
+	if (info.si_code != SEGV_MAPERR) e(9);
+	if (info.si_addr != (void *)(p + pagesize + 8)) e(10);
+
+	munmap((void *)p, pagesize);
+	signal(SIGSEGV, SIG_DFL);
+}
+
 /* A handler without SA_SIGINFO still just gets the signal number. */
 static void
 test_plain(void)
@@ -140,6 +191,7 @@ main(int argc, char **argv)
 
 	test_kill();
 	test_sigchld();
+	test_segv();
 	test_plain();
 
 	quit();
