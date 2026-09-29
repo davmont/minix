@@ -609,7 +609,7 @@ typedef struct {
 	size_t size;		/* ss_size */
 	int flags;		/* ss_flags: SS_DISABLE or 0 */
 	int set;		/* request: install sp/size/flags */
-	uint8_t padding[32];
+	uint8_t padding[40];	/* exactly 56 bytes on i386 */
 } mess_lc_pm_sigaltstack;
 _ASSERT_MSG_SIZE(mess_lc_pm_sigaltstack);
 
