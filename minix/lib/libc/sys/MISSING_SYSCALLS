@@ -52,7 +52,6 @@ setpgid
 setpgrp
 setregid
 setreuid
-sigaltstack
 sigqueue
 sigqueueinfo
 sigstack

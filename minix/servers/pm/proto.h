@@ -77,6 +77,7 @@ int process_ksig(endpoint_t proc_nr_e, int signo);
 int check_sig(pid_t proc_id, int signo, int ksig);
 void sig_proc(struct mproc *rmp, int signo, int trace, int ksig);
 int do_sigaction(void);
+int do_sigaltstack(void);
 int do_sigpending(void);
 int do_sigprocmask(void);
 int do_sigreturn(void);
