@@ -31,12 +31,16 @@ int do_kill(struct proc * caller, message * m_ptr)
   if (sig_nr >= _NSIG) return(EINVAL);
   if (iskerneln(proc_nr)) return(EPERM);
 
-  /* Remember what the fault was about, for the signal manager. */
-  if (m_ptr->m_sigcalls.fault_code != 0) {
+  /* Remember what the fault was about, for the signal manager.  A plain
+   * kill of the same signal supersedes an unread fault record. */
+  {
 	struct ksig_fault *kf = &ksig_fault[proc_nr + NR_TASKS];
-	kf->kf_sig = sig_nr;
-	kf->kf_code = m_ptr->m_sigcalls.fault_code;
-	kf->kf_addr = (vir_bytes) m_ptr->m_sigcalls.fault_addr;
+	if (m_ptr->m_sigcalls.fault_code != 0) {
+		kf->kf_sig = sig_nr;
+		kf->kf_code = m_ptr->m_sigcalls.fault_code;
+		kf->kf_addr = (vir_bytes) m_ptr->m_sigcalls.fault_addr;
+	} else if (kf->kf_sig == sig_nr)
+		kf->kf_sig = 0;
   }
 
   /* Set pending signal to be processed by the signal manager. */

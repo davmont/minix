@@ -24,10 +24,13 @@ int do_sigsend(struct proc * caller, message * m_ptr)
   register struct proc *rp;
   /* Static, not on the 4 KB kernel stack: with the SA_SIGINFO siginfo_t
    * and ucontext_t the frame is 1.7 KB.  Kernel calls run under the BKL,
-   * and the frame is rebuilt from scratch on every (re)try. */
+   * and the frame is rebuilt from scratch on every (re)try.  The BKL is
+   * dropped once, inside save_fpu() (smp_schedule_sync() for a process
+   * whose FPU state lives on another CPU); that is safe only because PM
+   * is the sole SYS_SIGSEND caller and stays blocked in this call. */
   static struct sigframe_sigcontext fr;
   struct sigframe_sigcontext *frp;
-  int proc_nr, r;
+  int proc_nr, r, onaltstack;
 #if defined(__i386__) || defined(__x86_64__)
   reg_t new_fp;
 #endif
@@ -50,9 +53,19 @@ int do_sigsend(struct proc * caller, message * m_ptr)
    * alternate signal stack for an SA_ONSTACK handler, unless the process is
    * already running on it (a signal in a signal handler). */
   smsg.sm_stkptr = arch_get_sp(rp);
-  if (smsg.sm_altsize != 0 && (smsg.sm_stkptr <= smsg.sm_altbase ||
-	smsg.sm_stkptr > smsg.sm_altbase + smsg.sm_altsize))
+  onaltstack = smsg.sm_altsize != 0 && smsg.sm_stkptr > smsg.sm_altbase &&
+	smsg.sm_stkptr <= smsg.sm_altbase + smsg.sm_altsize;
+  if ((smsg.sm_flags & SMF_ONSTACK) && smsg.sm_altsize != 0 && !onaltstack)
 	smsg.sm_stkptr = smsg.sm_altbase + smsg.sm_altsize;
+#if defined(__x86_64__)
+  else {
+	/* Staying on the interrupted stack: skip the 128-byte red zone below
+	 * %rsp, which a leaf function may be using for its locals (the amd64
+	 * ABI; userland is built with it).  Placing the frame right below
+	 * %rsp overwrote them under an asynchronous signal. */
+	smsg.sm_stkptr -= 128;
+  }
+#endif
   frp = (struct sigframe_sigcontext *) smsg.sm_stkptr - 1;
 
 #if defined(__x86_64__)
@@ -197,9 +210,12 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 
 	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU | _UC_STACK;
 	fr.sf_uc.uc_sigmask = smsg.sm_mask;
+	/* The alternate signal stack as of the interrupted context. */
 	if (smsg.sm_altsize != 0) {
 		fr.sf_uc.uc_stack.ss_sp = (void *) smsg.sm_altbase;
 		fr.sf_uc.uc_stack.ss_size = smsg.sm_altsize;
+		if (onaltstack)
+			fr.sf_uc.uc_stack.ss_flags = SS_ONSTACK;
 	} else
 		fr.sf_uc.uc_stack.ss_flags = SS_DISABLE;
 	fr.sf_uc.uc_mcontext.__gregs[_REG_GS] = fr.sf_sc.sc_gs;

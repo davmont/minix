@@ -1138,7 +1138,11 @@ check_parent(
 		cleanup(child);
   }
   else {
-	/* Parent is not waiting. */
+	/* Parent is not waiting.  This can run inside another signal's
+	 * delivery (a group kill whose first victim exits at once), so put
+	 * that signal's origin back afterwards. */
+	struct pm_siginfo saved = sig_origin;
+
 	if (child->mp_sigstatus)
 		set_sig_origin(((unsigned char) child->mp_sigstatus & WCOREFLAG) ?
 		    CLD_DUMPED : CLD_KILLED, child->mp_pid, child->mp_realuid,
@@ -1147,7 +1151,7 @@ check_parent(
 		set_sig_origin(CLD_EXITED, child->mp_pid, child->mp_realuid,
 		    child->mp_exitstatus & 0xff, 0);
 	sig_proc(p_mp, SIGCHLD, TRUE /*trace*/, FALSE /* ksig */);
-	set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+	sig_origin = saved;
   }
 }
 

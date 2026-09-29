@@ -157,7 +157,10 @@ struct	sigaction {
 #define SA_NOCLDWAIT	0x0020	/* do not generate zombies on unwaited child */
 #if (_POSIX_C_SOURCE - 0) >= 199309L || (_XOPEN_SOURCE - 0) >= 500 || \
     defined(_NETBSD_SOURCE)
+#if !defined(__minix) || defined(__x86_64__)
+/* MINIX builds the siginfo_t/ucontext_t frame on amd64 only. */
 #define SA_SIGINFO	0x0040	/* take sa_sigaction handler */
+#endif /* !defined(__minix) || defined(__x86_64__) */
 #endif /* (_POSIX_C_SOURCE - 0) >= 199309L || ... */
 #if defined(_NETBSD_SOURCE)
 #define	SA_NOKERNINFO	0x0080	/* siginfo does not print kernel info on tty */
