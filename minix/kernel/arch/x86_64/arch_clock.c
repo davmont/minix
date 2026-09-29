@@ -193,6 +193,9 @@ void bkl_unlock_after_intr(void)
 	 * dedicated spurious_irq_handler() that calls BKL_UNLOCK(); we achieve
 	 * the same effect here for all PIC interrupts in one place.
 	 */
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+	get_cpu_var(cpuid, nested_took_bkl) = 0;
+#endif
 	BKL_UNLOCK();
 }
 
@@ -511,11 +514,16 @@ void context_stop_idle(void)
 	 *     BKL_LOCK an already-held lock and self-deadlock.  Account
 	 *     inline and call smp_sched_handler with already-held BKL.
 	 *   - bkl_held_by_cpu[cpu] == 0: we were halted in idle (idle drops
-	 *     BKL via context_stop(KERNEL) before halt_cpu).  Take BKL,
-	 *     account inline, process flags, release BKL.
+	 *     BKL via context_stop(KERNEL) before halt_cpu) or in one of the
+	 *     boot-time calibration loops, which run with IF=1 and no BKL.
+	 *     Take BKL, account inline, process flags.
 	 *
-	 * Either way the BKL state on return matches the state on entry,
-	 * so the trailing iretq lands in a context with consistent locking.
+	 * The BKL is held across the IRQ handler that runs next (irq_handle ->
+	 * mini_notify -> RTS_UNSET/enqueue, or the timer handler): it changes
+	 * shared proc state and must be serialized with the other CPUs.
+	 * context_resume_nested() releases it before the iretq, so the
+	 * interrupted context gets back the BKL state it had.  A CPU woken
+	 * from idle re-takes the BKL in switch_to_user() before it goes on.
 	 */
 	{
 		struct proc *idle_p = get_cpulocal_var_ptr(idle_proc);
@@ -529,8 +537,9 @@ void context_stop_idle(void)
 		idle_p->p_cycles += tsc - *__tsc_ctr_switch;
 		*__tsc_ctr_switch = tsc;
 		smp_sched_handler();
-		if (!held)
-			BKL_UNLOCK();
+		/* Keep the BKL across the interrupt handler that runs next;
+		 * context_resume_nested() drops it again before the iretq. */
+		get_cpu_var(cpu, nested_took_bkl) = !held;
 	}
 #else
 	context_stop(get_cpulocal_var_ptr(idle_proc));
@@ -541,6 +550,22 @@ void context_stop_idle(void)
 #if SPROFILE
 	if (sprofiling)
 		get_cpulocal_var(idle_interrupted) = 1;
+#endif
+}
+
+/*
+ * Nested (kernel-mode) interrupt exit: drop the BKL if context_stop_idle()
+ * took it for this interrupt, restoring the interrupted context's state.
+ */
+void context_resume_nested(void)
+{
+#if defined(CONFIG_SMP) && CONFIG_MAX_CPUS > 1
+	unsigned cpu = cpuid;
+
+	if (get_cpu_var(cpu, nested_took_bkl)) {
+		get_cpu_var(cpu, nested_took_bkl) = 0;
+		BKL_UNLOCK();
+	}
 #endif
 }
 

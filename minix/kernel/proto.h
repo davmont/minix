@@ -38,6 +38,7 @@ void cycles_accounting_init(void);
 void context_stop(struct proc * p);
 /* this is a wrapper to make calling it from assembly easier */
 void context_stop_idle(void);
+void context_resume_nested(void);
 void get_cpu_ticks(unsigned int cpu, uint64_t ticks[MINIX_CPUSTATES]);
 int restore_fpu(struct proc *);
 void save_fpu(struct proc *);

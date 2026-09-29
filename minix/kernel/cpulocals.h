@@ -67,6 +67,7 @@ extern struct __cpu_local_vars {
 	struct proc * run_q_head[NR_SCHED_QUEUES]; /* ptrs to ready list headers */
 	struct proc * run_q_tail[NR_SCHED_QUEUES]; /* ptrs to ready list tails */
 	int cpu_is_idle; /* let the others know that you are idle */
+	int nested_took_bkl; /* a nested interrupt took the BKL (amd64) */
 
 	int idle_interrupted; /* to interrupt busy-idle
 						     while profiling */

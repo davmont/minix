@@ -473,6 +473,22 @@ not_runnable_pick_new:
 				}
 			}
 			idle();
+#ifdef CONFIG_SMP
+			/*
+			 * idle() dropped the BKL before halting, and the
+			 * interrupt that woke us released it again before its
+			 * iretq.  Everything from here on -- pick_proc(),
+			 * delivermsg(), kernel_call_resume() -- changes shared
+			 * state, so take the BKL back first -- with interrupts
+			 * off: idle() can return with them on (at boot), and an
+			 * interrupt taken after spinlock_lock() succeeds but
+			 * before bkl_held_by_cpu is set would make
+			 * context_stop_idle() take the BKL a second time.
+			 */
+			interrupts_disable();
+			if (!bkl_held_by_cpu[cpuid])
+				BKL_LOCK();
+#endif
 		}
 		if (idle_spin_total > 0)
 			idle_spin_total = 0;
@@ -2357,7 +2373,18 @@ static struct proc * pick_proc(void)
 		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
 		continue;
 	}
-	assert(proc_is_runnable(rp));
+	if (!proc_is_runnable(rp)) {
+		/* A blocked process on a run queue: the queue is corrupt.  Drop
+		 * the lock before reporting it -- printf() notifies the log
+		 * driver, and mini_notify() -> enqueue() takes runqueue_lock;
+		 * asserting with it held deadlocked here and hid the panic.
+		 */
+		RUNQ_UNLOCK(_rqf);
+		panic("pick_proc: %s (ep %d) on cpu %d queue %d is not "
+		    "runnable: rts 0x%x misc 0x%x", rp->p_name,
+		    rp->p_endpoint, cpuid, q, rp->p_rts_flags,
+		    rp->p_misc_flags);
+	}
 	if (priv(rp)->s_flags & BILLABLE)
 		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
 	RUNQ_UNLOCK(_rqf);

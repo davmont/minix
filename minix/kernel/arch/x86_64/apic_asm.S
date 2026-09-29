@@ -54,6 +54,7 @@ ENTRY(apic_hwint##irq)							\
 	call	_C_LABEL(context_stop_idle)				;\
 	APIC_IRQ_HANDLER(irq)						;\
 	call	_C_LABEL(arch_eoi)					;\
+	call	_C_LABEL(context_resume_nested)				;\
 	CLEAR_IF(11*8(%rsp))						;\
 	pop	%r11							;\
 	pop	%r10							;\
@@ -163,6 +164,7 @@ apic_hwint(63)
 	push	%r11							;\
 	call	_C_LABEL(context_stop_idle)				;\
 	LAPIC_INTR_HANDLER(func)					;\
+	call	_C_LABEL(context_resume_nested)				;\
 	CLEAR_IF(11*8(%rsp))						;\
 	pop	%r11							;\
 	pop	%r10							;\
