@@ -151,11 +151,10 @@ test_fork(void)
 }
 
 /*
- * A kernel copy into a buffer the caller may not write is refused, and the
- * buffer is left alone.  POSIX says EFAULT; the file server path currently
- * reports ENOMEM for any refused copy, so accept either until that is fixed.
+ * A kernel copy into a buffer the caller may not write is refused with
+ * EFAULT, and the buffer is left alone.
  */
-#define COPY_REFUSED(r)	((r) == -1 && (errno == EFAULT || errno == ENOMEM))
+#define COPY_REFUSED(r)	((r) == -1 && errno == EFAULT)
 
 static void
 test_kernel_copy(void)
@@ -285,6 +284,27 @@ test_noexec(void)
 static void test_noexec(void) { }
 #endif
 
+/* mmap() itself honours the protection, as mprotect() does. */
+static void
+test_mmap_prot(void)
+{
+	char *p;
+
+	subtest = 9;
+	p = mmap(NULL, pagesize, PROT_READ, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if (p == MAP_FAILED) e(1);
+	if (faults_on(p, 0)) e(2);
+	if (!faults_on(p, 1)) e(3);
+	if (munmap(p, pagesize) != 0) e(4);
+
+	p = mmap(NULL, pagesize, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if (p == MAP_FAILED) e(5);
+	if (!faults_on(p, 0)) e(6);
+	if (mprotect(p, pagesize, PROT_READ | PROT_WRITE) != 0) e(7);
+	if (faults_on(p, 1)) e(8);
+	if (munmap(p, pagesize) != 0) e(9);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -306,6 +326,7 @@ main(int argc, char **argv)
 	test_data();
 	test_cow_copy();
 	test_noexec();
+	test_mmap_prot();
 
 	quit();
 	return 0;
