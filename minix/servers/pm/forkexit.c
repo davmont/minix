@@ -702,6 +702,45 @@ do_lwp_unpark(void)
 }
 
 /*===========================================================================*
+ *				do_lwp_kill				     *
+ *===========================================================================*/
+int
+do_lwp_kill(void)
+{
+/* Send a signal to one thread (LWP) of the caller's own process -- the core
+ * of pthread_kill(3).  Signal 0 only checks that the thread exists.
+ */
+  struct mproc *target;
+  struct pm_siginfo saved;
+  int slot, sig, my_group, its_group;
+
+  sig = m_in.m_lc_pm_lwp_kill.sig;
+  if (sig < 0 || sig >= _NSIG)
+	return EINVAL;
+  if (pm_isokendpt((endpoint_t) m_in.m_lc_pm_lwp_kill.target, &slot) != OK)
+	return ESRCH;
+  target = &mproc[slot];
+  if ((target->mp_flags & (IN_USE | EXITING)) != IN_USE)
+	return ESRCH;
+
+  /* Only threads of the same process: same group leader. */
+  my_group = (mp->mp_lwp_group != NO_LWP_GROUP) ? mp->mp_lwp_group : who_p;
+  its_group = (target->mp_lwp_group != NO_LWP_GROUP) ?
+	target->mp_lwp_group : slot;
+  if (my_group != its_group)
+	return ESRCH;
+
+  if (sig == 0)
+	return OK;
+
+  saved = sig_origin;
+  set_sig_origin(SI_LWP, mp->mp_pid, mp->mp_realuid, 0, 0);
+  sig_proc(target, sig, TRUE /*trace*/, FALSE /*ksig*/);
+  sig_origin = saved;
+  return OK;
+}
+
+/*===========================================================================*
  *				do_srv_fork				     *
  *===========================================================================*/
 int

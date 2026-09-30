@@ -1,6 +1,8 @@
 #include <sys/cdefs.h>
+#include <lib.h>
 #include "namespace.h"
 
+#include <string.h>
 #include <lwp.h>
 #include <sched.h>
 #include <errno.h>
@@ -11,16 +13,18 @@
  */
 
 /*
- * Per-thread (LWP-directed) signal.  MINIX has no per-LWP signal delivery yet,
- * so pthread_kill() fails with ENOSYS.  TODO: a PM-backed _lwp_kill.
+ * Per-thread (LWP-directed) signal, the core of pthread_kill(3): PM delivers
+ * it to that thread only, if it belongs to our process.
  */
 int
 _lwp_kill(lwpid_t lwp, int sig)
 {
-	(void)lwp;
-	(void)sig;
-	errno = ENOSYS;
-	return -1;
+	message m;
+
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_lwp_kill.target = lwp;
+	m.m_lc_pm_lwp_kill.sig = sig;
+	return _syscall(PM_PROC_NR, PM_LWP_KILL, &m);
 }
 
 /*

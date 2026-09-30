@@ -30,6 +30,7 @@ int do_lwp_exit(void);
 void lwp_exit_finish(struct mproc *rmp);
 int do_lwp_park(void);
 int do_lwp_unpark(void);
+int do_lwp_kill(void);
 int do_lwp_wait(void);
 int do_srv_fork(void);
 int do_exit(void);
