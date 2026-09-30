@@ -333,7 +333,7 @@ static void try_resume_proc(struct mproc *rmp)
    * VFS or event call is replied to.  If the process has died, do not resume
    * it either.
    */
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING))
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
 	return;
 
   if ((r = sys_resume(rmp->mp_endpoint)) != OK)
@@ -493,7 +493,7 @@ sig_proc(
 	return;
   }
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD)) {
 	sigaddset(&rmp->mp_sigpending, signo);
 	if(ksig)
 		sigaddset(&rmp->mp_ksigpending, signo);
@@ -777,7 +777,7 @@ check_pending(register struct mproc *rmp)
 		sig_proc(rmp, i, FALSE /*trace*/, ksig);
 		sig_origin = saved;
 
-		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD)) {
 			/* Signals must be rechecked upon return from the new
 			 * VFS call, unless the process was killed. In both
 			 * cases, the process is stopped.
@@ -798,7 +798,8 @@ restart_sigs(struct mproc *rmp)
 /* VFS has replied to a request from us; do signal-related work.
  */
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING)) return;
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
+	return;
 
   if (rmp->mp_flags & TRACE_EXIT) {
 	/* Tracer requested exit with specific exit value */

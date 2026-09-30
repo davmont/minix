@@ -577,6 +577,13 @@
 #  define VFS_PM_FRAME		m7_p2	/* arguments and environment */
 #  define VFS_PM_FRAME_LEN	m7_i3	/* size of frame */
 #  define VFS_PM_PS_STR		m7_i5	/* ps_strings pointer */
+#  define VFS_PM_EXEC_FLAGS	m7_i4	/* VFS_PM_EXEC_* below */
+#    define VFS_PM_EXEC_SOLO	0x01	/* threaded caller: stop before the
+					 * point of no return, see below */
+/* VFS_PM_STATUS of a VFS_PM_EXEC_SOLO exec that passed its checks (path,
+ * permissions, header): nothing was changed yet; PM tears down the caller's
+ * other threads and asks again without the flag. */
+#  define VFS_PM_EXEC_DETHREAD	(-2001)
 
 /* Additional parameters for PM_EXEC_REPLY and PM_CORE_REPLY */
 #  define VFS_PM_STATUS		m7_i2	/* OK or failure */

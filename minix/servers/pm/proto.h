@@ -16,6 +16,7 @@ void publish_event(struct mproc *rmp);
 
 /* exec.c */
 int do_exec(void);
+void pm_send_exec(struct mproc *rmp, int solo);
 int do_newexec(void);
 int do_execrestart(void);
 void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
@@ -34,6 +35,7 @@ int do_srv_fork(void);
 int do_exit(void);
 void exit_proc(struct mproc *rmp, int exit_status, int dump_core);
 void terminate_lwp_group(struct mproc *culprit, int signo);
+void exec_dethread(struct mproc *leader);
 void exit_restart(struct mproc *rmp);
 int do_wait4(void);
 int wait_test(struct mproc *rmp, struct mproc *child);
