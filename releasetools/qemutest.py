@@ -131,9 +131,21 @@ class Serial:
                 raise Timeout("guest gone: %s" % e)
             time.sleep(0.02)
 
+    def wait_prompt(self, timeout=10):
+        """Wait until the shell shows its prompt again.  Characters sent
+        before the shell has re-armed its line editor after the previous
+        command can come out doubled ("ccd /mnt", "../test100")."""
+        deadline = time.time() + timeout
+        while not self.buf.rstrip().endswith(PROMPT.encode()):
+            left = deadline - time.time()
+            if left <= 0 or not self.pump(min(left, 0.5)):
+                return
+        time.sleep(0.05)
+
     def run(self, cmd, timeout):
         """Run a shell command; return (rc, output) of just that command.
         On Timeout the command is still running in the guest."""
+        self.wait_prompt()
         start = len(self.buf)
         # Split quotes: the command echo shows QT_'DONE', the result QT_DONE.
         self.send("%s; echo QT_RC=$? QT_'DONE'\n" % cmd)
