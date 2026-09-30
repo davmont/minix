@@ -2197,6 +2197,20 @@ void enqueue(
 #endif
 	  smp_schedule(rp->p_cpu);
   }
+  else {
+	  /*
+	   * The other cpu is busy.  If what it runs has a lower priority than
+	   * the process we just made runnable there, have it preempt now (the
+	   * scheduling IPI preempts its current process), as the local case
+	   * above does; otherwise the process waits until the running one's
+	   * quantum ends.
+	   */
+	  struct proc *curr = get_cpu_var(rp->p_cpu, proc_ptr);
+
+	  if (curr != NULL && curr->p_priority > rp->p_priority &&
+		  (priv(curr)->s_flags & PREEMPTIBLE))
+		  smp_schedule(rp->p_cpu);
+  }
 #endif
 
   /* Make note of when this process was added to queue */
