@@ -267,6 +267,28 @@ void exception_handler(int is_nested, struct exception_frame *frame)
             printf("  #UD cr0=0x%lx cr4=0x%lx\n",
                    (unsigned long)read_cr0(), (unsigned long)read_cr4());
         }
+        {
+            /* For an SA_SIGINFO handler: what the trap was, and the
+             * faulting instruction's address (POSIX si_addr for SIGILL,
+             * SIGFPE, SIGBUS and SIGTRAP).  x87/SSE exceptions would need
+             * the FPU status to say more, so they report SI_NOINFO. */
+            struct ksig_fault *kf =
+                &ksig_fault[proc_nr(saved_proc) + NR_TASKS];
+            int code;
+
+            switch (frame->vector) {
+            case 0:  code = FPE_INTDIV; break;	/* #DE */
+            case 1:  code = TRAP_TRACE; break;	/* #DB */
+            case 4:  code = FPE_INTOVF; break;	/* #OF */
+            case 5:  code = FPE_FLTSUB; break;	/* #BR */
+            case 6:  code = ILL_ILLOPC; break;	/* #UD */
+            case 17: code = BUS_ADRALN; break;	/* #AC */
+            default: code = SI_NOINFO; break;
+            }
+            kf->kf_sig = ep ? ep->signum : SIGILL;
+            kf->kf_code = code;
+            kf->kf_addr = (vir_bytes) frame->rip;
+        }
         cause_sig(proc_nr(saved_proc), ep ? ep->signum : SIGILL);
         return;
     }
