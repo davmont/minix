@@ -74,7 +74,7 @@ int do_rlimit(message *msg)
 
 	if (vm_isokendpt(msg->m_source, &proc) != OK)
 		return EINVAL;
-	vmp = &vmproc[proc];
+	vmp = vm_lwp_group(&vmproc[proc]);
 
 	switch(msg->m_lc_vm_rlimit.which) {
 	case RLIMIT_AS:		slot = &vmp->vm_as_limit;   break;
@@ -104,7 +104,8 @@ int do_brk(message *msg)
 		return EINVAL;
 	}
 
-	return real_brk(&vmproc[proc], (vir_bytes) msg->m_lc_vm_brk.addr);
+	return real_brk(vm_lwp_group(&vmproc[proc]),
+	    (vir_bytes) msg->m_lc_vm_brk.addr);
 }
 
 /*===========================================================================*

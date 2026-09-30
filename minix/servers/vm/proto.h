@@ -46,6 +46,7 @@ void mem_init(struct memory *chunks);
 /* utility.c */
 void get_mem_chunks(struct memory *mem_chunks);
 int vm_isokendpt(endpoint_t ep, int *proc);
+struct vmproc *vm_lwp_group(struct vmproc *vmp);
 int get_stack_ptr(int proc_nr, vir_bytes *sp);
 int do_info(message *);
 int swap_proc_slot(struct vmproc *src_vmp, struct vmproc *dst_vmp);

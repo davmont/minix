@@ -37,22 +37,54 @@
 int
 do_exec(void)
 {
-	message m;
+	struct pm_execargs *pe = &mpexecargs[who_p];
+	int solo;
 
-	/* Forward call to VFS */
-	memset(&m, 0, sizeof(m));
-	m.m_type = VFS_PM_EXEC;
-	m.VFS_PM_ENDPT = mp->mp_endpoint;
-	m.VFS_PM_PATH = (void *)m_in.m_lc_pm_exec.name;
-	m.VFS_PM_PATH_LEN = m_in.m_lc_pm_exec.namelen;
-	m.VFS_PM_FRAME = (void *)m_in.m_lc_pm_exec.frame;
-	m.VFS_PM_FRAME_LEN = m_in.m_lc_pm_exec.framelen;
-	m.VFS_PM_PS_STR = m_in.m_lc_pm_exec.ps_str;
+	/* Only the main thread may exec for now: the process identity (pid,
+	 * parent, VFS state) lives in the thread-group leader's slot, and
+	 * handing it over to another thread is not implemented yet. */
+	if (mp->mp_flags & MP_LWP)
+		return ENOTSUP;
 
-	tell_vfs(mp, &m);
+	pe->pe_name = (vir_bytes)m_in.m_lc_pm_exec.name;
+	pe->pe_namelen = m_in.m_lc_pm_exec.namelen;
+	pe->pe_frame = (vir_bytes)m_in.m_lc_pm_exec.frame;
+	pe->pe_framelen = m_in.m_lc_pm_exec.framelen;
+	pe->pe_ps_str = m_in.m_lc_pm_exec.ps_str;
+
+	/* POSIX: a successful exec leaves only the calling thread.  With other
+	 * threads alive, have VFS check the exec first and stop before the
+	 * point of no return; exec_dethread() then removes the other threads
+	 * and asks again. */
+	solo = (mp->mp_lwp_group == who_p);
+
+	pm_send_exec(mp, solo);
 
 	/* Do not reply */
 	return SUSPEND;
+}
+
+/*===========================================================================*
+ *				pm_send_exec				     *
+ *===========================================================================*/
+void
+pm_send_exec(struct mproc *rmp, int solo)
+{
+/* Forward the exec saved in mpexecargs[] to VFS. */
+	struct pm_execargs *pe = &mpexecargs[rmp - mproc];
+	message m;
+
+	memset(&m, 0, sizeof(m));
+	m.m_type = VFS_PM_EXEC;
+	m.VFS_PM_ENDPT = rmp->mp_endpoint;
+	m.VFS_PM_PATH = (void *)pe->pe_name;
+	m.VFS_PM_PATH_LEN = pe->pe_namelen;
+	m.VFS_PM_FRAME = (void *)pe->pe_frame;
+	m.VFS_PM_FRAME_LEN = pe->pe_framelen;
+	m.VFS_PM_PS_STR = pe->pe_ps_str;
+	m.VFS_PM_EXEC_FLAGS = solo ? VFS_PM_EXEC_SOLO : 0;
+
+	tell_vfs(rmp, &m);
 }
 
 

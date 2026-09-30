@@ -93,6 +93,36 @@ int vm_isokendpt(endpoint_t endpoint, int *procn)
         return OK;
 }
 
+/*===========================================================================*
+ *                              vm_lwp_group                                 *
+ *===========================================================================*/
+struct vmproc *vm_lwp_group(struct vmproc *vmp)
+{
+/* A thread (LWP) shares its group leader's address space, and the leader's
+ * vmproc owns that space's region tree.  Every call that acts on "the
+ * process's" memory -- mmap, munmap, brk, limits, usage -- must use the
+ * leader: a thread's own tree is to stay empty (its regions would be freed
+ * with the thread while the others still use the memory). */
+	struct vmproc *leader;
+
+	if(vmp->vm_lwp_leader == NO_LWP_LEADER)
+		return vmp;
+	assert(vmp->vm_lwp_leader >= 0 && vmp->vm_lwp_leader < NR_PROCS);
+	leader = &vmproc[vmp->vm_lwp_leader];
+
+	/* PM ends a thread group leader-last, so the leader is always there.
+	 * Should a thread ever outlive it, its slot may already belong to an
+	 * unrelated process (refcount reset): never act on that. */
+	if(!(leader->vm_flags & VMF_INUSE) || leader->vm_lwp_refcount == 0) {
+		static int warned;
+		if(!warned++)
+			printf("VM: thread %d outlived its group leader\n",
+				vmp->vm_endpoint);
+		return vmp;
+	}
+	return leader;
+}
+
 
 /*===========================================================================*
  *                              do_info                                      *
@@ -108,7 +138,7 @@ int do_info(message *m)
 
 	if (vm_isokendpt(m->m_source, &pr) != OK)
 		return EINVAL;
-	vmp = &vmproc[pr];
+	vmp = vm_lwp_group(&vmproc[pr]);
 
 	ptr = (vir_bytes) m->m_lsys_vm_info.ptr;
 
@@ -141,7 +171,7 @@ int do_info(message *m)
 			get_usage_info_kernel(&vui);
 		else if (vm_isokendpt(m->m_lsys_vm_info.ep, &pr) != OK)
 			return EINVAL;
-		else get_usage_info(&vmproc[pr], &vui);
+		else get_usage_info(vm_lwp_group(&vmproc[pr]), &vui);
 
 		addr = (vir_bytes) &vui;
 		size = sizeof(vui);
@@ -158,7 +188,8 @@ int do_info(message *m)
 		count = MIN(m->m_lsys_vm_info.count, MAX_VRI_COUNT);
 		next = m->m_lsys_vm_info.next;
 
-		count = get_region_info(&vmproc[pr], vri, count, &next);
+		count = get_region_info(vm_lwp_group(&vmproc[pr]), vri,
+		    count, &next);
 
 		m->m_lsys_vm_info.count = count;
 		m->m_lsys_vm_info.next = next;
@@ -450,7 +481,7 @@ int do_getrusage(message *m)
 	if ((res = vm_isokendpt(m->m_lsys_vm_rusage.endpt, &slot)) != OK)
 		return ESRCH;
 
-	vmp = &vmproc[slot];
+	vmp = vm_lwp_group(&vmproc[slot]);
 
 	/* We are going to change only a few fields, so copy in the rusage
 	 * structure first. The structure is still in PM's address space at

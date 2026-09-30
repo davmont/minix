@@ -352,6 +352,11 @@ handle_vfs_reply(void)
 	break;
 
   case VFS_PM_EXEC_REPLY:
+	if (m_in.VFS_PM_STATUS == VFS_PM_EXEC_DETHREAD) {
+		/* The exec checks out; remove the other threads first. */
+		exec_dethread(rmp);
+		break;
+	}
 	exec_restart(rmp, m_in.VFS_PM_STATUS, (vir_bytes)m_in.VFS_PM_PC,
 		(vir_bytes)m_in.VFS_PM_NEWSP,
 		(vir_bytes)m_in.VFS_PM_NEWPS_STR);
