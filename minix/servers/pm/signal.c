@@ -30,6 +30,11 @@
 #include <assert.h>
 #include "mproc.h"
 
+static void set_sigaction_slot(struct mproc *rmp, int sig_nr,
+	struct sigaction *svec, vir_bytes sigreturn);
+static void for_each_group_slot(struct mproc *rmp,
+	void (*fn)(struct mproc *, int, struct sigaction *, vir_bytes),
+	int sig_nr, struct sigaction *svec, vir_bytes sigreturn);
 static int unpause(struct mproc *rmp, int restart);
 static int sig_send(struct mproc *rmp, int signo);
 static void sig_proc_exit(struct mproc *rmp, int signo);
@@ -64,25 +69,68 @@ int do_sigaction(void)
 	  (phys_bytes) sizeof(svec));
   if (r != OK) return(r);
 
-  if (svec.sa_handler == SIG_IGN) {
-	sigaddset(&mp->mp_ignore, sig_nr);
-	sigdelset(&mp->mp_sigpending, sig_nr);
-	sigdelset(&mp->mp_ksigpending, sig_nr);
-	sigdelset(&mp->mp_catch, sig_nr);
-  } else if (svec.sa_handler == SIG_DFL) {
-	sigdelset(&mp->mp_ignore, sig_nr);
-	sigdelset(&mp->mp_catch, sig_nr);
-  } else {
-	sigdelset(&mp->mp_ignore, sig_nr);
-	sigaddset(&mp->mp_catch, sig_nr);
-  }
-  mp->mp_sigact[sig_nr].sa_handler = svec.sa_handler;
   sigdelset(&svec.sa_mask, SIGKILL);
   sigdelset(&svec.sa_mask, SIGSTOP);
-  mp->mp_sigact[sig_nr].sa_mask = svec.sa_mask;
-  mp->mp_sigact[sig_nr].sa_flags = svec.sa_flags;
-  mp->mp_sigreturn = m_in.m_lc_pm_sig.ret;
+
+  /* A signal's disposition belongs to the process: set it in every thread
+   * (LWP) slot of the caller's group -- a process-directed signal is taken
+   * by the leader's slot, and a thread-directed one by the thread's.  Only
+   * the signal mask stays per thread. */
+  for_each_group_slot(mp, set_sigaction_slot, sig_nr, &svec,
+	m_in.m_lc_pm_sig.ret);
   return(OK);
+}
+
+/*===========================================================================*
+ *				set_sigaction_slot			     *
+ *===========================================================================*/
+static void
+set_sigaction_slot(struct mproc *rmp, int sig_nr, struct sigaction *svec,
+	vir_bytes sigreturn)
+{
+  if (svec->sa_handler == SIG_IGN) {
+	sigaddset(&rmp->mp_ignore, sig_nr);
+	sigdelset(&rmp->mp_sigpending, sig_nr);
+	sigdelset(&rmp->mp_ksigpending, sig_nr);
+	sigdelset(&rmp->mp_catch, sig_nr);
+  } else if (svec->sa_handler == SIG_DFL) {
+	sigdelset(&rmp->mp_ignore, sig_nr);
+	sigdelset(&rmp->mp_catch, sig_nr);
+  } else {
+	sigdelset(&rmp->mp_ignore, sig_nr);
+	sigaddset(&rmp->mp_catch, sig_nr);
+  }
+  rmp->mp_sigact[sig_nr].sa_handler = svec->sa_handler;
+  rmp->mp_sigact[sig_nr].sa_mask = svec->sa_mask;
+  rmp->mp_sigact[sig_nr].sa_flags = svec->sa_flags;
+  if (sigreturn != 0)
+	rmp->mp_sigreturn = sigreturn;
+}
+
+/*===========================================================================*
+ *				for_each_group_slot			     *
+ *===========================================================================*/
+static void
+for_each_group_slot(struct mproc *rmp,
+	void (*fn)(struct mproc *, int, struct sigaction *, vir_bytes),
+	int sig_nr, struct sigaction *svec, vir_bytes sigreturn)
+{
+/* Apply fn to rmp and, if it belongs to a thread group, to every other live
+ * slot of that group (the leader and its member LWPs). */
+  struct mproc *t;
+  int group;
+
+  if (rmp->mp_lwp_group == NO_LWP_GROUP) {
+	fn(rmp, sig_nr, svec, sigreturn);
+	return;
+  }
+  group = rmp->mp_lwp_group;
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING)) != IN_USE) continue;
+	if (t != &mproc[group] && (!(t->mp_flags & MP_LWP) ||
+	    t->mp_lwp_group != group)) continue;
+	fn(t, sig_nr, svec, sigreturn);
+  }
 }
 
 /*===========================================================================*
@@ -333,7 +381,7 @@ static void try_resume_proc(struct mproc *rmp)
    * VFS or event call is replied to.  If the process has died, do not resume
    * it either.
    */
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING))
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
 	return;
 
   if ((r = sys_resume(rmp->mp_endpoint)) != OK)
@@ -471,10 +519,29 @@ sig_proc(
  */
   int slot, badignore;
 
-  slot = (int) (rmp - mproc);
   if ((rmp->mp_flags & (IN_USE | EXITING)) != IN_USE) {
-	panic("PM: signal %d sent to exiting process %d\n", signo, slot);
+	panic("PM: signal %d sent to exiting process %d\n", signo,
+		(int) (rmp - mproc));
   }
+
+  /* The main thread of this process has called pthread_exit() and will
+   * never run again: a signal to the process goes to one of its live
+   * threads instead (POSIX lets any thread take a process signal). */
+  if (rmp->mp_flags & MP_LEADER_GONE) {
+	struct mproc *t;
+	int group = (int) (rmp - mproc);
+
+	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+		if ((t->mp_flags & (IN_USE | EXITING | MP_LWP | MP_LWP_ZOMBIE |
+		    MP_LWP_TEARDOWN)) == (IN_USE | MP_LWP) &&
+		    t->mp_lwp_group == group) {
+			rmp = t;
+			break;
+		}
+	}
+  }
+
+  slot = (int) (rmp - mproc);
 
   /* Remember where this instance came from, for an SA_SIGINFO handler. */
   mpsiginfo[slot][signo] = sig_origin;
@@ -493,7 +560,7 @@ sig_proc(
 	return;
   }
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD)) {
 	sigaddset(&rmp->mp_sigpending, signo);
 	if(ksig)
 		sigaddset(&rmp->mp_ksigpending, signo);
@@ -778,7 +845,7 @@ check_pending(register struct mproc *rmp)
 		sig_proc(rmp, i, FALSE /*trace*/, ksig);
 		sig_origin = saved;
 
-		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD)) {
 			/* Signals must be rechecked upon return from the new
 			 * VFS call, unless the process was killed. In both
 			 * cases, the process is stopped.
@@ -799,7 +866,8 @@ restart_sigs(struct mproc *rmp)
 /* VFS has replied to a request from us; do signal-related work.
  */
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING)) return;
+  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
+	return;
 
   if (rmp->mp_flags & TRACE_EXIT) {
 	/* Tracer requested exit with specific exit value */
@@ -936,8 +1004,13 @@ sig_send(
 	sigaddset(&rmp->mp_sigmask, signo);
 
   if (sigflags & SA_RESETHAND) {
-	sigdelset(&rmp->mp_catch, signo);
-	rmp->mp_sigact[signo].sa_handler = SIG_DFL;
+	/* Back to the default for the whole process. */
+	struct sigaction dfl;
+
+	memset(&dfl, 0, sizeof(dfl));
+	dfl.sa_handler = SIG_DFL;
+	for_each_group_slot(rmp, set_sigaction_slot, signo, &dfl,
+		0 /*keep sigreturn*/);
   }
   sigdelset(&rmp->mp_sigpending, signo);
   sigdelset(&rmp->mp_ksigpending, signo);

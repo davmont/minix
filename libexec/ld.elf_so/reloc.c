@@ -169,7 +169,6 @@ _rtld_relocate_objects(Obj_Entry *first, bool bind_now)
 		    (long)(obj->pltrellim - obj->pltrel),
 		    (long)(obj->pltrelalim - obj->pltrela)));
 
-#if !defined(__minix)
 		if (obj->textrel) {
 			/*
 			 * There are relocations to the write-protected text
@@ -182,11 +181,9 @@ _rtld_relocate_objects(Obj_Entry *first, bool bind_now)
 				return -1;
 			}
 		}
-#endif /* !defined(__minix) */
 		dbg(("doing non-PLT relocations"));
 		if (_rtld_relocate_nonplt_objects(obj) < 0)
 			ok = 0;
-#if !defined(__minix)
 		if (obj->textrel) {	/* Re-protected the text segment. */
 			if (mprotect(obj->mapbase, obj->textsize,
 				     PROT_READ | PROT_EXEC) == -1) {
@@ -195,7 +192,6 @@ _rtld_relocate_objects(Obj_Entry *first, bool bind_now)
 				return -1;
 			}
 		}
-#endif /* !defined(__minix) */
 		dbg(("doing lazy PLT binding"));
 		if (_rtld_relocate_plt_lazy(obj) < 0)
 			ok = 0;

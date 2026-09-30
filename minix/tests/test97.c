@@ -184,6 +184,51 @@ test_segv(void)
 	signal(SIGSEGV, SIG_DFL);
 }
 
+/* The trap the process caused: an integer division by zero is SIGFPE with
+ * FPE_INTDIV, an undefined instruction SIGILL with ILL_ILLOPC at its own
+ * address. */
+#if defined(__x86_64__)
+/* An idivl by zero and a ud2, each at a known address (the compiler would
+ * turn a C "1 / zero" into a compare, with no division to trap). */
+__asm__(".text\n"
+	".globl t97_div\nt97_div:\n\txorl %ecx, %ecx\n\tmovl $1, %eax\n\tcltd\n"
+	".globl t97_div_insn\nt97_div_insn:\n\tidivl %ecx\n\tret\n"
+	".globl t97_ud2\nt97_ud2:\n\tud2\n\tret\n");
+extern void t97_div(void), t97_div_insn(void), t97_ud2(void);
+#endif
+
+static void
+test_traps(void)
+{
+	struct sigaction sa;
+
+	subtest = 5;
+	memset(&sa, 0, sizeof(sa));
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_SIGINFO;
+	sa.sa_sigaction = segv_handler;		/* records, then siglongjmp */
+	if (sigaction(SIGFPE, &sa, NULL) != 0) e(1);
+	if (sigaction(SIGILL, &sa, NULL) != 0) e(2);
+
+#if defined(__x86_64__)
+	got = 0;
+	if (sigsetjmp(jb, 1) == 0)
+		t97_div();
+	if (got != SIGFPE) e(3);
+	if (info.si_code != FPE_INTDIV) e(4);
+	if (info.si_addr != (void *)t97_div_insn) e(5);
+
+	got = 0;
+	if (sigsetjmp(jb, 1) == 0)
+		t97_ud2();
+	if (got != SIGILL) e(6);
+	if (info.si_code != ILL_ILLOPC) e(7);
+	if (info.si_addr != (void *)t97_ud2) e(8);
+#endif
+	signal(SIGFPE, SIG_DFL);
+	signal(SIGILL, SIG_DFL);
+}
+
 /* A handler without SA_SIGINFO still just gets the signal number. */
 static void
 test_plain(void)
@@ -203,6 +248,7 @@ main(int argc, char **argv)
 	test_kill();
 	test_sigchld();
 	test_segv();
+	test_traps();
 	test_plain();
 
 	quit();

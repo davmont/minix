@@ -173,7 +173,7 @@ int do_vfs_mmap(message *m)
 
 	if((r=vm_isokendpt(m->m_vm_vfs_mmap.who, &n)) != OK)
 		panic("bad ep %d from vfs", m->m_vm_vfs_mmap.who);
-	vmp = &vmproc[n];
+	vmp = vm_lwp_group(&vmproc[n]);
 
 	return mmap_file(vmp, m->m_vm_vfs_mmap.fd, m->m_vm_vfs_mmap.offset,
 		MAP_PRIVATE | MAP_FIXED,
@@ -251,7 +251,7 @@ int do_mmap(message *m)
 		}
 	}
 
-	vmp = &vmproc[n];
+	vmp = vm_lwp_group(&vmproc[n]);
 
 	/* "SUSv3 specifies that mmap() should fail if length is 0" */
 	if(len <= 0) {
@@ -375,7 +375,7 @@ int do_map_phys(message *m)
 		return EPERM;
 	}
 
-	vmp = &vmproc[n];
+	vmp = vm_lwp_group(&vmproc[n]);
 
 	offset = startaddr % VM_PAGE_SIZE;
 	len += offset;
@@ -436,8 +436,8 @@ int do_remap(message *m)
 	if ((r = vm_isokendpt((endpoint_t) m->m_lsys_vm_vmremap.source, &sn)) != OK)
 		return EINVAL;
 
-	dvmp = &vmproc[dn];
-	svmp = &vmproc[sn];
+	dvmp = vm_lwp_group(&vmproc[dn]);
+	svmp = vm_lwp_group(&vmproc[sn]);
 
 	if (!(src_region = map_lookup(svmp, sa, NULL)))
 		return EINVAL;
@@ -589,7 +589,7 @@ int do_munmap(message *m)
                 panic("do_mmap: message from strange source: %d", m->m_source);
         }
 
-        vmp = &vmproc[n];
+        vmp = vm_lwp_group(&vmproc[n]);
 
 	if(m->m_source == VM_PROC_NR) {
 		/* VM munmap is a special case, the region we want to
@@ -642,15 +642,7 @@ int do_mprotect(message *m)
 	if((r=vm_isokendpt(m->m_source, &n)) != OK)
 		panic("do_mprotect: message from strange source: %d",
 			m->m_source);
-	vmp = &vmproc[n];
-
-	/* A thread shares its group leader's address space, whose region
-	 * tree the leader's vmproc owns (see handle_pagefault()). */
-	if(vmp->vm_lwp_leader != NO_LWP_LEADER) {
-		assert(vmp->vm_lwp_leader >= 0 &&
-			vmp->vm_lwp_leader < NR_PROCS);
-		vmp = &vmproc[vmp->vm_lwp_leader];
-	}
+	vmp = vm_lwp_group(&vmproc[n]);
 
 	addr = (vir_bytes) m->m_lc_vm_mprotect.addr;
 	len = m->m_lc_vm_mprotect.len;

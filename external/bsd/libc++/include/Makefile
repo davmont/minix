@@ -18,8 +18,12 @@ INCS!=	cd ${LIBCXX_SRCDIR}/include && \
 # MINIX-provided / ABI headers (from .CURDIR and libcxxrt).
 INCS+=	__config_site __assertion_handler cxxabi.h
 
+# Parallel make can reach this rule from two places at once (INCS and
+# DPSRCS); a plain cp then fails with "File exists".  Copy to a private
+# name and rename, which is atomic.
 cxxabi.h: ${LIBCXXRT_SRCDIR}/src/cxxabi.h
-	cp ${LIBCXXRT_SRCDIR}/src/cxxabi.h .
+	cp ${LIBCXXRT_SRCDIR}/src/cxxabi.h ${.TARGET}.tmp.$$$$ && \
+	    mv -f ${.TARGET}.tmp.$$$$ ${.TARGET}
 
 DPSRCS+=	cxxabi.h
 CLEANFILES+=	cxxabi.h

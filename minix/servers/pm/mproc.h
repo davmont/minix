@@ -45,6 +45,17 @@ EXTERN struct pm_siginfo sig_origin;
  * ss_flags is SS_DISABLE when there is none. */
 EXTERN stack_t mpaltstack[NR_PROCS];
 
+/* The arguments of an exec in progress, kept so that PM can ask VFS again
+ * once a threaded caller's other threads are gone (see exec_dethread()). */
+struct pm_execargs {
+  vir_bytes pe_name;
+  size_t pe_namelen;
+  vir_bytes pe_frame;
+  size_t pe_framelen;
+  vir_bytes pe_ps_str;
+};
+EXTERN struct pm_execargs mpexecargs[NR_PROCS];
+
 EXTERN struct mproc {
   char mp_exitstatus;		/* storage for status when process exits */
   char mp_sigstatus;		/* storage for signal # for killed procs */
@@ -151,6 +162,15 @@ EXTERN struct mproc {
 					 * once the last member LWP is gone */
 #define MP_LWP_COREREGS 0x8000000	/* leader: mp_lwp_coreregs holds the faulting
 					 * thread's registers for the core dump */
+#define MP_EXEC_DETHREAD 0x10000000	/* leader: in execve, waiting for its other
+					 * threads to be torn down; signals are
+					 * held as during a VFS call */
+#define MP_LWP_TEARDOWN 0x20000000	/* thread: teardown started (stopped, VFS
+					 * asked to drop it) */
+#define MP_LEADER_GONE 0x40000000	/* leader: its own thread called _lwp_exit()
+					 * (pthread_exit() in main) while others live;
+					 * the slot stays as the process until the last
+					 * thread exits */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)
