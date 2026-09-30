@@ -9,6 +9,7 @@
  * and code cannot run from memory without execute permission (NX).
  */
 #include <sys/mman.h>
+#include <dlfcn.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <setjmp.h>
@@ -305,6 +306,26 @@ test_mmap_prot(void)
 	if (munmap(p, pagesize) != 0) e(9);
 }
 
+/* The dynamic linker maps a shared library's code read-only (for years
+ * MINIX mapped every segment writable, lacking mprotect), and exec maps the
+ * program's own text read-only: writing to either faults, running them
+ * still works. */
+static void
+test_text_readonly(void)
+{
+	size_t (*libc_strlen)(const char *);
+
+	subtest = 10;
+	libc_strlen = (size_t (*)(const char *))dlsym(RTLD_DEFAULT, "strlen");
+	if (libc_strlen == NULL) e(1);
+	else {
+		if (faults_on((volatile char *)(void *)libc_strlen, 0)) e(2);
+		if (!faults_on((volatile char *)(void *)libc_strlen, 1)) e(3);
+		if (libc_strlen("abc") != 3) e(4);
+	}
+	if (!faults_on((volatile char *)(void *)test_text_readonly, 1)) e(5);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -327,6 +348,7 @@ main(int argc, char **argv)
 	test_cow_copy();
 	test_noexec();
 	test_mmap_prot();
+	test_text_readonly();
 
 	quit();
 	return 0;
