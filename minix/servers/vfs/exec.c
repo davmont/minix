@@ -185,7 +185,7 @@ static int vfs_memmap(struct exec_info *execi,
  *				pm_exec					     *
  *===========================================================================*/
 int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
-	vir_bytes *pc, vir_bytes *newsp, vir_bytes *UNUSED(ps_str))
+	vir_bytes *pc, vir_bytes *newsp, vir_bytes *UNUSED(ps_str), int solo)
 {
 /* Perform the execve(name, argv, envp) call.  The user library builds a
  * complete stack image, including pointers, args, environ, etc.  The stack
@@ -193,6 +193,10 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
  *
  * ps_str is not currently used, but may be if the ps_strings structure has to
  * be moved to another location.
+ *
+ * solo: the caller has other threads.  Stop once the exec has passed its
+ * checks, before anything is changed, and return VFS_PM_EXEC_DETHREAD; PM
+ * removes the other threads and asks again.
  */
   int r;
   vir_bytes vsp;
@@ -271,6 +275,13 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
   	strlcpy(firstexec, fullpath, PATH_MAX);
 	Get_read_vp(execi, fullpath, 1, 0, &resolve, fp);
   }
+
+  /* The exec checks out (path, permissions, header).  For a threaded
+   * caller, this is as far as we go before the point of no return: the
+   * next step opens an fd in the (shared) file table, and loading clears
+   * the (shared) address space. */
+  if (solo)
+	FAILCHECK(VFS_PM_EXEC_DETHREAD);
 
   /* If this is a dynamically linked executable, retrieve
    * the name of that interpreter in elf_interpreter and open that

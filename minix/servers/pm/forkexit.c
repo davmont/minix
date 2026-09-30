@@ -32,6 +32,8 @@
 
 #define LAST_FEW            2	/* last few slots reserved for superuser */
 
+static void exec_dethread_done(struct mproc *leader);
+static void exit_lwp_group(struct mproc *caller, int status);
 static void zombify(struct mproc *rmp);
 static void check_parent(struct mproc *child, int try_cleanup);
 static int tell_parent(struct mproc *child, vir_bytes addr);
@@ -280,6 +282,7 @@ lwp_start_teardown(struct mproc *rmp)
   message m;
   int r;
 
+  rmp->mp_flags |= MP_LWP_TEARDOWN;
   if (!(rmp->mp_flags & PROC_STOPPED)) {
 	if ((r = sys_stop(proc_nr_e)) != OK)
 		panic("lwp_start_teardown: sys_stop failed: %d", r);
@@ -316,6 +319,41 @@ count_group_members(int group)
 }
 
 /*===========================================================================*
+ *				teardown_group_members			     *
+ *===========================================================================*/
+static int
+teardown_group_members(int group)
+{
+/* Start tearing down every member LWP of the group, forced detached so that
+ * lwp_exit_finish() self-reaps each without a zombie or waking a joiner.
+ * Members that already exited joinably (zombies awaiting _lwp_wait()) have no
+ * kernel, VM or VFS state left: just free their slots.  Returns the number of
+ * members still on their way out; the last one's lwp_exit_finish() acts on
+ * the leader. */
+  struct mproc *t;
+  int members = 0;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE)) continue;
+	if (!(t->mp_flags & MP_LWP)) continue;
+	if (t->mp_lwp_group != group) continue;
+	if (t->mp_flags & MP_LWP_ZOMBIE) {
+		t->mp_pid = 0;
+		t->mp_flags = 0;
+		procs_in_use--;
+		continue;
+	}
+	members++;
+	if (t->mp_flags & (EXITING | MP_LWP_TEARDOWN))
+		continue;			/* already on its way out */
+	t->mp_flags |= MP_LWP_DETACHED;
+	t->mp_flags &= ~MP_LWP_JOINING;
+	lwp_start_teardown(t);
+  }
+  return members;
+}
+
+/*===========================================================================*
  *				exit_group_leader			     *
  *===========================================================================*/
 static void
@@ -333,11 +371,47 @@ exit_group_leader(struct mproc *leader)
  */
   int dump_core;
 
+  leader->mp_flags &= ~MP_GROUP_DYING;
+
+  if (leader->mp_sigstatus == 0) {
+	/* exit(): the status recorded by exit_lwp_group(). */
+	exit_proc(leader, leader->mp_exitstatus, FALSE /*dump_core*/);
+	return;
+  }
+
   dump_core = sigismember(&core_sset, leader->mp_sigstatus) &&
 	      !(leader->mp_flags & PRIV_PROC);
 
-  leader->mp_flags &= ~MP_GROUP_DYING;
   exit_proc(leader, 0, dump_core);
+}
+
+/*===========================================================================*
+ *				exit_lwp_group				     *
+ *===========================================================================*/
+static void
+exit_lwp_group(struct mproc *caller, int status)
+{
+/* POSIX: exit() by any thread terminates the whole process.  As for a fatal
+ * signal (terminate_lwp_group), tear down every member thread first and exit
+ * the leader last -- the shared address space goes with it -- with the exit
+ * status for the parent's wait(2). */
+  int group;
+  struct mproc *leader;
+
+  group = (caller->mp_flags & MP_LWP) ? caller->mp_lwp_group :
+	(int)(caller - mproc);
+  leader = &mproc[group];
+
+  if (leader->mp_flags & MP_GROUP_DYING)
+	return;			/* already going; the first cause stands */
+
+  leader->mp_sigstatus = 0;
+  leader->mp_exitstatus = (char) status;
+  leader->mp_flags |= MP_GROUP_DYING;
+
+  if (teardown_group_members(group) == 0)
+	exit_group_leader(leader);
+  /* else: the last member's lwp_exit_finish() calls exit_group_leader(). */
 }
 
 /*===========================================================================*
@@ -354,31 +428,23 @@ terminate_lwp_group(struct mproc *culprit, int signo)
  * lwp_exit_finish() calls exit_group_leader().  'culprit' is the thread that
  * took the signal (the leader itself, or any member). */
   int group;
-  struct mproc *leader, *t;
+  struct mproc *leader;
   int members;
 
   group = (culprit->mp_flags & MP_LWP) ? culprit->mp_lwp_group :
 	(int)(culprit - mproc);
   leader = &mproc[group];
 
+  if (leader->mp_flags & MP_GROUP_DYING)
+	return;			/* already going; the first cause stands */
+
   /* Record the cause on the leader and mark the group as dying. */
   leader->mp_sigstatus = (char) signo;
   leader->mp_flags |= MP_GROUP_DYING;
 
   /* Start tearing down every member LWP (this includes 'culprit' if it is a
-   * member).  Force each detached so lwp_exit_finish() self-reaps it without a
-   * zombie or waking a joiner. */
-  members = 0;
-  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
-	if (!(t->mp_flags & IN_USE)) continue;
-	if (!(t->mp_flags & MP_LWP)) continue;
-	if (t->mp_lwp_group != group) continue;
-	if (t->mp_flags & EXITING) continue;	/* already on its way out */
-	t->mp_flags |= MP_LWP_DETACHED;
-	t->mp_flags &= ~(MP_LWP_ZOMBIE | MP_LWP_JOINING);
-	lwp_start_teardown(t);
-	members++;
-  }
+   * member). */
+  members = teardown_group_members(group);
 
   /* If no members remain (or there never were any), exit the leader now. */
   if (members == 0)
@@ -481,7 +547,37 @@ lwp_exit_finish(struct mproc *rmp)
 	if ((leader->mp_flags & (IN_USE | MP_GROUP_DYING)) ==
 	    (IN_USE | MP_GROUP_DYING) && count_group_members(group) == 0)
 		exit_group_leader(leader);
+	else if ((leader->mp_flags & (IN_USE | MP_EXEC_DETHREAD | EXITING)) ==
+	    (IN_USE | MP_EXEC_DETHREAD) && count_group_members(group) == 0)
+		exec_dethread_done(leader);
   }
+}
+
+/*===========================================================================*
+ *				exec_dethread				     *
+ *===========================================================================*/
+void
+exec_dethread(struct mproc *leader)
+{
+/* VFS has checked the execve() of a thread-group leader and stopped before
+ * the point of no return.  Tear down the other threads (asynchronously, each
+ * through VFS), then send the exec again for a now single-threaded process.
+ * Signals are held meanwhile, as during a VFS call. */
+  leader->mp_flags |= MP_EXEC_DETHREAD;
+  if (teardown_group_members((int)(leader - mproc)) == 0)
+	exec_dethread_done(leader);
+  /* else: the last member's lwp_exit_finish() calls exec_dethread_done(). */
+}
+
+/*===========================================================================*
+ *				exec_dethread_done			     *
+ *===========================================================================*/
+static void
+exec_dethread_done(struct mproc *leader)
+{
+  leader->mp_flags &= ~MP_EXEC_DETHREAD;
+  leader->mp_lwp_group = NO_LWP_GROUP;	/* single-threaded again */
+  pm_send_exec(leader, FALSE /*solo*/);
 }
 
 /*===========================================================================*
@@ -761,6 +857,10 @@ do_exit(void)
       printf("PM: system process %d (%s) tries to exit(), sending SIGKILL\n",
           mp->mp_endpoint, mp->mp_name);
       sys_kill(mp->mp_endpoint, SIGKILL);
+  }
+  else if (mp->mp_lwp_group != NO_LWP_GROUP) {
+      /* A threaded process: end all of its threads, not just this one. */
+      exit_lwp_group(mp, m_in.m_lc_pm_exit.status);
   }
   else {
       exit_proc(mp, m_in.m_lc_pm_exit.status, FALSE /*dump_core*/);
