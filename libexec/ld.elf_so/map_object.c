@@ -95,11 +95,8 @@ _rtld_map_object(const char *path, int fd, const struct stat *sb)
 #endif
 	Elf_Addr	 phdr_vaddr;
 	size_t		 phdr_memsz;
-#if !defined(__minix)
-	/* Only used by the text->data gap unmap below, which MINIX skips. */
 	caddr_t		 gap_addr;
 	size_t		 gap_size;
-#endif /* !defined(__minix) */
 	int i;
 #ifdef RTLD_LOADER
 	Elf_Addr	 clear_vaddr;
@@ -369,7 +366,6 @@ _rtld_map_object(const char *path, int fd, const struct stat *sb)
 	}
 
 	/* Unmap the gap between the text and data. */
-#if !defined(__minix)
 	gap_addr = mapbase + round_up(text_vlimit - base_vaddr);
 	gap_size = data_addr - gap_addr;
 	if (gap_size != 0 && mprotect(gap_addr, gap_size, PROT_NONE) == -1) {
@@ -377,7 +373,6 @@ _rtld_map_object(const char *path, int fd, const struct stat *sb)
 		    xstrerror(errno));
 		goto bad;
 	}
-#endif /* !defined(__minix) */
 
 #ifdef RTLD_LOADER
 	/* Clear any BSS in the last page of the data segment. */
@@ -486,11 +481,5 @@ protflags(int elfflags)
 #endif
 	if (elfflags & PF_X)
 		prot |= PROT_EXEC;
-#if defined(__minix)
-	/* Minix has to map it writable so we can do relocations
-	 * as we don't have mprotect() yet.
-	 */
-	prot |= PROT_WRITE;
-#endif /* defined(__minix) */
 	return prot;
 }
