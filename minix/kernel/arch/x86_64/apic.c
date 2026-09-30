@@ -807,6 +807,8 @@ void lapic_stop_timer(void)
 	} else {
 		/* Disarm TSC deadline by writing 0. */
 		ia32_msr_write(IA32_TSC_DEADLINE_MSR, 0, 0);
+		/* And forget it, so that lapic_restart_timer() re-arms. */
+		lapic_tsc_deadline[cpuid] = 0;
 	}
 }
 
