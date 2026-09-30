@@ -8,10 +8,20 @@ __weak_alias(syscall, _syscall)
 
 int _syscall(endpoint_t who, int syscallnr, message *msgptr)
 {
+  message request;
   int status;
 
   msgptr->m_type = syscallnr;
-  status = ipc_sendrec(who, msgptr);
+  request = *msgptr;
+  for (;;) {
+	status = ipc_sendrec(who, msgptr);
+	/* Interrupted by a signal whose handler has SA_RESTART, which has
+	 * run by now: make the same call again.  The reply overwrote the
+	 * request, hence the copy. */
+	if (status != 0 || msgptr->m_type != ERESTARTSYS)
+		break;
+	*msgptr = request;
+  }
   if (status != 0) {
 	/* 'ipc_sendrec' itself failed. */
 	/* XXX - strerror doesn't know all the codes */

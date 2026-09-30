@@ -495,16 +495,24 @@ void revive(endpoint_t proc_e, int returned)
 /*===========================================================================*
  *				unpause					     *
  *===========================================================================*/
-void unpause(void)
+void unpause(int restart)
 {
 /* A signal has been sent to a user who is paused on the file system.
- * Abort the system call with the EINTR error message.
+ * Abort the system call with the EINTR error message -- or, if the signal's
+ * handler has SA_RESTART ('restart'), with ERESTARTSYS, which makes the C
+ * library issue the call again after the handler.  select() is never
+ * restarted (POSIX), and a partial transfer returns its count as always.
  */
   int blocked_on, status = EINTR;
   int wasreviving = 0;
 
   if (!fp_is_blocked(fp)) return;
   blocked_on = fp->fp_blocked_on;
+
+  /* Applied in reply(), so that it covers the replies sent by the cancel
+   * routines below (sdev_cancel() sends its own) as well as ours. */
+  if (restart && blocked_on != FP_BLOCKED_ON_SELECT)
+	fp->fp_flags |= FP_RESTART;
 
   /* Clear the block status now. The procedure below might make blocking calls
    * and it is imperative that while at least cdev_cancel() or sdev_cancel()
@@ -546,6 +554,7 @@ void unpause(void)
 
 	case FP_BLOCKED_ON_SDEV:	/* process blocked on socket I/O */
 		sdev_cancel();
+		fp->fp_flags &= ~FP_RESTART;
 		return;			/* sdev_cancel() sends its own reply */
 
 	default :
@@ -558,4 +567,5 @@ void unpause(void)
   }
 
   replycode(fp->fp_endpoint, status);	/* signal interrupted call */
+  fp->fp_flags &= ~FP_RESTART;
 }

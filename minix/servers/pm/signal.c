@@ -30,7 +30,7 @@
 #include <assert.h>
 #include "mproc.h"
 
-static int unpause(struct mproc *rmp);
+static int unpause(struct mproc *rmp, int restart);
 static int sig_send(struct mproc *rmp, int signo);
 static void sig_proc_exit(struct mproc *rmp, int signo);
 
@@ -582,7 +582,8 @@ sig_proc(
 	 * applicable. This may involve a roundtrip to VFS, in which case we'll
 	 * have to check back later.
 	 */
-	if (!unpause(rmp)) {
+	if (!unpause(rmp,
+	    (rmp->mp_sigact[signo].sa_flags & SA_RESTART) != 0)) {
 		/* not yet unpaused; continue later */
 		sigaddset(&rmp->mp_sigpending, signo);
 		if(ksig)
@@ -826,7 +827,8 @@ restart_sigs(struct mproc *rmp)
  *===========================================================================*/
 static int
 unpause(
-	struct mproc *rmp		/* which process */
+	struct mproc *rmp,		/* which process */
+	int restart			/* the handler has SA_RESTART */
 )
 {
 /* A signal is to be sent to a process.  If that process is hanging on a
@@ -871,6 +873,7 @@ unpause(
   memset(&m, 0, sizeof(m));
   m.m_type = VFS_PM_UNPAUSE;
   m.VFS_PM_ENDPT = rmp->mp_endpoint;
+  m.VFS_PM_RESTART = restart;
 
   tell_vfs(rmp, &m);
 
@@ -953,11 +956,16 @@ sig_send(
 	panic("sys_sigsend failed: %d", r);
   }
 
-  /* Was the process suspended in PM? Then interrupt the blocking call. */
+  /* Was the process suspended in PM? Then interrupt the blocking call:
+   * with EINTR, or -- for a wait() and a handler with SA_RESTART -- with
+   * ERESTARTSYS, which makes the C library call again.  sigsuspend() always
+   * returns EINTR (POSIX). */
   if (rmp->mp_flags & (WAITING | SIGSUSPENDED)) {
+	int restart = (rmp->mp_flags & WAITING) && (sigflags & SA_RESTART);
+
 	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED);
 
-	reply(slot, EINTR);
+	reply(slot, restart ? ERESTARTSYS : EINTR);
 
 	/* The process must just have been stopped by unpause(), which means
 	 * that the UNPAUSE flag is not set.

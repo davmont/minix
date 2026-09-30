@@ -554,6 +554,11 @@
 #define VFS_PM_LWP_REPLY	(VFS_PM_RS_BASE + 12)
 #define VFS_PM_LWP_EXIT_REPLY	(VFS_PM_RS_BASE + 13)
 
+/* Reply m_type of a system call interrupted by a signal whose handler has
+ * SA_RESTART, where the call can be restarted: once the handler has run, the
+ * C library sends the same request again (see _syscall()).  Never an errno. */
+#define ERESTARTSYS	(-512)
+
 /* Standard parameters for all requests and replies, except PM_REBOOT */
 #  define VFS_PM_ENDPT		m7_i1	/* process endpoint */
 
@@ -568,6 +573,11 @@
 /* Additional parameter for PM_SETGROUPS */
 #  define VFS_PM_GROUP_NO	m7_i2	/* number of groups */
 #  define VFS_PM_GROUP_ADDR	m7_p1	/* struct holding group data */
+
+/* Additional parameter for PM_UNPAUSE */
+#  define VFS_PM_RESTART	m7_i2	/* the handler has SA_RESTART: reply
+					 * ERESTARTSYS instead of EINTR where
+					 * the call may be restarted */
 
 /* Additional parameters for PM_EXEC */
 #  define VFS_PM_PATH		m7_p1	/* executable */
