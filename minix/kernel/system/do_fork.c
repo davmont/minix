@@ -125,6 +125,8 @@ int do_fork(struct proc * caller, message * m_ptr)
    */
   RTS_UNSET(rpc, (RTS_SIGNALED | RTS_SIG_PENDING | RTS_P_STOP));
   (void) sigemptyset(&rpc->p_pending);
+  /* Nor any unread fault record left by the slot's previous owner. */
+  ksig_fault[proc_nr(rpc) + NR_TASKS].kf_sig = 0;
 
 #if defined(__i386__)
   rpc->p_seg.p_cr3 = 0;

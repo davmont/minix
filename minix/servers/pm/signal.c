@@ -208,8 +208,10 @@ int do_sigaltstack(void)
 	new.ss_sp = m_in.m_lc_pm_sigaltstack.sp;
 	new.ss_size = m_in.m_lc_pm_sigaltstack.size;
 	new.ss_flags = m_in.m_lc_pm_sigaltstack.flags;
-	if (new.ss_flags & ~SS_DISABLE)
+	/* SS_ONSTACK is ignored on input, as on NetBSD. */
+	if (new.ss_flags & ~(SS_DISABLE | SS_ONSTACK))
 		return EINVAL;
+	new.ss_flags &= SS_DISABLE;
 	if (!(new.ss_flags & SS_DISABLE) && new.ss_size < MINSIGSTKSZ)
 		return ENOMEM;
   }
@@ -234,11 +236,12 @@ int do_sigaltstack(void)
 int do_kill(void)
 {
 /* Perform the kill(pid, signo) system call. */
+  struct pm_siginfo saved = sig_origin;
   int r;
 
   set_sig_origin(SI_USER, mp->mp_pid, mp->mp_realuid, 0, 0);
   r = check_sig(m_in.m_lc_pm_sig.pid, m_in.m_lc_pm_sig.nr, FALSE /* ksig */);
-  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+  sig_origin = saved;
   return r;
 }
 
@@ -348,6 +351,7 @@ static void try_resume_proc(struct mproc *rmp)
 int process_ksig(endpoint_t proc_nr_e, int signo)
 {
   register struct mproc *rmp;
+  struct pm_siginfo saved = sig_origin;
   int proc_nr;
   pid_t proc_id, id;
 
@@ -395,7 +399,7 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 		set_sig_origin(fcode, 0, 0, 0, faddr);
   }
   check_sig(id, signo, TRUE /* ksig */);
-  set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
+  sig_origin = saved;
   mp->mp_procgrp = 0;			/* restore proper PM process group */
 
   /* If SIGSNDELAY is set, an earlier sys_stop() failed because the process was
@@ -902,13 +906,19 @@ sig_send(
   sigmsg.sm_sighandler =
 	(vir_bytes) rmp->mp_sigact[signo].sa_handler;
   sigmsg.sm_sigreturn = rmp->mp_sigreturn;
-  sigmsg.sm_flags = (sigflags & SA_SIGINFO) ? SMF_SIGINFO : 0;
+  sigmsg.sm_flags = 0;
+#ifdef SA_SIGINFO
+  if (sigflags & SA_SIGINFO)
+	sigmsg.sm_flags |= SMF_SIGINFO;
+#endif
+  if (sigflags & SA_ONSTACK)
+	sigmsg.sm_flags |= SMF_ONSTACK;
   sigmsg.sm_code = mpsiginfo[slot][signo].ps_code;
   sigmsg.sm_pid = mpsiginfo[slot][signo].ps_pid;
   sigmsg.sm_uid = mpsiginfo[slot][signo].ps_uid;
   sigmsg.sm_status = mpsiginfo[slot][signo].ps_status;
   sigmsg.sm_addr = mpsiginfo[slot][signo].ps_addr;
-  if ((sigflags & SA_ONSTACK) && !(mpaltstack[slot].ss_flags & SS_DISABLE)) {
+  if (!(mpaltstack[slot].ss_flags & SS_DISABLE)) {
 	sigmsg.sm_altbase = (vir_bytes) mpaltstack[slot].ss_sp;
 	sigmsg.sm_altsize = mpaltstack[slot].ss_size;
   }

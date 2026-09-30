@@ -14,6 +14,17 @@
 
 #include "common.h"
 
+#ifndef SA_SIGINFO
+/* SA_SIGINFO is implemented on amd64 only; nothing to test here. */
+int
+main(int argc, char **argv)
+{
+	start(97);
+	quit();
+	return 0;
+}
+#else
+
 int max_error = 0;
 
 static volatile int got;
@@ -197,3 +208,4 @@ main(int argc, char **argv)
 	quit();
 	return 0;
 }
+#endif /* SA_SIGINFO */
