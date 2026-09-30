@@ -167,6 +167,10 @@ EXTERN struct mproc {
 					 * held as during a VFS call */
 #define MP_LWP_TEARDOWN 0x20000000	/* thread: teardown started (stopped, VFS
 					 * asked to drop it) */
+#define MP_LEADER_GONE 0x40000000	/* leader: its own thread called _lwp_exit()
+					 * (pthread_exit() in main) while others live;
+					 * the slot stays as the process until the last
+					 * thread exits */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)

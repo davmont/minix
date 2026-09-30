@@ -33,6 +33,7 @@
 #define LAST_FEW            2	/* last few slots reserved for superuser */
 
 static void exec_dethread_done(struct mproc *leader);
+static void leader_gone_check(struct mproc *leader);
 static void exit_lwp_group(struct mproc *caller, int status);
 static void zombify(struct mproc *rmp);
 static void check_parent(struct mproc *child, int try_cleanup);
@@ -473,6 +474,17 @@ do_lwp_exit(void)
    * process exit; leader-first teardown with live siblings is not yet
    * supported (VM warns and preserves the siblings' address space). */
   if (rmp->mp_lwp_group == NO_LWP_GROUP || !(rmp->mp_flags & MP_LWP)) {
+	/* The main thread leaving while others live (pthread_exit() in main):
+	 * the process goes on.  Its slot -- the process's identity, and the
+	 * owner of the shared address space -- stays until the last thread
+	 * exits; the main thread itself just never runs again (no reply).
+	 * lwp_exit_finish() exits the process when the last member goes. */
+	if (rmp->mp_lwp_group == (int)(rmp - mproc) &&
+	    count_group_members((int)(rmp - mproc)) > 0) {
+		rmp->mp_flags |= MP_LEADER_GONE;
+		leader_gone_check(rmp);	/* only zombies left? then exit now */
+		return SUSPEND;
+	}
 	exit_proc(rmp, 0, FALSE /*dump_core*/);
 	return SUSPEND;
   }
@@ -527,9 +539,14 @@ lwp_exit_finish(struct mproc *rmp)
 		break;
 	}
 	if (i == NR_PROCS) {
-		/* No joiner yet: become a zombie awaiting _lwp_wait(). */
+		/* No joiner yet: become a zombie awaiting _lwp_wait(), keeping
+		 * mp_pid/mp_endpoint for the eventual reap.  It may still have
+		 * been the last live thread of a process whose main thread is
+		 * gone. */
 		rmp->mp_flags |= MP_LWP_ZOMBIE;
-		return;	/* keep mp_pid/mp_endpoint for the eventual reap */
+		if (group != NO_LWP_GROUP)
+			leader_gone_check(&mproc[group]);
+		return;
 	}
   }
 
@@ -550,7 +567,34 @@ lwp_exit_finish(struct mproc *rmp)
 	else if ((leader->mp_flags & (IN_USE | MP_EXEC_DETHREAD | EXITING)) ==
 	    (IN_USE | MP_EXEC_DETHREAD) && count_group_members(group) == 0)
 		exec_dethread_done(leader);
+	else
+		leader_gone_check(leader);
   }
+}
+
+/*===========================================================================*
+ *				leader_gone_check			     *
+ *===========================================================================*/
+static void
+leader_gone_check(struct mproc *leader)
+{
+/* The main thread of this process called pthread_exit() earlier: when its
+ * last live thread is gone -- threads that exited unjoined do not count --
+ * the process exits, status 0, as when main() returns. */
+  struct mproc *t;
+  int group = (int)(leader - mproc);
+
+  if ((leader->mp_flags & (IN_USE | MP_LEADER_GONE | MP_GROUP_DYING |
+      EXITING)) != (IN_USE | MP_LEADER_GONE))
+	return;
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | MP_LWP | MP_LWP_ZOMBIE)) ==
+	    (IN_USE | MP_LWP) && t->mp_lwp_group == group)
+		return;			/* a live thread remains */
+  }
+  (void) teardown_group_members(group);	/* reaps the zombies */
+  leader->mp_flags &= ~MP_LEADER_GONE;
+  exit_proc(leader, 0, FALSE /*dump_core*/);
 }
 
 /*===========================================================================*
