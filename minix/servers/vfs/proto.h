@@ -178,7 +178,7 @@ int do_socketpath(void);
 /* pipe.c */
 int do_pipe2(void);
 int map_vnode(struct vnode *vp, endpoint_t fs_e);
-void unpause(void);
+void unpause(int restart);
 int pipe_check(struct filp *filp, int rw_flag, int oflags, int bytes,
 	int notouch);
 void release(struct vnode *vp, int op, int count);

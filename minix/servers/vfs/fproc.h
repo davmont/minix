@@ -106,6 +106,7 @@ EXTERN struct fproc {
 #define FP_PENDING	 0010	/* Set if process has pending work */
 #define FP_EXITING	 0020	/* Set if process is exiting */
 #define FP_PM_WORK	 0040	/* Set if process has a postponed PM request */
+#define FP_RESTART	 0100	/* unpause(): an EINTR reply becomes ERESTARTSYS */
 
 /* Field values. */
 #define NOT_REVIVING       0xC0FFEEE	/* process is not being revived */

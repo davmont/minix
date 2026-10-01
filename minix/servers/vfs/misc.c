@@ -747,7 +747,7 @@ static void free_proc(int flags)
 	panic("free_proc: already free");
 
   if (fp_is_blocked(fp))
-	unpause();
+	unpause(FALSE);
 
   /* Detach from the (possibly shared) open-file table.  On a real exit we
    * decrement the refcount and tear the table down only when the last sharer
@@ -1022,7 +1022,7 @@ int pm_dumpcore(int csig, vir_bytes exe_name, vir_bytes regs_ptr)
    * terminating it), as it changes the state of the process.
    */
   if (fp_is_blocked(fp))
-          unpause();
+          unpause(FALSE);
 
   /* open core file */
   snprintf(core_path, PATH_MAX, "%s.%d", CORE_NAME, fp->fp_pid);

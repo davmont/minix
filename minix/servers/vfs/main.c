@@ -656,7 +656,13 @@ static int get_work(void)
 void reply(message *m_out, endpoint_t whom, int result)
 {
 /* Send a reply to a user process.  If the send fails, just ignore it. */
-  int r;
+  int r, slot;
+
+  /* A call interrupted for a signal whose handler has SA_RESTART (see
+   * unpause()): have the C library restart it rather than fail. */
+  if (result == EINTR && isokendpt(whom, &slot) == OK &&
+      (fproc[slot].fp_flags & FP_RESTART))
+	result = ERESTARTSYS;
 
   m_out->m_type = result;
   r = ipc_sendnb(whom, m_out);
@@ -790,7 +796,7 @@ void service_pm_postponed(void)
 
 	assert(proc_e == fp->fp_endpoint);
 
-	unpause();
+	unpause(job_m_in.VFS_PM_RESTART);
 
 	m_out.m_type = VFS_PM_UNPAUSE_REPLY;
 	m_out.VFS_PM_ENDPT = proc_e;
