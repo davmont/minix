@@ -137,6 +137,45 @@ readv(int fd, const struct iovec * iov, int iovcnt)
 }
 
 /*
+ * Read a vector at an offset, without changing the file offset.
+ */
+ssize_t
+preadv(int fd, const struct iovec * iov, int iovcnt, off_t offset)
+{
+	char *ptr;
+	ssize_t r;
+
+	/* One pread(2) through a buffer, so that the I/O stays atomic. */
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_READ)) <= 0)
+		return r;
+
+	r = pread(fd, ptr, r, offset);
+
+	_vectorio_cleanup(iov, iovcnt, ptr, r, _VECTORIO_READ);
+
+	return r;
+}
+
+/*
+ * Write a vector at an offset, without changing the file offset.
+ */
+ssize_t
+pwritev(int fd, const struct iovec * iov, int iovcnt, off_t offset)
+{
+	char *ptr;
+	ssize_t r;
+
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_WRITE)) <= 0)
+		return r;
+
+	r = pwrite(fd, ptr, r, offset);
+
+	_vectorio_cleanup(iov, iovcnt, ptr, r, _VECTORIO_WRITE);
+
+	return r;
+}
+
+/*
  * Write a vector.
  */
 ssize_t
