@@ -16,6 +16,7 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/dirent.h>
+#include "file.h"
 #include "vmnt.h"
 #include "vnode.h"
 #include "path.h"
@@ -127,6 +128,17 @@ advance(struct vnode *dirp, struct lookup *resolve, struct fproc *rfp)
 }
 
 /*===========================================================================*
+ *				rel_start				     *
+ *===========================================================================*/
+static struct vnode *
+rel_start(struct lookup *resolve, struct fproc *rfp)
+{
+/* Where a relative path starts: the lookup's start directory if it has one,
+ * else the working directory. */
+  return(resolve->l_start != NULL ? resolve->l_start : rfp->fp_fd->fd_wd);
+}
+
+/*===========================================================================*
  *				eat_path				     *
  *===========================================================================*/
 struct vnode *
@@ -135,7 +147,7 @@ eat_path(struct lookup *resolve, struct fproc *rfp)
 /* Resolve path to a vnode. advance does the actual work. */
   struct vnode *start_dir;
 
-  start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd : rfp->fp_fd->fd_wd);
+  start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd : rel_start(resolve, rfp));
   return advance(start_dir, resolve, rfp);
 }
 
@@ -176,7 +188,8 @@ last_dir(struct lookup *resolve, struct fproc *rfp)
 	if (loop_start != NULL)
 		start_dir = loop_start;
 	else
-		start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd:rfp->fp_fd->fd_wd);
+		start_dir = (resolve->l_path[0] == '/' ? rfp->fp_fd->fd_rd :
+		    rel_start(resolve, rfp));
 
 	len = strlen(resolve->l_path);
 
@@ -426,8 +439,8 @@ lookup(struct vnode *start_node, struct lookup *resolve, node_details_t *result_
 	root_ino = 0;
 
   /* Set user and group ids according to the system call */
-  uid = (job_call_nr == VFS_ACCESS ? rfp->fp_realuid : rfp->fp_effuid);
-  gid = (job_call_nr == VFS_ACCESS ? rfp->fp_realgid : rfp->fp_effgid);
+  uid = (use_real_ids() ? rfp->fp_realuid : rfp->fp_effuid);
+  gid = (use_real_ids() ? rfp->fp_realgid : rfp->fp_effgid);
 
   symloop = 0;	/* Number of symlinks seen so far */
 
@@ -583,8 +596,52 @@ lookup_init(struct lookup *resolve, char *path, int flags, struct vmnt **vmp, st
   resolve->l_vnode = vp;
   resolve->l_vmnt_lock = TLL_NONE;
   resolve->l_vnode_lock = TLL_NONE;
+  resolve->l_start = NULL;	/* the working directory */
   *vmp = NULL;	/* Initialize lookup result to NULL */
   *vp = NULL;
+}
+
+/*===========================================================================*
+ *				get_start_dir				     *
+ *===========================================================================*/
+int
+get_start_dir(int dirfd, const char *path, struct vnode **vpp)
+{
+/* Get a reference to the directory where the path call's 'path' starts: the
+ * directory open as 'dirfd', or NULL (the working directory) for AT_FDCWD.
+ * An absolute path ignores 'dirfd', even an invalid one (POSIX).  The caller
+ * releases the directory with put_start_dir().
+ */
+  struct filp *f;
+  struct vnode *vp;
+  int r;
+
+  *vpp = NULL;
+  if (dirfd == AT_FDCWD || path[0] == '/')
+	return(OK);
+
+  if ((f = get_filp(dirfd, VNODE_READ)) == NULL)
+	return(err_code);
+  vp = f->filp_vno;
+  if (S_ISDIR(vp->v_mode)) {
+	dup_vnode(vp);
+	*vpp = vp;
+	r = OK;
+  } else
+	r = ENOTDIR;
+  unlock_filp(f);
+  return(r);
+}
+
+/*===========================================================================*
+ *				put_start_dir				     *
+ *===========================================================================*/
+void
+put_start_dir(struct vnode *vp)
+{
+/* Release a start directory from get_start_dir(). */
+  if (vp != NULL)
+	put_vnode(vp);
 }
 
 /*===========================================================================*

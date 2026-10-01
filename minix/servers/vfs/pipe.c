@@ -363,7 +363,7 @@ void unsuspend_by_endpt(endpoint_t proc_e)
 void release(struct vnode * vp, int op, int count)
 {
 /* Check to see if any process is hanging on pipe vnode 'vp'. If one is, and it
- * was trying to perform the call indicated by 'op' - one of VFS_OPEN,
+ * was trying to perform the call indicated by 'op' - one of VFS_OPENAT,
  * VFS_READ, or VFS_WRITE - release it.  The 'count' parameter indicates the
  * maximum number of processes to release, which allows us to stop searching
  * early in some cases.
@@ -396,14 +396,14 @@ void release(struct vnode * vp, int op, int count)
   /* Search the proc table. */
   for (rp = &fproc[0]; rp < &fproc[NR_PROCS] && count > 0; rp++) {
 	/* Just to make sure:
-	 * - FP_BLOCKED_ON_POPEN implies the original request was VFS_OPEN;
+	 * - FP_BLOCKED_ON_POPEN implies the original request was VFS_OPENAT;
 	 * - FP_BLOCKED_ON_PIPE may be the result of VFS_READ and VFS_WRITE,
 	 *   and one of those two numbers is stored in fp_pipe.callnr.
 	 */
 	if (rp->fp_pid != PID_FREE && fp_is_blocked(rp) &&
 	    !(rp->fp_flags & FP_REVIVED) &&
-	    ((op == VFS_OPEN && rp->fp_blocked_on == FP_BLOCKED_ON_POPEN) ||
-	     (op != VFS_OPEN && rp->fp_blocked_on == FP_BLOCKED_ON_PIPE &&
+	    ((op == VFS_OPENAT && rp->fp_blocked_on == FP_BLOCKED_ON_POPEN) ||
+	     (op != VFS_OPENAT && rp->fp_blocked_on == FP_BLOCKED_ON_PIPE &&
 	      op == rp->fp_pipe.callnr))) {
 		/* Find the vnode. Depending on the reason the process was
 		 * suspended, there are different ways of finding it.

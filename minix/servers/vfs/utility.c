@@ -19,32 +19,28 @@
 #include "vmnt.h"
 
 /*===========================================================================*
- *				copy_path				     *
+ *				get_msg_path				     *
  *===========================================================================*/
-int copy_path(char *dest, size_t size)
+static int get_msg_path(vir_bytes name, size_t len, const char *buf,
+	size_t bufsize, char *dest, size_t size)
 {
-/* Go get the path for a path request. Put the result in in 'dest', which
- * should be at least PATH_MAX in size.
+/* Go get the path of a path request: from the message's 'buf' if it fits
+ * there (with its nul), else from the caller's address 'name'.  Put it in
+ * 'dest', which should be at least PATH_MAX in size.
  */
-  vir_bytes name;
-  size_t len;
-
   assert(size >= PATH_MAX);
 
-  name = job_m_in.m_lc_vfs_path.name;
-  len = job_m_in.m_lc_vfs_path.len;
-
-  if (len > size) {	/* 'len' includes terminating-nul */
-	err_code = ENAMETOOLONG;
+  if (len == 0 || len > size) {	/* 'len' includes terminating-nul */
+	err_code = (len == 0 ? EINVAL : ENAMETOOLONG);
 	return(EGENERIC);
   }
 
   /* Is the string contained in the message? If not, perform a normal copy. */
-  if (len > M_PATH_STRING_MAX)
+  if (len > bufsize)
 	return fetch_name(name, len, dest);
 
   /* Just copy the path from the message */
-  strncpy(dest, job_m_in.m_lc_vfs_path.buf, len);
+  strncpy(dest, buf, len);
 
   if (dest[len - 1] != '\0') {
 	err_code = ENAMETOOLONG;
@@ -52,6 +48,30 @@ int copy_path(char *dest, size_t size)
   }
 
   return(OK);
+}
+
+/*===========================================================================*
+ *				copy_path				     *
+ *===========================================================================*/
+int copy_path(char *dest, size_t size)
+{
+/* Get the path of a request with a mess_lc_vfs_path message. */
+
+  return get_msg_path(job_m_in.m_lc_vfs_path.name,
+	job_m_in.m_lc_vfs_path.len, job_m_in.m_lc_vfs_path.buf,
+	M_PATH_STRING_MAX, dest, size);
+}
+
+/*===========================================================================*
+ *				copy_pathat				     *
+ *===========================================================================*/
+int copy_pathat(char *dest, size_t size)
+{
+/* Get the path of a request with a mess_lc_vfs_pathat message. */
+
+  return get_msg_path(job_m_in.m_lc_vfs_pathat.name,
+	job_m_in.m_lc_vfs_pathat.len, job_m_in.m_lc_vfs_pathat.buf,
+	M_PATHAT_STRING_MAX, dest, size);
 }
 
 /*===========================================================================*
@@ -67,8 +87,8 @@ int fetch_name(vir_bytes path, size_t len, char *dest)
 	return(EGENERIC);
   }
 
-  /* Check name length for validity. */
-  if (len > SSIZE_MAX) {
+  /* Check name length for validity: at least the nul. */
+  if (len == 0 || len > SSIZE_MAX) {
 	err_code = EINVAL;
 	return(EGENERIC);
   }

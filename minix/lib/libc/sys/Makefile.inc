@@ -34,11 +34,9 @@ SRCS+= kernel_utils.c sprofile.c stack_utils.c _mcontext.c
 SRCS+= _lwp_create.c _lwp_self.c _lwp_exit.c _lwp_park.c _lwp_unpark.c
 SRCS+= _lwp_wait.c lwp_stubs.c pthread_glue.c
 
-# Emulation for missing lchown/lchmod/lchflags
-OBJS+= lchflags.o lchmod.o lchown.o
+# Emulation for missing lchflags (lchmod and lchown are in chmod.c, chown.c)
+OBJS+= lchflags.o
 lchflags.go lchflags.o lchflags.pico lchflags.bc: ${NETBSDSRCDIR}/tools/compat/lchflags.c
-lchmod.go lchmod.o lchmod.pico lchmod.bc: ${NETBSDSRCDIR}/tools/compat/lchmod.c
-lchown.go lchown.o lchown.pico lchown.bc: ${NETBSDSRCDIR}/tools/compat/lchown.c
 
 .include "${NETBSDSRCDIR}/minix/lib/libc/arch/${ARCHSUBDIR}/sys/Makefile.inc"
 .include "${NETBSDSRCDIR}/minix/lib/libc/arch/${ARCHSUBDIR}/Makefile.inc"

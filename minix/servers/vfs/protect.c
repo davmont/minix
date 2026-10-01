@@ -2,10 +2,11 @@
  * for four system calls that relate to protection.
  *
  * The entry points into this file are
- *   do_chmod:	perform the CHMOD and FCHMOD system calls
- *   do_chown:	perform the CHOWN and FCHOWN system calls
+ *   do_chmod:	perform the FCHMODAT and FCHMOD system calls
+ *   do_chown:	perform the FCHOWNAT and FCHOWN system calls
  *   do_umask:	perform the UMASK system call
- *   do_access:	perform the ACCESS system call
+ *   do_access:	perform the FACCESSAT system call
+ *   use_real_ids: whether this call checks access with the real ids
  */
 
 #include "fs.h"
@@ -24,31 +25,45 @@
  *===========================================================================*/
 int do_chmod(void)
 {
-/* Perform the chmod(name, mode) and fchmod(fd, mode) system calls.
- * syscall might provide 'name' embedded in the message.
+/* Perform the fchmodat(dirfd, name, mode, flags) and fchmod(fd, mode) system
+ * calls.  The syscall might provide 'name' embedded in the message.
  */
 
   struct filp *flp;
-  struct vnode *vp;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
-  int r, rfd;
+  int r, rfd, flags;
   mode_t result_mode;
   char fullpath[PATH_MAX];
   struct lookup resolve;
   mode_t new_mode;
 
   flp = NULL;
+  start = NULL;
 
   lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
   resolve.l_vmnt_lock = VMNT_READ;
   resolve.l_vnode_lock = VNODE_WRITE;
 
-  if (job_call_nr == VFS_CHMOD) {
-	new_mode = job_m_in.m_lc_vfs_path.mode;
+  if (job_call_nr == VFS_FCHMODAT) {
+	new_mode = job_m_in.m_lc_vfs_pathat.mode;
+	flags = job_m_in.m_lc_vfs_pathat.flags;
+	if (flags & ~AT_SYMLINK_NOFOLLOW)
+		return(EINVAL);
+	if (flags & AT_SYMLINK_NOFOLLOW)	/* change the link itself */
+		resolve.l_flags = PATH_RET_SYMLINK;
 	/* Temporarily open the file */
-	if (copy_path(fullpath, sizeof(fullpath)) != OK)
+	if (copy_pathat(fullpath, sizeof(fullpath)) != OK)
 		return(err_code);
-	if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+	if ((r = get_start_dir(job_m_in.m_lc_vfs_pathat.dirfd, fullpath,
+	    &start)) != OK)
+		return(r);
+	resolve.l_start = start;
+	vp = eat_path(&resolve, fp);
+	if (vp == NULL) {
+		put_start_dir(start);
+		return(err_code);
+	}
   } else {	/* call_nr == VFS_FCHMOD */
 	rfd = job_m_in.m_lc_vfs_fchmod.fd;
 	new_mode = job_m_in.m_lc_vfs_fchmod.mode;
@@ -80,7 +95,7 @@ int do_chmod(void)
 		vp->v_mode = result_mode;
   }
 
-  if (job_call_nr == VFS_CHMOD) {
+  if (job_call_nr == VFS_FCHMODAT) {
 	unlock_vnode(vp);
 	unlock_vmnt(vmp);
   } else {	/* VFS_FCHMOD */
@@ -88,6 +103,7 @@ int do_chmod(void)
   }
 
   put_vnode(vp);
+  put_start_dir(start);
   return(r);
 }
 
@@ -163,12 +179,12 @@ int do_chflags(void)
  *===========================================================================*/
 int do_chown(void)
 {
-/* Perform the chown(path, owner, group) and fchmod(fd, owner, group) system
- * calls. */
+/* Perform the fchownat(dirfd, path, owner, group, flags) and fchown(fd, owner,
+ * group) system calls. */
   struct filp *flp;
-  struct vnode *vp;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
-  int r, rfd;
+  int r, rfd, flags;
   uid_t uid, new_uid;
   gid_t gid, new_gid;
   mode_t new_mode;
@@ -178,21 +194,35 @@ int do_chown(void)
   size_t vname1_length;
 
   flp = NULL;
+  start = NULL;
   uid = job_m_in.m_lc_vfs_chown.owner;
   gid = job_m_in.m_lc_vfs_chown.group;
 
-  if (job_call_nr == VFS_CHOWN) {
+  if (job_call_nr == VFS_FCHOWNAT) {
 	vname1 = job_m_in.m_lc_vfs_chown.name;
 	vname1_length = job_m_in.m_lc_vfs_chown.len;
+	flags = job_m_in.m_lc_vfs_chown.flags;
+	if (flags & ~AT_SYMLINK_NOFOLLOW)
+		return(EINVAL);
 
 	lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
 	resolve.l_vmnt_lock = VMNT_READ;
 	resolve.l_vnode_lock = VNODE_WRITE;
+	if (flags & AT_SYMLINK_NOFOLLOW)	/* change the link itself */
+		resolve.l_flags = PATH_RET_SYMLINK;
 
 	/* Temporarily open the file. */
 	if (fetch_name(vname1, vname1_length, fullpath) != OK)
 		return(err_code);
-	if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+	if ((r = get_start_dir(job_m_in.m_lc_vfs_chown.fd, fullpath,
+	    &start)) != OK)
+		return(r);
+	resolve.l_start = start;
+	vp = eat_path(&resolve, fp);
+	if (vp == NULL) {
+		put_start_dir(start);
+		return(err_code);
+	}
   } else {	/* call_nr == VFS_FCHOWN */
 	rfd = job_m_in.m_lc_vfs_chown.fd;
 
@@ -231,7 +261,7 @@ int do_chown(void)
 	}
   }
 
-  if (job_call_nr == VFS_CHOWN) {
+  if (job_call_nr == VFS_FCHOWNAT) {
 	unlock_vnode(vp);
 	unlock_vmnt(vmp);
   } else {	/* VFS_FCHOWN */
@@ -239,6 +269,7 @@ int do_chown(void)
   }
 
   put_vnode(vp);
+  put_start_dir(start);
   return(r);
 }
 
@@ -263,30 +294,40 @@ int do_umask(void)
  *===========================================================================*/
 int do_access(void)
 {
-/* Perform the access(name, mode) system call.
- * syscall might provide 'name' embedded in the message.
+/* Perform the faccessat(dirfd, name, mode, flags) system call.  The syscall
+ * might provide 'name' embedded in the message.
  */
   int r;
-  struct vnode *vp;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
   char fullpath[PATH_MAX];
   struct lookup resolve;
   mode_t access;
 
-  access = job_m_in.m_lc_vfs_path.mode;
+  access = job_m_in.m_lc_vfs_pathat.mode;
 
   lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
   resolve.l_vmnt_lock = VMNT_READ;
   resolve.l_vnode_lock = VNODE_READ;
 
-  /* First check to see if the mode is correct. */
+  /* First check to see if the mode and flags are correct. */
   if ( (access & ~(R_OK | W_OK | X_OK)) != 0 && access != F_OK)
+	return(EINVAL);
+  if (job_m_in.m_lc_vfs_pathat.flags & ~AT_EACCESS)
 	return(EINVAL);
 
   /* Temporarily open the file. */
-  if (copy_path(fullpath, sizeof(fullpath)) != OK)
+  if (copy_pathat(fullpath, sizeof(fullpath)) != OK)
 	return(err_code);
-  if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+  if ((r = get_start_dir(job_m_in.m_lc_vfs_pathat.dirfd, fullpath,
+	    &start)) != OK)
+	return(r);
+  resolve.l_start = start;
+  vp = eat_path(&resolve, fp);
+  if (vp == NULL) {
+	put_start_dir(start);
+	return(err_code);
+  }
 
   r = forbidden(fp, vp, access);
 
@@ -294,9 +335,23 @@ int do_access(void)
   unlock_vmnt(vmp);
 
   put_vnode(vp);
+  put_start_dir(start);
   return(r);
 }
 
+
+/*===========================================================================*
+ *				use_real_ids				     *
+ *===========================================================================*/
+int use_real_ids(void)
+{
+/* Does the current call check access with the caller's real ids?  Only
+ * faccessat() does, unless asked for the effective ones with AT_EACCESS. This
+ * applies to searching the path's directories as well as to the file.
+ */
+  return(job_call_nr == VFS_FACCESSAT &&
+      !(job_m_in.m_lc_vfs_pathat.flags & AT_EACCESS));
+}
 
 /*===========================================================================*
  *				forbidden				     *
@@ -318,8 +373,8 @@ int forbidden(struct fproc *rfp, struct vnode *vp, mode_t access_desired)
 
   /* Isolate the relevant rwx bits from the mode. */
   bits = vp->v_mode;
-  uid = (job_call_nr == VFS_ACCESS ? rfp->fp_realuid : rfp->fp_effuid);
-  gid = (job_call_nr == VFS_ACCESS ? rfp->fp_realgid : rfp->fp_effgid);
+  uid = (use_real_ids() ? rfp->fp_realuid : rfp->fp_effuid);
+  gid = (use_real_ids() ? rfp->fp_realgid : rfp->fp_effgid);
 
   if (uid == SU_UID) {
 	/* Grant read and write permission.  Grant search permission for

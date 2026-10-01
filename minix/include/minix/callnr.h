@@ -80,27 +80,27 @@
 #define VFS_READ		(VFS_BASE + 0)
 #define VFS_WRITE		(VFS_BASE + 1)
 #define VFS_LSEEK		(VFS_BASE + 2)
-#define VFS_OPEN		(VFS_BASE + 3)
-#define VFS_CREAT		(VFS_BASE + 4)
+					/* 3: was VFS_OPEN */
+					/* 4: was VFS_CREAT */
 #define VFS_CLOSE		(VFS_BASE + 5)
-#define VFS_LINK		(VFS_BASE + 6)
-#define VFS_UNLINK		(VFS_BASE + 7)
+					/* 6: was VFS_LINK */
+					/* 7: was VFS_UNLINK */
 #define VFS_CHDIR		(VFS_BASE + 8)
-#define VFS_MKDIR		(VFS_BASE + 9)
-#define VFS_MKNOD		(VFS_BASE + 10)
-#define VFS_CHMOD		(VFS_BASE + 11)
-#define VFS_CHOWN		(VFS_BASE + 12)
+					/* 9: was VFS_MKDIR */
+					/* 10: was VFS_MKNOD */
+					/* 11: was VFS_CHMOD */
+					/* 12: was VFS_CHOWN */
 #define VFS_MOUNT		(VFS_BASE + 13)
 #define VFS_UMOUNT		(VFS_BASE + 14)
-#define VFS_ACCESS		(VFS_BASE + 15)
+					/* 15: was VFS_ACCESS */
 #define VFS_SYNC		(VFS_BASE + 16)
-#define VFS_RENAME		(VFS_BASE + 17)
-#define VFS_RMDIR		(VFS_BASE + 18)
-#define VFS_SYMLINK		(VFS_BASE + 19)
-#define VFS_READLINK		(VFS_BASE + 20)
-#define VFS_STAT		(VFS_BASE + 21)
+					/* 17: was VFS_RENAME */
+					/* 18: was VFS_RMDIR */
+					/* 19: was VFS_SYMLINK */
+					/* 20: was VFS_READLINK */
+					/* 21: was VFS_STAT */
 #define VFS_FSTAT		(VFS_BASE + 22)
-#define VFS_LSTAT		(VFS_BASE + 23)
+					/* 23: was VFS_LSTAT */
 #define VFS_IOCTL		(VFS_BASE + 24)
 #define VFS_FCNTL		(VFS_BASE + 25)
 #define VFS_PIPE2		(VFS_BASE + 26)
@@ -114,7 +114,7 @@
 #define VFS_FTRUNCATE		(VFS_BASE + 34)
 #define VFS_FCHMOD		(VFS_BASE + 35)
 #define VFS_FCHOWN		(VFS_BASE + 36)
-#define VFS_UTIMENS		(VFS_BASE + 37)
+					/* 37: was VFS_UTIMENS */
 #define VFS_VMCALL		(VFS_BASE + 38)
 #define VFS_GETVFSSTAT		(VFS_BASE + 39)
 #define VFS_STATVFS1 	 	(VFS_BASE + 40)
@@ -152,7 +152,22 @@
 #define VFS_EXTATTR_LIST_FD	(VFS_BASE + 72)
 #define VFS_EXTATTR_DELETE_FD	(VFS_BASE + 73)
 #define VFS_SWAPCTL		(VFS_BASE + 74)
+/* The path calls.  A relative path starts at 'dirfd' (AT_FDCWD: the working
+ * directory); the plain calls (open, stat, ...) are these with AT_FDCWD. */
+#define VFS_OPENAT		(VFS_BASE + 75)
+#define VFS_FSTATAT		(VFS_BASE + 76)
+#define VFS_MKDIRAT		(VFS_BASE + 77)
+#define VFS_MKNODAT		(VFS_BASE + 78)
+#define VFS_UNLINKAT		(VFS_BASE + 79)
+#define VFS_LINKAT		(VFS_BASE + 80)
+#define VFS_RENAMEAT		(VFS_BASE + 81)
+#define VFS_SYMLINKAT		(VFS_BASE + 82)
+#define VFS_READLINKAT		(VFS_BASE + 83)
+#define VFS_FCHMODAT		(VFS_BASE + 84)
+#define VFS_FCHOWNAT		(VFS_BASE + 85)
+#define VFS_FACCESSAT		(VFS_BASE + 86)
+#define VFS_UTIMENSAT		(VFS_BASE + 87)	/* also futimens(2) */
 
-#define NR_VFS_CALLS		75	/* highest number from base plus one */
+#define NR_VFS_CALLS		88	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */

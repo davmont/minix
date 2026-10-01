@@ -6,28 +6,36 @@
 #include <stdarg.h>
 #include <string.h>
 
+static int __openat(int dirfd, const char *name, int flags, va_list argp)
+{
+  message m;
+
+  memset(&m, 0, sizeof(m));
+  _loadnameat(dirfd, name, &m);
+  m.m_lc_vfs_pathat.flags = flags;
+  if (flags & O_CREAT)
+	m.m_lc_vfs_pathat.mode = (mode_t)va_arg(argp, int);
+  return (_syscall(VFS_PROC_NR, VFS_OPENAT, &m));
+}
+
+int openat(int dirfd, const char *name, int flags, ...)
+{
+  va_list argp;
+  int r;
+
+  va_start(argp, flags);
+  r = __openat(dirfd, name, flags, argp);
+  va_end(argp);
+  return r;
+}
+
 int open(const char *name, int flags, ...)
 {
   va_list argp;
-  message m;
-  int call;
+  int r;
 
-  memset(&m, 0, sizeof(m));
   va_start(argp, flags);
-  /* Depending on whether O_CREAT is set, a different message layout is used,
-   * and therefore a different call number as well.
-   */
-  if (flags & O_CREAT) {
-	m.m_lc_vfs_creat.len = strlen(name) + 1;
-	m.m_lc_vfs_creat.flags = flags;
-	m.m_lc_vfs_creat.mode = va_arg(argp, mode_t);
-	m.m_lc_vfs_creat.name = (vir_bytes)name;
-	call = VFS_CREAT;
-  } else {
-	_loadname(name, &m);
-	m.m_lc_vfs_path.flags = flags;
-	call = VFS_OPEN;
-  }
+  r = __openat(AT_FDCWD, name, flags, argp);
   va_end(argp);
-  return (_syscall(VFS_PROC_NR, call, &m));
+  return r;
 }

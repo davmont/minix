@@ -3,6 +3,7 @@
 
 struct lookup {
   char *l_path;			/* Path to lookup */
+  struct vnode *l_start;	/* Start of a relative path; NULL: cwd */
   int l_flags;			/* VFS/FS flags (see <minix/vfsif.h>) */
   tll_access_t l_vmnt_lock;	/* Lock to obtain on vmnt */
   tll_access_t l_vnode_lock;	/* Lock to obtain on vnode */

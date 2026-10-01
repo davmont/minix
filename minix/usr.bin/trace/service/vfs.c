@@ -169,6 +169,47 @@ static const struct flags mode_flags[] = {
 #define put_mode(p, n, v) \
 	put_flags(p, n, mode_flags, COUNT(mode_flags), "0%03o", v)
 
+static const struct flags at_flags[] = {
+	FLAG(AT_EACCESS),
+	FLAG(AT_SYMLINK_NOFOLLOW),
+	FLAG(AT_SYMLINK_FOLLOW),
+	FLAG(AT_REMOVEDIR),
+};
+
+#define put_at_flags(p, n, v) \
+	put_flags(p, n, at_flags, COUNT(at_flags), "0x%x", v)
+
+/*
+ * Print the start directory of an *at() call's path.
+ */
+static void
+put_dirfd(struct trace_proc * proc, const char * name, int fd)
+{
+
+	if (!valuesonly && fd == AT_FDCWD)
+		put_field(proc, name, "AT_FDCWD");
+	else
+		put_fd(proc, name, fd);
+}
+
+/*
+ * Print the start directory and path of a mess_lc_vfs_pathat message.
+ */
+static void
+put_pathat(struct trace_proc * proc, const message * m_out)
+{
+	size_t len;
+
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_pathat.dirfd);
+
+	if ((len = m_out->m_lc_vfs_pathat.len) <= M_PATHAT_STRING_MAX)
+		put_buf(proc, "path", PF_LOCADDR | PF_PATH,
+		    (vir_bytes)m_out->m_lc_vfs_pathat.buf, len);
+	else
+		put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_pathat.name,
+		    len);
+}
+
 static void
 put_path(struct trace_proc * proc, const message * m_out)
 {
@@ -182,17 +223,18 @@ put_path(struct trace_proc * proc, const message * m_out)
 }
 
 static int
-vfs_open_out(struct trace_proc * proc, const message * m_out)
+vfs_openat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_path(proc, m_out);
-	put_open_flags(proc, "flags", m_out->m_lc_vfs_path.flags,
+	put_pathat(proc, m_out);
+	put_open_flags(proc, "flags", m_out->m_lc_vfs_pathat.flags,
 	    TRUE /*full*/);
+	if (m_out->m_lc_vfs_pathat.flags & O_CREAT)
+		put_mode(proc, "mode", m_out->m_lc_vfs_pathat.mode);
 
 	return CT_DONE;
 }
 
-/* This function is shared between creat and open. */
 static void
 vfs_open_in(struct trace_proc * proc, const message * __unused m_out,
 	const message * m_in, int failed)
@@ -205,19 +247,6 @@ vfs_open_in(struct trace_proc * proc, const message * __unused m_out,
 }
 
 static int
-vfs_creat_out(struct trace_proc * proc, const message * m_out)
-{
-
-	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_creat.name,
-	    m_out->m_lc_vfs_creat.len);
-	put_open_flags(proc, "flags", m_out->m_lc_vfs_creat.flags,
-	    TRUE /*full*/);
-	put_mode(proc, "mode", m_out->m_lc_vfs_creat.mode);
-
-	return CT_DONE;
-}
-
-static int
 vfs_close_out(struct trace_proc * proc, const message * m_out)
 {
 
@@ -226,15 +255,42 @@ vfs_close_out(struct trace_proc * proc, const message * m_out)
 	return CT_DONE;
 }
 
-/* This function is used for link, rename, and symlink. */
+/* This function is used for linkat and renameat. */
 static int
-vfs_link_out(struct trace_proc * proc, const message * m_out)
+vfs_linkat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_buf(proc, "path1", PF_PATH, m_out->m_lc_vfs_link.name1,
-	    m_out->m_lc_vfs_link.len1);
-	put_buf(proc, "path2", PF_PATH, m_out->m_lc_vfs_link.name2,
-	    m_out->m_lc_vfs_link.len2);
+	put_dirfd(proc, "fd1", m_out->m_lc_vfs_linkat.fd1);
+	put_buf(proc, "path1", PF_PATH, m_out->m_lc_vfs_linkat.name1,
+	    m_out->m_lc_vfs_linkat.len1);
+	put_dirfd(proc, "fd2", m_out->m_lc_vfs_linkat.fd2);
+	put_buf(proc, "path2", PF_PATH, m_out->m_lc_vfs_linkat.name2,
+	    m_out->m_lc_vfs_linkat.len2);
+	if (m_out->m_type == VFS_LINKAT)
+		put_at_flags(proc, "flags", m_out->m_lc_vfs_linkat.flags);
+
+	return CT_DONE;
+}
+
+static int
+vfs_symlinkat_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_buf(proc, "path1", PF_PATH, m_out->m_lc_vfs_linkat.name1,
+	    m_out->m_lc_vfs_linkat.len1);
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_linkat.fd2);
+	put_buf(proc, "path2", PF_PATH, m_out->m_lc_vfs_linkat.name2,
+	    m_out->m_lc_vfs_linkat.len2);
+
+	return CT_DONE;
+}
+
+static int
+vfs_unlinkat_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_pathat(proc, m_out);
+	put_at_flags(proc, "flags", m_out->m_lc_vfs_pathat.flags);
 
 	return CT_DONE;
 }
@@ -249,11 +305,22 @@ vfs_path_out(struct trace_proc * proc, const message * m_out)
 }
 
 static int
-vfs_path_mode_out(struct trace_proc * proc, const message * m_out)
+vfs_mkdirat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_path(proc, m_out);
-	put_mode(proc, "mode", m_out->m_lc_vfs_path.mode);
+	put_pathat(proc, m_out);
+	put_mode(proc, "mode", m_out->m_lc_vfs_pathat.mode);
+
+	return CT_DONE;
+}
+
+static int
+vfs_fchmodat_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_pathat(proc, m_out);
+	put_mode(proc, "mode", m_out->m_lc_vfs_pathat.mode);
+	put_at_flags(proc, "flags", m_out->m_lc_vfs_pathat.flags);
 
 	return CT_DONE;
 }
@@ -275,26 +342,29 @@ put_dev(struct trace_proc * proc, const char * name, dev_t dev)
 }
 
 static int
-vfs_mknod_out(struct trace_proc * proc, const message * m_out)
+vfs_mknodat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_mknod.name,
-	    m_out->m_lc_vfs_mknod.len);
-	put_mode(proc, "mode", m_out->m_lc_vfs_mknod.mode);
-	put_dev(proc, "dev", m_out->m_lc_vfs_mknod.device);
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_mknodat.dirfd);
+	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_mknodat.name,
+	    m_out->m_lc_vfs_mknodat.len);
+	put_mode(proc, "mode", m_out->m_lc_vfs_mknodat.mode);
+	put_dev(proc, "dev", m_out->m_lc_vfs_mknodat.device);
 
 	return CT_DONE;
 }
 
 static int
-vfs_chown_out(struct trace_proc * proc, const message * m_out)
+vfs_fchownat_out(struct trace_proc * proc, const message * m_out)
 {
 
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_chown.fd);
 	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_chown.name,
 	    m_out->m_lc_vfs_chown.len);
 	/* -1 means "keep the current value" so print as signed */
 	put_value(proc, "owner", "%d", m_out->m_lc_vfs_chown.owner);
 	put_value(proc, "group", "%d", m_out->m_lc_vfs_chown.group);
+	put_at_flags(proc, "flags", m_out->m_lc_vfs_chown.flags);
 
 	return CT_DONE;
 }
@@ -357,35 +427,38 @@ static const struct flags access_flags[] = {
 };
 
 static int
-vfs_access_out(struct trace_proc * proc, const message * m_out)
+vfs_faccessat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_path(proc, m_out);
+	put_pathat(proc, m_out);
 	put_flags(proc, "mode", access_flags, COUNT(access_flags), "0x%x",
-	    m_out->m_lc_vfs_path.mode);
+	    m_out->m_lc_vfs_pathat.mode);
+	put_at_flags(proc, "flags", m_out->m_lc_vfs_pathat.flags);
 
 	return CT_DONE;
 }
 
 static int
-vfs_readlink_out(struct trace_proc * proc, const message * m_out)
+vfs_readlinkat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_readlink.name,
-	    m_out->m_lc_vfs_readlink.namelen);
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_readlinkat.dirfd);
+	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_readlinkat.name,
+	    m_out->m_lc_vfs_readlinkat.namelen);
 
 	return CT_NOTDONE;
 }
 
 static void
-vfs_readlink_in(struct trace_proc * proc, const message * m_out,
+vfs_readlinkat_in(struct trace_proc * proc, const message * m_out,
 	const message * m_in, int failed)
 {
 
 	/* The call does not return a string, so do not use PF_STRING here. */
-	put_buf(proc, "buf", failed, m_out->m_lc_vfs_readlink.buf,
+	put_buf(proc, "buf", failed, m_out->m_lc_vfs_readlinkat.buf,
 	    m_in->m_type);
-	put_value(proc, "bufsize", "%zd", m_out->m_lc_vfs_readlink.bufsize);
+	put_value(proc, "bufsize", "%zd",
+	    m_out->m_lc_vfs_readlinkat.bufsize);
 	put_equals(proc);
 	put_result(proc);
 }
@@ -454,21 +527,23 @@ put_struct_stat(struct trace_proc * proc, const char * name, int flags,
 }
 
 static int
-vfs_stat_out(struct trace_proc * proc, const message * m_out)
+vfs_fstatat_out(struct trace_proc * proc, const message * m_out)
 {
 
-	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_stat.name,
-	    m_out->m_lc_vfs_stat.len);
+	put_dirfd(proc, "fd", m_out->m_lc_vfs_fstatat.dirfd);
+	put_buf(proc, "path", PF_PATH, m_out->m_lc_vfs_fstatat.name,
+	    m_out->m_lc_vfs_fstatat.len);
 
 	return CT_NOTDONE;
 }
 
 static void
-vfs_stat_in(struct trace_proc * proc, const message * m_out,
+vfs_fstatat_in(struct trace_proc * proc, const message * m_out,
 	const message * __unused m_in, int failed)
 {
 
-	put_struct_stat(proc, "buf", failed, m_out->m_lc_vfs_stat.buf);
+	put_struct_stat(proc, "buf", failed, m_out->m_lc_vfs_fstatat.buf);
+	put_at_flags(proc, "flags", m_out->m_lc_vfs_fstatat.flags);
 	put_equals(proc);
 	put_result(proc);
 }
@@ -1042,29 +1117,11 @@ vfs_fchown_out(struct trace_proc * proc, const message * m_out)
 }
 
 static const char *
-vfs_utimens_name(const message * m_out)
+vfs_utimensat_name(const message * m_out)
 {
-	int has_path, has_flags;
 
-	has_path = (m_out->m_vfs_utimens.name != NULL);
-	has_flags = (m_out->m_vfs_utimens.flags != 0);
-
-	if (has_path && m_out->m_vfs_utimens.flags == AT_SYMLINK_NOFOLLOW)
-		return "lutimens";
-	if (has_path && !has_flags)
-		return "utimens";
-	else if (!has_path && !has_flags)
-		return "futimens";
-	else
-		return "utimensat";
+	return (m_out->m_vfs_utimens.name != NULL) ? "utimensat" : "futimens";
 }
-
-static const struct flags at_flags[] = {
-	FLAG(AT_EACCESS),
-	FLAG(AT_SYMLINK_NOFOLLOW),
-	FLAG(AT_SYMLINK_FOLLOW),
-	FLAG(AT_REMOVEDIR),
-};
 
 static void
 put_utimens_timespec(struct trace_proc * proc, const char * name,
@@ -1087,22 +1144,19 @@ put_utimens_timespec(struct trace_proc * proc, const char * name,
 }
 
 static int
-vfs_utimens_out(struct trace_proc * proc, const message * m_out)
+vfs_utimensat_out(struct trace_proc * proc, const message * m_out)
 {
-	int has_path, has_flags;
+	int has_path;
 
-	/* Here we do not care about the utimens/lutimens distinction. */
 	has_path = (m_out->m_vfs_utimens.name != NULL);
-	has_flags = !!(m_out->m_vfs_utimens.flags & ~AT_SYMLINK_NOFOLLOW);
 
-	if (has_path && has_flags)
-		put_field(proc, "fd", "AT_CWD"); /* utimensat */
-	else if (!has_path)
-		put_fd(proc, "fd", m_out->m_vfs_utimens.fd); /* futimes */
-	if (has_path || has_flags) /* lutimes, utimes, utimensat */
+	if (has_path) {	/* utimensat, utimes, lutimes */
+		put_dirfd(proc, "fd", m_out->m_vfs_utimens.fd);
 		put_buf(proc, "path", PF_PATH,
 		    (vir_bytes)m_out->m_vfs_utimens.name,
 		    m_out->m_vfs_utimens.len);
+	} else		/* futimens, futimes */
+		put_fd(proc, "fd", m_out->m_vfs_utimens.fd);
 
 	put_open(proc, "times", 0, "[", ", ");
 	put_utimens_timespec(proc, "atime", m_out->m_vfs_utimens.atime,
@@ -1111,9 +1165,8 @@ vfs_utimens_out(struct trace_proc * proc, const message * m_out)
 	    m_out->m_vfs_utimens.mnsec);
 	put_close(proc, "]");
 
-	if (has_flags)
-		put_flags(proc, "flag", at_flags, COUNT(at_flags), "0x%x",
-		    m_out->m_vfs_utimens.flags);
+	if (has_path)
+		put_at_flags(proc, "flags", m_out->m_vfs_utimens.flags);
 
 	return CT_DONE;
 }
@@ -2370,28 +2423,12 @@ static const struct call_handler vfs_map[] = {
 	VFS_CALL(READ) = HANDLER("read", vfs_read_out, vfs_read_in),
 	VFS_CALL(WRITE) = HANDLER("write", vfs_write_out, default_in),
 	VFS_CALL(LSEEK) = HANDLER("lseek", vfs_lseek_out, vfs_lseek_in),
-	VFS_CALL(OPEN) = HANDLER("open", vfs_open_out, vfs_open_in),
-	VFS_CALL(CREAT) = HANDLER("open", vfs_creat_out, vfs_open_in),
 	VFS_CALL(CLOSE) = HANDLER("close", vfs_close_out, default_in),
-	VFS_CALL(LINK) = HANDLER("link", vfs_link_out, default_in),
-	VFS_CALL(UNLINK) = HANDLER("unlink", vfs_path_out, default_in),
 	VFS_CALL(CHDIR) = HANDLER("chdir", vfs_path_out, default_in),
-	VFS_CALL(MKDIR) = HANDLER("mkdir", vfs_path_mode_out, default_in),
-	VFS_CALL(MKNOD) = HANDLER("mknod", vfs_mknod_out, default_in),
-	VFS_CALL(CHMOD) = HANDLER("chmod", vfs_path_mode_out, default_in),
-	VFS_CALL(CHOWN) = HANDLER("chown", vfs_chown_out, default_in),
 	VFS_CALL(MOUNT) = HANDLER("mount", vfs_mount_out, default_in),
 	VFS_CALL(UMOUNT) = HANDLER("umount", vfs_umount_out, vfs_umount_in),
-	VFS_CALL(ACCESS) = HANDLER("access", vfs_access_out, default_in),
 	VFS_CALL(SYNC) = HANDLER("sync", default_out, default_in),
-	VFS_CALL(RENAME) = HANDLER("rename", vfs_link_out, default_in),
-	VFS_CALL(RMDIR) = HANDLER("rmdir", vfs_path_out, default_in),
-	VFS_CALL(SYMLINK) = HANDLER("symlink", vfs_link_out, default_in),
-	VFS_CALL(READLINK) = HANDLER("readlink", vfs_readlink_out,
-	    vfs_readlink_in),
-	VFS_CALL(STAT) = HANDLER("stat", vfs_stat_out, vfs_stat_in),
 	VFS_CALL(FSTAT) = HANDLER("fstat", vfs_fstat_out, vfs_fstat_in),
-	VFS_CALL(LSTAT) = HANDLER("lstat", vfs_stat_out, vfs_stat_in),
 	VFS_CALL(IOCTL) = HANDLER("ioctl", vfs_ioctl_out, vfs_ioctl_in),
 	VFS_CALL(FCNTL) = HANDLER("fcntl", vfs_fcntl_out, vfs_fcntl_in),
 	VFS_CALL(PIPE2) = HANDLER("pipe2", vfs_pipe2_out, vfs_pipe2_in),
@@ -2407,8 +2444,23 @@ static const struct call_handler vfs_map[] = {
 	    default_in),
 	VFS_CALL(FCHMOD) = HANDLER("fchmod", vfs_fchmod_out, default_in),
 	VFS_CALL(FCHOWN) = HANDLER("fchown", vfs_fchown_out, default_in),
-	VFS_CALL(UTIMENS) = HANDLER_NAME(vfs_utimens_name, vfs_utimens_out,
+	VFS_CALL(OPENAT) = HANDLER("openat", vfs_openat_out, vfs_open_in),
+	VFS_CALL(FSTATAT) = HANDLER("fstatat", vfs_fstatat_out, vfs_fstatat_in),
+	VFS_CALL(MKDIRAT) = HANDLER("mkdirat", vfs_mkdirat_out, default_in),
+	VFS_CALL(MKNODAT) = HANDLER("mknodat", vfs_mknodat_out, default_in),
+	VFS_CALL(UNLINKAT) = HANDLER("unlinkat", vfs_unlinkat_out, default_in),
+	VFS_CALL(LINKAT) = HANDLER("linkat", vfs_linkat_out, default_in),
+	VFS_CALL(RENAMEAT) = HANDLER("renameat", vfs_linkat_out, default_in),
+	VFS_CALL(SYMLINKAT) = HANDLER("symlinkat", vfs_symlinkat_out,
 	    default_in),
+	VFS_CALL(READLINKAT) = HANDLER("readlinkat", vfs_readlinkat_out,
+	    vfs_readlinkat_in),
+	VFS_CALL(FCHMODAT) = HANDLER("fchmodat", vfs_fchmodat_out, default_in),
+	VFS_CALL(FCHOWNAT) = HANDLER("fchownat", vfs_fchownat_out, default_in),
+	VFS_CALL(FACCESSAT) = HANDLER("faccessat", vfs_faccessat_out,
+	    default_in),
+	VFS_CALL(UTIMENSAT) = HANDLER_NAME(vfs_utimensat_name,
+	    vfs_utimensat_out, default_in),
 	VFS_CALL(GETVFSSTAT) = HANDLER("getvfsstat", vfs_getvfsstat_out,
 	    vfs_getvfsstat_in),
 	VFS_CALL(STATVFS1) = HANDLER("statvfs1", vfs_statvfs1_out,
