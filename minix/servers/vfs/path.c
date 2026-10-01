@@ -81,9 +81,12 @@ advance(struct vnode *dirp, struct lookup *resolve, struct fproc *rfp)
 		 * normal, because the putnode resulted in a use count of 1 in
 		 * the FS. Other data is still valid, because the vnode was
 		 * marked as pending lock, so get_free_vnode hasn't
-		 * reinitialized the vnode yet. */
+		 * reinitialized the vnode yet.  Not so a mapping (a FIFO's PFS
+		 * node): nothing looked that up again, so the putnode freed it
+		 * and put_vnode() forgot it; opening the vnode maps a new one.
+		 */
+		assert(vp->v_mapfs_e == NONE);
 		vp->v_fs_count = 1;
-		if (vp->v_mapfs_e != NONE) vp->v_mapfs_count = 1;
 	} else {
 		vp->v_fs_count++;	/* We got a reference from the FS */
 	}

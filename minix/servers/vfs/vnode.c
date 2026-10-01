@@ -292,6 +292,15 @@ void put_vnode(struct vnode *vp)
   if (vp->v_mapfs_e != NONE && vp->v_mapfs_e != vp->v_fs_e)
 	req_putnode(vp->v_mapfs_e, vp->v_mapinode_nr, vp->v_mapfs_count);
 
+  /* The mapped node is gone now (PFS frees a pipe's node on its last put),
+   * so forget it.  A lookup that finds this vnode while the putnodes above
+   * block revives it (see advance()); its next open must then map a fresh
+   * node rather than reuse this one: writing to a FIFO through a freed PFS
+   * node fails with EINVAL.
+   */
+  vp->v_mapfs_e = NONE;
+  vp->v_mapinode_nr = 0;
+
   vp->v_fs_count = 0;
   vp->v_ref_count = 0;
   vp->v_mapfs_count = 0;
