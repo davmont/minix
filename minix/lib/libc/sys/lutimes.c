@@ -37,7 +37,8 @@ int lutimes(const char *name, const struct timeval tv[2])
 	m.m_vfs_utimens.ansec = tv[0].tv_usec * 1000;
 	m.m_vfs_utimens.mnsec = tv[1].tv_usec * 1000;
   }
+  m.m_vfs_utimens.fd = AT_FDCWD;
   m.m_vfs_utimens.flags = AT_SYMLINK_NOFOLLOW;
 
-  return(_syscall(VFS_PROC_NR, VFS_UTIMENS, &m));
+  return(_syscall(VFS_PROC_NR, VFS_UTIMENSAT, &m));
 }

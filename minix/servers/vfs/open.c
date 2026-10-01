@@ -2,9 +2,9 @@
  * seeking on files.
  *
  * The entry points into this file are
- *   do_open:	perform the OPEN system call
- *   do_mknod:	perform the MKNOD system call
- *   do_mkdir:	perform the MKDIR system call
+ *   do_openat:	perform the OPENAT system call
+ *   do_mknodat: perform the MKNODAT system call
+ *   do_mkdirat: perform the MKDIRAT system call
  *   do_close:	perform the CLOSE system call
  *   do_lseek:  perform the LSEEK system call
  */
@@ -33,56 +33,39 @@ static struct vnode *new_node(struct lookup *resolve, int oflags,
 static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags);
 
 /*===========================================================================*
- *				do_open					     *
+ *				do_openat				     *
  *===========================================================================*/
-int do_open(void)
+int do_openat(void)
 {
-/* Perform the open(name, flags) system call with O_CREAT *not* set. */
-  int open_flags;
+/* Perform the openat(dirfd, name, flags[, mode]) system call; open(2) is
+ * openat(AT_FDCWD, ...).  The syscall might provide 'name' embedded in the
+ * message.
+ */
+  int r;
+  struct vnode *start;
   char fullpath[PATH_MAX];
 
-  open_flags = job_m_in.m_lc_vfs_path.flags;
-
-  if (open_flags & O_CREAT)
-	return EINVAL;
-
-  if (copy_path(fullpath, sizeof(fullpath)) != OK)
+  if (copy_pathat(fullpath, sizeof(fullpath)) != OK)
 	return(err_code);
+  if ((r = get_start_dir(job_m_in.m_lc_vfs_pathat.dirfd, fullpath,
+	&start)) != OK)
+	return(r);
 
-  return common_open(fullpath, open_flags, 0 /*omode*/, FALSE /*for_exec*/);
-}
+  r = common_open(fullpath, job_m_in.m_lc_vfs_pathat.flags,
+	job_m_in.m_lc_vfs_pathat.mode, FALSE /*for_exec*/, start);
 
-/*===========================================================================*
- *				do_creat				     *
- *===========================================================================*/
-int do_creat(void)
-{
-/* Perform the open(name, flags, mode) system call with O_CREAT set. */
-  int open_flags, create_mode;
-  char fullpath[PATH_MAX];
-  vir_bytes vname;
-  size_t vname_length;
-
-  vname = job_m_in.m_lc_vfs_creat.name;
-  vname_length = job_m_in.m_lc_vfs_creat.len;
-  open_flags = job_m_in.m_lc_vfs_creat.flags;
-  create_mode = job_m_in.m_lc_vfs_creat.mode;
-
-  if (!(open_flags & O_CREAT))
-	return(EINVAL);
-
-  if (fetch_name(vname, vname_length, fullpath) != OK)
-	return(err_code);
-
-  return common_open(fullpath, open_flags, create_mode, FALSE /*for_exec*/);
+  put_start_dir(start);
+  return(r);
 }
 
 /*===========================================================================*
  *				common_open				     *
  *===========================================================================*/
-int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
+int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
+	struct vnode *start_dir)
 {
-/* Common code from do_creat and do_open. */
+/* Open 'path', which starts at 'start_dir' if it is relative (NULL: the
+ * working directory).  Used by openat(2), exec and core dumps. */
   int b, r, exist = TRUE;
   devmajor_t major_dev;
   dev_t dev;
@@ -103,6 +86,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 	return(r);
 
   lookup_init(&resolve, path, PATH_NOFLAGS, &vmp, &vp);
+  resolve.l_start = start_dir;
 
   /* If O_CREATE is set, try to make the file. */
   if (oflags & O_CREAT) {
@@ -313,6 +297,7 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
   path = resolve->l_path;	/* For easy access */
 
   lookup_init(&findnode, path, resolve->l_flags, &dir_vmp, &dirp);
+  findnode.l_start = resolve->l_start;
   findnode.l_vmnt_lock = VMNT_WRITE;
   findnode.l_vnode_lock = VNODE_WRITE; /* dir node */
 
@@ -370,7 +355,7 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
 		downgrade_vmnt_lock(dir_vmp);
 
 		if (r == EEXIST) {
-			struct vnode *slp, *old_wd;
+			struct vnode *slp, *old_start;
 
 
 			/* Resolve path up to symlink */
@@ -413,10 +398,10 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
 			unlock_vnode(vp);
 			unlock_vmnt(dir_vmp);
 
-			old_wd = fp->fp_fd->fd_wd; /* Save orig. working dirp */
-			fp->fp_fd->fd_wd = dirp;
+			old_start = resolve->l_start;
+			resolve->l_start = dirp;
 			vp = new_node(resolve, oflags, bits);
-			fp->fp_fd->fd_wd = old_wd; /* Restore */
+			resolve->l_start = old_start;
 
 			if (vp != NULL) {
 				put_vnode(dirp);
@@ -502,21 +487,21 @@ static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags)
 		return(SUSPEND);
 	}
   } else if (susp_count > 0) { /* revive blocked processes */
-	release(vp, VFS_OPEN, susp_count);
+	release(vp, VFS_OPENAT, susp_count);
   }
   return(OK);
 }
 
 
 /*===========================================================================*
- *				do_mknod				     *
+ *				do_mknodat				     *
  *===========================================================================*/
-int do_mknod(void)
+int do_mknodat(void)
 {
-/* Perform the mknod(name, mode, addr) system call. */
+/* Perform the mknodat(dirfd, name, mode, addr) system call. */
   register mode_t bits, mode_bits;
   int r;
-  struct vnode *vp;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
   char fullpath[PATH_MAX];
   struct lookup resolve;
@@ -524,10 +509,10 @@ int do_mknod(void)
   size_t vname1_length;
   dev_t dev;
 
-  vname1 = job_m_in.m_lc_vfs_mknod.name;
-  vname1_length = job_m_in.m_lc_vfs_mknod.len;
-  mode_bits = job_m_in.m_lc_vfs_mknod.mode;
-  dev = job_m_in.m_lc_vfs_mknod.device;
+  vname1 = job_m_in.m_lc_vfs_mknodat.name;
+  vname1_length = job_m_in.m_lc_vfs_mknodat.len;
+  mode_bits = job_m_in.m_lc_vfs_mknodat.mode;
+  dev = job_m_in.m_lc_vfs_mknodat.device;
 
   /* If the path names a symbolic link, mknod() shall fail with EEXIST. */
   lookup_init(&resolve, fullpath, PATH_RET_SYMLINK, &vmp, &vp);
@@ -542,7 +527,15 @@ int do_mknod(void)
 
   /* Open directory that's going to hold the new node. */
   if (fetch_name(vname1, vname1_length, fullpath) != OK) return(err_code);
-  if ((vp = last_dir(&resolve, fp)) == NULL) return(err_code);
+  if ((r = get_start_dir(job_m_in.m_lc_vfs_mknodat.dirfd, fullpath,
+	&start)) != OK)
+	return(r);
+  resolve.l_start = start;
+  vp = last_dir(&resolve, fp);
+  if (vp == NULL) {
+	put_start_dir(start);
+	return(err_code);
+  }
 
   /* Make sure that the object is a directory */
   if (!S_ISDIR(vp->v_mode)) {
@@ -555,33 +548,43 @@ int do_mknod(void)
   unlock_vnode(vp);
   unlock_vmnt(vmp);
   put_vnode(vp);
+  put_start_dir(start);
   return(r);
 }
 
 /*===========================================================================*
- *				do_mkdir				     *
+ *				do_mkdirat				     *
  *===========================================================================*/
-int do_mkdir(void)
+int do_mkdirat(void)
 {
-/* Perform the mkdir(name, mode) system call. */
+/* Perform the mkdirat(dirfd, name, mode) system call.  The syscall might
+ * provide 'name' embedded in the message. */
   mode_t bits;			/* mode bits for the new inode */
   int r;
-  struct vnode *vp;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
   char fullpath[PATH_MAX];
   struct lookup resolve;
   mode_t dirmode;
 
-  if (copy_path(fullpath, sizeof(fullpath)) != OK)
+  if (copy_pathat(fullpath, sizeof(fullpath)) != OK)
 	return(err_code);
-  dirmode = job_m_in.m_lc_vfs_path.mode;
+  dirmode = job_m_in.m_lc_vfs_pathat.mode;
 
   lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
   resolve.l_vmnt_lock = VMNT_WRITE;
   resolve.l_vnode_lock = VNODE_WRITE;
 
   bits = I_DIRECTORY | (dirmode & RWX_MODES & fp->fp_fd->fd_umask);
-  if ((vp = last_dir(&resolve, fp)) == NULL) return(err_code);
+  if ((r = get_start_dir(job_m_in.m_lc_vfs_pathat.dirfd, fullpath,
+	&start)) != OK)
+	return(r);
+  resolve.l_start = start;
+  vp = last_dir(&resolve, fp);
+  if (vp == NULL) {
+	put_start_dir(start);
+	return(err_code);
+  }
 
   /* Make sure that the object is a directory */
   if (!S_ISDIR(vp->v_mode)) {
@@ -594,6 +597,7 @@ int do_mkdir(void)
   unlock_vnode(vp);
   unlock_vmnt(vmp);
   put_vnode(vp);
+  put_start_dir(start);
   return(r);
 }
 

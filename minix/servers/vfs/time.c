@@ -1,7 +1,7 @@
 /* This file takes care of those system calls that deal with time.
  *
  * The entry points into this file are
- *   do_utimens:	perform the UTIMENS system call
+ *   do_utimensat:	perform the UTIMENSAT system call
  */
 
 #include "fs.h"
@@ -21,25 +21,17 @@
 #define	FUTIMENS_STYLE	1	/* futimens(2)/futimes(2) style, file desc. */
 
 /*===========================================================================*
- *				do_utimens				     *
+ *				do_utimensat				     *
  *===========================================================================*/
-int do_utimens(void)
+int do_utimensat(void)
 {
-/* Perform the utimens(name, times, flag) system call, and its friends.
- * Implement a very large but not complete subset of the utimensat()
- * Posix:2008/XOpen-7 function.
- * Are handled all the following cases:
- * . utimensat(AT_FDCWD, "/some/absolute/path", , )
- * . utimensat(AT_FDCWD, "some/path", , )
- * . utimens("anything", ) really special case of the above two
- * . lutimens("anything", ) also really special case of the above
- * . utimensat(fd, "/some/absolute/path", , ) although fd is useless here
- * . futimens(fd, )
- * Are not handled the following cases:
- * . utimensat(fd, "some/path", , ) path to a file relative to some open fd
+/* Perform the utimensat(dirfd, name, times, flags) Posix:2008/XOpen-7 system
+ * call, and its friends: with a name, the file it names (starting at 'fd' if
+ * relative, AT_FDCWD for utimes(2) and lutimes(2)); without, the file open as
+ * 'fd' (futimens(2), futimes(2)).
  */
   int r, kind, lookup_flags;
-  struct vnode *vp;
+  struct vnode *vp, *start = NULL;
   struct filp *filp = NULL; /* initialization required by clueless GCC */
   struct vmnt *vmp;
   struct timespec actim, modtim, now, newactim, newmodtim;
@@ -72,7 +64,14 @@ int do_utimens(void)
 	resolve.l_vnode_lock = VNODE_READ;
 	/* Temporarily open the file */
 	if (fetch_name(vname, vname_length, fullpath) != OK) return(err_code);
-	if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+	if ((r = get_start_dir(job_m_in.m_vfs_utimens.fd, fullpath,
+	    &start)) != OK)
+		return(r);
+	resolve.l_start = start;
+	if ((vp = eat_path(&resolve, fp)) == NULL) {
+		put_start_dir(start);
+		return(err_code);
+	}
   }
   else {
 	kind = FUTIMENS_STYLE;
@@ -147,6 +146,7 @@ int do_utimens(void)
 	unlock_vnode(vp);
 	unlock_vmnt(vmp);
 	put_vnode(vp);
+	put_start_dir(start);
   }
   else { /* Change timestamps on opened fd. */
 	unlock_filp(filp);

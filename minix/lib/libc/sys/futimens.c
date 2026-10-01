@@ -21,5 +21,5 @@ int futimens(int fd, const struct timespec tv[2])
   m.m_vfs_utimens.name = NULL;
   m.m_vfs_utimens.flags = 0;
 
-  return(_syscall(VFS_PROC_NR, VFS_UTIMENS, &m));
+  return(_syscall(VFS_PROC_NR, VFS_UTIMENSAT, &m));
 }

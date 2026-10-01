@@ -4,8 +4,7 @@
  * The entry points into this file are
  *   do_chdir:	perform the CHDIR system call
  *   do_chroot:	perform the CHROOT system call
- *   do_lstat:  perform the LSTAT system call
- *   do_stat:	perform the STAT system call
+ *   do_fstatat: perform the FSTATAT system call
  *   do_fstat:	perform the FSTAT system call
  *   do_statvfs:    perform the STATVFS1 system call
  *   do_fstatvfs:   perform the FSTATVFS1 system call
@@ -135,35 +134,52 @@ static int change_into(struct vnode **result, struct vnode *vp)
 }
 
 /*===========================================================================*
- *				do_stat					     *
+ *				do_fstatat				     *
  *===========================================================================*/
-int do_stat(void)
+int do_fstatat(void)
 {
-/* Perform the stat(name, buf) system call. */
-  int r;
-  struct vnode *vp;
+/* Perform the fstatat(dirfd, name, buf, flags) system call; stat(2) and
+ * lstat(2) are fstatat(AT_FDCWD, ...) without and with AT_SYMLINK_NOFOLLOW.
+ */
+  int r, flags;
+  struct vnode *vp, *start;
   struct vmnt *vmp;
   char fullpath[PATH_MAX];
   struct lookup resolve;
   vir_bytes vname1, statbuf;
   size_t vname1_length;
 
-  vname1 = job_m_in.m_lc_vfs_stat.name;
-  vname1_length = job_m_in.m_lc_vfs_stat.len;
-  statbuf = job_m_in.m_lc_vfs_stat.buf;
+  vname1 = job_m_in.m_lc_vfs_fstatat.name;
+  vname1_length = job_m_in.m_lc_vfs_fstatat.len;
+  statbuf = job_m_in.m_lc_vfs_fstatat.buf;
+  flags = job_m_in.m_lc_vfs_fstatat.flags;
 
-  lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
+  if (flags & ~AT_SYMLINK_NOFOLLOW)
+	return(EINVAL);
+
+  lookup_init(&resolve, fullpath,
+	(flags & AT_SYMLINK_NOFOLLOW) ? PATH_RET_SYMLINK : PATH_NOFLAGS,
+	&vmp, &vp);
   resolve.l_vmnt_lock = VMNT_READ;
   resolve.l_vnode_lock = VNODE_READ;
 
   if (fetch_name(vname1, vname1_length, fullpath) != OK) return(err_code);
-  if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
+  if ((r = get_start_dir(job_m_in.m_lc_vfs_fstatat.dirfd, fullpath,
+	&start)) != OK)
+	return(r);
+  resolve.l_start = start;
+  vp = eat_path(&resolve, fp);
+  if (vp == NULL) {
+	put_start_dir(start);
+	return(err_code);
+  }
   r = req_stat(vp->v_fs_e, vp->v_inode_nr, who_e, statbuf);
 
   unlock_vnode(vp);
   unlock_vmnt(vmp);
 
   put_vnode(vp);
+  put_start_dir(start);
   return r;
 }
 
@@ -410,37 +426,4 @@ int do_getvfsstat(void)
   }
 
   return count;
-}
-
-/*===========================================================================*
- *                             do_lstat					     *
- *===========================================================================*/
-int do_lstat(void)
-{
-/* Perform the lstat(name, buf) system call. */
-  struct vnode *vp;
-  struct vmnt *vmp;
-  int r;
-  char fullpath[PATH_MAX];
-  struct lookup resolve;
-  vir_bytes vname1, statbuf;
-  size_t vname1_length;
-
-  vname1 = job_m_in.m_lc_vfs_stat.name;
-  vname1_length = job_m_in.m_lc_vfs_stat.len;
-  statbuf = job_m_in.m_lc_vfs_stat.buf;
-
-  lookup_init(&resolve, fullpath, PATH_RET_SYMLINK, &vmp, &vp);
-  resolve.l_vmnt_lock = VMNT_READ;
-  resolve.l_vnode_lock = VNODE_READ;
-
-  if (fetch_name(vname1, vname1_length, fullpath) != OK) return(err_code);
-  if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
-  r = req_stat(vp->v_fs_e, vp->v_inode_nr, who_e, statbuf);
-
-  unlock_vnode(vp);
-  unlock_vmnt(vmp);
-
-  put_vnode(vp);
-  return(r);
 }

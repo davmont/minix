@@ -301,7 +301,7 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 	 * which is currently in finalexec
 	 */
 	if ((r = execi.elf_main_fd =
-	    common_open(finalexec, O_RDONLY, 0, TRUE /*for_exec*/)) < 0) {
+	    common_open(finalexec, O_RDONLY, 0, TRUE /*for_exec*/, NULL)) < 0) {
 		printf("VFS: exec: dynamic: open main exec failed %s (%d)\n",
 			fullpath, r);
 		FAILCHECK(r);

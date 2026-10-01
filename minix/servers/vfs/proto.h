@@ -97,9 +97,11 @@ int do_copyfd(void);
 void nested_fs_call(message *m);
 
 /* link.c */
-int do_link(void);
-int do_unlink(void);
-int do_rename(void);
+int do_linkat(void);
+int do_unlinkat(void);
+int do_renameat(void);
+int do_symlinkat(void);
+int do_readlinkat(void);
 int do_truncate(void);
 int do_ftruncate(void);
 int truncate_vnode(struct vnode *vp, off_t newsize);
@@ -153,14 +155,12 @@ void unmount_all(int force);
 /* open.c */
 int do_close(void);
 int close_fd(struct fproc *rfp, int fd_nr, int may_suspend);
-int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec);
-int do_creat(void);
+int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
+	struct vnode *start_dir);
 int do_lseek(void);
-int do_mknod(void);
-int do_mkdir(void);
-int do_open(void);
-int do_creat(void);
-int do_slink(void);
+int do_mknodat(void);
+int do_mkdirat(void);
+int do_openat(void);
 int actual_lseek(struct fproc *rfp, int seekfd, int seekwhence, off_t offset,
 	off_t *newposp);
 
@@ -173,6 +173,8 @@ void lookup_init(struct lookup *resolve, char *path, int flags, struct
 	vmnt **vmp, struct vnode **vp);
 int get_name(struct vnode *dirp, struct vnode *entry, char *_name);
 int canonical_path(char *orig_path, struct fproc *rfp);
+int get_start_dir(int dirfd, const char *path, struct vnode **vpp);
+void put_start_dir(struct vnode *vp);
 int do_socketpath(void);
 
 /* pipe.c */
@@ -199,6 +201,7 @@ int do_umask(void);
 int do_extattr(void);
 int vfs_acl_check(struct vnode *vp, struct fproc *fp, uid_t uid, gid_t gid,
 	mode_t access);
+int use_real_ids(void);
 int forbidden(struct fproc *rfp, struct vnode *vp, mode_t
 	access_desired);
 int read_only(struct vnode *vp);
@@ -335,16 +338,14 @@ int do_chdir(void);
 int do_fchdir(void);
 int do_chroot(void);
 int do_fstat(void);
-int do_stat(void);
+int do_fstatat(void);
 int do_statvfs(void);
 int do_fstatvfs(void);
 int do_getvfsstat(void);
-int do_rdlink(void);
-int do_lstat(void);
 int update_statvfs(struct vmnt *vmp, struct statvfs *buf);
 
 /* time.c */
-int do_utimens(void);
+int do_utimensat(void);
 
 /* tll.c */
 void tll_downgrade(tll_t *tllp);
@@ -359,6 +360,7 @@ void tll_upgrade(tll_t *tllp);
 
 /* utility.c */
 int copy_path(char *dest, size_t size);
+int copy_pathat(char *dest, size_t size);
 int fetch_name(vir_bytes path, size_t len, char *dest);
 int isokendpt_f(const char *f, int l, endpoint_t e, int *p, int ft);
 int in_group(struct fproc *rfp, gid_t grp);

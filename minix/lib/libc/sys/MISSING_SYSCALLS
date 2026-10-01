@@ -1,7 +1,5 @@
 _lwp_*
 acct
-lchmod
-lchown
 clone
 fhopen
 fhstat

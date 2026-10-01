@@ -4,6 +4,7 @@
 
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <fcntl.h>
 #include <string.h>
 #include <errno.h>
 
@@ -36,7 +37,8 @@ int utimes(const char *name, const struct timeval tv[2])
 	m.m_vfs_utimens.ansec = tv[0].tv_usec * 1000;
 	m.m_vfs_utimens.mnsec = tv[1].tv_usec * 1000;
   }
+  m.m_vfs_utimens.fd = AT_FDCWD;
   m.m_vfs_utimens.flags = 0;
 
-  return(_syscall(VFS_PROC_NR, VFS_UTIMENS, &m));
+  return(_syscall(VFS_PROC_NR, VFS_UTIMENSAT, &m));
 }

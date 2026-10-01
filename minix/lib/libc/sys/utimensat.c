@@ -8,14 +8,8 @@
 #include <limits.h>
 #include <errno.h>
 
-/* Implement a very large but not complete subset of the utimensat()
- * Posix:2008/XOpen-7 function.
- * Are handled the following cases:
- * . utimensat(AT_FDCWD, "/some/absolute/path", , )
- * . utimensat(AT_FDCWD, "some/path", , )
- * . utimensat(fd, "/some/absolute/path", , ) although fd is useless here
- * Are not handled the following cases:
- * . utimensat(fd, "some/path", , ) path to a file relative to some open fd
+/* Implement the utimensat() Posix:2008/XOpen-7 function.  A relative 'name'
+ * starts at 'fd' (AT_FDCWD: the working directory).
  */
 int utimensat(int fd, const char *name, const struct timespec tv[2],
     int flags)
@@ -33,11 +27,6 @@ int utimensat(int fd, const char *name, const struct timespec tv[2],
 	errno = ENOENT;
 	return -1;
   }
-  if (fd != AT_FDCWD && name[0] != '/') { /* Not supported */
-	errno = EINVAL;
-	return -1;
-  }
-
   if ((unsigned)flags > SHRT_MAX) {
 	errno = EINVAL;
 	return -1;
@@ -50,7 +39,8 @@ int utimensat(int fd, const char *name, const struct timespec tv[2],
   m.m_vfs_utimens.mtime = tv[1].tv_sec;
   m.m_vfs_utimens.ansec = tv[0].tv_nsec;
   m.m_vfs_utimens.mnsec = tv[1].tv_nsec;
+  m.m_vfs_utimens.fd = fd;
   m.m_vfs_utimens.flags = flags;
 
-  return(_syscall(VFS_PROC_NR, VFS_UTIMENS, &m));
+  return(_syscall(VFS_PROC_NR, VFS_UTIMENSAT, &m));
 }

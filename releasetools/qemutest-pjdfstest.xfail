@@ -19,17 +19,8 @@ symlink/12.t
 truncate/14.t
 unlink/13.t
 
-# utimensat(dirfd, relative) is rejected: the *at() calls resolve only
-# AT_FDCWD or absolute paths (the VFS has no dirfd support yet).
-utimensat/00.t
-utimensat/01.t
-utimensat/02.t
-utimensat/04.t
-utimensat/05.t
-utimensat/06.t
-utimensat/07.t
+# MFS keeps whole-second timestamps: sub-second times read back as 0.
 utimensat/08.t
-utimensat/09.t
 
 # O_NOFOLLOW is accepted and ignored: open() follows the symlink, no ELOOP.
 open/06.t
@@ -48,7 +39,6 @@ chmod/11.t
 chmod/12.t
 chown/00.t
 chown/05.t
-chown/07.t
 rmdir/11.t
 unlink/11.t
 
