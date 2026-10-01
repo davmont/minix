@@ -673,6 +673,7 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
 
   /* Fill in new process and endpoint id. */
   cp->fp_pid = cpid;
+  cp->fp_tgid = cpid;
   cp->fp_endpoint = cproc;
 
 #if !defined(NDEBUG)
@@ -727,7 +728,7 @@ void pm_lwp(endpoint_t leader_e, endpoint_t thread_e, pid_t pid)
   tp->fp_fd = lp->fp_fd;
   tp->fp_fd->fd_refcnt++;
 
-  tp->fp_pid = pid;
+  tp->fp_pid = pid;		/* the thread's own; fp_tgid stays the process's */
   tp->fp_endpoint = thread_e;
   tp->fp_flags = FP_NOFLAGS;
 }
