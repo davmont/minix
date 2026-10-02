@@ -40,7 +40,7 @@
 /*
  * Convert any SOCK_xx open flags to O_xx open flags.
  */
-static int
+int
 get_sock_flags(int type)
 {
 	int flags;
@@ -369,6 +369,11 @@ do_accept(void)
 
 	fd = job_m_in.m_lc_vfs_sockaddr.fd;
 
+	/* accept4(2) flags; accept(2) passes none. */
+	if (job_m_in.m_lc_vfs_sockaddr.flags &
+	    ~(SOCK_CLOEXEC | SOCK_NONBLOCK | SOCK_NOSIGPIPE))
+		return EINVAL;
+
 	if ((r = get_sock(fd, &dev, &flags)) != OK)
 		return r;
 
@@ -397,7 +402,7 @@ do_accept(void)
  */
 void
 resume_accept(struct fproc * rfp, int status, dev_t dev, unsigned int addr_len,
-	int listen_fd)
+	int listen_fd, int accept_flags)
 {
 	message m;
 	dev_t ldev;
@@ -457,6 +462,7 @@ resume_accept(struct fproc * rfp, int status, dev_t dev, unsigned int addr_len,
 	 * duration of the accept call, which is not exactly great either.
 	 */
 	flags &= O_CLOEXEC | O_NONBLOCK | O_NOSIGPIPE;
+	flags |= accept_flags;			/* accept4(2) */
 
 	if ((r = make_sock_fd(dev, flags)) < 0) {
 		(void)sdev_close(dev, FALSE /*may_suspend*/);

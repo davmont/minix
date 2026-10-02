@@ -634,6 +634,7 @@ __END_DECLS
 
 __BEGIN_DECLS
 int	accept(int, struct sockaddr * __restrict, socklen_t * __restrict);
+int	accept4(int, struct sockaddr * __restrict, socklen_t * __restrict, int);
 int	bind(int, const struct sockaddr *, socklen_t);
 int	connect(int, const struct sockaddr *, socklen_t);
 int	getpeername(int, struct sockaddr * __restrict, socklen_t * __restrict);

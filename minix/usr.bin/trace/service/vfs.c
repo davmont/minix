@@ -1730,6 +1730,12 @@ vfs_accept_out(struct trace_proc * proc, const message * m_out)
 	return CT_NOTDONE;
 }
 
+static const struct flags accept_flags[] = {
+	FLAG(SOCK_CLOEXEC),
+	FLAG(SOCK_NONBLOCK),
+	FLAG(SOCK_NOSIGPIPE),
+};
+
 static void
 vfs_accept_in(struct trace_proc * proc, const message * m_out,
 	const message * m_in, int failed)
@@ -1750,9 +1756,19 @@ vfs_accept_in(struct trace_proc * proc, const message * m_out,
 		    m_in->m_vfs_lc_socklen.len);
 	else
 		put_field(proc, "addr_len", "&..");
+	if (m_out->m_lc_vfs_sockaddr.flags != 0)	/* accept4 */
+		put_flags(proc, "flags", accept_flags, COUNT(accept_flags),
+		    "0x%x", m_out->m_lc_vfs_sockaddr.flags);
 
 	put_equals(proc);
 	put_result(proc);
+}
+
+static const char *
+vfs_accept_name(const message * m_out)
+{
+
+	return (m_out->m_lc_vfs_sockaddr.flags != 0) ? "accept4" : "accept";
 }
 
 static const struct flags msg_flags[] = {
@@ -2477,7 +2493,8 @@ static const struct call_handler vfs_map[] = {
 	VFS_CALL(BIND) = HANDLER("bind", vfs_bind_out, default_in),
 	VFS_CALL(CONNECT) = HANDLER("connect", vfs_bind_out, default_in),
 	VFS_CALL(LISTEN) = HANDLER("listen", vfs_listen_out, default_in),
-	VFS_CALL(ACCEPT) = HANDLER("accept", vfs_accept_out, vfs_accept_in),
+	VFS_CALL(ACCEPT) = HANDLER_NAME(vfs_accept_name, vfs_accept_out,
+	    vfs_accept_in),
 	VFS_CALL(SENDTO) = HANDLER("sendto", vfs_sendto_out, default_in),
 	VFS_CALL(SENDMSG) = HANDLER("sendmsg", vfs_sendmsg_out, default_in),
 	VFS_CALL(RECVFROM) = HANDLER("recvfrom", vfs_recvfrom_out,

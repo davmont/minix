@@ -68,6 +68,7 @@ EXTERN struct fproc {
 			int fd;		/* listener file descr. (VFS_ACCEPT) */
 			vir_bytes buf;	/* user buffer address (VFS_RECVMSG) */
 		} aux;			/* call-specific auxiliary data */
+		int accept_flags;	/* VFS_ACCEPT: accept4's O_ flags */
 	} u_sdev;
   } fp_u;
 
