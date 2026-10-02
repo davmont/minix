@@ -109,6 +109,7 @@ int rdlink_direct(char *orig_path, char *link_path, struct fproc *rfp);
 
 /* lock.c */
 int lock_op(int fd, int req, vir_bytes arg);
+void lock_release(struct fproc *rfp, struct vnode *vp);
 void lock_revive(void);
 
 /* main.c */

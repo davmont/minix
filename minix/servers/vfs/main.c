@@ -427,6 +427,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
 	rfp = &fproc[mess.VFS_PM_SLOT];
 	rfp->fp_flags = FP_NOFLAGS;
 	rfp->fp_pid = mess.VFS_PM_PID;
+	rfp->fp_tgid = mess.VFS_PM_PID;
 	rfp->fp_endpoint = mess.VFS_PM_ENDPT;
 	rfp->fp_blocked_on = FP_BLOCKED_ON_NONE;
 	rfp->fp_realuid = (uid_t) SYS_UID;

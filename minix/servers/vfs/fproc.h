@@ -30,7 +30,8 @@ EXTERN struct filedesc {
 EXTERN struct fproc {
   unsigned fp_flags;
 
-  pid_t fp_pid;			/* process id */
+  pid_t fp_pid;			/* process id (a thread's own, internal) */
+  pid_t fp_tgid;		/* id of the process, the same in its threads */
   endpoint_t fp_endpoint;	/* kernel endpoint number of this process */
 
   struct filedesc *fp_fd;	/* shared open-file state (see struct filedesc) */
