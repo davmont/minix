@@ -1014,6 +1014,12 @@ unblock(struct fproc *rfp)
 	m_in.m_lc_vfs_readwrite.cum_io = rfp->fp_pipe.cum_io;
 	break;
   case FP_BLOCKED_ON_FLOCK:
+	if (rfp->fp_flock.cmd == FLOCK_WAIT) {	/* flock(2) */
+		m_in.m_type = VFS_FLOCK;
+		m_in.m_lc_vfs_fcntl.fd = rfp->fp_flock.fd;
+		m_in.m_lc_vfs_fcntl.cmd = (int) rfp->fp_flock.arg;
+		break;
+	}
 	assert(rfp->fp_flock.cmd == F_SETLKW);
 	m_in.m_type = VFS_FCNTL;
 	m_in.m_lc_vfs_fcntl.fd = rfp->fp_flock.fd;

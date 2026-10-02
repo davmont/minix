@@ -1,9 +1,3 @@
-/* Library routines
- *
- * Porting to Minix 2.0.0
- * Author:	Giovanni Falzoni <gfalzoni@pointest.com>
- */
-
 #include <sys/cdefs.h>
 #include "namespace.h"
 #include <lib.h>
@@ -11,25 +5,19 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 
 /*
- *	Name:		int flock(int fd, int mode);
- *	Function:	Implements the flock function in Minix.
+ * flock(2): lock or unlock the whole file open as 'fd', on behalf of the open
+ * file (shared by dup(2) and fork(2)), not of the process as fcntl(2) locks.
  */
-int flock(int fd, int mode)
+int flock(int fd, int op)
 {
-  struct flock lck;
+  message m;
 
-  memset((void *) &lck, 0, sizeof(struct flock));
-  switch (mode & ~LOCK_NB) {
-  case LOCK_SH: lck.l_type = F_RDLCK; break;
-  case LOCK_EX: lck.l_type = F_WRLCK; break;
-  case LOCK_UN: lck.l_type = F_UNLCK; break;
-  default: errno = EINVAL; return -1;
-  }
-  return fcntl(fd, mode & LOCK_NB ? F_SETLK : F_SETLKW, &lck);
+  memset(&m, 0, sizeof(m));
+  m.m_lc_vfs_fcntl.fd = fd;
+  m.m_lc_vfs_fcntl.cmd = op;
+
+  return _syscall(VFS_PROC_NR, VFS_FLOCK, &m);
 }
-
-/** flock.c **/

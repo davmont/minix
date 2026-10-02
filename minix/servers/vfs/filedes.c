@@ -494,6 +494,9 @@ close_filp(struct filp * f, int may_suspend)
   }
 
   if (--f->filp_count == 0) {
+	/* The open file goes: so do its flock(2) locks. */
+	lock_release_filp(f);
+
 	if (S_ISFIFO(vp->v_mode)) {
 		/* Last reader or writer is going. Tell PFS about latest
 		 * pipe size.

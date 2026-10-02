@@ -167,7 +167,8 @@
 #define VFS_FCHOWNAT		(VFS_BASE + 85)
 #define VFS_FACCESSAT		(VFS_BASE + 86)
 #define VFS_UTIMENSAT		(VFS_BASE + 87)	/* also futimens(2) */
+#define VFS_FLOCK		(VFS_BASE + 90)	/* flock(2); 88, 89: pread, pwrite */
 
-#define NR_VFS_CALLS		88	/* highest number from base plus one */
+#define NR_VFS_CALLS		91	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */

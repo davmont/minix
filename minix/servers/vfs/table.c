@@ -87,4 +87,5 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_FCHOWNAT)	= do_chown,		/* fchownat(2), [l]chown(2) */
 	CALL(VFS_FACCESSAT)	= do_access,		/* faccessat(2), access(2) */
 	CALL(VFS_UTIMENSAT)	= do_utimensat,		/* utimensat(2), futimens(2) */
+	CALL(VFS_FLOCK)		= do_flock,		/* flock(2) */
 };

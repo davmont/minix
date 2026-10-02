@@ -675,6 +675,24 @@ put_struct_flock(struct trace_proc * proc, const char * name, int flags,
 	put_close_struct(proc, TRUE /*all*/);
 }
 
+static const struct flags flock_ops[] = {
+	FLAG(LOCK_SH),
+	FLAG(LOCK_EX),
+	FLAG(LOCK_NB),
+	FLAG(LOCK_UN),
+};
+
+static int
+vfs_flock_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_fd(proc, "fd", m_out->m_lc_vfs_fcntl.fd);
+	put_flags(proc, "op", flock_ops, COUNT(flock_ops), "0x%x",
+	    m_out->m_lc_vfs_fcntl.cmd);
+
+	return CT_DONE;
+}
+
 static int
 vfs_fcntl_out(struct trace_proc * proc, const message * m_out)
 {
@@ -2431,6 +2449,7 @@ static const struct call_handler vfs_map[] = {
 	VFS_CALL(FSTAT) = HANDLER("fstat", vfs_fstat_out, vfs_fstat_in),
 	VFS_CALL(IOCTL) = HANDLER("ioctl", vfs_ioctl_out, vfs_ioctl_in),
 	VFS_CALL(FCNTL) = HANDLER("fcntl", vfs_fcntl_out, vfs_fcntl_in),
+	VFS_CALL(FLOCK) = HANDLER("flock", vfs_flock_out, default_in),
 	VFS_CALL(PIPE2) = HANDLER("pipe2", vfs_pipe2_out, vfs_pipe2_in),
 	VFS_CALL(UMASK) = HANDLER("umask", vfs_umask_out, vfs_umask_in),
 	VFS_CALL(CHROOT) = HANDLER("chroot", vfs_path_out, default_in),
