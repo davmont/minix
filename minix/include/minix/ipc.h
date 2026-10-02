@@ -600,6 +600,29 @@ typedef struct {
 } mess_lc_pm_setuid;
 _ASSERT_MSG_SIZE(mess_lc_pm_setuid);
 
+/* setresuid, setresgid: the new real, effective and saved ids; -1 keeps one */
+typedef struct {
+	uint32_t rid;		/* uid_t or gid_t */
+	uint32_t eid;
+	uint32_t sid;
+
+	uint8_t padding[44];
+} mess_lc_pm_setresid;
+_ASSERT_MSG_SIZE(mess_lc_pm_setresid);
+
+/* getresuid, getresgid: all six ids */
+typedef struct {
+	uid_t ruid;
+	uid_t euid;
+	uid_t suid;
+	gid_t rgid;
+	gid_t egid;
+	gid_t sgid;
+
+	uint8_t padding[32];
+} mess_pm_lc_getresid;
+_ASSERT_MSG_SIZE(mess_pm_lc_getresid);
+
 typedef struct {
 	pid_t pid;
 	int nr;
@@ -2679,6 +2702,8 @@ typedef struct noxfer_message {
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;
 		mess_lc_pm_setuid	m_lc_pm_setuid;
+		mess_lc_pm_setresid	m_lc_pm_setresid;
+		mess_pm_lc_getresid	m_pm_lc_getresid;
 		mess_lc_pm_sig		m_lc_pm_sig;
 		mess_lc_pm_sigaltstack	m_lc_pm_sigaltstack;
 		mess_lc_pm_sigset	m_lc_pm_sigset;

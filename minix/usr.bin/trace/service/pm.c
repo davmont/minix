@@ -174,6 +174,37 @@ pm_getuid_in(struct trace_proc * proc, const message * __unused m_out,
 	}
 }
 
+/* This function is shared between setresuid and setresgid. */
+static int
+pm_setresid_out(struct trace_proc * proc, const message * m_out)
+{
+
+	/* -1 means "keep the current value" so print as signed */
+	put_value(proc, "rid", "%d", (int)m_out->m_lc_pm_setresid.rid);
+	put_value(proc, "eid", "%d", (int)m_out->m_lc_pm_setresid.eid);
+	put_value(proc, "sid", "%d", (int)m_out->m_lc_pm_setresid.sid);
+
+	return CT_DONE;
+}
+
+static void
+pm_getresid_in(struct trace_proc * proc, const message * __unused m_out,
+	const message * m_in, int failed)
+{
+
+	put_result(proc);
+	if (!failed) {
+		put_open(proc, NULL, 0, "(", ", ");
+		put_value(proc, "ruid", "%u", m_in->m_pm_lc_getresid.ruid);
+		put_value(proc, "euid", "%u", m_in->m_pm_lc_getresid.euid);
+		put_value(proc, "suid", "%u", m_in->m_pm_lc_getresid.suid);
+		put_value(proc, "rgid", "%u", m_in->m_pm_lc_getresid.rgid);
+		put_value(proc, "egid", "%u", m_in->m_pm_lc_getresid.egid);
+		put_value(proc, "sgid", "%u", m_in->m_pm_lc_getresid.sgid);
+		put_close(proc, ")");
+	}
+}
+
 static int
 pm_stime_out(struct trace_proc * proc, const message * m_out)
 {
@@ -1335,6 +1366,9 @@ static const struct call_handler pm_map[] = {
 	PM_CALL(REBOOT) = HANDLER("reboot", pm_reboot_out, default_in),
 	PM_CALL(SVRCTL) = HANDLER("pm_svrctl", pm_svrctl_out, pm_svrctl_in),
 	PM_CALL(SPROF) = HANDLER("sprofile", pm_sprof_out, default_in),
+	PM_CALL(SETRESUID) = HANDLER("setresuid", pm_setresid_out, default_in),
+	PM_CALL(SETRESGID) = HANDLER("setresgid", pm_setresid_out, default_in),
+	PM_CALL(GETRESID) = HANDLER("getresid", default_out, pm_getresid_in),
 };
 
 const struct calls pm_calls = {
