@@ -60,6 +60,29 @@ vfs_write_out(struct trace_proc * proc, const message * m_out)
 }
 
 static void
+vfs_pread_in(struct trace_proc * proc, const message * m_out,
+	const message * m_in, int failed)
+{
+
+	put_buf(proc, "buf", failed, m_out->m_lc_vfs_readwrite.buf,
+	    m_in->m_type);
+	put_value(proc, "len", "%zu", m_out->m_lc_vfs_readwrite.len);
+	put_value(proc, "offset", "%"PRId64, m_out->m_lc_vfs_readwrite.offset);
+	put_equals(proc);
+	put_result(proc);
+}
+
+static int
+vfs_pwrite_out(struct trace_proc * proc, const message * m_out)
+{
+
+	vfs_write_out(proc, m_out);
+	put_value(proc, "offset", "%"PRId64, m_out->m_lc_vfs_readwrite.offset);
+
+	return CT_DONE;
+}
+
+static void
 put_lseek_whence(struct trace_proc * proc, const char * name, int whence)
 {
 	const char *text = NULL;
@@ -1730,6 +1753,12 @@ vfs_accept_out(struct trace_proc * proc, const message * m_out)
 	return CT_NOTDONE;
 }
 
+static const struct flags accept_flags[] = {
+	FLAG(SOCK_CLOEXEC),
+	FLAG(SOCK_NONBLOCK),
+	FLAG(SOCK_NOSIGPIPE),
+};
+
 static void
 vfs_accept_in(struct trace_proc * proc, const message * m_out,
 	const message * m_in, int failed)
@@ -1750,9 +1779,19 @@ vfs_accept_in(struct trace_proc * proc, const message * m_out,
 		    m_in->m_vfs_lc_socklen.len);
 	else
 		put_field(proc, "addr_len", "&..");
+	if (m_out->m_lc_vfs_sockaddr.flags != 0)	/* accept4 */
+		put_flags(proc, "flags", accept_flags, COUNT(accept_flags),
+		    "0x%x", m_out->m_lc_vfs_sockaddr.flags);
 
 	put_equals(proc);
 	put_result(proc);
+}
+
+static const char *
+vfs_accept_name(const message * m_out)
+{
+
+	return (m_out->m_lc_vfs_sockaddr.flags != 0) ? "accept4" : "accept";
 }
 
 static const struct flags msg_flags[] = {
@@ -2461,6 +2500,8 @@ static const struct call_handler vfs_map[] = {
 	    default_in),
 	VFS_CALL(UTIMENSAT) = HANDLER_NAME(vfs_utimensat_name,
 	    vfs_utimensat_out, default_in),
+	VFS_CALL(PREAD) = HANDLER("pread", vfs_read_out, vfs_pread_in),
+	VFS_CALL(PWRITE) = HANDLER("pwrite", vfs_pwrite_out, default_in),
 	VFS_CALL(GETVFSSTAT) = HANDLER("getvfsstat", vfs_getvfsstat_out,
 	    vfs_getvfsstat_in),
 	VFS_CALL(STATVFS1) = HANDLER("statvfs1", vfs_statvfs1_out,
@@ -2477,7 +2518,8 @@ static const struct call_handler vfs_map[] = {
 	VFS_CALL(BIND) = HANDLER("bind", vfs_bind_out, default_in),
 	VFS_CALL(CONNECT) = HANDLER("connect", vfs_bind_out, default_in),
 	VFS_CALL(LISTEN) = HANDLER("listen", vfs_listen_out, default_in),
-	VFS_CALL(ACCEPT) = HANDLER("accept", vfs_accept_out, vfs_accept_in),
+	VFS_CALL(ACCEPT) = HANDLER_NAME(vfs_accept_name, vfs_accept_out,
+	    vfs_accept_in),
 	VFS_CALL(SENDTO) = HANDLER("sendto", vfs_sendto_out, default_in),
 	VFS_CALL(SENDMSG) = HANDLER("sendmsg", vfs_sendmsg_out, default_in),
 	VFS_CALL(RECVFROM) = HANDLER("recvfrom", vfs_recvfrom_out,

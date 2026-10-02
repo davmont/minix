@@ -94,6 +94,8 @@ sdev_suspend(dev_t dev, cp_grant_id_t grant0, cp_grant_id_t grant1,
 		assert(fd != -1);
 		assert(buf == 0);
 		fp->fp_sdev.aux.fd = fd;
+		fp->fp_sdev.accept_flags =
+		    get_sock_flags(job_m_in.m_lc_vfs_sockaddr.flags);
 	} else if (job_call_nr == VFS_RECVMSG) {
 		assert(fd == -1);
 		/*
@@ -722,7 +724,8 @@ sdev_finish_accept(struct fproc * rfp, message * m_ptr)
 	}
 
 	/* Let the upper socket layer handle the rest. */
-	resume_accept(rfp, status, dev, len, rfp->fp_sdev.aux.fd);
+	resume_accept(rfp, status, dev, len, rfp->fp_sdev.aux.fd,
+	    rfp->fp_sdev.accept_flags);
 }
 
 /*
@@ -888,7 +891,7 @@ sdev_finish(struct fproc * rfp, message * m_ptr)
 			status = EIO;
 		}
 		resume_accept(rfp, status, NO_DEV, addr_len,
-		    rfp->fp_sdev.aux.fd);
+		    rfp->fp_sdev.aux.fd, 0 /*accept_flags*/);
 		break;
 
 	default:

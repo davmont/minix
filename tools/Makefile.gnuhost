@@ -100,6 +100,17 @@ BUILD_COMMAND=	/usr/bin/env -i ${BUILD_ENV} ${MAKE_ARGS} ${TOOL_GMAKE} ${GMAKE_J
 
 MAKE_ARGS+=	BISON=true DESTDIR= INSTALL=${HOST_INSTALL_FILE:Q}
 
+# Never regenerate the autotools output we ship (configure, config.h.in,
+# aclocal.m4, Makefile.in).  Packages without AM_MAINTAINER_MODE remake them
+# whenever an input looks newer, and in a git checkout that depends on the
+# order files were written: alphabetical, so configure.ac comes after
+# config.h.in and configure, and a clock second ticking over in between makes
+# autoheader or autoconf run (and fail: CI run 36958295284).  Emptying the
+# input lists of automake's rebuild rules keeps them from firing; the no-op
+# tools are a backstop.
+MAKE_ARGS+=	am__configure_deps= am__aclocal_m4_deps=
+MAKE_ARGS+=	ACLOCAL=true AUTOCONF=true AUTOHEADER=true AUTOMAKE=true
+
 ALL_TARGET?=	all
 INSTALL_TARGET?=install
 

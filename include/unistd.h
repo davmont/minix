@@ -355,6 +355,7 @@ int	 fdiscard(int, off_t, off_t);
 #endif /* !defined(__minix) */
 int	 fsync_range(int, int, off_t, off_t);
 int	 getdomainname(char *, size_t);
+int	 getentropy(void *, size_t);
 int	 getresgid(gid_t *, gid_t *, gid_t *);
 int	 getresuid(uid_t *, uid_t *, uid_t *);
 int	 setresgid(gid_t, gid_t, gid_t);
