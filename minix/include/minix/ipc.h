@@ -961,8 +961,9 @@ typedef struct {
 	int fd;
 	vir_bytes addr;		/* struct sockaddr * */
 	unsigned int addr_len;	/* socklen_t */
+	int flags;		/* accept4: SOCK_CLOEXEC etc.; 0 otherwise */
 
-	uint8_t padding[44];
+	uint8_t padding[40];
 } mess_lc_vfs_sockaddr;
 _ASSERT_MSG_SIZE(mess_lc_vfs_sockaddr);
 

@@ -323,7 +323,8 @@ int do_connect(void);
 int do_listen(void);
 int do_accept(void);
 void resume_accept(struct fproc *rfp, int status, dev_t dev,
-	unsigned int addr_len, int listen_fd);
+	unsigned int addr_len, int listen_fd, int accept_flags);
+int get_sock_flags(int type);
 int do_sendto(void);
 int do_recvfrom(void);
 void resume_recvfrom(struct fproc *rfp, int status, unsigned int addr_len);
