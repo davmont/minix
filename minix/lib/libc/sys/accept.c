@@ -3,6 +3,7 @@
 #include <lib.h>
 
 #include <errno.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,7 @@ static int _uds_accept(int sock, struct sockaddr *__restrict address,
  */
 static int
 __accept(int fd, struct sockaddr * __restrict address,
-	socklen_t * __restrict address_len)
+	socklen_t * __restrict address_len, int flags)
 {
 	message m;
 	int r;
@@ -44,6 +45,7 @@ __accept(int fd, struct sockaddr * __restrict address,
 	m.m_lc_vfs_sockaddr.fd = fd;
 	m.m_lc_vfs_sockaddr.addr = (vir_bytes)address;
 	m.m_lc_vfs_sockaddr.addr_len = (address != NULL) ? *address_len : 0;
+	m.m_lc_vfs_sockaddr.flags = flags;
 
 	if ((r = _syscall(VFS_PROC_NR, VFS_ACCEPT, &m)) < 0)
 		return -1;
@@ -59,7 +61,7 @@ int accept(int sock, struct sockaddr *__restrict address,
 	int r;
 	nwio_udpopt_t udpopt;
 
-	r = __accept(sock, address, address_len);
+	r = __accept(sock, address, address_len, 0);
 	if (r != -1 || (errno != ENOTSOCK && errno != ENOSYS))
 		return r;
 
@@ -159,4 +161,47 @@ static int _uds_accept(int sock, struct sockaddr *__restrict address,
 	}
 
 	return s1;
+}
+
+/*
+ * accept(2), but with SOCK_CLOEXEC, SOCK_NONBLOCK and SOCK_NOSIGPIPE set on
+ * the new socket as asked.  Only sockets of the socket drivers support it.
+ */
+int accept4(int sock, struct sockaddr *__restrict address,
+	socklen_t *__restrict address_len, int flags)
+{
+
+	if (flags & ~(SOCK_CLOEXEC | SOCK_NONBLOCK | SOCK_NOSIGPIPE)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return __accept(sock, address, address_len, flags);
+}
+
+/*
+ * NetBSD's paccept(2): accept4(2) with the signal mask set to 'sigmask' for
+ * the call.  As in pselect(2) here, swapping the mask and the call are not
+ * one atomic step.
+ */
+int paccept(int sock, struct sockaddr *__restrict address,
+	socklen_t *__restrict address_len, const sigset_t *__restrict sigmask,
+	int flags)
+{
+	sigset_t omask;
+	int r, saved_errno;
+
+	if (sigmask == NULL)
+		return accept4(sock, address, address_len, flags);
+
+	if (sigprocmask(SIG_SETMASK, sigmask, &omask) != 0)
+		return -1;
+
+	r = accept4(sock, address, address_len, flags);
+
+	saved_errno = errno;
+	(void)sigprocmask(SIG_SETMASK, &omask, NULL);
+	errno = saved_errno;
+
+	return r;
 }

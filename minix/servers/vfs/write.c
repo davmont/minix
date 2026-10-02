@@ -23,3 +23,22 @@ int do_write(void)
   return(do_read_write_peek(WRITING, job_m_in.m_lc_vfs_readwrite.fd,
 	job_m_in.m_lc_vfs_readwrite.buf, job_m_in.m_lc_vfs_readwrite.len));
 }
+
+/*===========================================================================*
+ *				do_pwrite				     *
+ *===========================================================================*/
+int do_pwrite(void)
+{
+/* Perform the pwrite(fd, buffer, nbytes, offset) system call: a write at
+ * 'offset' that neither uses nor changes the file position, atomically.  As
+ * on Linux and the BSDs, O_APPEND still appends. */
+  off_t pos;
+
+  pos = job_m_in.m_lc_vfs_readwrite.offset;
+  if (job_m_in.m_lc_vfs_readwrite.cum_io != 0 || pos < 0)
+	return(EINVAL);
+
+  return(actual_read_write_peek(fp, WRITING, job_m_in.m_lc_vfs_readwrite.fd,
+	job_m_in.m_lc_vfs_readwrite.buf, job_m_in.m_lc_vfs_readwrite.len,
+	&pos));
+}

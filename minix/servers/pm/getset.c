@@ -58,6 +58,16 @@ do_get(void)
 		rmp->mp_reply.m_pm_lc_getgid.egid = rmp->mp_effgid;
 		break;
 
+	case PM_GETRESID:
+		rmp->mp_reply.m_pm_lc_getresid.ruid = rmp->mp_realuid;
+		rmp->mp_reply.m_pm_lc_getresid.euid = rmp->mp_effuid;
+		rmp->mp_reply.m_pm_lc_getresid.suid = rmp->mp_svuid;
+		rmp->mp_reply.m_pm_lc_getresid.rgid = rmp->mp_realgid;
+		rmp->mp_reply.m_pm_lc_getresid.egid = rmp->mp_effgid;
+		rmp->mp_reply.m_pm_lc_getresid.sgid = rmp->mp_svgid;
+		r = OK;
+		break;
+
 	case PM_GETPID:
 	{
 		/* Threads created via _lwp_create() share the process identity of
@@ -96,14 +106,53 @@ do_get(void)
 }
 
 /*===========================================================================*
+ *				set_resid				     *
+ *===========================================================================*/
+static int
+set_resid(struct mproc *rmp, uint32_t *realp, uint32_t *effp, uint32_t *savp)
+{
+/* Perform setresuid() or setresgid(): set the real, effective and saved ids
+ * at 'realp', 'effp' and 'savp' to those in the request; (uid_t)-1 keeps one.
+ * The super-user may set any id; others only an id they already have, real,
+ * effective or saved.  All three change, or none.
+ */
+  uint32_t ids[3], cur[3];
+  int i, j;
+
+  ids[0] = m_in.m_lc_pm_setresid.rid;
+  ids[1] = m_in.m_lc_pm_setresid.eid;
+  ids[2] = m_in.m_lc_pm_setresid.sid;
+  cur[0] = *realp;
+  cur[1] = *effp;
+  cur[2] = *savp;
+
+  if (rmp->mp_effuid != SUPER_USER) {
+	for (i = 0; i < 3; i++) {
+		if (ids[i] == (uint32_t)-1)
+			continue;
+		for (j = 0; j < 3; j++)
+			if (ids[i] == cur[j])
+				break;
+		if (j == 3)
+			return(EPERM);
+	}
+  }
+
+  if (ids[0] != (uint32_t)-1) *realp = ids[0];
+  if (ids[1] != (uint32_t)-1) *effp = ids[1];
+  if (ids[2] != (uint32_t)-1) *savp = ids[2];
+  return(OK);
+}
+
+/*===========================================================================*
  *				do_set					     *
  *===========================================================================*/
 int
 do_set(void)
 {
-/* Handle PM_SETUID, PM_SETEUID, PM_SETGID, PM_SETGROUPS, PM_SETEGID, and
- * SETSID. These calls have in common that, if successful, they will be
- * forwarded to VFS as well.
+/* Handle PM_SETUID, PM_SETEUID, PM_SETGID, PM_SETGROUPS, PM_SETEGID,
+ * PM_SETRESUID, PM_SETRESGID and SETSID. These calls have in common that, if
+ * successful, they will be forwarded to VFS as well.
  */
   register struct mproc *rmp = mp;
   message m;
@@ -168,6 +217,32 @@ do_set(void)
 		    rmp->mp_effuid != SUPER_USER)
 			return(EPERM);
 		rmp->mp_effgid = gid;
+
+		m.m_type = VFS_PM_SETGID;
+		m.VFS_PM_ENDPT = rmp->mp_endpoint;
+		m.VFS_PM_EID = rmp->mp_effgid;
+		m.VFS_PM_RID = rmp->mp_realgid;
+
+		break;
+
+	case PM_SETRESUID:
+		r = set_resid(rmp, &rmp->mp_realuid, &rmp->mp_effuid,
+		    &rmp->mp_svuid);
+		if (r != OK)
+			return(r);
+
+		m.m_type = VFS_PM_SETUID;
+		m.VFS_PM_ENDPT = rmp->mp_endpoint;
+		m.VFS_PM_EID = rmp->mp_effuid;
+		m.VFS_PM_RID = rmp->mp_realuid;
+
+		break;
+
+	case PM_SETRESGID:
+		r = set_resid(rmp, &rmp->mp_realgid, &rmp->mp_effgid,
+		    &rmp->mp_svgid);
+		if (r != OK)
+			return(r);
 
 		m.m_type = VFS_PM_SETGID;
 		m.VFS_PM_ENDPT = rmp->mp_endpoint;

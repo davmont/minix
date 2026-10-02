@@ -39,8 +39,6 @@ pollts
 posix_fadvise
 posix_madvise
 pselect /* Implementable as select wrapper */
-preadv
-pwritev
 quotactl
 rasctl
 sa_*

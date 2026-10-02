@@ -217,10 +217,12 @@ void lock_bsf(void);
 void unlock_bsf(void);
 void check_bsf_lock(void);
 int do_read_write_peek(int rw_flag, int fd, vir_bytes buf, size_t bytes);
+int do_pread(void);
+int do_pwrite(void);
 int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
-	vir_bytes buf, size_t bytes);
+	vir_bytes buf, size_t bytes, off_t *posp);
 int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
-	vir_bytes buffer, size_t nbytes, endpoint_t for_e);
+	vir_bytes buffer, size_t nbytes, endpoint_t for_e, off_t *posp);
 int rw_pipe(int rw_flag, endpoint_t usr, struct filp *f, int callnr, int fd,
 	vir_bytes buf, size_t nbytes, size_t cum_io);
 
@@ -324,7 +326,8 @@ int do_connect(void);
 int do_listen(void);
 int do_accept(void);
 void resume_accept(struct fproc *rfp, int status, dev_t dev,
-	unsigned int addr_len, int listen_fd);
+	unsigned int addr_len, int listen_fd, int accept_flags);
+int get_sock_flags(int type);
 int do_sendto(void);
 int do_recvfrom(void);
 void resume_recvfrom(struct fproc *rfp, int status, unsigned int addr_len);

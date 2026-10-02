@@ -2,7 +2,7 @@
 
 SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 	chdir.c chmod.c fchmod.c chflags.c fchflags.c lchflags.c \
-	m_extattr.c \
+	m_extattr.c getentropy.c \
 	chown.c fchown.c chroot.c close.c \
 	clock_getres.c clock_gettime.c clock_settime.c \
 	connect.c dup.c dup2.c execve.c fcntl.c flock.c fpathconf.c fork.c \
@@ -18,7 +18,7 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 	ptrace.c pwrite.c \
 	read.c readlink.c reboot.c recvfrom.c recvmsg.c rename.c \
 	rmdir.c select.c pselect.c sem.c sendmsg.c sendto.c setgroups.c setsid.c \
-	setgid.c settimeofday.c setuid.c shmat.c shmctl.c shmget.c \
+	setgid.c setresuid.c settimeofday.c setuid.c shmat.c shmctl.c shmget.c \
 	shm_open.c stime.c \
 	vectorio.c shutdown.c sigaction.c sigaltstack.c sigpending.c sigreturn.c sigsuspend.c\
 	sigprocmask.c socket.c socketpair.c stat.c statvfs.c svrctl.c \

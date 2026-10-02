@@ -528,7 +528,7 @@ int do_vm_call(void)
 
 			if(result == OK) {
 				result = actual_read_write_peek(fp, PEEKING,
-					req_fd, /* vir_bytes */ 0, length);
+					req_fd, /* vir_bytes */ 0, length, NULL);
 			}
 
 			break;
