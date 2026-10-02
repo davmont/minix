@@ -129,6 +129,7 @@
 	/* IEEE Std 1003.1-2001 TSF */
 #define	_GETGR_R_SIZE_MAX	1024
 #define	_GETPW_R_SIZE_MAX	1024
+#define	GETENTROPY_MAX		256	/* getentropy(3) buffer, POSIX.1-2024 */
 
 /* Always ensure that this is consistent with <stdio.h> */
 #ifndef TMP_MAX
