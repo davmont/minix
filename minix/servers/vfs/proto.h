@@ -214,10 +214,12 @@ void lock_bsf(void);
 void unlock_bsf(void);
 void check_bsf_lock(void);
 int do_read_write_peek(int rw_flag, int fd, vir_bytes buf, size_t bytes);
+int do_pread(void);
+int do_pwrite(void);
 int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
-	vir_bytes buf, size_t bytes);
+	vir_bytes buf, size_t bytes, off_t *posp);
 int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
-	vir_bytes buffer, size_t nbytes, endpoint_t for_e);
+	vir_bytes buffer, size_t nbytes, endpoint_t for_e, off_t *posp);
 int rw_pipe(int rw_flag, endpoint_t usr, struct filp *f, int callnr, int fd,
 	vir_bytes buf, size_t nbytes, size_t cum_io);
 
