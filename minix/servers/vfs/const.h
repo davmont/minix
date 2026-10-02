@@ -24,6 +24,10 @@
 #define FP_BLOCKED_ON_CDEV	5 /* blocked on character device I/O */
 #define FP_BLOCKED_ON_SDEV	6 /* blocked on socket I/O */
 
+/* fp_flock.cmd of a process waiting in flock(2) rather than fcntl(F_SETLKW);
+ * fp_flock.arg is then its flock operation. */
+#define FLOCK_WAIT	(-1)
+
 /* test if the process is blocked on something */
 #define fp_is_blocked(fp)	((fp)->fp_blocked_on != FP_BLOCKED_ON_NONE)
 

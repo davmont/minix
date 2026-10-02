@@ -1,15 +1,23 @@
-/* This file handles advisory file locking as required by POSIX.
+/* This file handles advisory file locking: POSIX record locks (fcntl(2)) and
+ * BSD file locks (flock(2)), which share the table and conflict with each other
+ * as on NetBSD.
  *
- * A lock belongs to a process (fp_tgid, the same in all of its threads) and
- * covers a byte range of a file.  A process's own locks never conflict with
+ * A record lock belongs to a process (fp_tgid, the same in all of its threads)
+ * and covers a byte range of a file.  A process's own locks never conflict with
  * each other: setting a lock replaces whatever the process held over that
  * range (upgrading, downgrading or splitting its locks), and its locks of the
  * same type that touch are merged.  Unlocking affects only the caller's locks.
  * Closing any descriptor of a file releases all of the process's locks on it.
  *
+ * A flock lock belongs to an open file (filp), which dup(2) and fork(2) share,
+ * and covers the whole file, shared or exclusive.  It goes when the open file
+ * is closed for the last time, or with LOCK_UN through any of its descriptors.
+ *
  * The entry points into this file are
  *   lock_op:	perform locking operations for FCNTL system call
+ *   flock_op:	perform the FLOCK system call
  *   lock_release: release a process's locks on a file (on close)
+ *   lock_release_filp: release an open file's flock locks (on last close)
  *   lock_revive: revive processes when a lock is released
  */
 
@@ -23,9 +31,11 @@
 #include "lock.h"
 #include "vnode.h"
 
-static int lock_conflict(struct file_lock *flp, struct vnode *vp, pid_t owner,
-	int ltype, off_t first, off_t last);
-static int lock_clear(struct vnode *vp, pid_t owner, off_t first, off_t last);
+static int same_owner(struct file_lock *flp, pid_t pid, struct filp *ofilp);
+static int lock_conflict(struct file_lock *flp, struct vnode *vp, pid_t pid,
+	struct filp *ofilp, int ltype, off_t first, off_t last);
+static int lock_clear(struct vnode *vp, pid_t pid, struct filp *ofilp,
+	off_t first, off_t last);
 static struct file_lock *lock_alloc(void);
 
 /*===========================================================================*
@@ -95,7 +105,7 @@ int lock_op(int fd, int req, vir_bytes arg)
   conflict = NULL;
   if (ltype != F_UNLCK) {
 	for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
-		if (lock_conflict(flp, vp, owner, ltype, first, last)) {
+		if (lock_conflict(flp, vp, owner, NULL, ltype, first, last)) {
 			conflict = flp;
 			break;
 		}
@@ -110,7 +120,9 @@ int lock_op(int fd, int req, vir_bytes arg)
 		flock.l_start = conflict->lock_first;
 		flock.l_len = (conflict->lock_last == MAX_FILE_POS) ? 0 :
 		    conflict->lock_last - conflict->lock_first + 1;
-		flock.l_pid = conflict->lock_pid;
+		/* A flock lock has no owning process; BSD reports -1. */
+		flock.l_pid = (conflict->lock_filp != NULL) ? -1 :
+		    conflict->lock_pid;
 	} else {
 		flock.l_type = F_UNLCK;
 	}
@@ -141,7 +153,7 @@ int lock_op(int fd, int req, vir_bytes arg)
   need = (ltype != F_UNLCK);
   for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
 	if (flp->lock_type != 0 && flp->lock_vnode == vp &&
-	    flp->lock_pid == owner && flp->lock_first < first &&
+	    same_owner(flp, owner, NULL) && flp->lock_first < first &&
 	    flp->lock_last > last) {
 		need++;		/* this one gets split */
 		break;
@@ -149,7 +161,7 @@ int lock_op(int fd, int req, vir_bytes arg)
   }
   if (NR_LOCKS - nr_locks < need) return(ENOLCK);
 
-  if (lock_clear(vp, owner, first, last))
+  if (lock_clear(vp, owner, NULL, first, last))
 	lock_revive();	/* a lock was released or weakened */
 
   if (ltype == F_UNLCK) return(OK);
@@ -158,7 +170,7 @@ int lock_op(int fd, int req, vir_bytes arg)
    * after lock_clear() none of them overlap it. */
   for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
 	if (flp->lock_type != ltype || flp->lock_vnode != vp ||
-	    flp->lock_pid != owner)
+	    !same_owner(flp, owner, NULL))
 		continue;
 	if (flp->lock_last != MAX_FILE_POS && flp->lock_last + 1 == first) {
 		first = flp->lock_first;
@@ -174,6 +186,7 @@ int lock_op(int fd, int req, vir_bytes arg)
   assert(flp != NULL);	/* room was checked above */
   flp->lock_type = ltype;
   flp->lock_pid = owner;
+  flp->lock_filp = NULL;
   flp->lock_vnode = vp;
   flp->lock_first = first;
   flp->lock_last = last;
@@ -181,17 +194,117 @@ int lock_op(int fd, int req, vir_bytes arg)
 }
 
 /*===========================================================================*
+ *				flock_op				     *
+ *===========================================================================*/
+int flock_op(int fd, int op)
+{
+/* Perform the flock(fd, op) system call: lock the whole file open as 'fd',
+ * shared (LOCK_SH) or exclusive (LOCK_EX), on behalf of the open file, or
+ * unlock it (LOCK_UN); LOCK_NB fails rather than waits.
+ */
+  struct filp *f;
+  struct vnode *vp;
+  struct file_lock *flp;
+  int ltype, held, r;
+
+  if ((f = get_filp(fd, VNODE_READ)) == NULL)
+	return(err_code);
+  vp = f->filp_vno;
+
+  r = OK;
+  switch (op & ~LOCK_NB) {
+  case LOCK_SH:	ltype = F_RDLCK; break;
+  case LOCK_EX:	ltype = F_WRLCK; break;
+  case LOCK_UN:	ltype = F_UNLCK; break;
+  default:	r = EINVAL;
+  }
+  if (r == OK && !S_ISREG(vp->v_mode) && !S_ISDIR(vp->v_mode))
+	r = EOPNOTSUPP;
+  if (r != OK) {
+	unlock_filp(f);
+	return(r);
+  }
+
+  if (ltype == F_UNLCK) {
+	if (lock_clear(vp, 0, f, 0, MAX_FILE_POS))
+		lock_revive();
+	unlock_filp(f);
+	return(OK);
+  }
+
+  /* Is the file locked by anyone else in a way that conflicts? */
+  held = FALSE;
+  for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
+	if (lock_conflict(flp, vp, 0, f, ltype, 0, MAX_FILE_POS))
+		break;
+	if (flp->lock_type != 0 && flp->lock_vnode == vp &&
+	    same_owner(flp, 0, f))
+		held = TRUE;
+  }
+
+  if (flp < &file_lock[NR_LOCKS]) {
+	/* Conflict.  Converting a lock is not atomic, as on BSD: the lock
+	 * held goes first, so that two holders upgrading cannot deadlock.
+	 */
+	if (lock_clear(vp, 0, f, 0, MAX_FILE_POS))
+		lock_revive();
+	unlock_filp(f);
+	if (op & LOCK_NB)
+		return(EWOULDBLOCK);
+
+	/* Wait until some lock is released, then try again. */
+	fp->fp_flock.fd = fd;
+	fp->fp_flock.cmd = FLOCK_WAIT;
+	fp->fp_flock.arg = (vir_bytes) op;
+	suspend(FP_BLOCKED_ON_FLOCK);
+	return(SUSPEND);
+  }
+
+  /* No conflict: the new lock replaces the one held, if any. */
+  if (!held && nr_locks == NR_LOCKS) {
+	unlock_filp(f);
+	return(ENOLCK);
+  }
+  if (lock_clear(vp, 0, f, 0, MAX_FILE_POS))
+	lock_revive();		/* a downgrade may let others in */
+  flp = lock_alloc();
+  assert(flp != NULL);
+  flp->lock_type = ltype;
+  flp->lock_pid = -1;
+  flp->lock_filp = f;
+  flp->lock_vnode = vp;
+  flp->lock_first = 0;
+  flp->lock_last = MAX_FILE_POS;
+
+  unlock_filp(f);
+  return(OK);
+}
+
+/*===========================================================================*
+ *				same_owner				     *
+ *===========================================================================*/
+static int same_owner(struct file_lock *flp, pid_t pid, struct filp *ofilp)
+{
+/* Is lock table entry 'flp' held by the owner given by 'pid' and 'ofilp': the
+ * open file 'ofilp' for a flock lock, else the process 'pid'?
+ */
+  if (flp->lock_filp != ofilp) return(FALSE);
+  return(ofilp != NULL || flp->lock_pid == pid);
+}
+
+/*===========================================================================*
  *				lock_conflict				     *
  *===========================================================================*/
-static int lock_conflict(struct file_lock *flp, struct vnode *vp, pid_t owner,
-	int ltype, off_t first, off_t last)
+static int lock_conflict(struct file_lock *flp, struct vnode *vp, pid_t pid,
+	struct filp *ofilp, int ltype, off_t first, off_t last)
 {
-/* Does lock table entry 'flp' keep 'owner' from setting a lock of type
- * 'ltype' on bytes 'first' to 'last' of 'vp'?
+/* Does lock table entry 'flp' keep the owner given by 'pid' and 'ofilp' (see
+ * same_owner()) from setting a lock of type 'ltype' on bytes 'first' to
+ * 'last' of 'vp'?
  */
   if (flp->lock_type == 0) return(FALSE);	/* unused slot */
   if (flp->lock_vnode != vp) return(FALSE);	/* different file */
-  if (flp->lock_pid == owner) return(FALSE);	/* the caller's own */
+  if (same_owner(flp, pid, ofilp)) return(FALSE);	/* the caller's own */
   if (last < flp->lock_first || first > flp->lock_last)
 	return(FALSE);				/* no overlap */
   if (ltype == F_RDLCK && flp->lock_type == F_RDLCK)
@@ -202,18 +315,20 @@ static int lock_conflict(struct file_lock *flp, struct vnode *vp, pid_t owner,
 /*===========================================================================*
  *				lock_clear				     *
  *===========================================================================*/
-static int lock_clear(struct vnode *vp, pid_t owner, off_t first, off_t last)
+static int lock_clear(struct vnode *vp, pid_t pid, struct filp *ofilp,
+	off_t first, off_t last)
 {
-/* Remove bytes 'first' to 'last' of 'vp' from the locks of 'owner': delete,
- * trim or split them.  The caller has made sure a split finds a free slot.
- * Return whether anything was removed.
+/* Remove bytes 'first' to 'last' of 'vp' from the locks of the owner given by
+ * 'pid' and 'ofilp' (see same_owner()): delete, trim or split them.  The caller
+ * has made sure a split finds a free slot.  Return whether anything was
+ * removed.
  */
   struct file_lock *flp, *flp2;
   int changed = FALSE;
 
   for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
 	if (flp->lock_type == 0 || flp->lock_vnode != vp ||
-	    flp->lock_pid != owner)
+	    !same_owner(flp, pid, ofilp))
 		continue;
 	if (last < flp->lock_first || first > flp->lock_last)
 		continue;			/* no overlap */
@@ -232,6 +347,7 @@ static int lock_clear(struct vnode *vp, pid_t owner, off_t first, off_t last)
 		assert(flp2 != NULL);
 		flp2->lock_type = flp->lock_type;
 		flp2->lock_pid = flp->lock_pid;
+		flp2->lock_filp = flp->lock_filp;
 		flp2->lock_vnode = flp->lock_vnode;
 		flp2->lock_first = last + 1;
 		flp2->lock_last = flp->lock_last;
@@ -269,7 +385,21 @@ void lock_release(struct fproc *rfp, struct vnode *vp)
  */
   if (nr_locks == 0) return;
 
-  if (lock_clear(vp, rfp->fp_tgid, 0, MAX_FILE_POS))
+  if (lock_clear(vp, rfp->fp_tgid, NULL, 0, MAX_FILE_POS))
+	lock_revive();
+}
+
+/*===========================================================================*
+ *				lock_release_filp			     *
+ *===========================================================================*/
+void lock_release_filp(struct filp *f)
+{
+/* The open file 'f' is being closed for the last time: release its flock
+ * locks.
+ */
+  if (nr_locks == 0) return;
+
+  if (lock_clear(f->filp_vno, 0, f, 0, MAX_FILE_POS))
 	lock_revive();
 }
 

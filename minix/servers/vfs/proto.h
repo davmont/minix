@@ -109,7 +109,9 @@ int rdlink_direct(char *orig_path, char *link_path, struct fproc *rfp);
 
 /* lock.c */
 int lock_op(int fd, int req, vir_bytes arg);
+int flock_op(int fd, int op);
 void lock_release(struct fproc *rfp, struct vnode *vp);
+void lock_release_filp(struct filp *f);
 void lock_revive(void);
 
 /* main.c */
@@ -124,6 +126,7 @@ void thread_cleanup(void);
 /* misc.c */
 void pm_exit(void);
 int do_fcntl(void);
+int do_flock(void);
 void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid);
 void pm_lwp(endpoint_t leader_e, endpoint_t thread_e, pid_t pid);
 void pm_setgid(endpoint_t proc_e, int egid, int rgid);

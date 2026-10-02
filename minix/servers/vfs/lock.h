@@ -6,7 +6,8 @@
  */
 EXTERN struct file_lock {
   short lock_type;		/* F_RDLOCK or F_WRLOCK; 0 means unused slot */
-  pid_t lock_pid;		/* pid of the process holding the lock */
+  pid_t lock_pid;		/* fcntl(2): the process holding the lock */
+  struct filp *lock_filp;	/* flock(2): the open file holding it */
   struct vnode *lock_vnode;
   off_t lock_first;		/* offset of first byte locked */
   off_t lock_last;		/* offset of last byte locked */

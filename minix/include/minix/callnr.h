@@ -172,7 +172,8 @@
 #define VFS_UTIMENSAT		(VFS_BASE + 87)	/* also futimens(2) */
 #define VFS_PREAD		(VFS_BASE + 88)
 #define VFS_PWRITE		(VFS_BASE + 89)
+#define VFS_FLOCK		(VFS_BASE + 90)	/* flock(2) */
 
-#define NR_VFS_CALLS		90	/* highest number from base plus one */
+#define NR_VFS_CALLS		91	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */
