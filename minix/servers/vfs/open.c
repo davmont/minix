@@ -695,8 +695,7 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
 /* Perform the close(fd) system call. */
   register struct filp *rfilp;
   register struct vnode *vp;
-  struct file_lock *flp;
-  int r, lock_count;
+  int r;
 
   /* First locate the vnode that belongs to the file descriptor. */
   if ( (rfilp = get_filp2(rfp, fd_nr, VNODE_OPCL)) == NULL) return(err_code);
@@ -708,23 +707,13 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
    */
   rfp->fp_fd->fd_filp[fd_nr] = NULL;
 
+  /* Release the process's locks on the file, if any, while the filp still
+   * holds its vnode: close_filp() may put the last reference. */
+  lock_release(rfp, vp);
+
   r = close_filp(rfilp, may_suspend);
 
   FD_CLR(fd_nr, &rfp->fp_fd->fd_cloexec_set);
-
-  /* Check to see if the file is locked.  If so, release all locks. */
-  if (nr_locks > 0) {
-	lock_count = nr_locks;	/* save count of locks */
-	for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
-		if (flp->lock_type == 0) continue;	/* slot not in use */
-		if (flp->lock_vnode == vp && flp->lock_pid == rfp->fp_pid) {
-			flp->lock_type = 0;
-			nr_locks--;
-		}
-	}
-	if (nr_locks < lock_count)
-		lock_revive();	/* one or more locks released */
-  }
 
   return(r);
 }
