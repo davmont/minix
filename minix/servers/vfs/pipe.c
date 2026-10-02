@@ -544,6 +544,9 @@ void unpause(int restart)
 		break;
 
 	case FP_BLOCKED_ON_POPEN:	/* process trying to open a fifo */
+		/* The open fails, so give back the fd it took: left open, it
+		 * would leak, and count as a reader or writer of the FIFO. */
+		(void) close_fd(fp, fp->fp_popen.fd, FALSE /*may_suspend*/);
 		break;
 
 	case FP_BLOCKED_ON_CDEV: /* process blocked on character device I/O */

@@ -66,11 +66,11 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
 {
 /* Open 'path', which starts at 'start_dir' if it is relative (NULL: the
  * working directory).  Used by openat(2), exec and core dumps. */
-  int b, r, exist = TRUE;
+  int r, exist = TRUE;
   devmajor_t major_dev;
   dev_t dev;
   mode_t bits;
-  struct filp *filp, *filp2;
+  struct filp *filp;
   struct vnode *vp;
   struct vmnt *vmp;
   struct dmap *dp;
@@ -81,11 +81,18 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
   bits = (mode_t) mode_map[oflags & O_ACCMODE];
   if (!bits) return(EINVAL);
 
+  /* O_DIRECTORY opens only a directory, which O_CREAT cannot make. */
+  if ((oflags & (O_CREAT | O_DIRECTORY)) == (O_CREAT | O_DIRECTORY))
+	return(EINVAL);
+
   /* See if file descriptor and filp slots are available. */
   if ((r = get_fd(fp, start, bits, &fd, &filp)) != OK)
 	return(r);
 
-  lookup_init(&resolve, path, PATH_NOFLAGS, &vmp, &vp);
+  /* With O_NOFOLLOW the lookup stops at a final symlink, which then fails
+   * the open below. */
+  lookup_init(&resolve, path,
+	(oflags & O_NOFOLLOW) ? PATH_RET_SYMLINK : PATH_NOFLAGS, &vmp, &vp);
   resolve.l_start = start_dir;
 
   /* If O_CREATE is set, try to make the file. */
@@ -126,8 +133,13 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
 	/* Check permissions based on the given open flags, except when we are
 	 * opening an executable for the purpose of passing a file descriptor
 	 * to its interpreter for execution, in which case we check the X bit.
+	 * A symlink here means O_NOFOLLOW stopped at it.
 	 */
-	if ((r = forbidden(fp, vp, for_exec ? X_BIT : bits)) == OK) {
+	if (S_ISLNK(vp->v_mode))
+		r = ELOOP;
+	else if ((oflags & O_DIRECTORY) && !S_ISDIR(vp->v_mode))
+		r = ENOTDIR;
+	else if ((r = forbidden(fp, vp, for_exec ? X_BIT : bits)) == OK) {
 		/* Opening reg. files, directories, and special files differ */
 		switch (vp->v_mode & S_IFMT) {
 		   case S_IFREG:
@@ -216,35 +228,13 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
 				oflags |= O_APPEND;	/* force append mode */
 				filp->filp_flags = oflags;
 			}
+			/* Each opener keeps a filp of its own.  (This used to
+			 * share an existing reader's or writer's filp, for its
+			 * file position, which FIFOs do not use, and set its
+			 * flags, clobbering the other opener's O_NONBLOCK.)
+			 */
 			if (r == OK) {
 				r = pipe_open(fd, vp, bits, oflags);
-			}
-			if (r != ENXIO) {
-				/* See if someone else is doing a rd or wt on
-				 * the FIFO.  If so, use its filp entry so the
-				 * file position will be automatically shared.
-				 */
-				b = (bits & R_BIT ? R_BIT : W_BIT);
-				filp->filp_count = 0; /* don't find self */
-				if ((filp2 = find_filp(vp, b)) != NULL) {
-				    /* Co-reader or writer found. Use it.*/
-				    fp->fp_fd->fd_filp[fd] = filp2;
-				    filp2->filp_count++;
-				    filp2->filp_vno = vp;
-				    filp2->filp_flags = oflags;
-
-				    /* v_count was incremented after the vnode
-				     * has been found. i_count was incremented
-				     * incorrectly in FS, not knowing that we
-				     * were going to use an existing filp
-				     * entry.  Correct this error.
-				     */
-				    unlock_vnode(vp);
-				    put_vnode(vp);
-				} else {
-				    /* Nobody else found. Restore filp. */
-				    filp->filp_count = 1;
-				}
 			}
 			break;
 		   case S_IFSOCK:
@@ -261,10 +251,11 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec,
 
   unlock_filp(filp);
 
-  /* If error, release inode. */
+  /* If error, release inode, and the fd with its close-on-exec flag. */
   if (r != OK) {
 	if (r != SUSPEND) {
 		fp->fp_fd->fd_filp[fd] = NULL;
+		FD_CLR(fd, &fp->fp_fd->fd_cloexec_set);
 		filp->filp_count = 0;
 		filp->filp_vno = NULL;
 		put_vnode(vp);
@@ -473,7 +464,15 @@ static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags)
  *  processes hanging on the pipe.
  */
 
-  if ((bits & (R_BIT|W_BIT)) == (R_BIT|W_BIT)) return(ENXIO);
+  /* Opened for both reading and writing, the caller is both ends: it never
+   * waits, and wakes up anyone who was waiting for either end.  POSIX leaves
+   * this undefined; the BSDs and Linux allow it.
+   */
+  if ((bits & (R_BIT|W_BIT)) == (R_BIT|W_BIT)) {
+	if (susp_count > 0)
+		release(vp, VFS_OPENAT, susp_count);
+	return(OK);
+  }
 
   /* Find the reader/writer at the other end of the pipe */
   if (find_filp(vp, bits & W_BIT ? R_BIT : W_BIT) == NULL) {
@@ -696,8 +695,7 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
 /* Perform the close(fd) system call. */
   register struct filp *rfilp;
   register struct vnode *vp;
-  struct file_lock *flp;
-  int r, lock_count;
+  int r;
 
   /* First locate the vnode that belongs to the file descriptor. */
   if ( (rfilp = get_filp2(rfp, fd_nr, VNODE_OPCL)) == NULL) return(err_code);
@@ -709,23 +707,13 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
    */
   rfp->fp_fd->fd_filp[fd_nr] = NULL;
 
+  /* Release the process's locks on the file, if any, while the filp still
+   * holds its vnode: close_filp() may put the last reference. */
+  lock_release(rfp, vp);
+
   r = close_filp(rfilp, may_suspend);
 
   FD_CLR(fd_nr, &rfp->fp_fd->fd_cloexec_set);
-
-  /* Check to see if the file is locked.  If so, release all locks. */
-  if (nr_locks > 0) {
-	lock_count = nr_locks;	/* save count of locks */
-	for (flp = &file_lock[0]; flp < &file_lock[NR_LOCKS]; flp++) {
-		if (flp->lock_type == 0) continue;	/* slot not in use */
-		if (flp->lock_vnode == vp && flp->lock_pid == rfp->fp_pid) {
-			flp->lock_type = 0;
-			nr_locks--;
-		}
-	}
-	if (nr_locks < lock_count)
-		lock_revive();	/* one or more locks released */
-  }
 
   return(r);
 }

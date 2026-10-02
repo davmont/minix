@@ -3,7 +3,7 @@
 
 /* Tables sizes */
 #define NR_FILPS        1024	/* # slots in filp table */
-#define NR_LOCKS           8	/* # slots in the file locking table */
+#define NR_LOCKS        1024	/* # slots in the file locking table */
 #define NR_MNTS           16 	/* # slots in mount table */
 #define NR_VNODES       1024	/* # slots in vnode table */
 #define NR_WTHREADS	   9	/* # slots in worker thread table */
