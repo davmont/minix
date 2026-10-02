@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sys/ptrace.h>
 
-int ptrace(int req, pid_t pid, void *addr, int data)
+long ptrace(int req, pid_t pid, void *addr, long data)
 {
   message m;
 
