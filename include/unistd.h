@@ -355,6 +355,7 @@ int	 fdiscard(int, off_t, off_t);
 #endif /* !defined(__minix) */
 int	 fsync_range(int, int, off_t, off_t);
 int	 getdomainname(char *, size_t);
+int	 getentropy(void *, size_t);
 int	 getgrouplist(const char *, gid_t, gid_t *, int *);
 int	 getgroupmembership(const char *, gid_t, gid_t *, int, int *);
 mode_t	 getmode(const void *, mode_t);

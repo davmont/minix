@@ -920,8 +920,9 @@ typedef struct {
 	vir_bytes buf;
 	size_t len;
 	size_t cum_io;		/* reserved/internal, set to 0 */
+	off_t offset;		/* pread, pwrite: where; read, write: unused */
 
-	uint8_t padding[40];
+	uint8_t padding[32];
 } mess_lc_vfs_readwrite;
 _ASSERT_MSG_SIZE(mess_lc_vfs_readwrite);
 
