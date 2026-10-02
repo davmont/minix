@@ -60,6 +60,29 @@ vfs_write_out(struct trace_proc * proc, const message * m_out)
 }
 
 static void
+vfs_pread_in(struct trace_proc * proc, const message * m_out,
+	const message * m_in, int failed)
+{
+
+	put_buf(proc, "buf", failed, m_out->m_lc_vfs_readwrite.buf,
+	    m_in->m_type);
+	put_value(proc, "len", "%zu", m_out->m_lc_vfs_readwrite.len);
+	put_value(proc, "offset", "%"PRId64, m_out->m_lc_vfs_readwrite.offset);
+	put_equals(proc);
+	put_result(proc);
+}
+
+static int
+vfs_pwrite_out(struct trace_proc * proc, const message * m_out)
+{
+
+	vfs_write_out(proc, m_out);
+	put_value(proc, "offset", "%"PRId64, m_out->m_lc_vfs_readwrite.offset);
+
+	return CT_DONE;
+}
+
+static void
 put_lseek_whence(struct trace_proc * proc, const char * name, int whence)
 {
 	const char *text = NULL;
@@ -2461,6 +2484,8 @@ static const struct call_handler vfs_map[] = {
 	    default_in),
 	VFS_CALL(UTIMENSAT) = HANDLER_NAME(vfs_utimensat_name,
 	    vfs_utimensat_out, default_in),
+	VFS_CALL(PREAD) = HANDLER("pread", vfs_read_out, vfs_pread_in),
+	VFS_CALL(PWRITE) = HANDLER("pwrite", vfs_pwrite_out, default_in),
 	VFS_CALL(GETVFSSTAT) = HANDLER("getvfsstat", vfs_getvfsstat_out,
 	    vfs_getvfsstat_in),
 	VFS_CALL(STATVFS1) = HANDLER("statvfs1", vfs_statvfs1_out,
