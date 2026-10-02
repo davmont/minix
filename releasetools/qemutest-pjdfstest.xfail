@@ -22,10 +22,6 @@ unlink/13.t
 # MFS keeps whole-second timestamps: sub-second times read back as 0.
 utimensat/08.t
 
-# O_NOFOLLOW is accepted and ignored: open() follows the symlink, no ELOOP.
-open/06.t
-open/16.t
-
 # truncate() of a directory returns EINVAL instead of EISDIR;
 # ftruncate() of a read-only descriptor returns EBADF instead of EINVAL.
 ftruncate/09.t
