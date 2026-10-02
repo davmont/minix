@@ -183,7 +183,8 @@ static void write_buf(struct filp *f, char *buf, size_t size)
    * read_write() could use the file descriptor.  Still, passing in an invalid
    * value isn't exactly nice.
    */
-  read_write(fp, WRITING, -1 /*fd*/, f, (vir_bytes)buf, size, VFS_PROC_NR);
+  read_write(fp, WRITING, -1 /*fd*/, f, (vir_bytes)buf, size, VFS_PROC_NR,
+	NULL);
 }
 
 /*===========================================================================*

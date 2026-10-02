@@ -44,6 +44,24 @@ int do_read(void)
 
 
 /*===========================================================================*
+ *				do_pread				     *
+ *===========================================================================*/
+int do_pread(void)
+{
+/* Perform the pread(fd, buffer, nbytes, offset) system call: a read at
+ * 'offset' that neither uses nor changes the file position, atomically. */
+  off_t pos;
+
+  pos = job_m_in.m_lc_vfs_readwrite.offset;
+  if (job_m_in.m_lc_vfs_readwrite.cum_io != 0 || pos < 0)
+	return(EINVAL);
+
+  return(actual_read_write_peek(fp, READING, job_m_in.m_lc_vfs_readwrite.fd,
+	job_m_in.m_lc_vfs_readwrite.buf, job_m_in.m_lc_vfs_readwrite.len,
+	&pos));
+}
+
+/*===========================================================================*
  *				lock_bsf				     *
  *===========================================================================*/
 void lock_bsf(void)
@@ -90,9 +108,10 @@ void check_bsf_lock(void)
  *				actual_read_write_peek			     *
  *===========================================================================*/
 int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
-	vir_bytes buf, size_t nbytes)
+	vir_bytes buf, size_t nbytes, off_t *posp)
 {
-/* Perform read(fd, buffer, nbytes) or write(fd, buffer, nbytes) call. */
+/* Perform read(fd, buffer, nbytes) or write(fd, buffer, nbytes) call, or, with
+ * 'posp', pread(fd, buffer, nbytes, *posp) or pwrite(...). */
   struct filp *f;
   tll_access_t locktype;
   int r;
@@ -115,7 +134,7 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 	return(0);	/* so char special files need not check for 0*/
   }
 
-  r = read_write(rfp, rw_flag, fd, f, buf, nbytes, who_e);
+  r = read_write(rfp, rw_flag, fd, f, buf, nbytes, who_e, posp);
 
   unlock_filp(f);
   return(r);
@@ -126,15 +145,17 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
  *===========================================================================*/
 int do_read_write_peek(int rw_flag, int fd, vir_bytes buf, size_t nbytes)
 {
-	return actual_read_write_peek(fp, rw_flag, fd, buf, nbytes);
+	return actual_read_write_peek(fp, rw_flag, fd, buf, nbytes, NULL);
 }
 
 /*===========================================================================*
  *				read_write				     *
  *===========================================================================*/
 int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
-	vir_bytes buf, size_t size, endpoint_t for_e)
+	vir_bytes buf, size_t size, endpoint_t for_e, off_t *posp)
 {
+/* Read or write at the file position, or with 'posp' (pread, pwrite) at *posp
+ * without using or changing the file position. */
   register struct vnode *vp;
   off_t position, res_pos;
   size_t cum_io, res_cum_io;
@@ -142,12 +163,16 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
   int op, r;
   dev_t dev;
 
-  position = f->filp_pos;
   vp = f->filp_vno;
+  position = (posp != NULL) ? *posp : f->filp_pos;
   r = OK;
   cum_io = 0;
 
   assert(rw_flag == READING || rw_flag == WRITING || rw_flag == PEEKING);
+
+  /* Pipes and sockets have no position to read or write at. */
+  if (posp != NULL && (S_ISFIFO(vp->v_mode) || S_ISSOCK(vp->v_mode)))
+	return(ESPIPE);
 
   if (size > SSIZE_MAX) return(EINVAL);
 
@@ -259,7 +284,8 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 	}
   }
 
-  f->filp_pos = position;
+  if (posp == NULL)
+	f->filp_pos = position;
 
   if (r == EPIPE && rw_flag == WRITING) {
 	/* Process is writing, but there is no reader. Tell the kernel to
