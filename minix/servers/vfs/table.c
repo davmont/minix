@@ -90,4 +90,5 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_PREAD)		= do_pread,		/* pread(2) */
 	CALL(VFS_PWRITE)	= do_pwrite,		/* pwrite(2) */
 	CALL(VFS_FLOCK)		= do_flock,		/* flock(2) */
+	CALL(VFS_FALLOCATE)	= do_fallocate,		/* posix_fallocate(2) */
 };

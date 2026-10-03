@@ -1053,6 +1053,15 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_vfs_truncate);
 
 typedef struct {
+	off_t offset;
+	off_t len;
+	int fd;
+
+	uint8_t padding[36];
+} mess_lc_vfs_fallocate;
+_ASSERT_MSG_SIZE(mess_lc_vfs_fallocate);
+
+typedef struct {
 	mode_t mask;
 
 	uint8_t padding[52];
@@ -2745,6 +2754,7 @@ typedef struct noxfer_message {
 		mess_lc_vfs_fstatat	m_lc_vfs_fstatat;
 		mess_lc_vfs_statvfs1	m_lc_vfs_statvfs1;
 		mess_lc_vfs_truncate	m_lc_vfs_truncate;
+		mess_lc_vfs_fallocate	m_lc_vfs_fallocate;
 		mess_lc_vfs_umask	m_lc_vfs_umask;
 		mess_lc_vfs_umount	m_lc_vfs_umount;
 		mess_lc_vm_brk		m_lc_vm_brk;
