@@ -636,6 +636,16 @@ void restore_user_context(struct proc *p)
     p->p_seg.p_kern_trap_style = KTS_NONE;
 
     /*
+     * Backstop: never hand SYSRET or IRETQ a program counter outside the
+     * user half, whatever path set it.  Both fault in kernel mode on a
+     * non-canonical target.  Address 0 is never mapped, so the process
+     * instead takes a page fault in user mode and gets SIGSEGV, as it
+     * would for any other bad jump.
+     */
+    if (!USER_PC_OK(p->p_reg.pc))
+        p->p_reg.pc = 0;
+
+    /*
      * Restore this process's user %fs base (the TLS thread pointer).  The
      * kernel never touches %fs base for its own use (it uses %gs/swapgs for
      * per-CPU state), so the value lives only in the CPU register and must be

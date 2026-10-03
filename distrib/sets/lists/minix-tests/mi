@@ -216,6 +216,8 @@
 ./usr/tests/minix-posix/test110                         minix-tests
 ./usr/tests/minix-posix/test111                         minix-tests
 ./usr/tests/minix-posix/test112                         minix-tests
+./usr/tests/minix-posix/test113                         minix-tests
+./usr/tests/minix-posix/test114                         minix-tests
 ./usr/tests/minix-posix/test115                         minix-tests
 ./usr/tests/minix-posix/testinterp                      minix-tests
 ./usr/tests/minix-posix/testisofs                       minix-tests
