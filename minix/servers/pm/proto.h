@@ -95,6 +95,11 @@ int do_getres(void);
 int do_gettime(void);
 int do_settime(void);
 
+/* ptimer.c */
+int do_timer(void);
+void ptimer_delivered(int slot, int id);
+void ptimer_release(struct mproc *rmp);
+
 /* trace.c */
 int do_trace(void);
 void trace_stop(struct mproc *rmp, int signo);

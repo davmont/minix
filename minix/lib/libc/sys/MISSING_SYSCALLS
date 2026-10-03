@@ -57,10 +57,6 @@ sigwaitinfo
 swapctl
 swapon
 sysarch
-timer_create
-timer_delete
-timer_gettime
-timer_settime
 undelete
 utrace
 uuidgen

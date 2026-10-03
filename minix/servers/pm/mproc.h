@@ -35,6 +35,7 @@ struct pm_siginfo {
   uid_t ps_uid;
   int ps_status;
   vir_bytes ps_addr;		/* fault address (SIGSEGV, ...) */
+  vir_bytes ps_value;		/* si_value (SI_TIMER: the sigev_value) */
 };
 EXTERN struct pm_siginfo mpsiginfo[NR_PROCS][_NSIG];
 /* The origin sig_proc() records; SI_NOINFO except while a caller that

@@ -304,6 +304,7 @@ void set_sig_origin(int code, pid_t pid, uid_t uid, int status, vir_bytes addr)
   sig_origin.ps_pid = pid;
   sig_origin.ps_uid = uid;
   sig_origin.ps_status = status;
+  sig_origin.ps_value = 0;
 }
 
 /*===========================================================================*
@@ -989,6 +990,9 @@ sig_send(
   sigmsg.sm_uid = mpsiginfo[slot][signo].ps_uid;
   sigmsg.sm_status = mpsiginfo[slot][signo].ps_status;
   sigmsg.sm_addr = mpsiginfo[slot][signo].ps_addr;
+  sigmsg.sm_value = mpsiginfo[slot][signo].ps_value;
+  if (sigmsg.sm_code == SI_TIMER)
+	ptimer_delivered(slot, sigmsg.sm_status);
   if (!(mpaltstack[slot].ss_flags & SS_DISABLE)) {
 	sigmsg.sm_altbase = (vir_bytes) mpaltstack[slot].ss_sp;
 	sigmsg.sm_altsize = mpaltstack[slot].ss_size;
