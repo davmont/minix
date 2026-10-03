@@ -5,6 +5,7 @@
  *   do_start_scheduling  Request to start scheduling a proc
  *   do_stop_scheduling   Request to stop scheduling a proc
  *   do_nice		  Request to change the nice level on a proc
+ *   do_yield		  Request to treat a proc's sched_yield(2)
  *   init_scheduling      Called from main.c to set up/prepare scheduling
  */
 #include "sched.h"
@@ -104,6 +105,35 @@ int do_noquantum(message *m_ptr)
 		return rv;
 	}
 	return OK;
+}
+
+/*===========================================================================*
+ *				do_yield				     *
+ *===========================================================================*/
+int do_yield(message *m_ptr)
+{
+/* A process called sched_yield(2): treat it as if its quantum ran out, so
+ * that it drops a queue like a CPU-bound process and starts a new quantum.
+ * Returning to the tail of its own queue would not be enough: a process that
+ * blocks a lot keeps a higher priority than the CPU-bound process it is
+ * waiting for (a spin-and-yield loop on a lock holder), which then never
+ * runs.  balance_queues() raises it again as for any other process.
+ */
+	struct schedproc *rmp;
+	int proc_nr_n;
+
+	if (!accept_message(m_ptr))
+		return EPERM;
+
+	if (sched_isokendpt(m_ptr->m_pm_sched_scheduling_yield.endpoint,
+	    &proc_nr_n) != OK)
+		return EBADEPT;
+
+	rmp = &schedproc[proc_nr_n];
+	if (rmp->priority < MIN_USER_Q)
+		rmp->priority += 1;	/* lower priority */
+
+	return schedule_process_local(rmp);
 }
 
 /*===========================================================================*
