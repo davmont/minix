@@ -56,9 +56,11 @@ pthread_getcpuclockid(pthread_t thread, clockid_t *clock_id)
 	if (clock_getcpuclockid2(P_LWPID, (id_t)thread->pt_lid, clock_id) == -1)
 		error = errno;
 #else
-	/* MINIX has no per-LWP CPU clocks (clock_getcpuclockid2/P_LWPID). */
-	(void)clock_id;
-	error = ENOTSUP;
+	/* The thread's lwpid in the low bits; PM decodes it in clock_gettime(2)
+	 * among the caller's threads.
+	 */
+	*clock_id = CLOCK_THREAD_CPUTIME_ID |
+	    ((clockid_t)thread->pt_lid & 0x1fffffff);
 #endif
 	errno = saved_errno;
 

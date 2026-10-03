@@ -71,6 +71,7 @@ EXTERN struct mproc {
   /* Child user and system times. Accounting done on child exit. */
   clock_t mp_child_utime;	/* cumulative user time of children */
   clock_t mp_child_stime;	/* cumulative sys time of children */
+  clock_t mp_lwp_time;		/* CPU time of the process's exited threads */
 
   /* Real, effective, and saved user and group IDs. */
   uid_t mp_realuid;		/* process' real uid */

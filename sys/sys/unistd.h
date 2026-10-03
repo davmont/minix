@@ -115,6 +115,8 @@
 #define	_POSIX_MESSAGE_PASSING		200112L
 					/* monotonic clock */
 #define	_POSIX_MONOTONIC_CLOCK		200112L
+#define	_POSIX_CPUTIME			200112L
+#define	_POSIX_THREAD_CPUTIME		200112L
 					/* too-long path comp generate errors */
 #define	_POSIX_NO_TRUNC			1
 					/* prioritized I/O */
