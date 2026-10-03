@@ -110,3 +110,22 @@ int sched_nice(struct mproc *rmp, int nice)
 
 	return (OK);
 }
+
+/*===========================================================================*
+ *				sched_yield_proc			     *
+ *===========================================================================*/
+int sched_yield_proc(struct mproc *rmp)
+{
+/* Tell the process's scheduler that it yields the CPU (sched_yield(2)). */
+	message m;
+
+	/* A process scheduled by the kernel has no user-space scheduler to
+	 * tell; the round trip to PM is its yield.
+	 */
+	if (rmp->mp_scheduler == KERNEL || rmp->mp_scheduler == NONE)
+		return (OK);
+
+	memset(&m, 0, sizeof(m));
+	m.m_pm_sched_scheduling_yield.endpoint = rmp->mp_endpoint;
+	return _taskcall(rmp->mp_scheduler, SCHEDULING_YIELD, &m);
+}

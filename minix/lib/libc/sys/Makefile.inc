@@ -5,7 +5,7 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 	m_extattr.c getentropy.c \
 	chown.c fchown.c chroot.c close.c \
 	clock_getres.c clock_gettime.c clock_settime.c \
-	connect.c dup.c dup2.c execve.c fcntl.c flock.c fpathconf.c fork.c \
+	connect.c dup.c dup2.c execve.c fcntl.c flock.c posix_fallocate.c fpathconf.c fork.c \
 	dup3.c fdatasync.c fstatfs.c madvise.c fstatvfs.c fsync.c ftruncate.c gcov_flush_sys.c getdents.c \
 	getegid.c getgid.c \
 	getgroups.c getitimer.c setitimer.c __getlogin.c getpeername.c \
@@ -32,7 +32,7 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 # Minix specific syscalls / utils.
 SRCS+= kernel_utils.c sprofile.c stack_utils.c _mcontext.c
 SRCS+= _lwp_create.c _lwp_self.c _lwp_exit.c _lwp_park.c _lwp_unpark.c
-SRCS+= _lwp_wait.c lwp_stubs.c pthread_glue.c
+SRCS+= _lwp_wait.c lwp_stubs.c pthread_glue.c sched.c
 
 # Emulation for missing lchflags (lchmod and lchown are in chmod.c, chown.c)
 OBJS+= lchflags.o

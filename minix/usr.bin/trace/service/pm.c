@@ -1369,6 +1369,7 @@ static const struct call_handler pm_map[] = {
 	PM_CALL(SETRESUID) = HANDLER("setresuid", pm_setresid_out, default_in),
 	PM_CALL(SETRESGID) = HANDLER("setresgid", pm_setresid_out, default_in),
 	PM_CALL(GETRESID) = HANDLER("getresid", default_out, pm_getresid_in),
+	PM_CALL(SCHED_YIELD) = HANDLER("sched_yield", default_out, default_in),
 };
 
 const struct calls pm_calls = {
