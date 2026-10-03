@@ -106,6 +106,19 @@ do_sysuname(void)
 
 
 /*===========================================================================*
+ *				do_sched_yield			       	     *
+ *===========================================================================*/
+int
+do_sched_yield(void)
+{
+/* Perform sched_yield(2).  The scheduler treats it as the end of the
+ * caller's quantum (see do_yield in SCHED), and the reply then queues the
+ * caller at the tail of its new priority queue.
+ */
+  return(sched_yield_proc(mp));
+}
+
+/*===========================================================================*
  *				do_getsysinfo			       	     *
  *===========================================================================*/
 int

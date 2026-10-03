@@ -2006,6 +2006,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_nice);
 
 typedef struct {
+	endpoint_t endpoint;
+
+	uint8_t padding[52];
+} mess_pm_sched_scheduling_yield;
+_ASSERT_MSG_SIZE(mess_pm_sched_scheduling_yield);
+
+typedef struct {
 	dev_t dev;
 	mode_t mode;
 	uid_t uid;
@@ -2864,6 +2871,7 @@ typedef struct noxfer_message {
 		mess_pm_lsys_proc_event	m_pm_lsys_proc_event;
 		mess_pm_lsys_sigs_signal m_pm_lsys_sigs_signal;
 		mess_pm_sched_scheduling_set_nice m_pm_sched_scheduling_set_nice;
+		mess_pm_sched_scheduling_yield m_pm_sched_scheduling_yield;
 		mess_pty_ptyfs_req	m_pty_ptyfs_req;
 		mess_ptyfs_pty_name	m_ptyfs_pty_name;
 		mess_readclock_lc_rtcdev m_readclock_lc_rtcdev;
