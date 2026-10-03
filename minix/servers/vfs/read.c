@@ -114,6 +114,7 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
  * 'posp', pread(fd, buffer, nbytes, *posp) or pwrite(...). */
   struct filp *f;
   tll_access_t locktype;
+  dev_t sync = NO_DEV;
   int r;
   int ro = 1;
 
@@ -136,7 +137,20 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 
   r = read_write(rfp, rw_flag, fd, f, buf, nbytes, who_e, posp);
 
+  /* O_SYNC and O_DSYNC: the data must be on the device before the write
+   * returns.  Flush the file system it lives on, as fsync(2) does, once the
+   * filp is unlocked (vmnt locks come first).
+   */
+  if (rw_flag == WRITING && r > 0 && (f->filp_flags & (O_SYNC | O_DSYNC)) &&
+      S_ISREG(f->filp_vno->v_mode))
+	sync = f->filp_vno->v_dev;
+
   unlock_filp(f);
+
+  if (sync != NO_DEV) {
+	int s = sync_dev(sync);
+	if (s != OK) r = s;
+  }
   return(r);
 }
 

@@ -156,6 +156,28 @@ int do_trace(struct proc * caller, message * m_ptr)
 		SETPSW(rp, tr_data);
 	else
 		*(reg_t *) ((char *) &rp->p_reg + i) = (reg_t) tr_data;
+#elif defined(__x86_64__)
+	/* As on i386, the segment registers stay out of reach: the four
+	 * 16-bit selectors share the first word, then cs and ss.
+	 */
+	if (i == 0 ||
+	    i == (int) &((struct proc *) 0)->p_reg.cs ||
+	    i == (int) &((struct proc *) 0)->p_reg.ss)
+		return(EFAULT);
+
+	if (i == (int) &((struct proc *) 0)->p_reg.psw)
+		/* only selected bits are changeable */
+		SETPSW(rp, tr_data);
+	else {
+		/* A process stopped in a system call goes back with SYSRET,
+		 * which faults in kernel mode on a non-canonical pc.  Only
+		 * user-half addresses are valid program counters anyway.
+		 */
+		if (i == (int) &((struct proc *) 0)->p_reg.pc &&
+		    (unsigned long) tr_data >= 0x0000800000000000UL)
+			return(EFAULT);
+		*(reg_t *) ((char *) &rp->p_reg + i) = (reg_t) tr_data;
+	}
 #elif defined(__arm__)
 	if (i == (int) &((struct proc *) 0)->p_reg.psr) {
 		/* only selected bits are changeable */

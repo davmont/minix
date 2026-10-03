@@ -397,12 +397,21 @@ __libc_thr_self_stub(void)
 	return ((thr_t) -1);
 }
 
+#if defined(__minix)
+int	_sys_sched_yield(void);
+#endif
+
 int
 __libc_thr_yield_stub(void)
 {
 
+#if defined(__minix)
+	/* An unthreaded process yields to the other processes. */
+	return _sys_sched_yield();
+#else
 	/* Nothing to do. */
 	return (0);
+#endif
 }
 
 int

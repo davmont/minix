@@ -9,8 +9,7 @@
  * NOT covered here: _lwp_wait(2) (real PM call, see _lwp_wait.c) and per-thread
  * signals/_lwp_kill (lwp_stubs.c).
  *
- * TODO: replace the best-effort public stub sched_yield and the _sched_*
- * stubs with real implementations.
+ * TODO: CPU affinity (_sched_[gs]etaffinity).
  */
 #include <sys/cdefs.h>
 /*
@@ -63,25 +62,7 @@ int _lwp_ctl(int f, struct lwpctl **a)
  */
 int _lwp_detach(lwpid_t l)			{ (void)l; return 0; }
 
-/* --- Raw scheduler syscalls: stubbed (default priority, no affinity). --- */
-int
-_sched_setparam(pid_t pid, lwpid_t lid, int policy, const struct sched_param *p)
-{
-	(void)pid; (void)lid; (void)policy; (void)p;
-	return 0;	/* accept; threads run at the default priority */
-}
-
-int
-_sched_getparam(pid_t pid, lwpid_t lid, int *policy, struct sched_param *p)
-{
-	(void)pid; (void)lid;
-	if (policy != NULL)
-		*policy = SCHED_OTHER;
-	if (p != NULL)
-		memset(p, 0, sizeof(*p));
-	return 0;
-}
-
+/* --- CPU affinity: not supported (sched.c has the scheduling calls). --- */
 int
 _sched_setaffinity(pid_t pid, lwpid_t lid, size_t sz, const cpuset_t *s)
 {
@@ -99,16 +80,6 @@ _sched_getaffinity(pid_t pid, lwpid_t lid, size_t sz, cpuset_t *s)
 }
 
 /* --- Public POSIX functions MINIX libc is missing. --- */
-
-/* sched_yield(2): advisory; a plain return is POSIX-conformant.
- * <sched.h> macro-renames sched_yield -> __libc_thr_yield, so #undef it to
- * export the real public symbol. */
-#undef sched_yield
-int
-sched_yield(void)
-{
-	return 0;
-}
 
 /*
  * mprotect(2): VM changes the protection of the page-aligned range.  Among
@@ -211,8 +182,3 @@ _sys_setcontext(const ucontext_t *ucp)
 	return _setcontext(ucp);
 }
 
-int
-_sys_sched_yield(void)
-{
-	return sched_yield();
-}
