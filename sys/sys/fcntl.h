@@ -313,6 +313,7 @@ int	fcntl(int, int, ...);
 int	flock(int, int);
 #endif /* _NETBSD_SOURCE */
 int	posix_fadvise(int, off_t, off_t, int);
+int	posix_fallocate(int, off_t, off_t);
 
 /*
  * X/Open Extended API set 2 (a.k.a. C063)

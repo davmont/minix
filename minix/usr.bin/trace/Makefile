@@ -1,12 +1,12 @@
 .include <bsd.own.mk>
 
 PROG=	trace
-SRCS=	call.o error.o escape.o format.o ioctl.o kernel.o mem.o output.o \
-	proc.o signal.o trace.o
+SRCS=	call.c error.c escape.c format.c ioctl.c kernel.c mem.c output.c \
+	proc.c signal.c trace.c
 .PATH:	${.CURDIR}/service
-SRCS+=	pm.o vfs.o rs.o mib.o vm.o ipc.o
+SRCS+=	pm.c vfs.c rs.c mib.c vm.c ipc.c
 .PATH:	${.CURDIR}/ioctl
-SRCS+=	block.o char.o net.o svrctl.o
+SRCS+=	block.c char.c net.c svrctl.c
 
 CPPFLAGS+=	-D_MINIX_SYSTEM=1 -I${.CURDIR} -I${NETBSDSRCDIR}/minix
 

@@ -75,14 +75,35 @@ static int elf_unpack(char *exec_hdr,
   if(!elf_sane(*hdr, hdr_len)) {
   	return ENOEXEC;
   }
+  /* The program header table must lie within the header we were given:
+   * every caller walks all e_phnum entries.
+   */
+  if((*hdr)->e_phoff > hdr_len ||
+     (*hdr)->e_phnum > (hdr_len - (*hdr)->e_phoff) / sizeof(Elf_Phdr))
+	return ENOEXEC;
   *phdr = (Elf_Phdr *)(exec_hdr + (*hdr)->e_phoff);
   if(!elf_ph_sane(*phdr)) {
   	return ENOEXEC;
   }
-#if 0
-  if((int)((*phdr) + (*hdr)->e_phnum) >= hdr_len) return ENOEXEC;
-#endif
   return OK;
+}
+
+/* Is the entry point inside a loadable segment?  The kernel returns to it,
+ * so an executable must not name an address it does not map (on x86-64 a
+ * non-canonical one would fault in kernel mode).
+ */
+static int elf_entry_sane(const Elf_Ehdr *hdr, const Elf_Phdr *phdr)
+{
+  int i;
+
+  for (i = 0; i < hdr->e_phnum; i++) {
+	if (phdr[i].p_type != PT_LOAD)
+		continue;
+	if (hdr->e_entry >= phdr[i].p_vaddr &&
+	    hdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz)
+		return 1;
+  }
+  return 0;
 }
 
 #define IS_ELF(ehdr)	((ehdr).e_ident[EI_MAG0] == ELFMAG0 && \
@@ -149,6 +170,10 @@ int libexec_load_elf(struct exec_info *execi)
 	if((e=elf_unpack(execi->hdr, execi->hdr_len, &hdr, &phdr)) != OK) {
 		return e;
 	 }
+
+	/* Before anything of the old image is torn down. */
+	if (!elf_entry_sane(hdr, phdr))
+		return ENOEXEC;
 
 	/* Save the entry point now, before any pg_map calls that may replace
 	 * the identity mapping covering hdr's physical address, making hdr
