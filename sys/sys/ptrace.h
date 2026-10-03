@@ -199,7 +199,12 @@ int	ptrace_machdep_dorequest(struct lwp *, struct lwp *, int,
 #include <sys/cdefs.h>
 
 __BEGIN_DECLS
+#if defined(__minix)
+/* MINIX transfers a whole machine word (a long) per request, as Linux does. */
+long	ptrace(int _request, pid_t _pid, void *_addr, long _data);
+#else
 int	ptrace(int _request, pid_t _pid, void *_addr, int _data);
+#endif
 __END_DECLS
 
 #endif /* !_KERNEL */

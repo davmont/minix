@@ -35,6 +35,19 @@ int do_sigreturn(struct proc * caller, message * m_ptr)
 		 (vir_bytes)&sc, sizeof(struct sigcontext))) != OK)
 	return r;
 
+#if defined(__i386__) || defined(__x86_64__)
+  /* The context comes from the process, so check what it says before it
+   * steers the return to user mode: the kernel entry method decides between
+   * SYSRET/SYSEXIT and IRET, and anything else panics restore_user_context.
+   */
+  if (sc.trap_style < KTS_INT_HARD || sc.trap_style > KTS_SYSCALL)
+	return EINVAL;
+#endif
+#if defined(__x86_64__)
+  if (!USER_PC_OK(sc.sc_rip))
+	return EINVAL;
+#endif
+
 #if defined(__i386__)
   /* Restore user bits of psw from sc, maintain system bits from proc. */
   sc.sc_eflags  =  (sc.sc_eflags & X86_FLAGS_USER) |

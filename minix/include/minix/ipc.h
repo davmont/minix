@@ -571,6 +571,28 @@ typedef struct {
 } mess_lc_pm_ptrace;
 _ASSERT_MSG_SIZE(mess_lc_pm_ptrace);
 
+/* PM_TIMER: the POSIX per-process timers. */
+#define PM_TIMER_CREATE		1	/* clock, notify, signo, value */
+#define PM_TIMER_DELETE		2	/* id */
+#define PM_TIMER_SETTIME	3	/* id, flags, value -> ovalue */
+#define PM_TIMER_GETTIME	4	/* id -> ovalue */
+#define PM_TIMER_GETOVERRUN	5	/* id */
+#define PM_TIMER_VALUE_ID	0x1	/* create flag: sigev_value = the id */
+typedef struct {
+	int op;
+	int id;			/* timer_t */
+	int clock;		/* clockid_t (create) */
+	int flags;		/* TIMER_ABSTIME (settime), PM_TIMER_VALUE_ID */
+	int notify;		/* sigev_notify (create) */
+	int signo;		/* sigev_signo (create) */
+	vir_bytes value;	/* sigev_value (create) */
+	vir_bytes itp;		/* struct itimerspec * in (settime) */
+	vir_bytes oitp;		/* struct itimerspec * out (settime, gettime) */
+
+	uint8_t padding[56 - 6 * sizeof(int) - 3 * sizeof(vir_bytes)];
+} mess_lc_pm_timer;
+_ASSERT_MSG_SIZE(mess_lc_pm_timer);
+
 typedef struct {
 	int how;
 
@@ -1051,6 +1073,15 @@ typedef struct {
 	uint8_t padding[36];
 } mess_lc_vfs_truncate;
 _ASSERT_MSG_SIZE(mess_lc_vfs_truncate);
+
+typedef struct {
+	off_t offset;
+	off_t len;
+	int fd;
+
+	uint8_t padding[36];
+} mess_lc_vfs_fallocate;
+_ASSERT_MSG_SIZE(mess_lc_vfs_fallocate);
 
 typedef struct {
 	mode_t mask;
@@ -1997,6 +2028,13 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_nice);
 
 typedef struct {
+	endpoint_t endpoint;
+
+	uint8_t padding[52];
+} mess_pm_sched_scheduling_yield;
+_ASSERT_MSG_SIZE(mess_pm_sched_scheduling_yield);
+
+typedef struct {
 	dev_t dev;
 	mode_t mode;
 	uid_t uid;
@@ -2698,6 +2736,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_mcontext	m_lc_pm_mcontext;
 		mess_lc_pm_priority	m_lc_pm_priority;
 		mess_lc_pm_ptrace	m_lc_pm_ptrace;
+		mess_lc_pm_timer	m_lc_pm_timer;
 		mess_lc_pm_reboot	m_lc_pm_reboot;
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;
@@ -2745,6 +2784,7 @@ typedef struct noxfer_message {
 		mess_lc_vfs_fstatat	m_lc_vfs_fstatat;
 		mess_lc_vfs_statvfs1	m_lc_vfs_statvfs1;
 		mess_lc_vfs_truncate	m_lc_vfs_truncate;
+		mess_lc_vfs_fallocate	m_lc_vfs_fallocate;
 		mess_lc_vfs_umask	m_lc_vfs_umask;
 		mess_lc_vfs_umount	m_lc_vfs_umount;
 		mess_lc_vm_brk		m_lc_vm_brk;
@@ -2854,6 +2894,7 @@ typedef struct noxfer_message {
 		mess_pm_lsys_proc_event	m_pm_lsys_proc_event;
 		mess_pm_lsys_sigs_signal m_pm_lsys_sigs_signal;
 		mess_pm_sched_scheduling_set_nice m_pm_sched_scheduling_set_nice;
+		mess_pm_sched_scheduling_yield m_pm_sched_scheduling_yield;
 		mess_pty_ptyfs_req	m_pty_ptyfs_req;
 		mess_ptyfs_pty_name	m_ptyfs_pty_name;
 		mess_readclock_lc_rtcdev m_readclock_lc_rtcdev;

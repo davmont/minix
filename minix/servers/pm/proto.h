@@ -57,6 +57,7 @@ int do_setmcontext(void);
 int do_reboot(void);
 int do_sysuname(void);
 int do_getsysinfo(void);
+int do_sched_yield(void);
 int do_getprocnr(void);
 int do_getepinfo(void);
 int do_svrctl(void);
@@ -67,6 +68,7 @@ int do_getrusage(void);
 void sched_init(void);
 int sched_start_user(endpoint_t ep, struct mproc *rmp);
 int sched_nice(struct mproc *rmp, int nice);
+int sched_yield_proc(struct mproc *rmp);
 
 /* profile.c */
 int do_sprofile(void);
@@ -94,6 +96,11 @@ int do_time(void);
 int do_getres(void);
 int do_gettime(void);
 int do_settime(void);
+
+/* ptimer.c */
+int do_timer(void);
+void ptimer_delivered(int slot, int id);
+void ptimer_release(struct mproc *rmp);
 
 /* trace.c */
 int do_trace(void);

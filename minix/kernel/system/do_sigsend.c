@@ -45,6 +45,14 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 		(vir_bytes)&smsg, (phys_bytes) sizeof(struct sigmsg))) != OK)
 	return r;
 
+#if defined(__x86_64__)
+  /* The handler address was set by the process.  EFAULT makes PM kill it,
+   * as for a signal frame that does not fit.
+   */
+  if (!USER_PC_OK(smsg.sm_sighandler))
+	return EFAULT;
+#endif
+
   /* WARNING: the following code may be run more than once even for a single
    * signal delivery. Do not change registers here. See the comment below.
    */
@@ -207,6 +215,8 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 		fr.sf_si.si_status = smsg.sm_status;
 	if (smsg.sm_addr != 0)
 		fr.sf_si.si_addr = (void *) smsg.sm_addr;
+	if (smsg.sm_code == SI_TIMER)
+		fr.sf_si.si_value.sival_ptr = (void *) smsg.sm_value;
 
 	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU | _UC_STACK;
 	fr.sf_uc.uc_sigmask = smsg.sm_mask;

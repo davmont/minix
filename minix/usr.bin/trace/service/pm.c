@@ -187,6 +187,19 @@ pm_setresid_out(struct trace_proc * proc, const message * m_out)
 	return CT_DONE;
 }
 
+static int
+pm_timer_out(struct trace_proc * proc, const message * m_out)
+{
+	static const char *ops[] = { "?", "create", "delete", "settime",
+	    "gettime", "getoverrun" };
+	int op = m_out->m_lc_pm_timer.op;
+
+	put_value(proc, "op", "%s", (op > 0 && op <= 5) ? ops[op] : "?");
+	put_value(proc, "id", "%d", m_out->m_lc_pm_timer.id);
+
+	return CT_DONE;
+}
+
 static void
 pm_getresid_in(struct trace_proc * proc, const message * __unused m_out,
 	const message * m_in, int failed)
@@ -1369,6 +1382,8 @@ static const struct call_handler pm_map[] = {
 	PM_CALL(SETRESUID) = HANDLER("setresuid", pm_setresid_out, default_in),
 	PM_CALL(SETRESGID) = HANDLER("setresgid", pm_setresid_out, default_in),
 	PM_CALL(GETRESID) = HANDLER("getresid", default_out, pm_getresid_in),
+	PM_CALL(SCHED_YIELD) = HANDLER("sched_yield", default_out, default_in),
+	PM_CALL(TIMER) = HANDLER("timer", pm_timer_out, default_in),
 };
 
 const struct calls pm_calls = {
