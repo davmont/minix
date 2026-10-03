@@ -173,7 +173,8 @@
 #define VFS_PREAD		(VFS_BASE + 88)
 #define VFS_PWRITE		(VFS_BASE + 89)
 #define VFS_FLOCK		(VFS_BASE + 90)	/* flock(2) */
+#define VFS_FALLOCATE		(VFS_BASE + 91)	/* posix_fallocate(2) */
 
-#define NR_VFS_CALLS		91	/* highest number from base plus one */
+#define NR_VFS_CALLS		92	/* highest number from base plus one */
 
 #endif /* !_MINIX_CALLNR_H */

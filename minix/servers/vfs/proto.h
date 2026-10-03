@@ -127,6 +127,7 @@ void thread_cleanup(void);
 void pm_exit(void);
 int do_fcntl(void);
 int do_flock(void);
+int do_fallocate(void);
 void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid);
 void pm_lwp(endpoint_t leader_e, endpoint_t thread_e, pid_t pid);
 void pm_setgid(endpoint_t proc_e, int egid, int rgid);

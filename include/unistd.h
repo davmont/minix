@@ -173,9 +173,7 @@ ssize_t	 readlink(const char * __restrict, char * __restrict, size_t);
  */
 #if (_POSIX_C_SOURCE - 0) >= 200112L || (_XOPEN_SOURCE - 0) >= 600 || \
     defined(_NETBSD_SOURCE)
-#if !defined(__minix)
 int	 posix_fallocate(int, off_t, off_t);
-#endif /* !defined(__minix) */
 int	 setegid(gid_t);
 int	 seteuid(uid_t);
 #endif

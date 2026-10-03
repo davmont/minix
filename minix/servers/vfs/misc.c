@@ -32,6 +32,7 @@
 #include <sys/ptrace.h>
 #include <sys/svrctl.h>
 #include <sys/resource.h>
+#include <sys/statvfs.h>
 #include "file.h"
 #include <minix/vfsif.h>
 #include "vnode.h"
@@ -113,6 +114,98 @@ int do_getsysinfo(void)
 	return(EINVAL);
 
   return sys_datacopy_wrapper(SELF, src_addr, who_e, dst_addr, len);
+}
+
+/*===========================================================================*
+ *				alloc_byte				     *
+ *===========================================================================*/
+static int alloc_byte(struct vnode *vp, off_t pos, off_t old_size)
+{
+/* Make sure the block holding byte 'pos' of the file is allocated (see
+ * do_fallocate).  Below the old end of file, a non-zero byte means the block
+ * exists; a zero byte may be a hole, so write it back, which is harmless with
+ * the vnode write-locked.  At or past the old end, write a zero.
+ */
+  off_t new_pos;
+  size_t cum_io;
+  char c;
+  int r;
+
+  if (pos < old_size) {
+	r = req_readwrite(vp->v_fs_e, vp->v_inode_nr, pos, READING,
+		VFS_PROC_NR, (vir_bytes) &c, 1, &new_pos, &cum_io);
+	if (r != OK) return(r);
+	if (cum_io == 1 && c != 0) return(OK);
+  }
+  c = 0;
+  r = req_readwrite(vp->v_fs_e, vp->v_inode_nr, pos, WRITING,
+	VFS_PROC_NR, (vir_bytes) &c, 1, &new_pos, &cum_io);
+  if (r != OK) return(r);
+  if (new_pos > vp->v_size) vp->v_size = new_pos;
+  return(OK);
+}
+
+/*===========================================================================*
+ *				do_fallocate				     *
+ *===========================================================================*/
+int do_fallocate(void)
+{
+/* Perform posix_fallocate(2): make sure storage is allocated for the bytes
+ * [offset, offset + len) of a regular file, extending it if needed, so that
+ * later writes there cannot fail for lack of space.  The file servers have no
+ * allocation request, so use the ones they do have: a write allocates the
+ * block it lands in.  Holding the vnode write lock keeps every other writer
+ * out while each block of the range gets one byte (alloc_byte).  This works
+ * on every file server, at two requests per block at most.
+ */
+  struct filp *f;
+  struct vnode *vp;
+  struct statvfs svfs;
+  off_t offset, len, end, pos, blksize, old_size;
+  int fd, r;
+
+  fd = job_m_in.m_lc_vfs_fallocate.fd;
+  offset = job_m_in.m_lc_vfs_fallocate.offset;
+  len = job_m_in.m_lc_vfs_fallocate.len;
+
+  if ((f = get_filp(fd, VNODE_WRITE)) == NULL)
+	return(err_code);
+  vp = f->filp_vno;
+
+  if (S_ISFIFO(vp->v_mode)) r = ESPIPE;
+  else if (!S_ISREG(vp->v_mode)) r = ENODEV;
+  else if (!(f->filp_mode & W_BIT)) r = EBADF;
+  else if (offset < 0 || len <= 0) r = EINVAL;
+  else if (offset > INT64_MAX - len) r = EFBIG;
+  else r = req_statvfs(vp->v_fs_e, &svfs);
+  if (r != OK) {
+	unlock_filp(f);
+	return(r);
+  }
+
+  /* Step by the fundamental block size, the unit of allocation (st_blksize
+   * is only the preferred I/O size and may be larger).
+   */
+  blksize = svfs.f_frsize;
+  if (blksize < 512 || (blksize & (blksize - 1)) != 0)
+	blksize = 512;		/* covers any block size of a power of two */
+
+  end = offset + len;
+  old_size = vp->v_size;
+
+  /* Visit one byte in every block of the range: its first byte, then the
+   * start of each later block.
+   */
+  for (pos = offset; pos < end && r == OK;
+      pos = (pos / blksize + 1) * blksize)
+	r = alloc_byte(vp, pos, old_size);
+
+  /* The file must end up at least offset + len long. */
+  if (r == OK && vp->v_size < end)
+	r = alloc_byte(vp, end - 1, old_size);
+
+  unlock_filp(f);
+  return(r);
 }
 
 /*===========================================================================*
