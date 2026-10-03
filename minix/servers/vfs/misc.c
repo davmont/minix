@@ -270,14 +270,17 @@ int do_fcntl(void)
 	break;
 
     case F_GETFL:
-	/* Get file status flags (O_NONBLOCK and O_APPEND). */
-	fl = f->filp_flags & (O_NONBLOCK | O_APPEND | O_ACCMODE);
+	/* Get the file status flags and the access mode. */
+	fl = f->filp_flags & (O_NONBLOCK | O_APPEND | O_SYNC | O_DSYNC |
+		O_RSYNC | O_ACCMODE);
 	r = fl;
 	break;
 
     case F_SETFL:
-	/* Set file status flags (O_NONBLOCK and O_APPEND). */
-	fl = O_NONBLOCK | O_APPEND;
+	/* Set the file status flags; as on NetBSD these include the
+	 * synchronous I/O ones.
+	 */
+	fl = O_NONBLOCK | O_APPEND | O_SYNC | O_DSYNC | O_RSYNC;
 	f->filp_flags = (f->filp_flags & ~fl) | (fcntl_argx & fl);
 	break;
 
@@ -465,6 +468,21 @@ int do_fsync(void)
   dev = rfilp->filp_vno->v_dev;
   unlock_filp(rfilp);
 
+  return(sync_dev(dev));
+}
+
+/*===========================================================================*
+ *				sync_dev				     *
+ *===========================================================================*/
+int sync_dev(dev_t dev)
+{
+/* Have the file system mounted from 'dev' write out everything it has not
+ * written yet.  The caller must hold no vnode or filp locks: vmnt locks come
+ * first in the locking order.
+ */
+  struct vmnt *vmp;
+  int r = OK;
+
   for (vmp = &vmnt[0]; vmp < &vmnt[NR_MNTS]; ++vmp) {
 	if (vmp->m_dev != dev) continue;
 	if ((r = lock_vmnt(vmp, VMNT_READ)) != OK)
@@ -472,7 +490,7 @@ int do_fsync(void)
 	if (vmp->m_dev != NO_DEV && vmp->m_dev == dev &&
 		vmp->m_fs_e != NONE && vmp->m_root_node != NULL) {
 
-		req_sync(vmp->m_fs_e);
+		r = req_sync(vmp->m_fs_e);
 	}
 	unlock_vmnt(vmp);
   }
