@@ -138,6 +138,13 @@
 #define KTS_FULLCONTEXT 5
 #define KTS_SYSCALL     6
 
+/* Program counters a user process may return to: the lower canonical half.
+ * SYSRET and IRETQ fault in kernel mode on a non-canonical target, so no
+ * other value may ever reach them.
+ */
+#define USER_PC_LIMIT	0x0000800000000000UL
+#define USER_PC_OK(pc)	((reg_t)(pc) < USER_PC_LIMIT)
+
 /* PSW / RFLAGS bits */
 #define INIT_PSW        0x0200  /* IF set */
 #define INIT_TASK_PSW   0x1200  /* initial psw for tasks (with IOPL 1) */
