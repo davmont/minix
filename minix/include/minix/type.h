@@ -81,6 +81,7 @@ struct sigmsg {
   uid_t sm_uid;			/* si_uid: real uid of the sender */
   int sm_status;		/* si_status: exit status or signal (SIGCHLD) */
   vir_bytes sm_addr;		/* si_addr: faulting address, if known */
+  vir_bytes sm_value;		/* si_value (SI_TIMER) */
   /* The alternate signal stack (sigaltstack(2)); sm_altsize 0: none.  With
    * SMF_ONSTACK (an SA_ONSTACK handler) the kernel builds the frame there
    * unless the process is already running on it; either way it is what

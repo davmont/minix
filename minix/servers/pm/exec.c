@@ -214,6 +214,9 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 			sigemptyset(&rmp->mp_sigact[sn].sa_mask);
 		}
 	}
+	/* POSIX timers do not survive exec. */
+	ptimer_release(rmp);
+
 	/* The alternate signal stack was in the old image. */
 	mpaltstack[rmp - mproc].ss_sp = NULL;
 	mpaltstack[rmp - mproc].ss_size = 0;

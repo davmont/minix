@@ -70,8 +70,9 @@
 #define PM_SETRESGID		(PM_BASE + 57)	/* setresgid(2) */
 #define PM_GETRESID		(PM_BASE + 58)	/* getresuid/getresgid(2) */
 #define PM_SCHED_YIELD		(PM_BASE + 59)	/* sched_yield(2) */
+#define PM_TIMER		(PM_BASE + 60)	/* timer_create(2) and co. */
 
-#define NR_PM_CALLS		60	/* highest number from base plus one */
+#define NR_PM_CALLS		61	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

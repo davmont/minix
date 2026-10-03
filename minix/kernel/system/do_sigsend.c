@@ -215,6 +215,8 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 		fr.sf_si.si_status = smsg.sm_status;
 	if (smsg.sm_addr != 0)
 		fr.sf_si.si_addr = (void *) smsg.sm_addr;
+	if (smsg.sm_code == SI_TIMER)
+		fr.sf_si.si_value.sival_ptr = (void *) smsg.sm_value;
 
 	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU | _UC_STACK;
 	fr.sf_uc.uc_sigmask = smsg.sm_mask;

@@ -571,6 +571,28 @@ typedef struct {
 } mess_lc_pm_ptrace;
 _ASSERT_MSG_SIZE(mess_lc_pm_ptrace);
 
+/* PM_TIMER: the POSIX per-process timers. */
+#define PM_TIMER_CREATE		1	/* clock, notify, signo, value */
+#define PM_TIMER_DELETE		2	/* id */
+#define PM_TIMER_SETTIME	3	/* id, flags, value -> ovalue */
+#define PM_TIMER_GETTIME	4	/* id -> ovalue */
+#define PM_TIMER_GETOVERRUN	5	/* id */
+#define PM_TIMER_VALUE_ID	0x1	/* create flag: sigev_value = the id */
+typedef struct {
+	int op;
+	int id;			/* timer_t */
+	int clock;		/* clockid_t (create) */
+	int flags;		/* TIMER_ABSTIME (settime), PM_TIMER_VALUE_ID */
+	int notify;		/* sigev_notify (create) */
+	int signo;		/* sigev_signo (create) */
+	vir_bytes value;	/* sigev_value (create) */
+	vir_bytes itp;		/* struct itimerspec * in (settime) */
+	vir_bytes oitp;		/* struct itimerspec * out (settime, gettime) */
+
+	uint8_t padding[56 - 6 * sizeof(int) - 3 * sizeof(vir_bytes)];
+} mess_lc_pm_timer;
+_ASSERT_MSG_SIZE(mess_lc_pm_timer);
+
 typedef struct {
 	int how;
 
@@ -2714,6 +2736,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_mcontext	m_lc_pm_mcontext;
 		mess_lc_pm_priority	m_lc_pm_priority;
 		mess_lc_pm_ptrace	m_lc_pm_ptrace;
+		mess_lc_pm_timer	m_lc_pm_timer;
 		mess_lc_pm_reboot	m_lc_pm_reboot;
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;
