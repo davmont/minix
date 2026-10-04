@@ -85,13 +85,16 @@ do_get(void)
 		break;
 
 	case PM_GETSID:
+	case PM_GETPGID:
 	{
 		struct mproc *target;
 		pid_t p = m_in.m_lc_pm_getsid.pid;
+		if (p < 0) return(EINVAL);
 		target = p ? find_proc(p) : &mproc[who_p];
 		r = ESRCH;
 		if(target)
-			r = target->mp_procgrp;
+			r = (call_nr == PM_GETSID) ? target->mp_session :
+				target->mp_procgrp;
 		break;
 	}
 	case PM_ISSETUGID:
@@ -141,6 +144,90 @@ set_resid(struct mproc *rmp, uint32_t *realp, uint32_t *effp, uint32_t *savp)
   if (ids[0] != (uint32_t)-1) *realp = ids[0];
   if (ids[1] != (uint32_t)-1) *effp = ids[1];
   if (ids[2] != (uint32_t)-1) *savp = ids[2];
+  return(OK);
+}
+
+/*===========================================================================*
+ *				process_of				     *
+ *===========================================================================*/
+struct mproc *process_of(struct mproc *rmp)
+{
+/* The slot that stands for the process 'rmp' belongs to: its thread-group
+ * leader, or itself.
+ */
+  return (rmp->mp_flags & MP_LWP) ? &mproc[rmp->mp_lwp_group] : rmp;
+}
+
+/*===========================================================================*
+ *				set_process_ids				     *
+ *===========================================================================*/
+void set_process_ids(struct mproc *leader, pid_t pgrp, pid_t session)
+{
+/* Move the process 'leader' stands for, all its threads, to process group
+ * 'pgrp' in session 'session': signals to a group look at every slot.
+ */
+  struct mproc *t;
+  int slot = (int) (leader - mproc);
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE))
+		continue;
+	if (t == leader || ((t->mp_flags & MP_LWP) && t->mp_lwp_group == slot)) {
+		t->mp_procgrp = pgrp;
+		t->mp_session = session;
+	}
+  }
+}
+
+/*===========================================================================*
+ *				do_setpgid				     *
+ *===========================================================================*/
+int do_setpgid(void)
+{
+/* Perform setpgid(2): move the caller, or a child of it that has not called
+ * exec yet, to another process group of the same session.
+ */
+  struct mproc *caller, *target, *t;
+  pid_t pid, pgid;
+
+  caller = process_of(mp);
+  pid = m_in.m_lc_pm_setpgid.pid;
+  pgid = m_in.m_lc_pm_setpgid.pgid;
+
+  if (pid < 0 || pgid < 0)
+	return(EINVAL);
+
+  if (pid == 0 || pid == caller->mp_pid)
+	target = caller;
+  else {
+	target = find_proc(pid);
+	if (target == NULL || (target->mp_flags & ZOMBIE) ||
+	    process_of(&mproc[target->mp_parent]) != caller)
+		return(ESRCH);			/* not a child of ours */
+	target = process_of(target);
+	if (target->mp_flags & MP_EXECED)
+		return(EACCES);
+	if (target->mp_session != caller->mp_session)
+		return(EPERM);
+  }
+
+  if (target->mp_pid == target->mp_session)
+	return(EPERM);				/* a session leader */
+
+  if (pgid == 0)
+	pgid = target->mp_pid;
+  if (pgid != target->mp_pid) {
+	/* Joining a group: it must exist in the caller's session. */
+	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++)
+		if ((t->mp_flags & (IN_USE | ZOMBIE)) == IN_USE &&
+		    t->mp_procgrp == pgid &&
+		    t->mp_session == caller->mp_session)
+			break;
+	if (t == &mproc[NR_PROCS])
+		return(EPERM);
+  }
+
+  set_process_ids(target, pgid, target->mp_session);
   return(OK);
 }
 
@@ -285,8 +372,18 @@ do_set(void)
 
 		break;
 	case PM_SETSID:
-		if (rmp->mp_procgrp == rmp->mp_pid) return(EPERM);
-		rmp->mp_procgrp = rmp->mp_pid;
+	{
+		/* POSIX: not for a process group leader, nor if the caller's pid
+		 * names a process group already.
+		 */
+		struct mproc *leader = process_of(rmp), *t;
+
+		for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++)
+			if ((t->mp_flags & IN_USE) &&
+			    t->mp_procgrp == leader->mp_pid)
+				return(EPERM);
+		set_process_ids(leader, leader->mp_pid, leader->mp_pid);
+	}
 
 		m.m_type = VFS_PM_SETSID;
 		m.VFS_PM_ENDPT = rmp->mp_endpoint;

@@ -188,6 +188,25 @@ pm_setresid_out(struct trace_proc * proc, const message * m_out)
 }
 
 static int
+pm_setpgid_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_value(proc, "pid", "%d", m_out->m_lc_pm_setpgid.pid);
+	put_value(proc, "pgid", "%d", m_out->m_lc_pm_setpgid.pgid);
+
+	return CT_DONE;
+}
+
+static int
+pm_getpgid_out(struct trace_proc * proc, const message * m_out)
+{
+
+	put_value(proc, "pid", "%d", m_out->m_lc_pm_getsid.pid);
+
+	return CT_DONE;
+}
+
+static int
 pm_timer_out(struct trace_proc * proc, const message * m_out)
 {
 	static const char *ops[] = { "?", "create", "delete", "settime",
@@ -1384,6 +1403,8 @@ static const struct call_handler pm_map[] = {
 	PM_CALL(GETRESID) = HANDLER("getresid", default_out, pm_getresid_in),
 	PM_CALL(SCHED_YIELD) = HANDLER("sched_yield", default_out, default_in),
 	PM_CALL(TIMER) = HANDLER("timer", pm_timer_out, default_in),
+	PM_CALL(SETPGID) = HANDLER("setpgid", pm_setpgid_out, default_in),
+	PM_CALL(GETPGID) = HANDLER("getpgid", pm_getpgid_out, default_in),
 };
 
 const struct calls pm_calls = {

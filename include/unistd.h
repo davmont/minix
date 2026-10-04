@@ -271,9 +271,7 @@ long	 gethostid(void);
 int	 gethostname(char *, size_t);
 __pure int
 	 getpagesize(void);		/* legacy */
-#if !defined(__minix)
 pid_t	 getpgid(pid_t);
-#endif /* !defined(__minix) */
 #if defined(_XOPEN_SOURCE)
 int	 lchown(const char *, uid_t, gid_t) __RENAME(__posix_lchown);
 #else

@@ -7,7 +7,6 @@ fhstatvfs
 fsync_range
 getfh
 __setlogin
-getpgid
 setrlimit
 getrusage
 getsid
@@ -44,8 +43,6 @@ rasctl
 sa_*
 _sched_*
 semconfig
-setpgid
-setpgrp
 setregid
 setreuid
 sigqueue
