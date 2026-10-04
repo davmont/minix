@@ -151,6 +151,13 @@ leader(void)
 	if (setsid() != me) return 1;
 	if ((fd = open(slave_name, O_RDWR)) < 0) return 2;	/* ctty */
 
+	/* Like a shell: taking the terminal back from a job that has gone
+	 * leaves us in the background, in an orphaned group (our parent is
+	 * in another session), where tcsetpgrp() would fail (EIO) unless
+	 * SIGTTOU is ignored.
+	 */
+	signal(SIGTTOU, SIG_IGN);
+
 	/* The terminal belongs to our session, with us in front. */
 	if (tcgetpgrp(fd) != me) return 3;
 	if (tcgetsid(fd) != me) return 4;
