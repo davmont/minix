@@ -64,6 +64,7 @@ EXTERN struct mproc {
   pid_t mp_pid;			/* process id */
   endpoint_t mp_endpoint;	/* kernel endpoint id */
   pid_t mp_procgrp;		/* pid of process group (used for signals) */
+  pid_t mp_session;		/* pid of the session leader */
   pid_t mp_wpid;		/* pid this process is waiting for */
   vir_bytes mp_waddr;		/* struct rusage address while waiting */
   int mp_parent;		/* index of parent process */
@@ -173,6 +174,9 @@ EXTERN struct mproc {
 					 * (pthread_exit() in main) while others live;
 					 * the slot stays as the process until the last
 					 * thread exits */
+#define MP_EXECED     0x80000000U	/* called exec since fork: setpgid(2) on it
+					 * by the parent fails (EACCES).  The last
+					 * free bit: widen mp_flags for the next one */
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)

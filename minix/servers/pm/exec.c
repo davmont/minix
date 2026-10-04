@@ -214,6 +214,9 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 			sigemptyset(&rmp->mp_sigact[sn].sa_mask);
 		}
 	}
+	/* The parent may no longer move it to another process group. */
+	rmp->mp_flags |= MP_EXECED;
+
 	/* POSIX timers do not survive exec. */
 	ptimer_release(rmp);
 

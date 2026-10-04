@@ -97,6 +97,11 @@ int do_getres(void);
 int do_gettime(void);
 int do_settime(void);
 
+/* getset.c (process groups) */
+struct mproc *process_of(struct mproc *rmp);
+void set_process_ids(struct mproc *leader, pid_t pgrp, pid_t session);
+int do_setpgid(void);
+
 /* ptimer.c */
 int do_timer(void);
 void ptimer_delivered(int slot, int id);
