@@ -108,7 +108,7 @@ do_fork(void)
   }
 
   /* Inherit only these flags. In normal fork(), PRIV_PROC is not inherited. */
-  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
@@ -209,7 +209,7 @@ do_lwp_create(void)
   rmc->mp_tracer = NO_TRACER;
   rmc->mp_trace_flags = 0;
   (void) sigemptyset(&rmc->mp_sigtrace);
-  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);
+  rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
   rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
   if (m_in.m_lc_pm_lwp_create.flags & LWP_DETACHED)
 	rmc->mp_flags |= MP_LWP_DETACHED;	/* self-reaps on exit; not joinable */

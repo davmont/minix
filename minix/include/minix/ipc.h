@@ -529,6 +529,14 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_getsid);
 
 typedef struct {
+	pid_t pid;
+	pid_t pgid;
+
+	uint8_t padding[48];
+} mess_lc_pm_setpgid;
+_ASSERT_MSG_SIZE(mess_lc_pm_setpgid);
+
+typedef struct {
 	int num;
 	vir_bytes ptr;		/* gid_t * */
 
@@ -2731,6 +2739,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_lwp_kill	m_lc_pm_lwp_kill;
 		mess_lc_pm_lwp_wait	m_lc_pm_lwp_wait;
 		mess_lc_pm_getsid	m_lc_pm_getsid;
+		mess_lc_pm_setpgid	m_lc_pm_setpgid;
 		mess_lc_pm_groups	m_lc_pm_groups;
 		mess_lc_pm_itimer	m_lc_pm_itimer;
 		mess_lc_pm_mcontext	m_lc_pm_mcontext;

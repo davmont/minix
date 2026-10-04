@@ -3,42 +3,28 @@
 #include "namespace.h"
 
 #include <string.h>
-
 #include <unistd.h>
 
 /*
- * "Smart" stub for now. This requires job control to be properly implemented.
+ * setpgid(2): move process 'pid' (0: the caller) to process group 'pgid'
+ * (0: its own pid), within the caller's session.  PM checks the rules.
  */
 int setpgid(pid_t pid, pid_t pgid)
 {
-	pid_t _pid, _pgid, cpid;
+	message m;
 
-	_pid = pid;
-	_pgid = pgid;
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_setpgid.pid = pid;
+	m.m_lc_pm_setpgid.pgid = pgid;
+	return _syscall(PM_PROC_NR, PM_SETPGID, &m) < 0 ? -1 : 0;
+}
 
-	/* Who are we? */
-	cpid = getpid();
+/* getpgid(2): the process group of process 'pid' (0: the caller). */
+pid_t getpgid(pid_t pid)
+{
+	message m;
 
-	/* if zero, means current process. */
-	if (_pid == 0) {
-		_pid = cpid;
-	}
-
-	/* if zero, means given pid. */
-	if (_pgid == 0) {
-		_pgid = _pid;
-	}
-
-	/* right now we only support the equivalent of setsid(), which is
-	 * setpgid(0,0) */
-	if ((_pid != cpid) || (_pgid != cpid)) {
-	    errno = EINVAL;
-	    return -1;
-	}
-
-	if (setsid() == cpid) {
-		return 0;
-	} else {
-		return -1;
-	}
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_getsid.pid = pid;
+	return _syscall(PM_PROC_NR, PM_GETPGID, &m);
 }
