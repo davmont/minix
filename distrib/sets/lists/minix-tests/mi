@@ -224,6 +224,7 @@
 ./usr/tests/minix-posix/test118                         minix-tests
 ./usr/tests/minix-posix/test119                         minix-tests
 ./usr/tests/minix-posix/test120                         minix-tests
+./usr/tests/minix-posix/test121                         minix-tests
 ./usr/tests/minix-posix/testinterp                      minix-tests
 ./usr/tests/minix-posix/testisofs                       minix-tests
 ./usr/tests/minix-posix/testkyua                        minix-tests

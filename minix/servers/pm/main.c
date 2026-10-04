@@ -139,6 +139,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   static char ign_sigs[] = { SIGCHLD, SIGWINCH, SIGCONT, SIGINFO };
   static char noign_sigs[] = { SIGILL, SIGTRAP, SIGEMT, SIGFPE,
 				SIGBUS, SIGSEGV };
+  static char stop_sigs[] = { SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU };
   register struct mproc *rmp;
   register char *sig_ptr;
   message mess;
@@ -168,6 +169,9 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   sigemptyset(&noign_sset);
   for (sig_ptr = noign_sigs; sig_ptr < noign_sigs+sizeof(noign_sigs); sig_ptr++)
 	sigaddset(&noign_sset, *sig_ptr);
+  sigemptyset(&stop_sset);
+  for (sig_ptr = stop_sigs; sig_ptr < stop_sigs+sizeof(stop_sigs); sig_ptr++)
+	sigaddset(&stop_sset, *sig_ptr);
 
   /* Obtain a copy of the boot monitor parameters.
    */
