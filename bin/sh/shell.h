@@ -51,11 +51,7 @@
 
 #include <sys/param.h>
 
-#if defined(__minix)
-#define JOBS 0
-#else
 #define JOBS 1
-#endif /* defined(__minix) */
 #ifndef BSD
 #define BSD 1
 #endif
