@@ -333,7 +333,7 @@ install-etc-files: .PHONY .MAKE check_DESTDIR MAKEDEV
 	if [ ! -e ${tdir} ]; then \
 		${INSTALL_DIR} ${tdir}; \
 	fi; \
-	${INSTALL_FILE} -o ${owner} -g ${group} -m ${mode} ${sdir}${files} ${tdir};
+	${INSTALL_FILE} -o ${owner} -g ${group} -m ${mode} ${sdir}${files} ${tdir}${files:T};
 .endfor
 # LSC: We need a safe install target for etc files, as this is expected from
 # our current user base. This safe version only leaves out the master.passwd
@@ -467,7 +467,7 @@ install-etc-files-safe: .PHONY .MAKE check_DESTDIR MAKEDEV
 	if [ ! -e ${tdir} ]; then \
 		${INSTALL_DIR} ${tdir}; \
 	fi; \
-	${INSTALL_FILE} -o ${owner} -g ${group} -m ${mode} ${sdir}${files} ${tdir};
+	${INSTALL_FILE} -o ${owner} -g ${group} -m ${mode} ${sdir}${files} ${tdir}${files:T};
 .endfor
 .if ${MACHINE_ARCH} == "earm"
 	${_MKMSG_INSTALL} ${DESTDIR}/etc/rc.capes
@@ -481,7 +481,7 @@ install-etc-files-safe: .PHONY .MAKE check_DESTDIR MAKEDEV
 	${MAKEDIRTARGET} ${NETBSDSRCDIR}/external/bsd/dhcpcd/sbin/dhcpcd configinstall
 	${_MKMSG_INSTALL} ${DESTDIR}/usr/lib/fonts
 	${INSTALL_DIR} ${DESTDIR}/usr/lib/fonts
-	${INSTALL_FILE} -m ${BINMODE} -o ${BINOWN} -g ${BINGRP} ${NETBSDSRCDIR}/etc/fonts/*.fnt ${DESTDIR}/usr/lib/fonts/
+	${INSTALL_FILE} -m ${BINMODE} -o ${BINOWN} -g ${BINGRP} ${NETBSDSRCDIR}/etc/fonts/*.fnt ${DESTDIR}/usr/lib/fonts
 .endif # LSC Minix Specific
 
 
