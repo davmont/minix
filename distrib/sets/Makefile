@@ -115,8 +115,11 @@ list_set_files_base list_set_files_x list_set_files_ext \
 # unbounded growth of METALOG.
 #
 
+# Paths are compared after collapsing repeated slashes: "./etc//file" (an
+# install into "dir/") is the same file as "./etc/file", and the later
+# entry must win.
 METALOG_REMOVE_DUPLICATES= \
-	${TOOL_AWK} '{ a[$$1] = $$0; } END { for (f in a) print a[f]; }'
+	${TOOL_AWK} '{ gsub("//+", "/", $$1); a[$$1] = $$0; } END { for (f in a) print a[f]; }'
 
 .if ${MKUNPRIVED} == "no"
 METALOG.unpriv=

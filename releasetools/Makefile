@@ -84,7 +84,7 @@ do-hdboot:
 	${INSTALL_FILE} $$i $$newname;				\
 	echo ${INSTALL_FILE} $$i $$newname;			\
 	done
-	@${INSTALL_FILE} ${KERNEL} ${DESTDIR}/boot/minix/.temp/
+	@${INSTALL_FILE} ${KERNEL} ${DESTDIR}/boot/minix/.temp
 	@if [ "${MKINSTALLBOOT:Uno}" != "no" ] ; then		\
 	${STRIP} -s ${DESTDIR}/boot/minix/.temp/* ;		\
 	gzip ${DESTDIR}/boot/minix/.temp/mod* ;			\
