@@ -40,7 +40,6 @@ static int unpause(struct mproc *rmp, int restart);
 static int sig_send(struct mproc *rmp, int signo);
 static void sig_proc_exit(struct mproc *rmp, int signo);
 static void discard_signal(struct mproc *rmp, int signo);
-static int orphaned_pgrp(pid_t pgrp, pid_t session);
 static void jc_notify_parent(struct mproc *leader, int code);
 static void job_stop(struct mproc *rmp, int signo);
 static void job_continue(struct mproc *rmp);
@@ -752,7 +751,7 @@ discard_signal(struct mproc *rmp, int signo)
 /*===========================================================================*
  *				orphaned_pgrp				     *
  *===========================================================================*/
-static int
+int
 orphaned_pgrp(pid_t pgrp, pid_t session)
 {
 /* POSIX: a process group is orphaned when no member has a parent in another
@@ -1264,3 +1263,99 @@ sig_send(
 
   return(TRUE);
 }
+
+/*===========================================================================*
+ *				signal_pgrp				     *
+ *===========================================================================*/
+static int
+signal_pgrp(pid_t pgrp, int signo)
+{
+/* Send 'signo' to process group 'pgrp' on behalf of a terminal driver, as
+ * PM itself does with SIGALRM: with PM's rights, keeping the caller's reply.
+ */
+  struct mproc *caller = mp;
+  int r;
+
+  mp = &mproc[0];
+  r = check_sig(-pgrp, signo, FALSE /*ksig*/);
+  mp = caller;
+  return r;
+}
+
+/*===========================================================================*
+ *				do_ttyjc				     *
+ *===========================================================================*/
+int
+do_ttyjc(void)
+{
+/* A terminal driver asks about job control (PM_TTYJC).  The terminal keeps
+ * its session and foreground process group; PM knows the processes.
+ */
+  struct mproc *rmp, *proc, *t;
+  pid_t pgrp, session;
+  int slot, op, sig;
+
+  if (!(mp->mp_flags & PRIV_PROC))
+	return(EPERM);			/* for drivers only */
+
+  op = m_in.m_lsys_pm_ttyjc.op;
+  pgrp = m_in.m_lsys_pm_ttyjc.pgrp;
+  session = m_in.m_lsys_pm_ttyjc.session;
+  sig = m_in.m_lsys_pm_ttyjc.sig;
+
+  if (op == TTYJC_KILLPG) {
+	if (pgrp <= 0 || sig <= 0 || sig >= _NSIG)
+		return(EINVAL);
+	return signal_pgrp(pgrp, sig);
+  }
+
+  if (pm_isokendpt(m_in.m_lsys_pm_ttyjc.endpt, &slot) != OK)
+	return(ESRCH);
+  rmp = &mproc[slot];			/* the calling thread */
+  proc = process_of(rmp);		/* and its process */
+
+  switch (op) {
+  case TTYJC_GETIDS:
+	mp->mp_reply.m_pm_lsys_ttyjc.pgrp = proc->mp_procgrp;
+	mp->mp_reply.m_pm_lsys_ttyjc.session = proc->mp_session;
+	return(OK);
+
+  case TTYJC_SETFG:
+	/* tcsetpgrp(): only for the caller's controlling terminal, and to a
+	 * process group of its session.
+	 */
+	if (proc->mp_session != session)
+		return(ENOTTY);
+	if (pgrp <= 0)
+		return(EINVAL);
+	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++)
+		if ((t->mp_flags & (IN_USE | ZOMBIE)) == IN_USE &&
+		    t->mp_procgrp == pgrp && t->mp_session == session)
+			return(OK);
+	return(EPERM);
+
+  case TTYJC_CHECK:
+	/* POSIX: a process of a background group using its controlling
+	 * terminal is sent SIGTTIN (read) or SIGTTOU (write with TOSTOP,
+	 * changing the settings), which stops its group, and the call is
+	 * made again once it continues.  If the signal is ignored or
+	 * blocked, reading fails (EIO) and writing goes ahead; in an
+	 * orphaned group, which nothing would continue, both fail (EIO).
+	 */
+	if (sig != SIGTTIN && sig != SIGTTOU)
+		return(EINVAL);
+	if (proc->mp_session != session || proc->mp_procgrp == pgrp)
+		return(OK);			/* not ours, or foreground */
+	if (sigismember(&proc->mp_ignore, sig) ||
+	    sigismember(&rmp->mp_sigmask, sig))
+		return(sig == SIGTTOU ? OK : EIO);
+	if (orphaned_pgrp(proc->mp_procgrp, proc->mp_session))
+		return(EIO);
+	(void) signal_pgrp(proc->mp_procgrp, sig);
+	return(ERESTARTSYS);
+
+  default:
+	return(EINVAL);
+  }
+}
+
