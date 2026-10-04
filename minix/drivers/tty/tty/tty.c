@@ -78,6 +78,8 @@ static void reset_color(tty_t *tp);
 
 static int do_open(devminor_t minor, int access, endpoint_t user_endpt);
 static int do_close(devminor_t minor);
+static void set_ctty(tty_t *tp, endpoint_t endpt);
+static int jc_check(tty_t *tp, endpoint_t endpt, int sig);
 static ssize_t do_read(devminor_t minor, u64_t position, endpoint_t endpt,
 	cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
 static ssize_t do_write(devminor_t minor, u64_t position, endpoint_t endpt,
@@ -467,6 +469,40 @@ static void sef_cb_signal_handler(int signo)
 }
 
 /*===========================================================================*
+ *				set_ctty				     *
+ *===========================================================================*/
+static void set_ctty(tty_t *tp, endpoint_t endpt)
+{
+/* The terminal becomes the controlling terminal of the session 'endpt' is
+ * in, with endpt's process group in the foreground.
+ */
+  pid_t pgrp, session;
+
+  tp->tty_pgrp = endpt;
+  if (tty_jobctl(TTYJC_GETIDS, endpt, 0, 0, 0, &pgrp, &session) == OK) {
+	tp->tty_session = session;
+	tp->tty_fgpgrp = pgrp;
+  } else
+	tp->tty_session = tp->tty_fgpgrp = 0;
+}
+
+/*===========================================================================*
+ *				jc_check				     *
+ *===========================================================================*/
+static int jc_check(tty_t *tp, endpoint_t endpt, int sig)
+{
+/* May the process 'endpt' read (SIGTTIN) or write and set up (SIGTTOU) the
+ * terminal?  PM sends a background process group the signal and returns
+ * ERESTARTSYS, which makes the C library try again once it continues, or
+ * returns EIO (see do_ttyjc).
+ */
+  if (tp->tty_session == 0 || tp->tty_fgpgrp == 0)
+	return OK;
+  return tty_jobctl(TTYJC_CHECK, endpt, tp->tty_fgpgrp, tp->tty_session, sig,
+	NULL, NULL);
+}
+
+/*===========================================================================*
  *				do_read					     *
  *===========================================================================*/
 static ssize_t do_read(devminor_t minor, u64_t UNUSED(position),
@@ -479,6 +515,12 @@ static ssize_t do_read(devminor_t minor, u64_t UNUSED(position),
 
   if ((tp = line2tty(minor)) == NULL)
 	return ENXIO;
+
+  /* Job control: a background process may not read.  VFS identifies the
+   * request ('id') by the endpoint of the process making it.
+   */
+  if ((r = jc_check(tp, (endpoint_t) id, SIGTTIN)) != OK)
+	return r;
 
   /* Check if there is already a process hanging in a read, check if the
    * parameters are correct, do I/O.
@@ -549,6 +591,11 @@ static ssize_t do_write(devminor_t minor, u64_t UNUSED(position),
   if ((tp = line2tty(minor)) == NULL)
 	return ENXIO;
 
+  /* Job control: with TOSTOP, a background process may not write. */
+  if ((tp->tty_termios.c_lflag & TOSTOP) &&
+      (r = jc_check(tp, (endpoint_t) id, SIGTTOU)) != OK)
+	return r;
+
   /* Check if there is already a process hanging in a write, check if the
    * parameters are correct, do I/O.
    */
@@ -601,6 +648,18 @@ static int do_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
 
   if ((tp = line2tty(minor)) == NULL)
 	return ENXIO;
+
+  /* Job control: a background process may not change the settings. */
+  switch (request) {
+    case TIOCSETA:
+    case TIOCSETAW:
+    case TIOCSETAF:
+    case TIOCFLUSH:
+    case TIOCDRAIN:
+    case TIOCSPGRP:
+	if ((r = jc_check(tp, user_endpt, SIGTTOU)) != OK)
+		return r;
+  }
 
   r = OK;
   switch (request) {
@@ -705,14 +764,36 @@ static int do_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
 
     case TIOCSCTTY:
 	/* Process sets this tty as its controlling tty */
-	tp->tty_pgrp = user_endpt;
+	set_ctty(tp, user_endpt);
 	break;
-	
-/* These Posix functions are allowed to fail if _POSIX_JOB_CONTROL is 
- * not defined.
- */
-    case TIOCGPGRP:     
-    case TIOCSPGRP:	
+
+    case TIOCGPGRP:
+	/* tcgetpgrp(): the foreground process group. */
+	if (tp->tty_session == 0) { r = ENOTTY; break; }
+	r = sys_safecopyto(endpt, grant, 0, (vir_bytes) &tp->tty_fgpgrp,
+		sizeof(tp->tty_fgpgrp));
+	break;
+
+    case TIOCSPGRP: {
+	/* tcsetpgrp(): PM checks the group is of the terminal's session. */
+	pid_t pgrp;
+
+	if (tp->tty_session == 0) { r = ENOTTY; break; }
+	r = sys_safecopyfrom(endpt, grant, 0, (vir_bytes) &pgrp, sizeof(pgrp));
+	if (r != OK) break;
+	r = tty_jobctl(TTYJC_SETFG, user_endpt, pgrp, tp->tty_session, 0,
+		NULL, NULL);
+	if (r == OK) tp->tty_fgpgrp = pgrp;
+	break;
+    }
+
+    case TIOCGSID:
+	/* tcgetsid(): the session the terminal belongs to. */
+	if (tp->tty_session == 0) { r = ENOTTY; break; }
+	r = sys_safecopyto(endpt, grant, 0, (vir_bytes) &tp->tty_session,
+		sizeof(tp->tty_session));
+	break;
+
     default:
 	r = ENOTTY;
   }
@@ -740,7 +821,7 @@ static int do_open(devminor_t minor, int access, endpoint_t user_endpt)
 	if (access & CDEV_R_BIT) return EACCES;
   } else {
 	if (!(access & CDEV_NOCTTY)) {
-		tp->tty_pgrp = user_endpt;
+		set_ctty(tp, user_endpt);
 		r = CDEV_CTTY;
 	}
 	tp->tty_openct++;
@@ -766,6 +847,7 @@ static int do_close(devminor_t minor)
 
   if ((minor != LOG_MINOR || !isconsole(tp)) && --tp->tty_openct == 0) {
 	tp->tty_pgrp = 0;
+	tp->tty_session = tp->tty_fgpgrp = 0;
 	tty_icancel(tp);
 	(*tp->tty_ocancel)(tp, 0);
 	(*tp->tty_close)(tp, 0);
@@ -1133,6 +1215,8 @@ int count;			/* number of input characters */
 			sig = SIGQUIT;
 		else if(ch == tp->tty_termios.c_cc[VSTATUS])
 			sig = SIGINFO;
+		else if(ch == tp->tty_termios.c_cc[VSUSP])
+			sig = SIGTSTP;
 
 		if(sig >= 0) {
 			sigchar(tp, sig, 1);
@@ -1497,7 +1581,11 @@ int mayflush;
  */
   int status;
 
-  if (tp->tty_pgrp != 0)  {
+  if (tp->tty_fgpgrp != 0 && sig != SIGHUP && sig != SIGKILL) {
+      /* Job control: the foreground process group. */
+      (void) tty_jobctl(TTYJC_KILLPG, NONE, tp->tty_fgpgrp, 0, sig,
+	NULL, NULL);
+  } else if (tp->tty_pgrp != 0)  {
       if (OK != (status = sys_kill(tp->tty_pgrp, sig))) {
         panic("Error; call to sys_kill failed: %d", status);
       }

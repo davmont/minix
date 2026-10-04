@@ -2102,6 +2102,30 @@ typedef struct {
 } mess_rs_pm_srv_kill;
 _ASSERT_MSG_SIZE(mess_rs_pm_srv_kill);
 
+/* PM_TTYJC: what a terminal driver asks PM about job control. */
+#define TTYJC_GETIDS	1	/* endpt -> its process group and session */
+#define TTYJC_SETFG	2	/* endpt sets foreground pgrp of session's tty */
+#define TTYJC_CHECK	3	/* endpt may read (SIGTTIN) or write (SIGTTOU)? */
+#define TTYJC_KILLPG	4	/* send sig to process group pgrp */
+typedef struct {
+	int op;
+	endpoint_t endpt;		/* the process using the terminal */
+	pid_t pgrp;			/* SETFG: new; CHECK: current; KILLPG */
+	pid_t session;			/* the terminal's session */
+	int sig;
+
+	uint8_t padding[36];
+} mess_lsys_pm_ttyjc;
+_ASSERT_MSG_SIZE(mess_lsys_pm_ttyjc);
+
+typedef struct {
+	pid_t pgrp;
+	pid_t session;
+
+	uint8_t padding[48];
+} mess_pm_lsys_ttyjc;
+_ASSERT_MSG_SIZE(mess_pm_lsys_ttyjc);
+
 typedef struct {
 	int		len;
 	int		name_len;
@@ -2913,6 +2937,8 @@ typedef struct noxfer_message {
 		mess_rs_init		m_rs_init;
 		mess_rs_pm_exec_restart	m_rs_pm_exec_restart;
 		mess_rs_pm_srv_kill	m_rs_pm_srv_kill;
+		mess_lsys_pm_ttyjc	m_lsys_pm_ttyjc;
+		mess_pm_lsys_ttyjc	m_pm_lsys_ttyjc;
 		mess_rs_req		m_rs_req;
 		mess_rs_update		m_rs_update;
 		mess_sched_lsys_scheduling_start m_sched_lsys_scheduling_start;

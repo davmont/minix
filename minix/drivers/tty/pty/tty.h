@@ -48,6 +48,9 @@ typedef struct tty {
   char tty_escaped;		/* 1 when LNEXT (^V) just seen, else 0 */
   char tty_inhibited;		/* 1 when STOP (^S) just seen (stops output) */
   endpoint_t tty_pgrp;		/* endpoint of controlling process */
+  pid_t tty_session;		/* job control: session of the controlling
+				 * terminal, 0 if it is none */
+  pid_t tty_fgpgrp;		/* job control: foreground process group */
   char tty_openct;		/* count of number of opens of this tty */
 
   /* Information about incomplete I/O requests is stored here. */

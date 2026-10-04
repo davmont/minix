@@ -73,5 +73,6 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_SCHED_YIELD)	= do_sched_yield,	/* sched_yield(2) */
 	CALL(PM_TIMER)		= do_timer,		/* timer_create(2) and co. */
 	CALL(PM_SETPGID)	= do_setpgid,		/* setpgid(2) */
-	CALL(PM_GETPGID)	= do_get		/* getpgid(2) */
+	CALL(PM_GETPGID)	= do_get,		/* getpgid(2) */
+	CALL(PM_TTYJC)		= do_ttyjc		/* terminal job control */
 };
