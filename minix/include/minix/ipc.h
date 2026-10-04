@@ -717,11 +717,14 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_time);
 
 typedef struct {
-	pid_t pid;
+	pid_t pid;			/* waitid: the id */
 	int options;
 	vir_bytes addr;			/* struct rusage * */
+	int idtype;			/* waitid: idtype_t */
+	int waitid;			/* nonzero: waitid(2), report in 'info' */
+	vir_bytes info;			/* waitid: siginfo_t * */
 
-	uint8_t padding[44];
+	uint8_t padding[56 - 4 * sizeof(int) - 2 * sizeof(vir_bytes)];
 } mess_lc_pm_wait4;
 _ASSERT_MSG_SIZE(mess_lc_pm_wait4);
 

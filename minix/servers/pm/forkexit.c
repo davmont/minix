@@ -1156,28 +1156,57 @@ void exit_restart(struct mproc *rmp)
 int
 do_wait4(void)
 {
-/* A process wants to wait for a child to terminate. If a child is already
- * waiting, go clean it up and let this WAIT4 call terminate.  Otherwise,
- * really wait.
+/* A process wants to wait for a child: wait4(2), or waitid(2), which reports
+ * in a siginfo_t, can choose what to hear of (WEXITED, WSTOPPED, WCONTINUED)
+ * and with WNOWAIT leaves the child to be waited for again.  If a child has
+ * something to report, report it now; otherwise really wait, unless WNOHANG.
  * A process calling WAIT4 never gets a reply in the usual way at the end
  * of the main loop (unless WNOHANG is set or no qualifying child exists).
  * If a child has already exited, the routine tell_parent() sends the reply
  * to awaken the caller.
  */
   register struct mproc *rp;
-  vir_bytes addr;
-  int i, pidarg, options, children, waited_for;
+  vir_bytes addr, info;
+  int i, pidarg, options, children, waited_for, code, value, r;
 
   /* Set internal variables. */
   pidarg  = m_in.m_lc_pm_wait4.pid;		/* 1st param */
   options = m_in.m_lc_pm_wait4.options;		/* 3rd param */
   addr    = m_in.m_lc_pm_wait4.addr;		/* 4th param */
-  if (pidarg == 0) pidarg = -mp->mp_procgrp;	/* pidarg < 0 ==> proc grp */
+  info    = 0;
+
+  if (m_in.m_lc_pm_wait4.waitid) {
+	if ((options & ~(WNOHANG | WEXITED | WSTOPPED | WCONTINUED |
+	    WNOWAIT)) || !(options & (WEXITED | WSTOPPED | WCONTINUED)))
+		return(EINVAL);
+	switch (m_in.m_lc_pm_wait4.idtype) {
+	case P_ALL:
+		pidarg = -1;
+		break;
+	case P_PID:
+		if (pidarg <= 0) return(EINVAL);
+		break;
+	case P_PGID:
+		if (pidarg < 0) return(EINVAL);
+		if (pidarg == 0) pidarg = mp->mp_procgrp;
+		options |= WAIT_PGID;
+		break;
+	default:
+		return(EINVAL);
+	}
+	info = m_in.m_lc_pm_wait4.info;
+	options |= WAIT_INFO;
+	addr = 0;
+  } else {
+	options = (options & ~WNOWAIT) | WEXITED;	/* wait4 reports exits */
+	if (pidarg == 0) pidarg = -mp->mp_procgrp; /* pidarg < 0 ==> proc grp */
+  }
 
   /* Is there a child waiting to be collected? At this point, pidarg != 0:
    *	pidarg  >  0 means pidarg is pid of a specific process to wait for
    *	pidarg == -1 means wait for any child
    *	pidarg  < -1 means wait for any child whose process group = -pidarg
+   * (or, with WAIT_PGID, pidarg is the process group).
    */
   children = 0;
   for (rp = &mproc[0]; rp < &mproc[NR_PROCS]; rp++) {
@@ -1186,12 +1215,11 @@ do_wait4(void)
 	if (rp->mp_parent != who_p && (rp->mp_flags & ZOMBIE)) continue;
 
 	/* The value of pidarg determines which children qualify. */
-	if (pidarg  > 0 && pidarg != rp->mp_pid) continue;
-	if (pidarg < -1 && -pidarg != rp->mp_procgrp) continue;
+	if (!wait_match(pidarg, options, rp)) continue;
 
 	children++;			/* this child is acceptable */
 
-	if (rp->mp_tracer == who_p) {
+	if (rp->mp_tracer == who_p && !(options & WAIT_INFO)) {
 		if (rp->mp_flags & TRACE_ZOMBIE) {
 			/* Traced child meets the pid test and has exited. */
 			tell_tracer(rp);
@@ -1217,8 +1245,16 @@ do_wait4(void)
 	}
 
 	if (rp->mp_parent == who_p) {
-		if (rp->mp_flags & ZOMBIE) {
+		if ((rp->mp_flags & ZOMBIE) && (options & WEXITED)) {
 			/* This child meets the pid test and has exited. */
+			if (options & WAIT_INFO) {
+				exit_report(rp, &code, &value);
+				if ((r = wait_siginfo(mp, info, rp, code,
+				    value)) != OK)
+					return(r);
+				if (options & WNOWAIT)
+					return(rp->mp_pid);
+			}
 			waited_for = tell_parent(rp, addr);
 
 			if (waited_for &&
@@ -1231,10 +1267,19 @@ do_wait4(void)
 		    ((rp->mp_jcreport == JC_STOPPED && (options & WUNTRACED)) ||
 		    (rp->mp_jcreport == JC_CONTINUED &&
 		    (options & WCONTINUED)))) {
-			mp->mp_reply.m_pm_lc_wait4.status =
-			    (rp->mp_jcreport == JC_STOPPED) ?
-			    W_STOPCODE(rp->mp_stopsig) : W_CONTCODE();
-			rp->mp_jcreport = 0;
+			if (options & WAIT_INFO) {
+				code = (rp->mp_jcreport == JC_STOPPED) ?
+				    CLD_STOPPED : CLD_CONTINUED;
+				if ((r = wait_siginfo(mp, info, rp, code,
+				    code == CLD_STOPPED ? rp->mp_stopsig :
+				    SIGCONT)) != OK)
+					return(r);
+			} else
+				mp->mp_reply.m_pm_lc_wait4.status =
+				    (rp->mp_jcreport == JC_STOPPED) ?
+				    W_STOPCODE(rp->mp_stopsig) : W_CONTCODE();
+			if (!(options & WNOWAIT))
+				rp->mp_jcreport = 0;
 			return(rp->mp_pid);
 		}
 	}
@@ -1248,13 +1293,66 @@ do_wait4(void)
 	}
 	mp->mp_flags |= WAITING;	     /* parent wants to wait */
 	mp->mp_wpid = (pid_t) pidarg;	     /* save pid for later */
-	mp->mp_waitopts = options | WEXITED; /* wait4 reports exits too */
+	mp->mp_waitopts = options;	     /* and what to report */
 	mp->mp_waddr = addr;		     /* save rusage addr for later */
+	mp->mp_winfo = info;		     /* and the siginfo_t, for waitid */
 	return(SUSPEND);		     /* do not reply, let it wait */
   } else {
 	/* No child even meets the pid test.  Return error immediately. */
 	return(ECHILD);			     /* no - parent has no children */
   }
+}
+
+/*===========================================================================*
+ *				wait_match				     *
+ *===========================================================================*/
+int
+wait_match(pid_t pidarg, int options, struct mproc *child)
+{
+/* Does 'child' meet a wait call's choice of children? */
+
+  if (options & WAIT_PGID)
+	return (child->mp_procgrp == pidarg);
+  return (pidarg == -1 || pidarg == child->mp_pid ||
+	-pidarg == child->mp_procgrp);
+}
+
+/*===========================================================================*
+ *				exit_report				     *
+ *===========================================================================*/
+void
+exit_report(struct mproc *child, int *code, int *value)
+{
+/* How a zombie 'child' ended, as si_code and si_status. */
+
+  if (child->mp_sigstatus) {
+	*code = ((unsigned char) child->mp_sigstatus & WCOREFLAG) ?
+		CLD_DUMPED : CLD_KILLED;
+	*value = (unsigned char) child->mp_sigstatus & ~WCOREFLAG;
+  } else {
+	*code = CLD_EXITED;
+	*value = child->mp_exitstatus & 0xff;
+  }
+}
+
+/*===========================================================================*
+ *				wait_siginfo				     *
+ *===========================================================================*/
+int
+wait_siginfo(struct mproc *parent, vir_bytes info, struct mproc *child,
+	int code, int value)
+{
+/* Copy what waitid(2) reports about 'child' to the parent's siginfo_t. */
+  siginfo_t si;
+
+  memset(&si, 0, sizeof(si));
+  si.si_signo = SIGCHLD;
+  si.si_code = code;
+  si.si_pid = child->mp_pid;
+  si.si_uid = child->mp_realuid;
+  si.si_status = value;
+  return sys_datacopy(SELF, (vir_bytes) &si, parent->mp_endpoint, info,
+	sizeof(si));
 }
 
 /*===========================================================================*
@@ -1274,9 +1372,7 @@ wait_test(
 
   pidarg = rmp->mp_wpid;		/* who's being waited for? */
   parent_waiting = rmp->mp_flags & WAITING;
-  right_child =				/* child meets one of the 3 tests? */
-  	(pidarg == -1 || pidarg == child->mp_pid ||
-  	 -pidarg == child->mp_procgrp);
+  right_child = wait_match(pidarg, rmp->mp_waitopts, child);
 
   return (parent_waiting && right_child);
 }
@@ -1343,6 +1439,20 @@ check_parent(
 	 */
   }
   else if (wait_test(p_mp, child) && (p_mp->mp_waitopts & WEXITED)) {
+	if (p_mp->mp_waitopts & WAIT_INFO) {
+		/* waitid(2): the report goes in its siginfo_t; with WNOWAIT
+		 * the child stays a zombie, to be waited for again.
+		 */
+		int code, value, r;
+
+		exit_report(child, &code, &value);
+		r = wait_siginfo(p_mp, p_mp->mp_winfo, child, code, value);
+		if (r != OK || (p_mp->mp_waitopts & WNOWAIT)) {
+			p_mp->mp_flags &= ~WAITING;
+			reply((int) (p_mp - mproc), r != OK ? r : child->mp_pid);
+			return;
+		}
+	}
 	if (!tell_parent(child, p_mp->mp_waddr))
 		try_cleanup = FALSE; /* child is still there */
 

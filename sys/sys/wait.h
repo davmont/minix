@@ -123,7 +123,7 @@
 /*
  * Deprecated:
  * Structure of the information in the status word returned by wait4.
- * If w_stopval==WSTOPPED, then the second structure describes
+ * If w_stopval==_WSTOPPED, then the second structure describes
  * the information returned, else the first.
  */
 union wait {
@@ -168,18 +168,19 @@ union wait {
 #define w_retcode	w_T.w_Retcode
 #define w_stopval	w_S.w_Stopval
 #define w_stopsig	w_S.w_Stopsig
-
-#define	WSTOPPED	_WSTOPPED
 #endif /* _XOPEN_SOURCE || _NETBSD_SOURCE */
 
 #ifndef _KERNEL
 #include <sys/cdefs.h>
+#include <sys/idtype.h>
 
 __BEGIN_DECLS
 struct rusage;	/* forward declaration */
+union siginfo;
 
 pid_t	wait(int *);
 pid_t	waitpid(pid_t, int *, int);
+int	waitid(idtype_t, id_t, union siginfo *, int);
 #if defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE)
 #ifndef __LIBC12_SOURCE__
 pid_t	wait3(int *, int, struct rusage *) __RENAME(__wait350);

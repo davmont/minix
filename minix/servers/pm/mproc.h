@@ -70,6 +70,7 @@ EXTERN struct mproc {
   int mp_jcreport;		/* a stop or continue wait() has not reported
 				 * yet: JC_STOPPED or JC_CONTINUED */
   int mp_waitopts;		/* options of the pending wait call */
+  vir_bytes mp_winfo;		/* waitid: where the siginfo_t goes */
   pid_t mp_wpid;		/* pid this process is waiting for */
   vir_bytes mp_waddr;		/* struct rusage address while waiting */
   int mp_parent;		/* index of parent process */
@@ -182,6 +183,10 @@ EXTERN struct mproc {
 #define MP_EXECED     0x80000000U	/* called exec since fork: setpgid(2) on it
 					 * by the parent fails (EACCES).  The last
 					 * free bit: widen mp_flags for the next one */
+
+/* Internal mp_waitopts bits, beside the WNOHANG ... WNOWAIT options. */
+#define WAIT_PGID	0x40000000	/* mp_wpid is a process group (waitid) */
+#define WAIT_INFO	0x20000000	/* waitid: report in mp_winfo */
 
 /* mp_jcreport values. */
 #define JC_STOPPED	1

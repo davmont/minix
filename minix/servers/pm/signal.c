@@ -790,12 +790,20 @@ jc_notify_parent(struct mproc *leader, int code)
 
   want = (code == CLD_STOPPED) ? WUNTRACED : WCONTINUED;
   if (wait_test(p_mp, leader) && (p_mp->mp_waitopts & want)) {
-	status = (code == CLD_STOPPED) ? W_STOPCODE(leader->mp_stopsig) :
-		W_CONTCODE();
-	p_mp->mp_reply.m_pm_lc_wait4.status = status;
+	int r = OK;
+
+	if (p_mp->mp_waitopts & WAIT_INFO)	/* waitid(2) */
+		r = wait_siginfo(p_mp, p_mp->mp_winfo, leader, code,
+		    code == CLD_STOPPED ? leader->mp_stopsig : SIGCONT);
+	else {
+		status = (code == CLD_STOPPED) ?
+		    W_STOPCODE(leader->mp_stopsig) : W_CONTCODE();
+		p_mp->mp_reply.m_pm_lc_wait4.status = status;
+	}
 	p_mp->mp_flags &= ~WAITING;
-	leader->mp_jcreport = 0;
-	reply((int) (p_mp - mproc), leader->mp_pid);
+	if (r == OK && !(p_mp->mp_waitopts & WNOWAIT))
+		leader->mp_jcreport = 0;
+	reply((int) (p_mp - mproc), r != OK ? r : leader->mp_pid);
 	return;
   }
 
