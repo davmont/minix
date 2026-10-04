@@ -65,6 +65,11 @@ EXTERN struct mproc {
   endpoint_t mp_endpoint;	/* kernel endpoint id */
   pid_t mp_procgrp;		/* pid of process group (used for signals) */
   pid_t mp_session;		/* pid of the session leader */
+  int mp_stopsig;		/* job control, in the process's slot: the
+				 * signal that stopped it; 0 while it runs */
+  int mp_jcreport;		/* a stop or continue wait() has not reported
+				 * yet: JC_STOPPED or JC_CONTINUED */
+  int mp_waitopts;		/* options of the pending wait call */
   pid_t mp_wpid;		/* pid this process is waiting for */
   vir_bytes mp_waddr;		/* struct rusage address while waiting */
   int mp_parent;		/* index of parent process */
@@ -177,6 +182,10 @@ EXTERN struct mproc {
 #define MP_EXECED     0x80000000U	/* called exec since fork: setpgid(2) on it
 					 * by the parent fails (EACCES).  The last
 					 * free bit: widen mp_flags for the next one */
+
+/* mp_jcreport values. */
+#define JC_STOPPED	1
+#define JC_CONTINUED	2
 
 /* Sentinel for mp_lwp_group: the process is not part of a thread group. */
 #define NO_LWP_GROUP	(-1)

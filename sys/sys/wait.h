@@ -53,7 +53,9 @@
 
 #define	_WSTATUS(x)	(_W_INT(x) & 0177)
 #define	_WSTOPPED	0177		/* _WSTATUS if process is stopped */
-#define WIFSTOPPED(x)	(_WSTATUS(x) == _WSTOPPED)
+#define	_WCONTINUED	0xffffU		/* status of a continued process */
+#define WIFSTOPPED(x)	(_WSTATUS(x) == _WSTOPPED && !WIFCONTINUED(x))
+#define WIFCONTINUED(x)	(_W_INT(x) == _WCONTINUED)
 #define WSTOPSIG(x)	((int)(((unsigned int)_W_INT(x)) >> 8) & 0xff)
 #define WIFSIGNALED(x)	(_WSTATUS(x) != _WSTOPPED && _WSTATUS(x) != 0)
 #define WTERMSIG(x)	(_WSTATUS(x))
@@ -65,6 +67,7 @@
 
 #define	W_EXITCODE(ret, sig)	((ret) << 8 | (sig))
 #define	W_STOPCODE(sig)		((sig) << 8 | _WSTOPPED)
+#define	W_CONTCODE()		(_WCONTINUED)
 #endif
 
 /*
@@ -79,6 +82,9 @@
 #define WNOHANG		0x00000001	/* don't hang in wait */
 #define WUNTRACED	0x00000002	/* tell about stopped,
 					   untraced children */
+#define	WSTOPPED	WUNTRACED	/* the same, for waitid() */
+#define	WCONTINUED	0x00000010	/* tell about continued children */
+#define	WEXITED		0x00000020	/* tell about exited children */
 #if defined(_XOPEN_SOURCE) || defined(_NETBSD_SOURCE)
 #define	WALTSIG		0x00000004	/* wait for processes that exit
 					   with an alternate signal (i.e.

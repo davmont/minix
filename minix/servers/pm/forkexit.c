@@ -109,6 +109,8 @@ do_fork(void)
 
   /* Inherit only these flags. In normal fork(), PRIV_PROC is not inherited. */
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
+  rmc->mp_stopsig = 0;			/* a new process runs */
+  rmc->mp_jcreport = 0;
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
@@ -210,6 +212,8 @@ do_lwp_create(void)
   rmc->mp_trace_flags = 0;
   (void) sigemptyset(&rmc->mp_sigtrace);
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
+  rmc->mp_stopsig = 0;			/* a new process runs */
+  rmc->mp_jcreport = 0;
   rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
   if (m_in.m_lc_pm_lwp_create.flags & LWP_DETACHED)
 	rmc->mp_flags |= MP_LWP_DETACHED;	/* self-reaps on exit; not joinable */
@@ -1222,6 +1226,17 @@ do_wait4(void)
 				cleanup(rp);
 			return(SUSPEND);
 		}
+		/* Job control: a stop or continue not yet reported. */
+		if (!(rp->mp_flags & MP_LWP) &&
+		    ((rp->mp_jcreport == JC_STOPPED && (options & WUNTRACED)) ||
+		    (rp->mp_jcreport == JC_CONTINUED &&
+		    (options & WCONTINUED)))) {
+			mp->mp_reply.m_pm_lc_wait4.status =
+			    (rp->mp_jcreport == JC_STOPPED) ?
+			    W_STOPCODE(rp->mp_stopsig) : W_CONTCODE();
+			rp->mp_jcreport = 0;
+			return(rp->mp_pid);
+		}
 	}
   }
 
@@ -1233,6 +1248,7 @@ do_wait4(void)
 	}
 	mp->mp_flags |= WAITING;	     /* parent wants to wait */
 	mp->mp_wpid = (pid_t) pidarg;	     /* save pid for later */
+	mp->mp_waitopts = options | WEXITED; /* wait4 reports exits too */
 	mp->mp_waddr = addr;		     /* save rusage addr for later */
 	return(SUSPEND);		     /* do not reply, let it wait */
   } else {
@@ -1326,7 +1342,7 @@ check_parent(
 	 * be assigned to INIT and rechecked shortly after. Do nothing.
 	 */
   }
-  else if (wait_test(p_mp, child)) {
+  else if (wait_test(p_mp, child) && (p_mp->mp_waitopts & WEXITED)) {
 	if (!tell_parent(child, p_mp->mp_waddr))
 		try_cleanup = FALSE; /* child is still there */
 
@@ -1493,6 +1509,8 @@ cleanup(
   rmp->mp_child_utime = 0;
   rmp->mp_child_stime = 0;
   rmp->mp_lwp_time = 0;
+  rmp->mp_stopsig = 0;
+  rmp->mp_jcreport = 0;
   procs_in_use--;
 }
 

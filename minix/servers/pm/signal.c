@@ -27,6 +27,7 @@
 #include <minix/vm.h>
 #include <signal.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <assert.h>
 #include "mproc.h"
 
@@ -38,6 +39,11 @@ static void for_each_group_slot(struct mproc *rmp,
 static int unpause(struct mproc *rmp, int restart);
 static int sig_send(struct mproc *rmp, int signo);
 static void sig_proc_exit(struct mproc *rmp, int signo);
+static void discard_signal(struct mproc *rmp, int signo);
+static int orphaned_pgrp(pid_t pgrp, pid_t session);
+static void jc_notify_parent(struct mproc *leader, int code);
+static void job_stop(struct mproc *rmp, int signo);
+static void job_continue(struct mproc *rmp);
 
 /*===========================================================================*
  *				do_sigaction				     *
@@ -51,7 +57,6 @@ int do_sigaction(void)
   assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
 
   sig_nr = m_in.m_lc_pm_sig.nr;
-  if (sig_nr == SIGKILL) return(OK);
   if (sig_nr < 1 || sig_nr >= _NSIG) return(EINVAL);
 
   svp = &mp->mp_sigact[sig_nr];
@@ -68,6 +73,13 @@ int do_sigaction(void)
   r = sys_datacopy(who_e, m_in.m_lc_pm_sig.act, PM_PROC_NR, (vir_bytes) &svec,
 	  (phys_bytes) sizeof(svec));
   if (r != OK) return(r);
+
+  /* SIGKILL and SIGSTOP cannot be caught or ignored. */
+  if (sig_nr == SIGKILL || sig_nr == SIGSTOP) {
+	if (svec.sa_handler != SIG_DFL)
+		return(EINVAL);
+	return(OK);
+  }
 
   sigdelset(&svec.sa_mask, SIGKILL);
   sigdelset(&svec.sa_mask, SIGSTOP);
@@ -385,6 +397,10 @@ static void try_resume_proc(struct mproc *rmp)
   if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
 	return;
 
+  /* A process stopped by job control stays stopped until SIGCONT. */
+  if (process_of(rmp)->mp_stopsig != 0)
+	return;
+
   if ((r = sys_resume(rmp->mp_endpoint)) != OK)
 	panic("sys_resume failed: %d", r);
 
@@ -468,6 +484,12 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 	rmp->mp_flags &= ~DELAY_CALL;
 
 	assert(!(rmp->mp_flags & PROC_STOPPED));
+
+	/* A job-control stop that had to wait for the send: stop now. */
+	if (process_of(rmp)->mp_stopsig != 0) {
+		stop_proc(rmp, FALSE /*may_delay*/);
+		return OK;
+	}
 
 	/* If the delay call was to PM, it may have resulted in a VFS call. In
 	 * that case, we must wait with further signal processing until VFS has
@@ -618,6 +640,21 @@ sig_proc(
 	return;
   }
 
+  /* Job control.  SIGCONT continues a stopped process even if blocked or
+   * ignored, and discards pending stop signals; a stop signal discards a
+   * pending SIGCONT.  While stopped, signals other than SIGKILL wait.
+   */
+  if (signo == SIGCONT)
+	job_continue(rmp);
+  else if (sigismember(&stop_sset, signo))
+	discard_signal(rmp, SIGCONT);
+  if (process_of(rmp)->mp_stopsig != 0 && signo != SIGKILL) {
+	sigaddset(&rmp->mp_sigpending, signo);
+	if(ksig)
+		sigaddset(&rmp->mp_ksigpending, signo);
+	return;
+  }
+
   /* Handle user processes now. See if the signal cannot be safely ignored. */
   badignore = ksig && sigismember(&noign_sset, signo) && (
 	  sigismember(&rmp->mp_ignore, signo) ||
@@ -670,6 +707,19 @@ sig_proc(
 	printf("PM: %d can't catch signal %d - killing\n",
 		rmp->mp_pid, signo);
   }
+  else if (sigismember(&stop_sset, signo)) {
+	/* The default action is to stop.  POSIX: the terminal stop signals do
+	 * nothing to an orphaned process group, which has no shell to
+	 * continue it.
+	 */
+	struct mproc *leader = process_of(rmp);
+
+	if (signo != SIGSTOP &&
+	    orphaned_pgrp(leader->mp_procgrp, leader->mp_session))
+		return;
+	job_stop(rmp, signo);
+	return;
+  }
   else if (!badignore && sigismember(&ign_sset, signo)) {
 	/* Signal defaults to being ignored. */
 	return;
@@ -677,6 +727,149 @@ sig_proc(
 
   /* Terminate process */
   sig_proc_exit(rmp, signo);
+}
+
+/*===========================================================================*
+ *				discard_signal				     *
+ *===========================================================================*/
+static void
+discard_signal(struct mproc *rmp, int signo)
+{
+/* Drop a pending 'signo' from every slot of the process 'rmp' belongs to. */
+  struct mproc *leader = process_of(rmp), *t;
+  int slot = (int) (leader - mproc);
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE))
+		continue;
+	if (t == leader || ((t->mp_flags & MP_LWP) && t->mp_lwp_group == slot)) {
+		sigdelset(&t->mp_sigpending, signo);
+		sigdelset(&t->mp_ksigpending, signo);
+	}
+  }
+}
+
+/*===========================================================================*
+ *				orphaned_pgrp				     *
+ *===========================================================================*/
+static int
+orphaned_pgrp(pid_t pgrp, pid_t session)
+{
+/* POSIX: a process group is orphaned when no member has a parent in another
+ * process group of the same session.
+ */
+  struct mproc *t, *parent;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | ZOMBIE | MP_LWP)) != IN_USE ||
+	    t->mp_procgrp != pgrp)
+		continue;
+	parent = process_of(&mproc[t->mp_parent]);
+	if (parent->mp_procgrp != pgrp && parent->mp_session == session)
+		return FALSE;
+  }
+  return TRUE;
+}
+
+/*===========================================================================*
+ *				jc_notify_parent			     *
+ *===========================================================================*/
+static void
+jc_notify_parent(struct mproc *leader, int code)
+{
+/* The process 'leader' stands for stopped (CLD_STOPPED) or continued
+ * (CLD_CONTINUED).  A parent waiting for that with WUNTRACED or WCONTINUED
+ * hears it at once; otherwise it gets SIGCHLD, unless SA_NOCLDSTOP.
+ */
+  struct mproc *p_mp = &mproc[leader->mp_parent];
+  struct pm_siginfo saved;
+  int want, status;
+
+  if (p_mp->mp_flags & EXITING)
+	return;
+
+  want = (code == CLD_STOPPED) ? WUNTRACED : WCONTINUED;
+  if (wait_test(p_mp, leader) && (p_mp->mp_waitopts & want)) {
+	status = (code == CLD_STOPPED) ? W_STOPCODE(leader->mp_stopsig) :
+		W_CONTCODE();
+	p_mp->mp_reply.m_pm_lc_wait4.status = status;
+	p_mp->mp_flags &= ~WAITING;
+	leader->mp_jcreport = 0;
+	reply((int) (p_mp - mproc), leader->mp_pid);
+	return;
+  }
+
+  if (p_mp->mp_sigact[SIGCHLD].sa_flags & SA_NOCLDSTOP)
+	return;
+
+  saved = sig_origin;
+  set_sig_origin(code, leader->mp_pid, leader->mp_realuid,
+	(code == CLD_STOPPED) ? leader->mp_stopsig : SIGCONT, 0);
+  sig_proc(p_mp, SIGCHLD, TRUE /*trace*/, FALSE /*ksig*/);
+  sig_origin = saved;
+}
+
+/*===========================================================================*
+ *				job_stop				     *
+ *===========================================================================*/
+static void
+job_stop(struct mproc *rmp, int signo)
+{
+/* Stop the process 'rmp' belongs to, every thread of it, on 'signo'. */
+  struct mproc *leader = process_of(rmp), *t;
+  int slot = (int) (leader - mproc);
+
+  leader->mp_stopsig = signo;
+  leader->mp_jcreport = JC_STOPPED;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING)) != IN_USE)
+		continue;
+	if (t != leader && !((t->mp_flags & MP_LWP) && t->mp_lwp_group == slot))
+		continue;
+	/* One busy sending stops when the send is done (SIGSNDELAY). */
+	if (!(t->mp_flags & (PROC_STOPPED | DELAY_CALL)))
+		(void) stop_proc(t, TRUE /*may_delay*/);
+  }
+
+  jc_notify_parent(leader, CLD_STOPPED);
+}
+
+/*===========================================================================*
+ *				job_continue				     *
+ *===========================================================================*/
+static void
+job_continue(struct mproc *rmp)
+{
+/* SIGCONT: drop pending stop signals and, if the process 'rmp' belongs to is
+ * stopped, let it run again, delivering what waited meanwhile.
+ */
+  struct mproc *leader = process_of(rmp), *t;
+  int i, slot = (int) (leader - mproc);
+
+  for (i = 1; i < _NSIG; i++)
+	if (sigismember(&stop_sset, i))
+		discard_signal(leader, i);
+
+  if (leader->mp_stopsig == 0)
+	return;
+  leader->mp_stopsig = 0;
+  leader->mp_jcreport = JC_CONTINUED;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING)) != IN_USE)
+		continue;
+	if (t != leader && !((t->mp_flags & MP_LWP) && t->mp_lwp_group == slot))
+		continue;
+	if (!(t->mp_flags & PROC_STOPPED))
+		continue;
+	/* As restart_sigs(): signals first, then resume if nothing holds it. */
+	check_pending(t);
+	if (t->mp_flags & PROC_STOPPED)
+		try_resume_proc(t);
+  }
+
+  jc_notify_parent(leader, CLD_CONTINUED);
 }
 
 /*===========================================================================*
