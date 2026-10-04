@@ -2858,6 +2858,7 @@
 ./usr/include/sys/intr.h			comp-c-include
 ./usr/include/sys/intrio.h			comp-c-include
 ./usr/include/sys/inttypes.h			comp-c-include
+./usr/include/sys/idtype.h			comp-c-include
 ./usr/include/sys/ioccom.h			comp-c-include
 ./usr/include/sys/ioctl.h			comp-c-include
 ./usr/include/sys/ioctl_compat.h		comp-c-include
