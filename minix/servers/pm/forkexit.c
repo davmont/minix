@@ -112,6 +112,7 @@ do_fork(void)
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
+  rmc->mp_lwp_time = 0;
   rmc->mp_exitstatus = 0;
   rmc->mp_sigstatus = 0;
   rmc->mp_endpoint = child_ep;		/* passed back by VM */
@@ -216,6 +217,7 @@ do_lwp_create(void)
   rmc->mp_parent = mproc[leader].mp_parent;  /* same parent as the process */
   rmc->mp_child_utime = 0;
   rmc->mp_child_stime = 0;
+  rmc->mp_lwp_time = 0;
   rmc->mp_exitstatus = 0;
   rmc->mp_sigstatus = 0;
   rmc->mp_endpoint = child_ep;		/* passed back by VM */
@@ -280,6 +282,7 @@ lwp_start_teardown(struct mproc *rmp)
  * + VM state + the PM slot) is finished once VFS replies — see
  * handle_vfs_reply()/VFS_PM_LWP_EXIT_REPLY -> lwp_exit_finish(). */
   endpoint_t proc_nr_e = rmp->mp_endpoint;
+  clock_t user_time, sys_time;
   message m;
   int r;
 
@@ -289,6 +292,12 @@ lwp_start_teardown(struct mproc *rmp)
 		panic("lwp_start_teardown: sys_stop failed: %d", r);
 	rmp->mp_flags |= PROC_STOPPED;
   }
+
+  /* The thread's CPU time stays with its process (CLOCK_PROCESS_CPUTIME_ID).
+   * It is stopped, so the count is final.
+   */
+  if (sys_times(proc_nr_e, &user_time, &sys_time, NULL, NULL) == OK)
+	mproc[rmp->mp_lwp_group].mp_lwp_time += user_time + sys_time;
 
   if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
 	printf("PM: lwp_start_teardown: sched_stop failed: %d\n", r);
@@ -847,6 +856,7 @@ do_srv_fork(void)
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */
+  rmc->mp_lwp_time = 0;
   rmc->mp_exitstatus = 0;
   rmc->mp_sigstatus = 0;
   rmc->mp_endpoint = child_ep;		/* passed back by VM */
@@ -955,6 +965,11 @@ exit_proc(
   	panic("exit_proc: sys_times failed: %d", r);
   rmp->mp_child_utime += user_time;		/* add user time */
   rmp->mp_child_stime += sys_time;		/* add system time */
+  /* A thread's CPU time stays with its process (CLOCK_PROCESS_CPUTIME_ID),
+   * unless lwp_start_teardown() has counted it already.
+   */
+  if ((rmp->mp_flags & (MP_LWP | MP_LWP_TEARDOWN)) == MP_LWP)
+	mproc[rmp->mp_lwp_group].mp_lwp_time += user_time + sys_time;
 
   /* Tell the kernel the process is no longer runnable to prevent it from
    * being scheduled in between the following steps. Then tell VFS that it
@@ -1477,6 +1492,7 @@ cleanup(
   rmp->mp_flags = 0;
   rmp->mp_child_utime = 0;
   rmp->mp_child_stime = 0;
+  rmp->mp_lwp_time = 0;
   procs_in_use--;
 }
 

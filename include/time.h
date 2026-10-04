@@ -158,6 +158,10 @@ int timer_settime(timer_t, int, const struct itimerspec * __restrict,
 #endif
 int timer_create(clockid_t, struct sigevent * __restrict,
     timer_t * __restrict);
+#if (_POSIX_C_SOURCE - 0) >= 200112L || (_XOPEN_SOURCE - 0) >= 600 || \
+    defined(_NETBSD_SOURCE)
+int clock_getcpuclockid(pid_t, clockid_t *);
+#endif
 int timer_delete(timer_t);
 int timer_getoverrun(timer_t);
 #endif /* _POSIX_C_SOURCE >= 199309 || _XOPEN_SOURCE >= 500 || ... */
