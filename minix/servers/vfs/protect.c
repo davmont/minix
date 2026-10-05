@@ -78,16 +78,22 @@ int do_chmod(void)
 
   /* Only the owner or the super_user may change the mode of a file.
    * No one may change the mode of a file on a read-only file system.
+   * As on NetBSD, only the super-user may set the sticky bit on a file
+   * that is not a directory (EFTYPE).
    */
   if (vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
 	r = EPERM;
+  else if (fp->fp_effuid != SU_UID && !S_ISDIR(vp->v_mode) &&
+      (new_mode & S_ISVTX))
+	r = EFTYPE;
   else
 	r = read_only(vp);
 
   if (r == OK) {
-	/* Now make the change. Clear setgid bit if file is not in caller's
-	 * group */
-	if (fp->fp_effuid != SU_UID && vp->v_gid != fp->fp_effgid)
+	/* Now make the change. Clear setgid bit if file is not in one of the
+	 * caller's groups (its effective or a supplementary group) */
+	if (fp->fp_effuid != SU_UID && vp->v_gid != fp->fp_effgid &&
+	    in_group(fp, vp->v_gid) != OK)
 		new_mode &= ~I_SET_GID_BIT;
 
 	r = req_chmod(vp->v_fs_e, vp->v_inode_nr, new_mode, &result_mode);
@@ -238,11 +244,19 @@ int do_chown(void)
 	/* FS is R/W. Whether call is allowed depends on ownership, etc. */
 	/* The super user can do anything, so check permissions only if we're
 	   a regular user. */
-	if (fp->fp_effuid != SU_UID) {
-		/* Regular users can only change groups of their own files. */
+	if (uid == (uid_t)-1 && gid == (gid_t)-1) {
+		/* Nothing to change: anybody may (POSIX, the BSDs). */
+	} else if (fp->fp_effuid != SU_UID) {
+		/* Regular users can only change groups of their own files,
+		 * to their effective group or one of their supplementary
+		 * groups; -1 leaves an id as it is (POSIX).
+		 */
 		if (vp->v_uid != fp->fp_effuid) r = EPERM;
-		if (vp->v_uid != uid) r = EPERM;	/* no giving away */
-		if (fp->fp_effgid != gid) r = EPERM;
+		if (uid != (uid_t)-1 && uid != vp->v_uid)
+			r = EPERM;			/* no giving away */
+		if (gid != (gid_t)-1 && gid != fp->fp_effgid &&
+		    in_group(fp, gid) != OK)
+			r = EPERM;
 	}
   }
 
@@ -253,6 +267,8 @@ int do_chown(void)
 
 	if (new_uid > UID_MAX || new_gid > GID_MAX)
 		r = EINVAL;
+	else if (uid == (uid_t)-1 && gid == (gid_t)-1)
+		r = OK;				/* a no-op */
 	else if ((r = req_chown(vp->v_fs_e, vp->v_inode_nr, new_uid, new_gid,
 				&new_mode)) == OK) {
 		vp->v_uid = new_uid;

@@ -69,7 +69,7 @@ for type in regular fifo block char socket symlink; do
 			expect 0 -u 65534 -g 65534 chmod ${n2} 01640
 			expect 01640 stat ${n1} mode
 			;;
-		FreeBSD)
+		FreeBSD|Minix)
 			expect EFTYPE -u 65534 -g 65534 chmod ${n1} 01644
 			expect 0640 stat ${n1} mode
 			expect EFTYPE -u 65534 -g 65534 chmod ${n2} 01644
@@ -103,7 +103,7 @@ for type in regular fifo block char socket symlink; do
 			expect 0 -u 65534 -g 65534 lchmod ${n1} 01644
 			expect 01644 lstat ${n1} mode
 			;;
-		FreeBSD)
+		FreeBSD|Minix)
 			expect EFTYPE -u 65534 -g 65534 lchmod ${n1} 01644
 			expect 0640 lstat ${n1} mode
 			;;

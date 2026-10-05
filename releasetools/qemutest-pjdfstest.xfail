@@ -22,15 +22,6 @@ unlink/13.t
 # MFS keeps whole-second timestamps: sub-second times read back as 0.
 utimensat/08.t
 
-# Permission semantics for an unprivileged user: set-id bits must clear on
-# a write by a non-owner, chown may only move to a group the caller is in,
-# and the sticky bit must restrict unlink/rmdir to the file's owner.
-chmod/11.t
-chmod/12.t
-chown/00.t
-chown/05.t
-rmdir/11.t
-unlink/11.t
 
 # Long path handling: components and targets past the MFS limits do not
 # fail with ENAMETOOLONG the way POSIX expects.
