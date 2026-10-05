@@ -419,8 +419,24 @@ int do_gcov_flush(void);
 #define do_gcov_flush NULL
 #endif
 
+/* kqueue.c */
+struct kqueue;
+struct filedesc;
+int do_kqueue(void);
+int do_kevent(void);
+void kq_free(struct kqueue *kq);
+void kq_fd_closed(struct filedesc *fdtab, int fd);
+void kq_fdtab_gone(struct filedesc *fdtab);
+void kq_vnode_write(struct vnode *vp, int extended);
+int kq_output(struct kqueue *kq, endpoint_t ep, fd_set *rdready,
+	fd_set *wrready, vir_bytes events, int nevents);
+
 /* select.c */
 int do_select(void);
+int select_kevent(struct kqueue *kq, fd_set *readfds, fd_set *writefds,
+	int nfds, int block, clock_t ticks, vir_bytes events, int nevents);
+void kq_wake(struct kqueue *kq);
+void kq_abort(struct kqueue *kq);
 void init_select(void);
 void select_callback(struct filp *, int ops);
 void select_forget(void);

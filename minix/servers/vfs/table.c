@@ -91,4 +91,6 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_PWRITE)	= do_pwrite,		/* pwrite(2) */
 	CALL(VFS_FLOCK)		= do_flock,		/* flock(2) */
 	CALL(VFS_FALLOCATE)	= do_fallocate,		/* posix_fallocate(2) */
+	CALL(VFS_KQUEUE)	= do_kqueue,		/* kqueue1(2) */
+	CALL(VFS_KEVENT)	= do_kevent,		/* kevent(2) */
 };

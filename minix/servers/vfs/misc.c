@@ -933,6 +933,8 @@ static void free_proc(int flags)
 	for (i = 0; i < OPEN_MAX; i++) {
 		(void) close_fd(fp, i, FALSE /*may_suspend*/);
 	}
+	if (flags & FP_EXITING)
+		kq_fdtab_gone(fp->fp_fd);	/* kqueues inherited elsewhere */
 
 	/* Release root and working directories. */
 	if (fp->fp_fd->fd_rd) { put_vnode(fp->fp_fd->fd_rd); fp->fp_fd->fd_rd = NULL; }

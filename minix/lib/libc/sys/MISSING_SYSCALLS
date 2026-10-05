@@ -11,8 +11,6 @@ setrlimit
 getrusage
 getsid
 issetugid /* WARNING: Always returns 0 in this impl. */
-kevent
-kqueue
 ktrace
 lfs_*
 madvise

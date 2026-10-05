@@ -1,6 +1,8 @@
 #ifndef __VFS_FILE_H__
 #define __VFS_FILE_H__
 
+struct kqueue;
+
 /* This is the filp table.  It is an intermediary between file descriptors and
  * inodes.  A slot is free if filp_count == 0.
  */
@@ -30,6 +32,8 @@ EXTERN struct filp {
   /* following are for fd-type-specific select() */
   int filp_pipe_select_ops;	/* used for pipes */
   dev_t filp_select_dev;	/* used for character and socket devices */
+
+  struct kqueue *filp_kq;	/* if a kqueue(2): its state (kqueue.c) */
 } filp[NR_FILPS];
 
 #define FILP_CLOSED	0	/* filp_mode: associated device closed/gone */

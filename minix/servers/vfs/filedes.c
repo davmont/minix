@@ -146,6 +146,7 @@ int get_fd(struct fproc *rfp, int start, mode_t bits, int *k, struct filp **fpt)
 		f->filp_select_flags = 0;
 		f->filp_softlock = NULL;
 		f->filp_ioctl_fp = NULL;
+		f->filp_kq = NULL;
 		*fpt = f;
 		return(OK);
 	}
@@ -496,6 +497,12 @@ close_filp(struct filp * f, int may_suspend)
   if (--f->filp_count == 0) {
 	/* The open file goes: so do its flock(2) locks. */
 	lock_release_filp(f);
+
+	/* And its kqueue, if it is one. */
+	if (f->filp_kq != NULL) {
+		kq_free(f->filp_kq);
+		f->filp_kq = NULL;
+	}
 
 	if (S_ISFIFO(vp->v_mode)) {
 		/* Last reader or writer is going. Tell PFS about latest

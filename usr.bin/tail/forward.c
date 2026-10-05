@@ -87,16 +87,10 @@ static int rlines(FILE *, off_t, struct stat *);
 void
 forward(FILE *fp, enum STYLE style, off_t off, struct stat *sbp)
 {
-#if !defined(__minix)
 	int ch, n;
-#else
-	int ch;
-#endif /* !defined(__minix) */
 	int kq=-1, action=USE_SLEEP;
 	struct stat statbuf;
-#if !defined(__minix)
 	struct kevent ev[2];
-#endif /* !defined(__minix) */
 
 	switch(style) {
 	case FBYTES:
@@ -178,14 +172,10 @@ forward(FILE *fp, enum STYLE style, off_t off, struct stat *sbp)
 	}
 
 	if (fflag) {
-#if !defined(__minix)
 		kq = kqueue();
 		if (kq < 0)
 			xerr(1, "kqueue");
 		action = ADD_EVENTS;
-#else
-        action = USE_SLEEP;
-#endif /* !defined(__minix) */
 	}
 
 	for (;;) {
@@ -204,7 +194,6 @@ forward(FILE *fp, enum STYLE style, off_t off, struct stat *sbp)
 		clearerr(fp);
 
 		switch (action) {
-#if !defined(__minix)
 		case ADD_EVENTS:
 			n = 0;
 
@@ -243,7 +232,6 @@ forward(FILE *fp, enum STYLE style, off_t off, struct stat *sbp)
 				}
 			}
 			break;
-#endif /* !defined(__minix) */
 
 		case USE_SLEEP:
 			/*
