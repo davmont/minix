@@ -866,6 +866,59 @@ int pt_writable(struct vmproc *vmp, vir_bytes v)
 #endif
 }
 
+#ifdef CONFIG_SMP
+/*===========================================================================*
+ *				lwp_inhibit		     		     *
+ *===========================================================================*/
+static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, int pages,
+	int set)
+{
+/* The threads of a process share its page tables, each on a CPU of its own.
+ * Stopping the process whose tables these are (see pt_writemap) leaves its
+ * threads running, and a thread on another CPU may go on using a stale TLB
+ * entry for a page that is being unmapped, freed or made read-only: stop
+ * them too, which also flushes their TLBs before they run again.  Mapping
+ * pages where there were none needs no flush.  Returns whether any thread
+ * was stopped, so that the caller lets the same ones go again.
+ */
+	struct vmproc *v2;
+	int leader, i, p, present = 0;
+
+	if (vmp < vmproc || vmp >= &vmproc[NR_PROCS])
+		return 0;
+	if (vmp->vm_lwp_leader != NO_LWP_LEADER)
+		leader = vmp->vm_lwp_leader;
+	else if (vmp->vm_lwp_refcount > 0)
+		leader = vmp - vmproc;
+	else
+		return 0;			/* not a thread group */
+
+	if (set) {
+		for (p = 0; p < pages && !present; p++, v += VM_PAGE_SIZE) {
+			int pde = ARCH_VM_PDE(v), pte = ARCH_VM_PTE(v);
+			present = (pt->pt_dir[pde] & ARCH_VM_PDE_PRESENT) &&
+			    pt->pt_pt[pde] &&
+			    (pt->pt_pt[pde][pte] & ARCH_VM_PTE_PRESENT);
+		}
+		if (!present)
+			return 0;
+	}
+
+	for (i = 0; i < NR_PROCS; i++) {
+		v2 = &vmproc[i];
+		if (v2 == vmp || !(v2->vm_flags & VMF_INUSE) ||
+		    (v2->vm_flags & VMF_EXITING) ||
+		    v2->vm_endpoint == NONE || v2->vm_endpoint == VM_PROC_NR)
+			continue;
+		if (i != leader && v2->vm_lwp_leader != leader)
+			continue;
+		sys_vmctl(v2->vm_endpoint, set ? VMCTL_VMINHIBIT_SET :
+		    VMCTL_VMINHIBIT_CLEAR, 0);
+	}
+	return 1;
+}
+#endif
+
 /*===========================================================================*
  *				pt_writemap		     		     *
  *===========================================================================*/
@@ -884,7 +937,7 @@ int pt_writemap(struct vmproc * vmp,
 	int ret = OK;
 
 #ifdef CONFIG_SMP
-	int vminhibit_clear = 0;
+	int vminhibit_clear = 0, lwp_clear = 0;
 	/* FIXME
 	 * don't do it everytime, stop the process only on the first change and
 	 * resume the execution on the last change. Do in a wrapper of this
@@ -895,6 +948,8 @@ int pt_writemap(struct vmproc * vmp,
 		sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_SET, 0);
 		vminhibit_clear = 1;
 	}
+	if (vmp && vmp->vm_endpoint != VM_PROC_NR)
+		lwp_clear = lwp_inhibit(vmp, pt, v, bytes / VM_PAGE_SIZE, 1);
 #endif
 
 	if(writemapflags & WMF_VERIFY)
@@ -1031,6 +1086,8 @@ resume_exit:
 			!(vmp->vm_flags & VMF_EXITING));
 		sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_CLEAR, 0);
 	}
+	if (lwp_clear)
+		(void)lwp_inhibit(vmp, pt, 0, 0, 0);
 #endif
 
 	return ret;
