@@ -23,7 +23,7 @@ static int __fstatat(int dirfd, const char *name, struct stat *buffer,
 
   memset(&m, 0, sizeof(m));
   m.m_lc_vfs_fstatat.dirfd = dirfd;
-  m.m_lc_vfs_fstatat.len = strlen(name) + 1;
+  m.m_lc_vfs_fstatat.len = 0;	/* VFS copies the path */
   m.m_lc_vfs_fstatat.name = (vir_bytes)name;
   m.m_lc_vfs_fstatat.buf = (vir_bytes)buffer;
   m.m_lc_vfs_fstatat.flags = flags;

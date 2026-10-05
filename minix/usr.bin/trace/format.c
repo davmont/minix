@@ -2,6 +2,7 @@
 #include "inc.h"
 
 #include <stdarg.h>
+#include <machine/vmparam.h>
 
 /*
  * The size of the formatting buffer, which in particular limits the maximum
@@ -262,6 +263,12 @@ put_buf(struct trace_proc * proc, const char * name, int flags, vir_bytes addr,
 		return;
 	}
 
+	/* A path passed with length 0 is a string of unknown length: VFS copies
+	 * it (see the C library's _loadname()).  Read up to the terminator.
+	 */
+	if (size == 0 && (flags & PF_PATH) == PF_PATH && !(flags & PF_LOCADDR))
+		size = PATH_MAX;
+
 	if (size == 0) {
 		put_field(proc, name, "\"\"");
 
@@ -294,6 +301,12 @@ put_buf(struct trace_proc * proc, const char * name, int flags, vir_bytes addr,
 		chunk = len - off;
 		if (chunk > sizeof(formatbuf) - 1)
 			chunk = sizeof(formatbuf) - 1;
+		/* A string may end just before an unmapped page: do not let
+		 * one copy cross a page boundary, or the copy fails.
+		 */
+		if ((flags & PF_STRING) && !(flags & PF_LOCADDR) &&
+		    chunk > PAGE_SIZE - ((addr + off) & (PAGE_SIZE - 1)))
+			chunk = PAGE_SIZE - ((addr + off) & (PAGE_SIZE - 1));
 
 		if (!(flags & PF_LOCADDR)) {
 			if (mem_get_data(proc->pid, addr + off, formatbuf,

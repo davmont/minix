@@ -14,7 +14,7 @@ static int __mknodat(int dirfd, const char *name, mode_t mode, dev_t dev)
 
   memset(&m, 0, sizeof(m));
   m.m_lc_vfs_mknodat.dirfd = dirfd;
-  m.m_lc_vfs_mknodat.len = strlen(name) + 1;
+  m.m_lc_vfs_mknodat.len = 0;	/* VFS copies the path */
   m.m_lc_vfs_mknodat.mode = mode;
   m.m_lc_vfs_mknodat.device = dev;
   m.m_lc_vfs_mknodat.name = (vir_bytes)name;

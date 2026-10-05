@@ -16,8 +16,8 @@ static int __renameat(int fd1, const char *name, int fd2, const char *name2)
   message m;
 
   memset(&m, 0, sizeof(m));
-  m.m_lc_vfs_linkat.len1 = strlen(name) + 1;
-  m.m_lc_vfs_linkat.len2 = strlen(name2) + 1;
+  m.m_lc_vfs_linkat.len1 = 0;	/* VFS copies the paths */
+  m.m_lc_vfs_linkat.len2 = 0;
   m.m_lc_vfs_linkat.name1 = (vir_bytes)name;
   m.m_lc_vfs_linkat.name2 = (vir_bytes)name2;
   m.m_lc_vfs_linkat.fd1 = fd1;

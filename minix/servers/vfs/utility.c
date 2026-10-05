@@ -30,8 +30,10 @@ static int get_msg_path(vir_bytes name, size_t len, const char *buf,
  */
   assert(size >= PATH_MAX);
 
-  if (len == 0 || len > size) {	/* 'len' includes terminating-nul */
-	err_code = (len == 0 ? EINVAL : ENAMETOOLONG);
+  if (len == 0)			/* unknown: a string at 'name' */
+	return fetch_name(name, 0, dest);
+  if (len > size) {	/* 'len' includes terminating-nul */
+	err_code = ENAMETOOLONG;
 	return(EGENERIC);
   }
 
@@ -79,8 +81,39 @@ int copy_pathat(char *dest, size_t size)
  *===========================================================================*/
 int fetch_name(vir_bytes path, size_t len, char *dest)
 {
-/* Go get path and put it in 'dest'.  */
+/* Go get path and put it in 'dest'.  With 'len' 0 the length is not known:
+ * copy the string a page at a time, like copyinstr(9), so that a bad address
+ * fails with EFAULT and a string that ends before an unmapped page is fine.
+ */
   int r;
+
+  if (len == 0) {
+	size_t off = 0, chunk, want = 64;
+	char *nul;
+
+	/* Most paths are short: copy 64 bytes first, then more and more, but
+	 * never across a page boundary in one copy.
+	 */
+	while (off < PATH_MAX) {
+		chunk = PAGE_SIZE - ((path + off) & (PAGE_SIZE - 1));
+		if (chunk > want)
+			chunk = want;
+		if (chunk > PATH_MAX - off)
+			chunk = PATH_MAX - off;
+		want *= 4;
+		r = sys_datacopy_wrapper(who_e, path + off, VFS_PROC_NR,
+		    (vir_bytes) (dest + off), chunk);
+		if (r != OK) {
+			err_code = EFAULT;
+			return(EGENERIC);
+		}
+		if ((nul = memchr(dest + off, '\0', chunk)) != NULL)
+			return(OK);
+		off += chunk;
+	}
+	err_code = ENAMETOOLONG;
+	return(EGENERIC);
+  }
 
   if (len > PATH_MAX) {	/* 'len' includes terminating-nul */
 	err_code = ENAMETOOLONG;
