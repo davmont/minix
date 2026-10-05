@@ -73,6 +73,15 @@ int vm_forget_cacheblock(dev_t dev, off_t dev_offset, int blocksize)
 		VMC_NO_INODE, 0, 0, blocksize, 0);
 }
 
+int vm_mapwrite_cacheblock(dev_t dev, off_t dev_offset, int blocksize,
+	int writable)
+{
+	message m;
+
+	return vm_cachecall(&m, VM_MAPWRITECACHE, NULL, dev, dev_offset,
+		VMC_NO_INODE, 0, 0, blocksize, writable);
+}
+
 int
 vm_clear_cache(dev_t dev)
 {

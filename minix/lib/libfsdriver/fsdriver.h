@@ -77,6 +77,8 @@ extern int fsdriver_rdlink(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
 extern int fsdriver_getdents(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
+extern int fsdriver_mapwrite(const struct fsdriver * __restrict,
+	const message * __restrict, message * __restrict);
 extern int fsdriver_peek(const struct fsdriver * __restrict,
 	const message * __restrict, message * __restrict);
 extern int fsdriver_bpeek(const struct fsdriver * __restrict,

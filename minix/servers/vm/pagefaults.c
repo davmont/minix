@@ -199,6 +199,16 @@ static void handle_pagefault(endpoint_t ep, vir_bytes addr, u32_t err, int retry
 		return;
 	}
 
+	if(result == ENXIO) {
+		/* No page of the file there: beyond its end (POSIX). */
+		if((s=sys_kill_fault(vmp->vm_endpoint, SIGBUS, BUS_ADRERR,
+		    addr)) != OK)
+			panic("sys_kill failed: %d", s);
+		if((s=sys_vmctl(ep, VMCTL_CLEAR_PAGEFAULT, 0 /*unused*/)) != OK)
+			panic("do_pagefaults: sys_vmctl failed: %d", ep);
+		return;
+	}
+
 	if(result != OK) {
 		printf("VM: pagefault: SIGSEGV %d pagefault not handled\n", ep);
 		if((s=sys_kill(ep, SIGSEGV)) != OK)
@@ -263,6 +273,12 @@ static void handle_memory_final(struct hm_state *state, int result)
 
 	assert(state);
 	assert(state->valid == VALID);
+
+	/* A file page that cannot be had (beyond the end of a shared
+	 * mapping's file) is a bad address for whoever copies to or from it.
+	 */
+	if(result == ENXIO)
+		result = EFAULT;
 
 	if(state->caller == KERNEL) {
 		if((r=sys_vmctl(state->requestor, VMCTL_MEMREQ_REPLY, result)) != OK)

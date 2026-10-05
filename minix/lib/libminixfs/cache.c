@@ -239,6 +239,59 @@ int lmfs_isclean(struct buf *bp)
 	return !(bp->lmfs_flags & VMMC_DIRTY);
 }
 
+/*
+ * Processes are about to write to the given block through shared mappings of
+ * its file.  The caller has marked it dirty.  Make sure that VM has the block
+ * in its cache, so that the mappings use the very same pages, and let VM map
+ * these writable.  Until the block is written out (see lmfs_unmapwrite()),
+ * whatever the processes write ends up on disk with it.
+ */
+int lmfs_mapwrite(struct buf *bp)
+{
+	dev_t dev = bp->lmfs_dev;
+	off_t dev_off = bp->lmfs_blocknr * fs_block_size;
+	int r;
+
+	assert(bp->lmfs_count > 0);
+	assert(dev != NO_DEV);
+	assert(!lmfs_isclean(bp));
+
+	if (!vmcache)
+		return ENOSYS;
+
+	if (bp->lmfs_needsetcache) {
+		if ((r = vm_set_cacheblock(bp->data, dev, dev_off,
+		    bp->lmfs_inode, bp->lmfs_inode_offset, &bp->lmfs_flags,
+		    roundup(bp->lmfs_bytes, PAGE_SIZE), 0)) != OK)
+			return r;
+		bp->lmfs_needsetcache = 0;
+	}
+
+	if ((r = vm_mapwrite_cacheblock(dev, dev_off,
+	    roundup(bp->lmfs_bytes, PAGE_SIZE), 1)) != OK)
+		return r;
+	bp->lmfs_flags |= VMMC_MAPWRITE;
+	return OK;
+}
+
+/*
+ * The given block is about to be written out.  If shared mappings may write
+ * to it, have VM take write access away first: whatever they write from now
+ * on makes them fault, and the block dirty again, rather than going on
+ * behind the cache's back while it believes the block to be clean.
+ */
+void lmfs_unmapwrite(struct buf *bp)
+{
+
+	if (!(bp->lmfs_flags & VMMC_MAPWRITE))
+		return;
+	bp->lmfs_flags &= ~VMMC_MAPWRITE;
+	if (vmcache && bp->lmfs_dev != NO_DEV)
+		(void)vm_mapwrite_cacheblock(bp->lmfs_dev,
+		    bp->lmfs_blocknr * fs_block_size,
+		    roundup(bp->lmfs_bytes, PAGE_SIZE), 0);
+}
+
 static void free_unused_blocks(void)
 {
 	struct buf *bp;
@@ -711,6 +764,7 @@ void lmfs_free_block(dev_t dev, block64_t block)
 
   if ((bp = find_block(dev, block)) != NULL) {
 	lmfs_markclean(bp);
+	bp->lmfs_flags &= ~VMMC_MAPWRITE;	/* VM forgot the pages above */
 
 	/* Invalidate the block. The block may or may not be in use right now,
 	 * so don't be smart about freeing memory or repositioning in the LRU.
@@ -995,8 +1049,15 @@ static void rw_scattered(
   /* For WRITING, (Shell) sort buffers on lmfs_blocknr.
    * For READING, the buffers are already sorted.
    */
-  if (rw_flag == WRITING)
+  if (rw_flag == WRITING) {
 	sort_blocks(bufq, bufqsize);
+
+	/* Shared mappings must stop writing to these blocks before their
+	 * contents go out, or what they write meanwhile could be lost.
+	 */
+	for (i = 0; i < bufqsize; i++)
+		lmfs_unmapwrite(bufq[i]);
+  }
 
   /* Set up I/O vector and do I/O.  The result of bdev I/O is OK if everything
    * went fine, otherwise the error code for the first failed transfer.

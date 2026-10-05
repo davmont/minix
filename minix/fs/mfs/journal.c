@@ -463,6 +463,7 @@ static void flush_data(void)
 			jr.dtxn[i], r);
 		continue;
 	}
+	lmfs_unmapwrite(bp);		/* before its contents go out */
 	if (jdev_write(jr.dtxn[i], b_data(bp)) == OK)
 		lmfs_markclean(bp);
 	put_block(bp);

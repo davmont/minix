@@ -49,6 +49,8 @@ fsdriver_readsuper(const struct fsdriver * __restrict fdp,
 		if ((fdp->fdr_peek != NULL && fdp->fdr_bpeek != NULL) ||
 		    major(dev) == NONE_MAJOR)
 			res_flags |= RES_HASPEEK;
+		if (fdp->fdr_mapwrite != NULL)
+			res_flags |= RES_HASMAPWRITE;
 
 		m_out->m_fs_vfs_readsuper.inode = root_node.fn_ino_nr;
 		m_out->m_fs_vfs_readsuper.mode = root_node.fn_mode;
@@ -313,6 +315,35 @@ fsdriver_peek(const struct fsdriver * __restrict fdp,
 	}
 
 	return r;
+}
+
+/*
+ * Process a MAPWRITE request from VFS: a process is about to write to the
+ * given range of a file through a shared mapping.  The file system makes
+ * sure that the range has blocks (filling holes), that these are in VM's
+ * cache and dirty in its own, and tells VM that the pages may be written to
+ * until it writes them out (see vm_mapwrite_cacheblock()).  The file size
+ * does not change: a range at or beyond the end of the file is an error.
+ */
+int
+fsdriver_mapwrite(const struct fsdriver * __restrict fdp,
+	const message * __restrict m_in, message * __restrict __unused m_out)
+{
+	ino_t ino_nr;
+	off_t pos;
+	size_t nbytes;
+
+	ino_nr = m_in->m_vfs_fs_readwrite.inode;
+	pos = m_in->m_vfs_fs_readwrite.seek_pos;
+	nbytes = m_in->m_vfs_fs_readwrite.nbytes;
+
+	if (pos < 0 || nbytes > SSIZE_MAX)
+		return EINVAL;
+
+	if (fdp->fdr_mapwrite == NULL)
+		return ENOSYS;
+
+	return fdp->fdr_mapwrite(ino_nr, nbytes, pos);
 }
 
 /*

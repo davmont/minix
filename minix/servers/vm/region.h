@@ -38,6 +38,9 @@ struct phys_block {
 
 #define PBF_INCACHE		0x01
 #define PBF_COMPRESSED		0x02	/* contents live in the zstore */
+#define PBF_MAPWRITE		0x04	/* file page that shared mappings may
+					 * write to: its file system holds the
+					 * block dirty (VM_MAPWRITECACHE) */
 
 typedef struct vir_region {
 	vir_bytes	vaddr;	/* virtual address, offset from pagetable */

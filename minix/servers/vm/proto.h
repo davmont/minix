@@ -83,6 +83,7 @@ int unmap_memory(endpoint_t sour, endpoint_t dest, vir_bytes virt_s,
 int do_mmap(message *msg);
 int do_munmap(message *msg);
 int do_mprotect(message *msg);
+int do_msync(message *msg);
 int do_map_phys(message *msg);
 int do_unmap_phys(message *msg);
 int do_remap(message *m);
@@ -192,6 +193,7 @@ int map_get_phys(struct vmproc *vmp, vir_bytes addr, phys_bytes *r);
 int map_get_ref(struct vmproc *vmp, vir_bytes addr, u8_t *cnt);
 unsigned int physregions(struct vir_region *vr);
 int map_evict_clean_page(struct phys_block *pb);
+void map_unmap_shared_page(struct phys_block *pb);
 int map_compress_anon_pages(int target, int cold_only);
 
 void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui);
@@ -231,6 +233,7 @@ void shared_setsource(struct vir_region *vr, endpoint_t ep, struct vir_region *s
 int do_mapcache(message *m);
 int do_setcache(message *m);
 int do_forgetcache(message *m);
+int do_mapwritecache(message *m);
 int do_clearcache(message *m);
 
 /* cache.c */

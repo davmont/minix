@@ -618,6 +618,12 @@ int do_vm_call(void)
 			}
 
 			job_m_out.VMV_FD = procfd;
+			job_m_out.VMV_FLAGS = 0;
+			if (f->filp_mode & W_BIT)
+				job_m_out.VMV_FLAGS |= VMVF_WRITABLE;
+			if (S_ISREG(f->filp_vno->v_mode) &&
+			    (f->filp_vno->v_vmnt->m_fs_flags & RES_HASMAPWRITE))
+				job_m_out.VMV_FLAGS |= VMVF_MAPWRITE;
 
 			result = OK;
 
@@ -634,14 +640,59 @@ int do_vm_call(void)
 		}
 		case VMVFSREQ_FDIO:
 		{
-			result = actual_lseek(fp, req_fd, SEEK_SET, offset,
-				NULL);
+			/* VM's descriptor shares its file with the process
+			 * that mapped it: page in at the given position, not
+			 * at (and not moving) the file position.  And do not
+			 * lock the file: the process may hold it already, in
+			 * a read(2) or write(2) of the file to or from a
+			 * mapping of it, waiting for this very page.  The
+			 * descriptor keeps the file and its vnode in place.
+			 */
+			struct filp *vf;
+			off_t pos = (off_t) offset;
 
-			if(result == OK) {
-				result = actual_read_write_peek(fp, PEEKING,
-					req_fd, /* vir_bytes */ 0, length, NULL);
+			if ((vf = get_filp2(fp, req_fd, VNODE_NONE)) == NULL)
+				result = err_code;
+			else if (!(vf->filp_mode & R_BIT))
+				result = EBADF;
+			else
+				result = read_write(fp, PEEKING, req_fd, vf,
+				    0, length, VM_PROC_NR, &pos);
+
+			break;
+		}
+		case VMVFSREQ_FDMAPWRITE:
+		{
+			/* A process is about to write to a page of a shared
+			 * mapping of the file.  Not locked, as for FDIO.
+			 */
+			struct filp *vf;
+			struct vnode *vp;
+
+			if ((vf = get_filp2(fp, req_fd, VNODE_NONE)) == NULL) {
+				result = err_code;
+				break;
 			}
+			vp = vf->filp_vno;
+			if (!(vf->filp_mode & W_BIT))
+				result = EACCES;
+			else if (!S_ISREG(vp->v_mode) ||
+			    !(vp->v_vmnt->m_fs_flags & RES_HASMAPWRITE))
+				result = ENODEV;
+			else
+				result = req_mapwrite(vp->v_fs_e,
+				    vp->v_inode_nr, (off_t) offset, length);
+			break;
+		}
+		case VMVFSREQ_FDSYNC:
+		{
+			/* msync(MS_SYNC): as fsync(2) on the file. */
+			struct filp *vf;
 
+			if ((vf = get_filp2(fp, req_fd, VNODE_NONE)) == NULL)
+				result = err_code;
+			else
+				result = sync_dev(vf->filp_vno->v_dev);
 			break;
 		}
 		default:

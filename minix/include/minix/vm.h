@@ -97,6 +97,8 @@ int vm_set_cacheblock(void *block, dev_t dev, off_t dev_offset,
 void *vm_map_cacheblock(dev_t dev, off_t dev_offset,
         ino_t ino, off_t ino_offset, u32_t *flags, int blocksize);
 int vm_forget_cacheblock(dev_t dev, off_t dev_offset, int blocksize);
+int vm_mapwrite_cacheblock(dev_t dev, off_t dev_offset, int blocksize,
+	int writable);
 int vm_clear_cache(dev_t dev);
 
 /* flags for vm cache functions */
@@ -104,6 +106,7 @@ int vm_clear_cache(dev_t dev);
 #define VMMC_DIRTY		0x02	/* dirty buffer and it may not be evicted */
 #define VMMC_EVICTED		0x04	/* VM has evicted the buffer and it's invalid */
 #define VMMC_BLOCK_LOCKED	0x08	/* client is using it and it may not be evicted */
+#define VMMC_MAPWRITE		0x10	/* shared mappings may write to it */
 
 /* special inode number for vm cache functions */
 #define VMC_NO_INODE		0	/* to reference a disk block, no associated file */

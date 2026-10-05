@@ -45,6 +45,7 @@ struct fsdriver_dentry {
 #define FSC_READ	0		/* read or bread call */
 #define FSC_WRITE	1		/* write or bwrite call */
 #define FSC_PEEK	2		/* peek or bpeek call */
+#define FSC_MAPWRITE	3		/* mapwrite call (file system internal) */
 
 #define FSC_UNLINK	0		/* unlink call */
 #define FSC_RMDIR	1		/* rmdir call */
@@ -111,6 +112,7 @@ struct fsdriver {
 	void (*fdr_bflush)(dev_t dev);
 	void (*fdr_postcall)(void);
 	void (*fdr_other)(const message *m_ptr, int ipc_status);
+	int (*fdr_mapwrite)(ino_t ino_nr, size_t bytes, off_t pos);
 };
 
 /* Functions defined by libfsdriver. */

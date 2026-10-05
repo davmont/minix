@@ -268,6 +268,8 @@ int req_readwrite(endpoint_t fs_e, ino_t inode_nr, off_t pos, int rw_flag,
 	off_t *new_posp, size_t *cum_iop);
 int req_bpeek(endpoint_t fs_e, dev_t dev, off_t pos, unsigned int num_of_bytes);
 int req_peek(endpoint_t fs_e, ino_t inode_nr, off_t pos, unsigned int bytes);
+int req_mapwrite(endpoint_t fs_e, ino_t inode_nr, off_t pos,
+	unsigned int bytes);
 int req_rename(endpoint_t fs_e, ino_t old_dir, char *old_name, ino_t new_dir,
 	char *new_name);
 int req_rmdir(endpoint_t fs_e, ino_t inode_nr, char *lastc);

@@ -1734,6 +1734,10 @@ int map_evict_clean_page(struct phys_block *pb)
 
 	assert(pb->refcount > 1);	/* cache ref + at least one mapper */
 
+	/* Shared mappings may be writing to it: not clean. */
+	if(pb->flags & PBF_MAPWRITE)
+		return EBUSY;
+
 	for(pr = pb->firstregion; pr; pr = pr->next_ph_list) {
 		struct vmproc *vmp;
 
@@ -1781,6 +1785,44 @@ int map_evict_clean_page(struct phys_block *pb)
 	assert(pb->refcount == 1);	/* only the cache reference is left */
 
 	return OK;
+}
+
+/*===========================================================================*
+ *				map_unmap_shared_page			     *
+ *===========================================================================*/
+void map_unmap_shared_page(struct phys_block *pb)
+{
+/* The given cached page no longer holds what its file has at its place: the
+ * file system has put another page in the cache for the same block, or has
+ * freed the block.  Mappings that share the file (MAP_SHARED) must see the
+ * file, so drop the page from them: they fault and get the current page.
+ * Private mappings keep it, as they may (POSIX leaves it unspecified whether
+ * they see later changes to the file).  The caller holds a reference to the
+ * page, so it does not go away here.
+ */
+	struct phys_region *pr, *next_pr;
+
+	assert(pb->refcount > 0);
+
+	for(pr = pb->firstregion; pr; pr = next_pr) {
+		struct vir_region *region = pr->parent;
+		struct vmproc *vmp = region->parent;
+
+		next_pr = pr->next_ph_list;
+
+		if(pr->memtype != &mem_type_mappedfile ||
+		    !(region->flags & VR_SHARED))
+			continue;
+
+		assert(pb->refcount > 1);
+		if(pt_writemap(vmp, &vmp->vm_pt, region->vaddr + pr->offset,
+		    MAP_NONE, VM_PAGE_SIZE, 0, WMF_OVERWRITE) != OK) {
+			printf("VM: map_unmap_shared_page: pt_writemap failed\n");
+			continue;
+		}
+		pb_unreferenced(region, pr, 1);
+		SLABFREE(pr);
+	}
 }
 
 /*===========================================================================*

@@ -930,11 +930,28 @@ int req_peek(endpoint_t fs_e, ino_t inode_nr, off_t pos, unsigned int bytes)
 
   memset(&m, 0, sizeof(m));
 
-  if (ex64hi(pos) != 0)
-	  panic("req_peek: pos too large");
-
   /* Fill in request message */
   m.m_type = REQ_PEEK;
+  m.m_vfs_fs_readwrite.inode = inode_nr;
+  m.m_vfs_fs_readwrite.grant = -1;
+  m.m_vfs_fs_readwrite.seek_pos = pos;
+  m.m_vfs_fs_readwrite.nbytes = bytes;
+
+  /* Send/rec request */
+  return fs_sendrec(fs_e, &m);
+}
+
+/*===========================================================================*
+ *				req_mapwrite				     *
+ *===========================================================================*/
+int req_mapwrite(endpoint_t fs_e, ino_t inode_nr, off_t pos, unsigned int bytes)
+{
+  message m;
+
+  memset(&m, 0, sizeof(m));
+
+  /* Fill in request message */
+  m.m_type = REQ_MAPWRITE;
   m.m_vfs_fs_readwrite.inode = inode_nr;
   m.m_vfs_fs_readwrite.grant = -1;
   m.m_vfs_fs_readwrite.seek_pos = pos;

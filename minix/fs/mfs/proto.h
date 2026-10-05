@@ -103,6 +103,7 @@ int fs_chflags(ino_t ino_nr, int flags, int privileged);
 int fs_chown(ino_t ino, uid_t uid, gid_t gid, mode_t *mode);
 
 /* read.c */
+int fs_mapwrite(ino_t ino_nr, size_t nrbytes, off_t position);
 ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t bytes,
 	off_t pos, int call);
 block_t read_map(struct inode *rip, off_t pos, int opportunistic);
