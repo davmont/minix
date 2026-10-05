@@ -94,6 +94,7 @@ int do_sigsuspend(void);
 void check_pending(struct mproc *rmp);
 int orphaned_pgrp(pid_t pgrp, pid_t session);
 int do_ttyjc(void);
+int do_srv_sigqueue(void);
 void restart_sigs(struct mproc *rmp);
 
 /* time.c */

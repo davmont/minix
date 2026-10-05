@@ -1,6 +1,7 @@
 #include "inc.h"
 
 #define SEM_EVENTS	0x01	/* semaphore code wants process events */
+#define MQ_EVENTS	0x02	/* message queue code wants process events */
 static unsigned int event_mask = 0;
 
 static int verbose = 0;
@@ -20,6 +21,12 @@ static int (* const call_vec[])(message *) = {
 	CALL(IPC_SHM_OPEN)	= do_shm_open,
 	CALL(IPC_SHM_MAP)	= do_shm_map,
 	CALL(IPC_SHM_UNLINK)	= do_shm_unlink,
+	CALL(IPC_MQ_OPEN)	= do_mq_open,
+	CALL(IPC_MQ_SEND)	= do_mq_send,
+	CALL(IPC_MQ_RECEIVE)	= do_mq_receive,
+	CALL(IPC_MQ_GETATTR)	= do_mq_getattr,
+	CALL(IPC_MQ_NOTIFY)	= do_mq_notify,
+	CALL(IPC_MQ_UNLINK)	= do_mq_unlink,
 };
 
 /*
@@ -188,6 +195,21 @@ update_sem_sub(int want_events)
 }
 
 /*
+ * Update the process event subscription mask for the message queue code.
+ */
+void
+update_mq_sub(int want_events)
+{
+	unsigned int new_mask;
+
+	new_mask = event_mask & ~MQ_EVENTS;
+	if (want_events)
+		new_mask |= MQ_EVENTS;
+
+	update_sub(new_mask);
+}
+
+/*
  * PM sent us a process event message.  Handle it, and reply.
  */
 static void
@@ -200,11 +222,13 @@ got_proc_event(message * m)
 	has_exited = (m->m_pm_lsys_proc_event.event == PROC_EVENT_EXIT);
 
 	/*
-	 * Currently, only semaphore handling needs to know about processes
-	 * being signaled and exiting.
+	 * Semaphores and message queues need to know about processes being
+	 * signaled and exiting.
 	 */
 	if (event_mask & SEM_EVENTS)
 		sem_process_event(endpt, has_exited);
+	if (event_mask & MQ_EVENTS)
+		mq_process_event(endpt, has_exited);
 
 	/* Echo the request as a reply back to PM. */
 	m->m_type = PROC_EVENT_REPLY;
@@ -235,8 +259,12 @@ main(int argc, char ** argv)
 			printf("IPC: got %d from %d\n", m.m_type, m.m_source);
 
 		if (is_ipc_notify(ipc_status)) {
-			printf("IPC: ignoring notification from %d\n",
-			    m.m_source);
+			/* Message queue timeouts run on the clock. */
+			if (m.m_source == CLOCK)
+				expire_timers(m.m_notify.timestamp);
+			else
+				printf("IPC: ignoring notification from %d\n",
+				    m.m_source);
 			continue;
 		}
 

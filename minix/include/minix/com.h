@@ -863,6 +863,15 @@
 #define IPC_SHM_MAP	(IPC_BASE+9)	/* vm_remap the object into the caller */
 #define IPC_SHM_UNLINK	(IPC_BASE+10)	/* mark object for destruction */
 
+/* POSIX message queues (mq_open): queues keyed by the (dev, ino) of a token
+ * file, whose fd is the mqd_t; see minix/servers/ipc/mqueue.c. */
+#define IPC_MQ_OPEN	(IPC_BASE+11)	/* create or attach to a queue */
+#define IPC_MQ_SEND	(IPC_BASE+12)	/* mq_send(), mq_timedsend() */
+#define IPC_MQ_RECEIVE	(IPC_BASE+13)	/* mq_receive(), mq_timedreceive() */
+#define IPC_MQ_GETATTR	(IPC_BASE+14)	/* the queue's attributes */
+#define IPC_MQ_NOTIFY	(IPC_BASE+15)	/* mq_notify(); also from mq_close() */
+#define IPC_MQ_UNLINK	(IPC_BASE+16)	/* mq_unlink() */
+
 /*===========================================================================*
  *                Messages for Scheduling				     *
  *===========================================================================*/

@@ -440,6 +440,49 @@ typedef struct {
 } mess_lc_ipc_shm;
 _ASSERT_MSG_SIZE(mess_lc_ipc_shm);
 
+/* IPC_MQ_OPEN */
+#define IPC_MQ_FRESH	0x1	/* the token file was just created */
+#define IPC_MQ_CREAT	0x2	/* O_CREAT: create the queue if there is none */
+typedef struct {
+	uint64_t	dev;		/* token file device */
+	uint64_t	ino;		/* token file inode number */
+	long		maxmsg;		/* attributes for a new queue, 0: default */
+	long		msgsize;
+	int		flags;		/* IPC_MQ_FRESH, IPC_MQ_CREAT */
+
+	uint8_t		padding[36 - 2 * sizeof(long)];
+} mess_lc_ipc_mqopen;
+_ASSERT_MSG_SIZE(mess_lc_ipc_mqopen);
+
+/* IPC_MQ_SEND, IPC_MQ_RECEIVE, IPC_MQ_GETATTR, IPC_MQ_NOTIFY, IPC_MQ_UNLINK */
+#define IPC_MQ_NONBLOCK	0x1	/* send/receive: the descriptor is O_NONBLOCK */
+#define IPC_MQ_TIMED	0x2	/* send/receive: give up at the timeout */
+#define IPC_MQ_REGISTER	0x4	/* notify: register (else unregister) */
+typedef struct {
+	uint64_t	dev;
+	uint64_t	ino;
+	int64_t		tv_sec;		/* absolute CLOCK_REALTIME timeout */
+	vir_bytes	buf;		/* message buffer; notify: sigev_value */
+	size_t		len;		/* buffer size */
+	int32_t		tv_nsec;
+	unsigned int	prio;		/* send: priority; notify: signal */
+	int		flags;		/* IPC_MQ_NONBLOCK, IPC_MQ_TIMED, ... */
+
+	uint8_t		padding[20 - 2 * sizeof(vir_bytes)];
+} mess_lc_ipc_mqio;
+_ASSERT_MSG_SIZE(mess_lc_ipc_mqio);
+
+typedef struct {
+	long		maxmsg;
+	long		msgsize;
+	long		curmsgs;
+	ssize_t		len;		/* receive: the message length */
+	unsigned int	prio;		/* receive: its priority */
+
+	uint8_t		padding[52 - 4 * sizeof(long)];
+} mess_ipc_lc_mq;
+_ASSERT_MSG_SIZE(mess_ipc_lc_mq);
+
 typedef struct {
 	vir_bytes	oldp;
 	size_t		oldlen;
@@ -2126,6 +2169,17 @@ typedef struct {
 } mess_pm_lsys_ttyjc;
 _ASSERT_MSG_SIZE(mess_pm_lsys_ttyjc);
 
+/* PM_SRV_SIGQUEUE: a server sends a signal with a siginfo code and value. */
+typedef struct {
+	pid_t pid;
+	int sig;
+	int code;			/* si_code, e.g. SI_MESGQ */
+	vir_bytes value;		/* si_value */
+
+	uint8_t padding[44 - sizeof(vir_bytes)];
+} mess_lsys_pm_sigqueue;
+_ASSERT_MSG_SIZE(mess_lsys_pm_sigqueue);
+
 typedef struct {
 	int		len;
 	int		name_len;
@@ -2756,6 +2810,9 @@ typedef struct noxfer_message {
 		mess_lc_ipc_shmdt	m_lc_ipc_shmdt;
 		mess_lc_ipc_shmget	m_lc_ipc_shmget;
 		mess_lc_ipc_shm		m_lc_ipc_shm;
+		mess_lc_ipc_mqopen	m_lc_ipc_mqopen;
+		mess_lc_ipc_mqio	m_lc_ipc_mqio;
+		mess_ipc_lc_mq		m_ipc_lc_mq;
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;
 		mess_lc_pm_exit		m_lc_pm_exit;
@@ -2938,6 +2995,7 @@ typedef struct noxfer_message {
 		mess_rs_pm_exec_restart	m_rs_pm_exec_restart;
 		mess_rs_pm_srv_kill	m_rs_pm_srv_kill;
 		mess_lsys_pm_ttyjc	m_lsys_pm_ttyjc;
+		mess_lsys_pm_sigqueue	m_lsys_pm_sigqueue;
 		mess_pm_lsys_ttyjc	m_pm_lsys_ttyjc;
 		mess_rs_req		m_rs_req;
 		mess_rs_update		m_rs_update;

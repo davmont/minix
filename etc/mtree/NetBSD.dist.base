@@ -840,6 +840,7 @@
 ./var/run
 ./var/run/lwresd		mode=0775 gname=named
 ./var/run/named			mode=0775 gname=named
+./var/mqueue			type=dir  mode=1777
 ./var/shm			type=dir  mode=1777
 ./var/spool
 ./var/spool/ftp

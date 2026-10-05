@@ -10,7 +10,6 @@
  * mapping is redirected to the IPC region by __minix_shm_mmap(), called from
  * mmap().  See minix/servers/ipc/posix_shm.c.
  */
-#define _SYSTEM	1
 
 #include <sys/cdefs.h>
 #include <lib.h>
@@ -78,14 +77,14 @@ shm_open(const char *name, int oflag, mode_t mode)
 	if (fstat(fd, &st) < 0)
 		goto fail;
 
-	if (ipc_endpt(&pt) != OK) {
+	if (ipc_endpt(&pt) != 0) {
 		errno = ENOSYS;
 		goto fail;
 	}
 	memset(&m, 0, sizeof(m));
 	m.m_lc_ipc_shm.dev = st.st_dev;
 	m.m_lc_ipc_shm.ino = st.st_ino;
-	if (_syscall(pt, IPC_SHM_OPEN, &m) != OK)
+	if (_syscall(pt, IPC_SHM_OPEN, &m) != 0)
 		goto fail;
 
 	return fd;
@@ -109,7 +108,7 @@ shm_unlink(const char *name)
 		return -1;
 	if (stat(path, &st) < 0)
 		return -1;
-	if (ipc_endpt(&pt) == OK) {
+	if (ipc_endpt(&pt) == 0) {
 		memset(&m, 0, sizeof(m));
 		m.m_lc_ipc_shm.dev = st.st_dev;
 		m.m_lc_ipc_shm.ino = st.st_ino;

@@ -74,8 +74,9 @@
 #define PM_SETPGID		(PM_BASE + 61)	/* setpgid(2) */
 #define PM_GETPGID		(PM_BASE + 62)	/* getpgid(2) */
 #define PM_TTYJC		(PM_BASE + 63)	/* terminal job control (drivers) */
+#define PM_SRV_SIGQUEUE		(PM_BASE + 64)	/* signal with siginfo (servers) */
 
-#define NR_PM_CALLS		64	/* highest number from base plus one */
+#define NR_PM_CALLS		65	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

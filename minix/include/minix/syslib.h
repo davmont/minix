@@ -271,6 +271,7 @@ int tty_input_inject(int type, int code, int val);
 /* Miscellaneous calls from servers and drivers. */
 pid_t srv_fork(uid_t reuid, gid_t regid);
 int srv_kill(pid_t pid, int sig);
+int srv_sigqueue(pid_t pid, int sig, int code, vir_bytes value);
 int tty_jobctl(int op, endpoint_t endpt, pid_t pgrp, pid_t session, int sig,
 	pid_t *ret_pgrp, pid_t *ret_session);
 int getprocnr(pid_t pid, endpoint_t *proc_ep);
