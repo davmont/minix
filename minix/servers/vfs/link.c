@@ -489,6 +489,13 @@ int do_symlinkat(void)
   vname2 = job_m_in.m_lc_vfs_linkat.name2;
   vname2_length = job_m_in.m_lc_vfs_linkat.len2;
 
+  if (vname1_length == 0) {
+	/* Length not given: fetch the content safely to learn it (a bad
+	 * address fails with EFAULT here, not in libc).
+	 */
+	if (fetch_name(vname1, 0, fullpath) != OK) return(err_code);
+	vname1_length = strlen(fullpath) + 1;
+  }
   if (vname1_length <= 1) return(ENOENT);
   if (vname1_length >= _POSIX_SYMLINK_MAX) return(ENAMETOOLONG);
 

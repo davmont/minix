@@ -17,7 +17,7 @@ static ssize_t __readlinkat(int dirfd, const char *name, char *buffer,
 
   memset(&m, 0, sizeof(m));
   m.m_lc_vfs_readlinkat.dirfd = dirfd;
-  m.m_lc_vfs_readlinkat.namelen = strlen(name) + 1;
+  m.m_lc_vfs_readlinkat.namelen = 0;	/* VFS copies the path */
   m.m_lc_vfs_readlinkat.bufsize = bufsiz;
   m.m_lc_vfs_readlinkat.name = (vir_bytes)name;
   m.m_lc_vfs_readlinkat.buf = (vir_bytes)buffer;

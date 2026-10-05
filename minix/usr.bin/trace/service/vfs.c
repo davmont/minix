@@ -225,7 +225,8 @@ put_pathat(struct trace_proc * proc, const message * m_out)
 
 	put_dirfd(proc, "fd", m_out->m_lc_vfs_pathat.dirfd);
 
-	if ((len = m_out->m_lc_vfs_pathat.len) <= M_PATHAT_STRING_MAX)
+	if ((len = m_out->m_lc_vfs_pathat.len) != 0 &&
+	    len <= M_PATHAT_STRING_MAX)
 		put_buf(proc, "path", PF_LOCADDR | PF_PATH,
 		    (vir_bytes)m_out->m_lc_vfs_pathat.buf, len);
 	else
@@ -238,7 +239,7 @@ put_path(struct trace_proc * proc, const message * m_out)
 {
 	size_t len;
 
-	if ((len = m_out->m_lc_vfs_path.len) <= M_PATH_STRING_MAX)
+	if ((len = m_out->m_lc_vfs_path.len) != 0 && len <= M_PATH_STRING_MAX)
 		put_buf(proc, "path", PF_LOCADDR | PF_PATH,
 		    (vir_bytes)m_out->m_lc_vfs_path.buf, len);
 	else

@@ -12,7 +12,7 @@ int truncate(const char *_path, off_t _length)
 
   memset(&m, 0, sizeof(m));
   m.m_lc_vfs_truncate.name = (vir_bytes)_path;
-  m.m_lc_vfs_truncate.len = strlen(_path)+1;
+  m.m_lc_vfs_truncate.len = 0;	/* VFS copies the path */
   m.m_lc_vfs_truncate.offset = _length;
 
   return(_syscall(VFS_PROC_NR, VFS_TRUNCATE, &m));

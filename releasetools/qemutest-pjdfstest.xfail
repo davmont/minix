@@ -3,22 +3,6 @@
 # 2026-09-26: 184 of 238 scripts pass.  Remove a script here in the change
 # that fixes it; XPASS fails the run.
 
-# A NULL path must fail with EFAULT; libc dereferences it and the helper dies
-# (link/17 and rename/17 segfault the same way).
-chmod/10.t
-chown/10.t
-ftruncate/14.t
-link/17.t
-mkdir/12.t
-mkfifo/12.t
-mknod/10.t
-open/21.t
-rename/17.t
-rmdir/15.t
-symlink/12.t
-truncate/14.t
-unlink/13.t
-
 # MFS keeps whole-second timestamps: sub-second times read back as 0.
 utimensat/08.t
 

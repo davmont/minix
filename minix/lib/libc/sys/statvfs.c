@@ -15,7 +15,7 @@ int statvfs1(const char *name, struct statvfs *buffer, int flags)
   message m;
 
   memset(&m, 0, sizeof(m));
-  m.m_lc_vfs_statvfs1.len = strlen(name) + 1;
+  m.m_lc_vfs_statvfs1.len = 0;	/* VFS copies the path */
   m.m_lc_vfs_statvfs1.name =  (vir_bytes)name;
   m.m_lc_vfs_statvfs1.buf = (vir_bytes)buffer;
   m.m_lc_vfs_statvfs1.flags = flags;

@@ -18,7 +18,7 @@ static int __fchownat(int dirfd, const char *name, uid_t owner, gid_t grp,
 
   memset(&m, 0, sizeof(m));
   m.m_lc_vfs_chown.fd = dirfd;
-  m.m_lc_vfs_chown.len = strlen(name) + 1;
+  m.m_lc_vfs_chown.len = 0;	/* VFS copies the path */
   m.m_lc_vfs_chown.owner = owner;
   m.m_lc_vfs_chown.group = grp;
   m.m_lc_vfs_chown.name = (vir_bytes)name;
