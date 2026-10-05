@@ -24,8 +24,6 @@ munlock
 munlockall
 modctl
 mprotect
-mq_timedreceive
-mq_timedsend
 mremap
 msgctl
 msgget

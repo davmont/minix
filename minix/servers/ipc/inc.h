@@ -10,6 +10,7 @@
 #include <minix/type.h>
 #include <minix/syslib.h>
 #include <minix/rmib.h>
+#include <minix/timers.h>
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -43,6 +44,7 @@
 
 /* main.c */
 void update_sem_sub(int);
+void update_mq_sub(int);
 
 /* shm.c */
 int do_shmget(message *);
@@ -58,6 +60,15 @@ int do_shm_open(message *);
 int do_shm_map(message *);
 int do_shm_unlink(message *);
 void posix_shm_update(void);
+
+/* mqueue.c */
+int do_mq_open(message *);
+int do_mq_send(message *);
+int do_mq_receive(message *);
+int do_mq_getattr(message *);
+int do_mq_notify(message *);
+int do_mq_unlink(message *);
+void mq_process_event(endpoint_t, int);
 
 /* sem.c */
 int do_semget(message *);

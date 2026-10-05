@@ -1359,3 +1359,35 @@ do_ttyjc(void)
   }
 }
 
+/*===========================================================================*
+ *				do_srv_sigqueue				     *
+ *===========================================================================*/
+int
+do_srv_sigqueue(void)
+{
+/* A system service sends a signal with a siginfo code and value
+ * (PM_SRV_SIGQUEUE), for example a message queue notification.
+ */
+  struct pm_siginfo saved;
+  struct mproc *caller = mp;
+  pid_t pid;
+  int sig, r;
+
+  if (!(mp->mp_flags & PRIV_PROC))
+	return(EPERM);
+
+  pid = m_in.m_lsys_pm_sigqueue.pid;
+  sig = m_in.m_lsys_pm_sigqueue.sig;
+  if (pid <= 0 || sig <= 0 || sig >= _NSIG)
+	return(EINVAL);
+
+  saved = sig_origin;
+  set_sig_origin(m_in.m_lsys_pm_sigqueue.code, 0, 0, 0, 0);
+  sig_origin.ps_value = m_in.m_lsys_pm_sigqueue.value;
+  mp = &mproc[0];			/* with PM's rights */
+  r = check_sig(pid, sig, FALSE /*ksig*/);
+  mp = caller;
+  sig_origin = saved;
+  return(r);
+}
+

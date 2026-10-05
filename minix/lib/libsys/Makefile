@@ -51,6 +51,7 @@ SRCS+=  \
 	sqrt_approx.c \
 	srv_fork.c \
 	srv_kill.c \
+	srv_sigqueue.c \
 	tty_jobctl.c \
 	stacktrace.c \
 	sys_abort.c \
