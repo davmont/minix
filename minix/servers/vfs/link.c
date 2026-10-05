@@ -182,8 +182,8 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 	return(r);
   }
 
-  /* Also, if the sticky bit is set, only the owner of the file or a privileged
-     user is allowed to unlink */
+  /* Also, if the sticky bit is set, only the owner of the file, the owner of
+     the directory or a privileged user is allowed to unlink */
   if ((dirp->v_mode & S_ISVTX) == S_ISVTX) {
 	/* Look up inode of file to unlink to retrieve owner */
 	lookup_init(&stickycheck, resolve.l_path, PATH_RET_SYMLINK, &vmp2, &vp);
@@ -192,7 +192,8 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 	vp = advance(dirp, &stickycheck, fp);
 	assert(vmp2 == NULL);
 	if (vp != NULL) {
-		if (vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
+		if (vp->v_uid != fp->fp_effuid &&
+		    dirp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
 			r = EPERM;
 		unlock_vnode(vp);
 		put_vnode(vp);
@@ -274,8 +275,8 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
   /* See if 'name1' (existing file) exists.  Get dir and file inodes. */
   if ((old_dirp = last_dir(&resolve, fp)) == NULL) return(err_code);
 
-  /* If the sticky bit is set, only the owner of the file or a privileged
-     user is allowed to rename */
+  /* If the sticky bit is set, only the owner of the file, the owner of the
+     directory or a privileged user is allowed to rename */
   if ((old_dirp->v_mode & S_ISVTX) == S_ISVTX) {
 	/* Look up inode of file to unlink to retrieve owner */
 	lookup_init(&stickycheck, resolve.l_path, PATH_RET_SYMLINK, &vmp2, &vp);
@@ -284,7 +285,9 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
 	vp = advance(old_dirp, &stickycheck, fp);
 	assert(vmp2 == NULL);
 	if (vp != NULL) {
-		if(vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
+		if (vp->v_uid != fp->fp_effuid &&
+		    old_dirp->v_uid != fp->fp_effuid &&
+		    fp->fp_effuid != SU_UID)
 			r = EPERM;
 		unlock_vnode(vp);
 		put_vnode(vp);
