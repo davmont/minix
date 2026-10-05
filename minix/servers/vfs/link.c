@@ -182,8 +182,8 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 	return(r);
   }
 
-  /* Also, if the sticky bit is set, only the owner of the file or a privileged
-     user is allowed to unlink */
+  /* Also, if the sticky bit is set, only the owner of the file, the owner of
+     the directory or a privileged user is allowed to unlink */
   if ((dirp->v_mode & S_ISVTX) == S_ISVTX) {
 	/* Look up inode of file to unlink to retrieve owner */
 	lookup_init(&stickycheck, resolve.l_path, PATH_RET_SYMLINK, &vmp2, &vp);
@@ -192,7 +192,8 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 	vp = advance(dirp, &stickycheck, fp);
 	assert(vmp2 == NULL);
 	if (vp != NULL) {
-		if (vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
+		if (vp->v_uid != fp->fp_effuid &&
+		    dirp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
 			r = EPERM;
 		unlock_vnode(vp);
 		put_vnode(vp);
@@ -274,8 +275,8 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
   /* See if 'name1' (existing file) exists.  Get dir and file inodes. */
   if ((old_dirp = last_dir(&resolve, fp)) == NULL) return(err_code);
 
-  /* If the sticky bit is set, only the owner of the file or a privileged
-     user is allowed to rename */
+  /* If the sticky bit is set, only the owner of the file, the owner of the
+     directory or a privileged user is allowed to rename */
   if ((old_dirp->v_mode & S_ISVTX) == S_ISVTX) {
 	/* Look up inode of file to unlink to retrieve owner */
 	lookup_init(&stickycheck, resolve.l_path, PATH_RET_SYMLINK, &vmp2, &vp);
@@ -284,7 +285,9 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
 	vp = advance(old_dirp, &stickycheck, fp);
 	assert(vmp2 == NULL);
 	if (vp != NULL) {
-		if(vp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
+		if (vp->v_uid != fp->fp_effuid &&
+		    old_dirp->v_uid != fp->fp_effuid &&
+		    fp->fp_effuid != SU_UID)
 			r = EPERM;
 		unlock_vnode(vp);
 		put_vnode(vp);
@@ -378,8 +381,10 @@ int do_truncate(void)
   if (fetch_name(vname, vname_length, fullpath) != OK) return(err_code);
   if ((vp = eat_path(&resolve, fp)) == NULL) return(err_code);
 
-  /* Ask FS to truncate the file */
-  if ((r = forbidden(fp, vp, W_BIT)) == OK) {
+  /* Ask FS to truncate the file.  POSIX: a directory is EISDIR. */
+  if (S_ISDIR(vp->v_mode))
+	r = EISDIR;
+  else if ((r = forbidden(fp, vp, W_BIT)) == OK) {
 	/* If the file size does not change, do not make the actual call. This
 	 * ensures that the file times are retained when the file size remains
 	 * the same, which is a POSIX requirement.
@@ -418,8 +423,11 @@ int do_ftruncate(void)
 
   vp = rfilp->filp_vno;
 
+  /* POSIX: EINVAL for a descriptor not open for writing (EBADF is for one
+   * that is not open at all).
+   */
   if (!(rfilp->filp_mode & W_BIT))
-	r = EBADF;
+	r = EINVAL;
   else if (S_ISREG(vp->v_mode) && vp->v_size == length)
 	/* If the file size does not change, do not make the actual call. This
 	 * ensures that the file times are retained when the file size remains

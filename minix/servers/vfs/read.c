@@ -137,6 +137,21 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 
   r = read_write(rfp, rw_flag, fd, f, buf, nbytes, who_e, posp);
 
+  /* A write by anyone but the super-user clears the set-user-ID and
+   * set-group-ID bits, as on the BSDs: modified contents must not keep
+   * running with the owner's rights.  The vnode is write-locked here.
+   */
+  if (rw_flag == WRITING && r > 0 && S_ISREG(f->filp_vno->v_mode) &&
+      (f->filp_vno->v_mode & (S_ISUID | S_ISGID)) &&
+      rfp->fp_effuid != SU_UID) {
+	struct vnode *vp = f->filp_vno;
+	mode_t new_mode;
+
+	if (req_chmod(vp->v_fs_e, vp->v_inode_nr,
+	    vp->v_mode & ALLPERMS & ~(S_ISUID | S_ISGID), &new_mode) == OK)
+		vp->v_mode = new_mode;
+  }
+
   /* O_SYNC and O_DSYNC: the data must be on the device before the write
    * returns.  Flush the file system it lives on, as fsync(2) does, once the
    * filp is unlocked (vmnt locks come first).
