@@ -25,7 +25,8 @@ create_ramdisk()
 	rcv "RCCD:  about to mount /dev/$1 /mnt"
 	mount /dev/$1 /mnt > /dev/null; r=$?
 	rcv "RCCD:   mount /dev/$1 /mnt ret=$r"
-	(cd $2 && pax -rw . /mnt)
+	# -pe: keep the modes (sticky /var/shm, /var/mqueue, /var/mail ...)
+	(cd $2 && pax -rw -pe . /mnt)
 
 	rcv "RCCD:  about to umount /mnt"
 	umount /mnt > /dev/null; r=$?
