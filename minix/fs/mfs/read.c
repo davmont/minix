@@ -45,6 +45,17 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
   block_size = rip->i_sp->s_block_size;
   f_size = rip->i_size;
 
+  /* A shared mapping is about to write to the file, within its size. */
+  if (call == FSC_MAPWRITE) {
+	  if(rip->i_sp->s_rd_only)
+		  return EROFS;
+	  if (rip->i_flags & (UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND |
+	      SF_APPEND))
+		  return(EPERM);
+	  if (!regular)
+		  return(EINVAL);
+  }
+
   /* If this is file i/o, check we can write */
   if (call == FSC_WRITE) {
   	  if(rip->i_sp->s_rd_only)
@@ -119,7 +130,7 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
 		  rip->i_update |= ATIME;
 		  upd = 1;
 	  }
-	  if (call == FSC_WRITE) {
+	  if (call == FSC_WRITE || (call == FSC_MAPWRITE && cum_io > 0)) {
 		  rip->i_update |= CTIME | MTIME;
 		  upd = 1;
 	  }
@@ -127,6 +138,22 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
   }
   
   return cum_io;
+}
+
+
+/*===========================================================================*
+ *				fs_mapwrite				     *
+ *===========================================================================*/
+int fs_mapwrite(ino_t ino_nr, size_t nrbytes, off_t position)
+{
+/* Processes are about to write to the given range of a file through shared
+ * mappings: see fsdriver_mapwrite().
+ */
+  ssize_t r;
+
+  if ((r = fs_readwrite(ino_nr, NULL, nrbytes, position, FSC_MAPWRITE)) < 0)
+	return r;
+  return (r > 0) ? OK : ENXIO;		/* ENXIO: at or beyond the file end */
 }
 
 
@@ -140,7 +167,7 @@ u64_t position;			/* position within file to read or write */
 unsigned off;			/* off within the current block */
 size_t chunk;			/* number of bytes to read or write */
 unsigned left;			/* max number of bytes wanted after position */
-int call;			/* FSC_READ, FSC_WRITE, or FSC_PEEK */
+int call;			/* FSC_READ, FSC_WRITE, FSC_PEEK, FSC_MAPWRITE */
 struct fsdriver_data *data;	/* structure for (remote) user buffer */
 unsigned buf_off;		/* offset in user buffer */
 unsigned int block_size;	/* block size of FS operating on */
@@ -217,6 +244,12 @@ int *completed;			/* number of bytes copied */
 	 * location before the metadata transaction commits, never journalled. */
 	r = fsdriver_copyin(data, buf_off, b_data(bp)+off, chunk);
 	MARKDIRTY_DATA(bp);
+  } else if (call == FSC_MAPWRITE) {
+	/* Processes write to the block through shared mappings, in place:
+	 * it is dirty from now on, until written out (lmfs_unmapwrite()).
+	 */
+	MARKDIRTY_DATA(bp);
+	r = lmfs_mapwrite(bp);
   }
   
   put_block(bp);

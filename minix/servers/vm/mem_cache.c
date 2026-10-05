@@ -231,6 +231,20 @@ do_setcache(message *msg)
 			return EFAULT;
 		}
 
+		/* Shared mappings of the file must see this page from now on,
+		 * not one that was in the cache for the same place in the file
+		 * before: a hole that the file system has just filled, or a
+		 * block that it replaced without reading it.
+		 */
+		if(msg->m_vmmcp.ino != VMC_NO_INODE &&
+		    (hb = find_cached_page_byino(dev, msg->m_vmmcp.ino,
+		    ino_off + offset, 0)) != NULL &&
+		    hb->page != phys_region->ph) {
+			map_unmap_shared_page(hb->page);
+			if(hb->flags & VMSF_ONCE)
+				rmcache(hb);
+		}
+
 		if((hb=find_cached_page_bydev(dev, dev_off + offset,
 			msg->m_vmmcp.ino, ino_off + offset, 1))) {
 			/* block inode info updated */
@@ -242,6 +256,8 @@ do_setcache(message *msg)
 				 * the page if it isn't mapped in anywhere
 				 * else.
 				 */
+				if(hb->page != phys_region->ph)
+					map_unmap_shared_page(hb->page);
                         	rmcache(hb);
 			} else {
 				/* block was already there, inode info might've changed which is fine */
@@ -301,8 +317,68 @@ do_forgetcache(message *msg)
 
 	for (offset = 0; offset < bytes; offset += VM_PAGE_SIZE) {
 		if ((hb = find_cached_page_bydev(dev, dev_off + offset,
-		    VMC_NO_INODE, 0 /*ino_off*/, 0 /*touchlru*/)) != NULL)
+		    VMC_NO_INODE, 0 /*ino_off*/, 0 /*touchlru*/)) != NULL) {
+			/* The block no longer belongs to its file. */
+			map_unmap_shared_page(hb->page);
 			rmcache(hb);
+		}
+	}
+
+	return OK;
+}
+
+/*
+ * A file system lets shared mappings of a file write to a cached block, as it
+ * holds the block dirty ('flags' set), or takes this back, as it is about to
+ * write the block out ('flags' clear): the mappings lose write access, so
+ * that their next write faults and makes the block dirty again.
+ */
+int
+do_mapwritecache(message *msg)
+{
+	struct cached_page *hb;
+	struct phys_region *pr;
+	dev_t dev;
+	uint64_t dev_off;
+	phys_bytes bytes, offset;
+	int writable;
+
+	dev = msg->m_vmmcp.dev;
+	dev_off = msg->m_vmmcp.dev_offset;
+	bytes = msg->m_vmmcp.pages * VM_PAGE_SIZE;
+	writable = msg->m_vmmcp.flags;
+
+	if (bytes < VM_PAGE_SIZE)
+		return EINVAL;
+
+	if (dev_off % PAGE_SIZE) {
+		printf("VM: unaligned cache operation\n");
+		return EFAULT;
+	}
+
+	for (offset = 0; offset < bytes; offset += VM_PAGE_SIZE) {
+		if ((hb = find_cached_page_bydev(dev, dev_off + offset,
+		    VMC_NO_INODE, 0 /*ino_off*/, 0 /*touchlru*/)) == NULL) {
+			if (writable)
+				return ENOENT;
+			continue;
+		}
+		if (writable) {
+			hb->page->flags |= PBF_MAPWRITE;
+			continue;
+		}
+		if (!(hb->page->flags & PBF_MAPWRITE))
+			continue;
+		hb->page->flags &= ~PBF_MAPWRITE;
+		for (pr = hb->page->firstregion; pr; pr = pr->next_ph_list) {
+			if (pr->memtype != &mem_type_mappedfile ||
+			    !(pr->parent->flags & VR_SHARED) ||
+			    !(pr->parent->flags & VR_WRITABLE))
+				continue;
+			if (map_ph_writept(pr->parent->parent, pr->parent,
+			    pr) != OK)
+				panic("VM: do_mapwritecache: writept failed");
+		}
 	}
 
 	return OK;

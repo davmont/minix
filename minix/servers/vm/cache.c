@@ -376,8 +376,13 @@ clear_cache_bydev(dev_t dev)
 		for (cp = cache_hash_bydev[h]; cp != NULL; cp = ncp) {
 			ncp = cp->hash_next_dev;
 
-			if (cp->dev == dev)
+			if (cp->dev == dev) {
+				/* Shared mappings would no longer see
+				 * the file: let them fault on it again.
+				 */
+				map_unmap_shared_page(cp->page);
 				rmcache(cp);
+			}
 		}
 	}
 }

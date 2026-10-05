@@ -22,6 +22,7 @@
 #define RES_HASPEEK		002	/* FS implements REQ_PEEK/REQ_BPEEK */
 #define RES_64BIT		004	/* FS can handle 64-bit file sizes */
 #define RES_RDONLY		010	/* FS forced a read-only mount */
+#define RES_HASMAPWRITE		020	/* FS implements REQ_MAPWRITE */
 
 /* VFS/FS error messages */
 #define EENTERMOUNT              (-301)
@@ -77,8 +78,9 @@ typedef struct {
 #define REQ_SETXATTR	(FS_BASE + 36)
 #define REQ_LISTXATTR	(FS_BASE + 37)
 #define REQ_REMOVEXATTR	(FS_BASE + 38)
+#define REQ_MAPWRITE	(FS_BASE + 39)
 
-#define NREQS			    39
+#define NREQS			    40
 
 #define IS_FS_RQ(type) (((type) & ~0xff) == FS_BASE)
 

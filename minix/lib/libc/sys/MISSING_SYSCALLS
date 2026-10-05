@@ -29,7 +29,6 @@ msgctl
 msgget
 msgrcv
 msgsnd
-msync
 nfs_svc
 pmc_*
 pollts

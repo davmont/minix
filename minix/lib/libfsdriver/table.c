@@ -41,5 +41,6 @@ int (*fsdriver_callvec[NREQS])(const struct fsdriver * __restrict,
 	CALL(REQ_GETXATTR)	= fsdriver_getxattr,
 	CALL(REQ_SETXATTR)	= fsdriver_setxattr,
 	CALL(REQ_LISTXATTR)	= fsdriver_listxattr,
-	CALL(REQ_REMOVEXATTR)	= fsdriver_removexattr
+	CALL(REQ_REMOVEXATTR)	= fsdriver_removexattr,
+	CALL(REQ_MAPWRITE)	= fsdriver_mapwrite
 };

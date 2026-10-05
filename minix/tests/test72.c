@@ -242,6 +242,12 @@ int vm_forget_cacheblock(dev_t dev, off_t dev_offset, int blocksize)
 	return 0;
 }
 
+int vm_mapwrite_cacheblock(dev_t dev, off_t dev_offset, int blocksize,
+	int writable)
+{
+	return 0;
+}
+
 int vm_clear_cache(dev_t dev)
 {
 	return 0;

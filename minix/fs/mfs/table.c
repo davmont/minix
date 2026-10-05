@@ -18,6 +18,7 @@ struct fsdriver mfs_table = {
 	.fdr_read	= fs_readwrite,
 	.fdr_write	= fs_readwrite,
 	.fdr_peek	= fs_readwrite,
+	.fdr_mapwrite	= fs_mapwrite,
 	.fdr_getdents	= fs_getdents,
 	.fdr_trunc	= fs_trunc,
 	.fdr_seek	= fs_seek,

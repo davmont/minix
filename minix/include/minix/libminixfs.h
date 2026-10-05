@@ -33,6 +33,8 @@ struct buf {
 void lmfs_markdirty(struct buf *bp);
 void lmfs_markclean(struct buf *bp);
 int lmfs_isclean(struct buf *bp);
+int lmfs_mapwrite(struct buf *bp);
+void lmfs_unmapwrite(struct buf *bp);
 void lmfs_flushall(void);
 void lmfs_flushdev(dev_t dev);
 size_t lmfs_fs_block_size(void);

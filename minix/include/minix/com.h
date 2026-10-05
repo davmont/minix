@@ -744,6 +744,9 @@
 #define VMVFSREQ_FDLOOKUP		101
 #define VMVFSREQ_FDCLOSE		102
 #define VMVFSREQ_FDIO			103
+#define VMVFSREQ_FDMAPWRITE		104	/* make a page of a shared file
+						 * mapping writable (see REQ_MAPWRITE) */
+#define VMVFSREQ_FDSYNC			105	/* msync(MS_SYNC): flush the file */
 
 /* Calls from VFS. */
 #define VM_VFS_REPLY		(VM_RQ_BASE+30)
@@ -766,6 +769,11 @@
 #	define VMV_INO			m10_l1
 #	define VMV_FD			m10_l2
 #	define VMV_SIZE_PAGES		m10_l3
+#	define VMV_FLAGS		m10_ull1	/* FDLOOKUP: VMVF_* */
+
+/* VMV_FLAGS bits in the reply to VMVFSREQ_FDLOOKUP. */
+#define VMVF_WRITABLE		0x01	/* the file is open for writing */
+#define VMVF_MAPWRITE		0x02	/* its file system takes REQ_MAPWRITE */
 
 #define VM_REMAP		(VM_RQ_BASE+33)
 
@@ -823,10 +831,19 @@
  * caller's address space.  Uses m_lc_vm_mprotect. */
 #define VM_MPROTECT		(VM_RQ_BASE+51)
 
-/* Total.  Must exceed the highest CALLMAP()ed call index: VM_MPROTECT is
- * VM_RQ_BASE+51, so the vm_calls[] table needs 52 entries.  (VM_SWAPON at
+/* A file system tells VM whether processes may write to a cached page
+ * through shared mappings of its file: m_vmmcp with 'flags' set (the block
+ * is dirty in the file system's cache) or clear (the file system is about
+ * to write it out: take write access away again). */
+#define VM_MAPWRITECACHE	(VM_RQ_BASE+52)
+
+/* msync(2).  Uses m_lc_vm_mprotect, with the msync flags in 'prot'. */
+#define VM_MSYNC		(VM_RQ_BASE+53)
+
+/* Total.  Must exceed the highest CALLMAP()ed call index: VM_MSYNC is
+ * VM_RQ_BASE+53, so the vm_calls[] table needs 54 entries.  (VM_SWAPON at
  * +49 is dispatched directly from VM's main loop, not through CALLMAP.) */
-#define NR_VM_CALLS				52
+#define NR_VM_CALLS				54
 #define VM_CALL_MASK_SIZE			BITMAP_CHUNKS(NR_VM_CALLS)
 
 /* not handled as a normal VM call, thus at the end of the reserved rage */
@@ -839,6 +856,7 @@
     VM_BRK, VM_MMAP, VM_MUNMAP, VM_MAP_PHYS, VM_UNMAP_PHYS, VM_INFO, \
     VM_RLIMIT, /* every process may get/set its own RLIMIT_AS/DATA */ \
     VM_MPROTECT, /* every process may change its own page protection */ \
+    VM_MSYNC, \
     VM_GETRUSAGE /* VM_GETRUSAGE is to be removed from this list ASAP */
 
 /*===========================================================================*

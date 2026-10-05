@@ -81,6 +81,71 @@ static int cow_block(struct vmproc *vmp, struct vir_region *region,
 	return OK;
 }
 
+static struct cached_page *file_cached_page(struct vir_region *region,
+	u64_t referenced_offset)
+{
+	if(region->param.file.fdref->ino == VMC_NO_INODE)
+		return find_cached_page_bydev(region->param.file.fdref->dev,
+			referenced_offset, VMC_NO_INODE, 0, 1);
+	return find_cached_page_byino(region->param.file.fdref->dev,
+		region->param.file.fdref->ino, referenced_offset, 1);
+}
+
+static int shared_pagefault(struct vmproc *vmp, struct vir_region *region,
+	struct phys_region *ph, int write, vfs_callback_t cb,
+	void *state, int statelen, int *io)
+{
+/* A page fault in a shared (MAP_SHARED) mapping of a file.  Such mappings
+ * use the file's pages in the cache themselves, never copies of them: what
+ * they write is the file, and what others write to the file they see.  They
+ * may write to a page only while its file system holds it dirty, which is
+ * what a FDMAPWRITE request (REQ_MAPWRITE) arranges, filling a hole if need
+ * be (PBF_MAPWRITE; see VM_MAPWRITECACHE).
+ */
+	struct cached_page *cp;
+	int procfd = region->param.file.fdref->fd;
+	u64_t referenced_offset = region->param.file.offset + ph->offset;
+
+	cp = file_cached_page(region, referenced_offset);
+
+	/* Map the file's current page in, if it is not mapped already.  A
+	 * one-time page (a hole, see lmfs_zero_block_ino()) is taken only on
+	 * the retry after asking the file system, as for private mappings;
+	 * unlike these, keep it in the cache: should the hole be filled, VM
+	 * finds its mappings through it (see do_setcache()).
+	 */
+	if(cp && cp->page != ph->ph && (!cb || !(cp->flags & VMSF_ONCE))) {
+		/* A stale page may go away below: unmap it first. */
+		if(ph->ph->phys != MAP_NONE && pt_writemap(region->parent,
+		    &region->parent->vm_pt, region->vaddr + ph->offset,
+		    MAP_NONE, VM_PAGE_SIZE, 0, WMF_OVERWRITE) != OK)
+			return ENOMEM;
+		pb_unreferenced(region, ph, 0);
+		pb_link(ph, cp->page, ph->offset, region);
+	}
+
+	if(ph->ph->phys != MAP_NONE &&
+	    (!write || (ph->ph->flags & PBF_MAPWRITE)))
+		return OK;
+
+	if(!cb) {
+		/* A retry after the file system had its say, and still no
+		 * page (or no write access): the range is beyond the end of
+		 * the file, or the file system cannot provide it.
+		 */
+		return ENXIO;
+	}
+
+	if(vfs_request(write ? VMVFSREQ_FDMAPWRITE : VMVFSREQ_FDIO, procfd,
+	    vmp, referenced_offset, VM_PAGE_SIZE, cb, NULL, state,
+	    statelen) != OK) {
+		printf("VM: shared_pagefault: vfs_request failed\n");
+		return ENOMEM;
+	}
+	*io = 1;
+	return SUSPEND;
+}
+
 static int mappedfile_pagefault(struct vmproc *vmp, struct vir_region *region,
 	struct phys_region *ph, int write, vfs_callback_t cb,
 	void *state, int statelen, int *io)
@@ -94,6 +159,10 @@ static int mappedfile_pagefault(struct vmproc *vmp, struct vir_region *region,
 	assert(region->param.file.inited);
 	assert(region->param.file.fdref);
 	assert(region->param.file.fdref->dev != NO_DEV);
+
+	if(region->flags & VR_SHARED)
+		return shared_pagefault(vmp, region, ph, write, cb, state,
+			statelen, io);
 
 	/* Totally new block? Create it. */
 	if(ph->ph->phys == MAP_NONE) {
@@ -172,8 +241,11 @@ static int mappedfile_sanitycheck(struct phys_region *pr, const char *file, int 
 
 static int mappedfile_writable(struct phys_region *pr)
 {
-	/* We are never writable. */
-	return 0;
+	/* Private mappings copy a page before writing to it; shared ones
+	 * write to the file's page, when its file system lets them.
+	 */
+	return (pr->parent->flags & VR_SHARED) &&
+		(pr->ph->flags & PBF_MAPWRITE);
 }
 
 int mappedfile_copy(struct vir_region *vr, struct vir_region *newvr)

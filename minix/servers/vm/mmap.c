@@ -108,7 +108,7 @@ static int mmap_file(struct vmproc *vmp,
 	int vmfd, off_t file_offset, int flags,
 	ino_t ino, dev_t dev, u64_t filesize, vir_bytes addr, vir_bytes len,
 	vir_bytes *retaddr, u16_t clearend, int writable, int exec,
-	int noaccess, int mayclosefd)
+	int noaccess, int mayclosefd, int shared, int maywrite)
 {
 /* VFS has replied to a VMVFSREQ_FDLOOKUP request. */
 	struct vir_region *vr;
@@ -119,6 +119,12 @@ static int mmap_file(struct vmproc *vmp,
 	if(writable) vrflags |= VR_WRITABLE;
 	if(!exec) vrflags |= VR_NOEXEC;
 	if(noaccess) vrflags |= VR_NOACCESS;
+	/* A shared mapping writes to the file itself (see mem_file.c), so
+	 * mprotect() may make it writable only if the file is open for
+	 * writing and its file system supports that.
+	 */
+	if(shared) vrflags |= VR_SHARED;
+	if(shared && !writable && maywrite) vrflags |= VR_WASWRITABLE;
 
 	/* Do some page alignments. */
 	if((page_offset = (file_offset % VM_PAGE_SIZE))) {
@@ -180,7 +186,8 @@ int do_vfs_mmap(message *m)
 		m->m_vm_vfs_mmap.ino, m->m_vm_vfs_mmap.dev,
 		(u64_t) LONG_MAX * VM_PAGE_SIZE,
 		m->m_vm_vfs_mmap.vaddr, m->m_vm_vfs_mmap.len, &v,
-		clearend, !!(flags & MVM_WRITABLE), !!(flags & MVM_EXEC), 0, 0);
+		clearend, !!(flags & MVM_WRITABLE), !!(flags & MVM_EXEC), 0, 0,
+		0, 0);
 }
 
 static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
@@ -189,11 +196,14 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 	message *origmsg = (message *) origmsg_v;
 	message mmap_reply;
 	int result;
-	int writable = 0;
+	int writable = 0, shared, maywrite;
 	vir_bytes v = (vir_bytes) MAP_FAILED;
 
 	if(origmsg->m_mmap.prot & PROT_WRITE)
 		writable = 1;
+	shared = !!(origmsg->m_mmap.flags & MAP_SHARED);
+	maywrite = (replymsg->VMV_FLAGS & (VMVF_WRITABLE | VMVF_MAPWRITE)) ==
+		(VMVF_WRITABLE | VMVF_MAPWRITE);
 
 	if(replymsg->VMV_RESULT != OK) {
 #if 0   /* Noisy diagnostic for mmap() by ld.so */
@@ -201,6 +211,13 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 		sys_diagctl_stacktrace(vmp->vm_endpoint);
 #endif
 		result = replymsg->VMV_RESULT;
+	} else if(vmp == NULL) {
+		return;				/* the process is gone */
+	} else if(shared && writable &&
+	    !(replymsg->VMV_FLAGS & VMVF_WRITABLE)) {
+		result = EACCES;		/* POSIX */
+	} else if(shared && writable && !maywrite) {
+		result = ENODEV;		/* file system cannot */
 	} else {
 		/* Finish mmap */
 		result = mmap_file(vmp, replymsg->VMV_FD, origmsg->m_mmap.offset,
@@ -211,16 +228,24 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 			origmsg->m_mmap.len, &v, 0, writable,
 			!!(origmsg->m_mmap.prot & PROT_EXEC),
 			!(origmsg->m_mmap.prot & (PROT_READ|PROT_WRITE|PROT_EXEC)),
-			1);
+			1, shared, maywrite);
 	}
 
-	/* Unblock requesting process. */
+	/* On failure, VM's copy of the descriptor is no longer needed. */
+	if(result != OK && replymsg->VMV_RESULT == OK && vmp != NULL &&
+	    vfs_request(VMVFSREQ_FDCLOSE, replymsg->VMV_FD, vmp, 0, 0, NULL,
+	    NULL, NULL, 0) != OK)
+		printf("VM: mmap_file_cont: could not close fd\n");
+
+	/* Unblock requesting process: the caller, which for a thread is not
+	 * the process owning the address space.
+	 */
 	memset(&mmap_reply, 0, sizeof(mmap_reply));
 	mmap_reply.m_type = result;
 	mmap_reply.m_mmap.retaddr = (void *) v;
 
-	if(ipc_send(vmp->vm_endpoint, &mmap_reply) != OK)
-		panic("VM: mmap_file_cont: ipc_send() failed");
+	if(ipc_send(origmsg->m_source, &mmap_reply) != OK)
+		printf("VM: mmap_file_cont: ipc_send() failed\n");
 }
 
 /*===========================================================================*
@@ -290,13 +315,6 @@ int do_mmap(message *m)
 	} else {
 		/* File mapping might be disabled */
 		if(!enable_filemap) return ENXIO;
-
-		/* For files, we only can't accept writable MAP_SHARED
-		 * mappings.
-		 */
-		if((m->m_mmap.flags & MAP_SHARED) && (m->m_mmap.prot & PROT_WRITE)) {
-			return ENXIO;
-		}
 
 		if(vfs_request(VMVFSREQ_FDLOOKUP, m->m_mmap.fd, vmp, 0, 0,
 			mmap_file_cont, NULL, m, sizeof(*m)) != OK) {
@@ -633,6 +651,108 @@ int do_munmap(message *m)
 /*===========================================================================*
  *				do_mprotect				     *
  *===========================================================================*/
+struct msync_state {
+	endpoint_t caller;		/* who called msync() */
+	vir_bytes next, limit;		/* what is left to do */
+	dev_t last_dev;			/* file system synced last */
+};
+
+static void msync_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
+	void *statearg);
+
+static int msync_step(struct vmproc *vmp, struct msync_state *st)
+{
+/* Have the file of each shared, writable mapping in the range flushed, one
+ * file system at a time.  Shared mappings write to the file's own blocks,
+ * which their file system holds dirty, so a sync of it is all there is to it.
+ */
+	struct vir_region *vr;
+
+	while(st->next < st->limit) {
+		if(!(vr = map_lookup(vmp, st->next, NULL)))
+			return ENOMEM;
+		st->next = vr->vaddr + vr->length;
+		if(vr->def_memtype != &mem_type_mappedfile ||
+		    !(vr->flags & VR_SHARED) || !vr->param.file.inited ||
+		    !(vr->flags & (VR_WRITABLE | VR_WASWRITABLE)) ||
+		    vr->param.file.fdref->dev == st->last_dev)
+			continue;
+		st->last_dev = vr->param.file.fdref->dev;
+		if(vfs_request(VMVFSREQ_FDSYNC, vr->param.file.fdref->fd, vmp,
+		    0, 0, msync_cont, NULL, st, sizeof(*st)) != OK)
+			return ENOMEM;
+		return SUSPEND;
+	}
+	return OK;
+}
+
+static void msync_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
+	void *statearg)
+{
+	struct msync_state *st = statearg;
+	message reply;
+	int r;
+
+	if(vmp == NULL)
+		return;				/* the process is gone */
+	if((r = replymsg->VMV_RESULT) == OK &&
+	    (r = msync_step(vmp, st)) == SUSPEND)
+		return;
+
+	memset(&reply, 0, sizeof(reply));
+	reply.m_type = r;
+	if(ipc_send(st->caller, &reply) != OK)
+		printf("VM: msync_cont: ipc_send() failed\n");
+}
+
+/*===========================================================================*
+ *				do_msync				     *
+ *===========================================================================*/
+int do_msync(message *m)
+{
+	struct msync_state st;
+	struct vmproc *vmp;
+	struct vir_region *vr;
+	vir_bytes addr, len, a;
+	int n, flags, r;
+
+	if((r=vm_isokendpt(m->m_source, &n)) != OK)
+		panic("do_msync: message from strange source: %d",
+			m->m_source);
+	vmp = vm_lwp_group(&vmproc[n]);
+
+	addr = (vir_bytes) m->m_lc_vm_mprotect.addr;
+	len = m->m_lc_vm_mprotect.len;
+	flags = m->m_lc_vm_mprotect.prot;
+
+	if(addr % VM_PAGE_SIZE)
+		return EINVAL;
+	if((flags & ~(MS_ASYNC | MS_SYNC | MS_INVALIDATE)) ||
+	    (flags & (MS_ASYNC | MS_SYNC)) == (MS_ASYNC | MS_SYNC))
+		return EINVAL;
+	if(len > (vir_bytes) -1 - (VM_PAGE_SIZE - 1) - addr)
+		return ENOMEM;
+	len = roundup(len, VM_PAGE_SIZE);
+
+	/* POSIX: ENOMEM when part of the range is not mapped. */
+	for(a = addr; a < addr + len; a = vr->vaddr + vr->length)
+		if(!(vr = map_lookup(vmp, a, NULL)))
+			return ENOMEM;
+
+	/* Shared mappings and the file are one and the same (there is
+	 * nothing to invalidate), and their changes are in the file system's
+	 * cache already: only MS_SYNC (or no flag, as on NetBSD) has work.
+	 */
+	if(flags & MS_ASYNC)
+		return OK;
+
+	st.caller = m->m_source;
+	st.next = addr;
+	st.limit = addr + len;
+	st.last_dev = NO_DEV;
+	return msync_step(vmp, &st);
+}
+
 int do_mprotect(message *m)
 {
 	struct vmproc *vmp;
