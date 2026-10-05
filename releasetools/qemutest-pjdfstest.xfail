@@ -22,12 +22,6 @@ unlink/13.t
 # MFS keeps whole-second timestamps: sub-second times read back as 0.
 utimensat/08.t
 
-# truncate() of a directory returns EINVAL instead of EISDIR;
-# ftruncate() of a read-only descriptor returns EBADF instead of EINVAL.
-ftruncate/09.t
-truncate/09.t
-ftruncate/00.t
-
 # Permission semantics for an unprivileged user: set-id bits must clear on
 # a write by a non-owner, chown may only move to a group the caller is in,
 # and the sticky bit must restrict unlink/rmdir to the file's owner.
