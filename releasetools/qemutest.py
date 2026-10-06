@@ -193,6 +193,9 @@ class Guest:
             # Second IDE disk on the one controller: c0d1 in the guest.
             cmd += ["-drive", "file=%s,if=ide,index=1,format=raw"
                     % args.drive]
+        # Extra QEMU arguments from tools that drive guests themselves
+        # (releasetools/devtools), e.g. network devices.
+        cmd += getattr(args, "qemu_extra", [])
         self.qemu = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE)
         self.ser = Serial(sock, log)

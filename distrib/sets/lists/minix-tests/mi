@@ -107,6 +107,7 @@
 ./usr/tests/minix-posix/t84_h_nonexec.sh                minix-tests
 ./usr/tests/minix-posix/t84_h_spawn                     minix-tests
 ./usr/tests/minix-posix/t84_h_spawnattr                 minix-tests
+./usr/tests/minix-posix/tcpbench                        minix-tests
 ./usr/tests/minix-posix/test1                           minix-tests
 ./usr/tests/minix-posix/test1.c                         minix-tests
 ./usr/tests/minix-posix/test10                          minix-tests
