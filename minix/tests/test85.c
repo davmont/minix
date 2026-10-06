@@ -449,7 +449,7 @@ do_test(size_t size)
 	 * cache in order to test retrieval from the VM cache, since this would
 	 * involve doing a LOT of extra I/O.
 	 */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < (test_peek ? 4 : 2); i++) {	/* see main() */
 		setup_image(size);
 
 		switch (i) {
@@ -516,7 +516,9 @@ main(void)
 	 * architecture, the root file system's block size determines the
 	 * transfer granularity for I/O on unmounted block devices.  If this
 	 * block size is not a multiple of the page size, we are (currently!)
-	 * not expecting memory-mapped block devices to work.
+	 * not expecting memory-mapped block devices to work, and test reads
+	 * and writes only.  This is the case when booted from CD (ISO 9660,
+	 * 2KB blocks), as the test harness does.
 	 */
 	if (statvfs("/", &buf) < 0) e(0);
 

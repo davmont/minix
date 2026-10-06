@@ -2986,8 +2986,8 @@ sub87g(void)
 
 	size = getpagesize() * 3;
 
-	if ((ptr = mmap(NULL, size, PROT_READ, MAP_ANON | MAP_PRIVATE, -1,
-	    0)) == MAP_FAILED) e(0);
+	if ((ptr = mmap(NULL, size, PROT_READ | PROT_WRITE,
+	    MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) e(0);
 	memset(ptr, 0x2f, size);
 
 	mib[0] = CTL_MINIX;
@@ -3053,8 +3053,8 @@ test87g(void)
 	pgsz = getpagesize();
 	size = pgsz * 3;
 
-	if ((ptr = mmap(NULL, size + pgsz, PROT_READ, MAP_ANON | MAP_PRIVATE,
-	    -1, 0)) == MAP_FAILED) e(0);
+	if ((ptr = mmap(NULL, size + pgsz, PROT_READ | PROT_WRITE,
+	    MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) e(0);
 	if (munmap(ptr + size, pgsz) != 0) e(0);
 
 	(void)destroy_node(mib, 2, TEST_DYNAMIC);

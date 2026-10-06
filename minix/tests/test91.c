@@ -2998,30 +2998,43 @@ get_buf_sizes(int type, int * sndbufp, int * rcvbufp)
 }
 
 /*
- * Determine the minimum receive buffer size for a TCP socket, which
- * happens to be the TCP window size used within lwIP.  This is a
- * slightly hacky way to obtain the window size without adding sysctls
- * or making other lwIP service modifications.
+ * Determine the minimum receive buffer size for a TCP socket, which happens to
+ * be the TCP window size used within lwIP (TCP_RCVBUF_MIN is TCP_WND there).
+ * There is no way to ask for it, and smaller sizes are refused (EINVAL) rather
+ * than rounded up, so look for the smallest size that is accepted.
  */
 static int
 get_window_size(void)
 {
-	int fd, rcvbuf;
-	socklen_t len;
+	static int window = 0;
+	int fd, lo, hi, mid;
+
+	if (window != 0)
+		return window;
 
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) e(0);
 
-	rcvbuf = 1;
-	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) != 0)
-		e(0);
-
-	len = sizeof(rcvbuf);
-	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &len) != 0) e(0);
-	if (len != sizeof(rcvbuf)) e(0);
+	/* The smallest power of two accepted, then the smallest size above
+	 * the last one refused.
+	 */
+	lo = 1;
+	for (hi = 1 << 12; setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &hi,
+	    sizeof(hi)) != 0; hi <<= 1) {
+		if (hi >= 1 << 24) e(0);
+		lo = hi + 1;
+	}
+	while (lo < hi) {
+		mid = lo + (hi - lo) / 2;
+		if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &mid,
+		    sizeof(mid)) == 0)
+			hi = mid;
+		else
+			lo = mid + 1;
+	}
 
 	if (close(fd) != 0) e(0);
 
-	return rcvbuf;
+	return (window = lo);
 }
 
 #define CHUNK		4096	/* base I/O chunk size */
