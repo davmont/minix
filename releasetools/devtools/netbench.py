@@ -56,9 +56,11 @@ class Relay:
             dst.sendto(data, to)
 
 
-def guest(a, name, logdir, mac, local, remote):
-    a.qemu_extra = ["-netdev", "socket,id=n0,udp=127.0.0.1:%d,localaddr="
-                    "127.0.0.1:%d" % (remote, local),
+def guest(a, name, logdir, mac, local, remote, netdev=None):
+    if netdev is None:
+        netdev = "socket,id=n0,udp=127.0.0.1:%d,localaddr=127.0.0.1:%d" % (
+            remote, local)
+    a.qemu_extra = ["-netdev", netdev,
                     "-device", "e1000,netdev=n0,mac=%s" % mac]
     a.log_dir = os.path.join(logdir, name)
     os.makedirs(a.log_dir, exist_ok=True)
@@ -70,20 +72,70 @@ def run(g, cmd, timeout=120):
     return out.replace("\r", "").strip()
 
 
+def host_bench(opts):
+    """Guest A sends to a sink here, through slirp."""
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    got = {}
+
+    def sink():
+        c, _ = srv.accept()
+        n, t0 = 0, time.monotonic()
+        while True:
+            d = c.recv(1 << 20)
+            if not d:
+                break
+            n += len(d)
+        got["n"], got["t"] = n, time.monotonic() - t0
+        c.close()
+    threading.Thread(target=sink, daemon=True).start()
+
+    class A: pass
+    a = A(); a.iso = opts.iso; a.smp = opts.smp; a.mem = 1024; a.drive = None
+    a.kvm = q.kvm_usable(); a.qemu = "qemu-system-x86_64"; a.boot_timeout = 300
+    a.boot_retries = 2; a.suite = "quick"; a.tests = ""
+    g = guest(a, "host", opts.log_dir, "52:54:00:12:34:0a", 0, 0,
+              "user,id=n0")
+    try:
+        run(g, "ifconfig em0 inet 10.0.2.15 netmask 255.255.255.0 up")
+        print("A:", run(g, "%s 10.0.2.2 %d %d" % (BENCH, port, opts.mb), 900))
+        time.sleep(1)
+        if "n" in got:
+            print("host: received %d bytes in %.2f s: %.2f MB/s" % (
+                got["n"], got["t"], got["n"] / got["t"] / 1e6))
+    finally:
+        g.stop()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("iso")
     ap.add_argument("--rtt-ms", type=float, default=20)
     ap.add_argument("--mb", type=int, default=20)
     ap.add_argument("--smp", type=int, default=1)
+    ap.add_argument("--direct", action="store_true",
+                    help="join the guests with a QEMU TCP socket, no relay "
+                    "(no added latency, and no relay to slow things down)")
+    ap.add_argument("--host", action="store_true",
+                    help="one guest on QEMU user networking (slirp), sending "
+                    "to a sink on this host: the usual path to the outside")
+    ap.add_argument("--stats", action="store_true",
+                    help="show both guests' TCP statistics afterwards")
     ap.add_argument("--log-dir", default=os.environ.get(
         "DEVTOOLS_OUT", "/tmp/minix-devtools") + "/netbench")
     opts = ap.parse_args()
 
     base = 40000 + os.getpid() % 10000
     la, lb, ra, rb = base, base + 1, base + 2, base + 3
-    Relay(opts.rtt_ms / 2000.0, ra, rb, ("127.0.0.1", la),
-          ("127.0.0.1", lb))
+    if opts.host:
+        return host_bench(opts)
+
+    if not opts.direct:
+        Relay(opts.rtt_ms / 2000.0, ra, rb, ("127.0.0.1", la),
+              ("127.0.0.1", lb))
 
     class A: pass
     def args():
@@ -93,8 +145,14 @@ def main():
         a.tests = ""
         return a
 
-    ga = guest(args(), "a", opts.log_dir, "52:54:00:12:34:0a", la, ra)
-    gb = guest(args(), "b", opts.log_dir, "52:54:00:12:34:0b", lb, rb)
+    if opts.direct:
+        ga = guest(args(), "a", opts.log_dir, "52:54:00:12:34:0a", la, ra,
+                   "socket,id=n0,listen=127.0.0.1:%d" % la)
+        gb = guest(args(), "b", opts.log_dir, "52:54:00:12:34:0b", lb, rb,
+                   "socket,id=n0,connect=127.0.0.1:%d" % la)
+    else:
+        ga = guest(args(), "a", opts.log_dir, "52:54:00:12:34:0a", la, ra)
+        gb = guest(args(), "b", opts.log_dir, "52:54:00:12:34:0b", lb, rb)
     try:
         run(ga, "ifconfig em0 inet 10.9.0.1 netmask 255.255.255.0 up")
         run(gb, "ifconfig em0 inet 10.9.0.2 netmask 255.255.255.0 up")
@@ -106,6 +164,11 @@ def main():
         time.sleep(2)
         print("B:", run(gb, "cat /tmp/rx"))
         print(run(gb, "cat /tmp/td"))
+        if opts.stats:
+            for name, g in (("A", ga), ("B", gb)):
+                print("%s stats:" % name)
+                print(run(g, "netstat -s -p tcp | grep -iE "
+                          "'retrans|dup|out-of-order|drop|timeout'"))
     finally:
         ga.stop()
         gb.stop()
