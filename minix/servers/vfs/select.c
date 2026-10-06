@@ -28,7 +28,12 @@
 #include "vnode.h"
 
 /* max. number of simultaneously pending select() calls */
-#define MAXSELECTS 25
+/* A process (or thread) waits in at most one select at a time, so one slot
+ * each is enough.  With fewer, the next process to call select() or poll()
+ * failed with ENOSPC once that many others were waiting in one: easily the
+ * case with a few idle daemons and a desktop.
+ */
+#define MAXSELECTS NR_PROCS
 #define FROM_PROC 0
 #define TO_PROC   1
 
