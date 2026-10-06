@@ -194,6 +194,10 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 
   vp = f->filp_vno;
   position = (posp != NULL) ? *posp : f->filp_pos;
+
+  /* A kqueue(2) is not for reading. */
+  if (f->filp_kq != NULL)
+	return(EINVAL);
   r = OK;
   cum_io = 0;
 
@@ -306,11 +310,17 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 
   /* On write, update file size and access time. */
   if (rw_flag == WRITING) {
+	int extended = FALSE;
+
 	if (S_ISREG(vp->v_mode) || S_ISDIR(vp->v_mode)) {
 		if (position > vp->v_size) {
 			vp->v_size = position;
+			extended = TRUE;
 		}
 	}
+	/* Tell kqueues that watch the file (kqueue(2)). */
+	if (S_ISREG(vp->v_mode) && cum_io > 0)
+		kq_vnode_write(vp, extended);
   }
 
   if (posp == NULL)

@@ -55,7 +55,16 @@ static struct selectentry {
   char starting;
   clock_t expiry;
   minix_timer_t timer;	/* if expiry > 0 */
+  struct kqueue *kq;	/* a kevent(2) waiting, not a select(2) */
+  vir_bytes kq_events;	/* kevent: where the events go */
+  int kq_nevents;	/* kevent: room for this many */
 } selecttab[MAXSELECTS];
+
+/* A kevent(2) uses the select machinery to wait for its descriptors.  Its fd
+ * sets are VFS's own, so it has no user addresses to copy them to; ops2tab()
+ * wants a non-null one for each set in use.
+ */
+#define KQ_VIR_SET	((ixfer_fd_set_ptr) 1)
 
 static int copy_fdsets(struct selectentry *se, int nfds, int direction);
 static void filp_status(struct filp *fp, int status);
@@ -81,6 +90,8 @@ static void select_return(struct selectentry *);
 static void select_restart_filps(void);
 static int tab2ops(int fd, struct selectentry *e);
 static void wipe_select(struct selectentry *s);
+static int select_core(struct selectentry *se, int s, int nfds, clock_t ticks);
+static int select_result(struct selectentry *se);
 void select_timeout_check(int s);
 
 static struct fdtype {
@@ -108,9 +119,7 @@ int do_select(void)
  * timeout and wait for either the file descriptors to become ready or the
  * timer to go off. If no timeout value was provided, we wait indefinitely.
  */
-  int r, nfds, do_timeout, fd, type, s;
-  struct filp *f;
-  unsigned int ops;
+  int r, nfds, do_timeout, s;
   struct timeval timeout;
   struct selectentry *se;
   vir_bytes vtimeout;
@@ -170,6 +179,41 @@ int do_select(void)
   else			/* timeout set as (0,0) - this effects a poll */
 	se->block = 0;
   se->expiry = 0;	/* no timer set (yet) */
+
+  /* Convert timeval to ticks, for the timer set if the call blocks. */
+  ticks = 0;
+  if (do_timeout && se->block) {
+	/* Open Group:
+	 * "If the requested timeout interval requires a finer
+	 * granularity than the implementation supports, the
+	 * actual timeout interval shall be rounded up to the next
+	 * supported value."
+	 */
+	if (timeout.tv_sec >= (TMRDIFF_MAX - 1) / system_hz) {
+		ticks = TMRDIFF_MAX; /* silently truncate */
+	} else {
+		ticks = timeout.tv_sec * system_hz +
+		    (timeout.tv_usec * system_hz + USECPERSEC-1) / USECPERSEC;
+	}
+	assert(ticks != 0 && ticks <= TMRDIFF_MAX);
+  }
+
+  return select_core(se, s, nfds, ticks);
+}
+
+/*===========================================================================*
+ *				select_core				     *
+ *===========================================================================*/
+static int select_core(struct selectentry *se, int s, int nfds, clock_t ticks)
+{
+/* Check the file descriptors of a select call (or of a kevent call) that has
+ * been set up in slot 's', and return its result right away or suspend the
+ * calling process until there is one, or 'ticks' clock ticks have passed
+ * (if nonzero).
+ */
+  int r, fd, type;
+  struct filp *f;
+  unsigned int ops;
 
   /* We are going to lock filps, and that means that while locking a second
    * filp, we might already get the results for the first one. In that case,
@@ -307,35 +351,16 @@ int do_select(void)
 	 * away, and/or we were instructed not to block at all. Must return
 	 * immediately. Do not copy FD sets if an error occurred.
 	 */
-	if (se->error != OK)
-		r = se->error;
-	else
-		r = copy_fdsets(se, se->nfds, TO_PROC);
+	r = select_result(se);
 	select_cancel_all(se);
 	se->requestor = NULL;
+	se->kq = NULL;
 
-	if (r != OK)
-		return(r);
-	return(se->nreadyfds);
+	return(r);
   }
 
-  /* Convert timeval to ticks and set the timer. If it fails, undo
-   * all, return error.
-   */
-  if (do_timeout && se->block) {
-	/* Open Group:
-	 * "If the requested timeout interval requires a finer
-	 * granularity than the implementation supports, the
-	 * actual timeout interval shall be rounded up to the next
-	 * supported value."
-	 */
-	if (timeout.tv_sec >= (TMRDIFF_MAX - 1) / system_hz) {
-		ticks = TMRDIFF_MAX; /* silently truncate */
-	} else {
-		ticks = timeout.tv_sec * system_hz +
-		    (timeout.tv_usec * system_hz + USECPERSEC-1) / USECPERSEC;
-	}
-	assert(ticks != 0 && ticks <= TMRDIFF_MAX);
+  /* Set the timer, if the call has a timeout. */
+  if (ticks > 0) {
 	se->expiry = ticks;
 	set_timer(&se->timer, ticks, select_timeout_check, s);
   }
@@ -794,16 +819,118 @@ static void select_return(struct selectentry *se)
 
   assert(!is_deferred(se));	/* Not done yet, first wait for async reply */
 
+  r = select_result(se);
   select_cancel_all(se);
-
-  if (se->error != OK)
-	r = se->error;
-  else
-	r = copy_fdsets(se, se->nfds, TO_PROC);
-  if (r == OK)
-	r = se->nreadyfds;
+  se->kq = NULL;
 
   revive(se->req_endpt, r);
+}
+
+/*===========================================================================*
+ *				select_result				     *
+ *===========================================================================*/
+static int select_result(struct selectentry *se)
+{
+/* The result of a select call, or of a kevent call, now that it is done: the
+ * number of ready descriptors, with the fd sets copied out, or of events,
+ * with these copied out; or an error.  This function MUST NOT block its
+ * calling thread.
+ */
+  int r;
+
+  if (se->error != OK)
+	return(se->error);
+  if (se->kq != NULL)
+	return kq_output(se->kq, se->req_endpt, &se->ready_readfds,
+	    &se->ready_writefds, se->kq_events, se->kq_nevents);
+  if ((r = copy_fdsets(se, se->nfds, TO_PROC)) != OK)
+	return(r);
+  return(se->nreadyfds);
+}
+
+/*===========================================================================*
+ *				select_kevent				     *
+ *===========================================================================*/
+int select_kevent(struct kqueue *kq, fd_set *readfds, fd_set *writefds,
+	int nfds, int block, clock_t ticks, vir_bytes events, int nevents)
+{
+/* A kevent(2) call by the current process: wait as select(2) would for the
+ * given descriptors of its kqueue to become ready, for at most 'ticks' clock
+ * ticks if nonzero, not at all if 'block' is zero, or until kq_wake().  The
+ * result is that of kq_output() then.
+ */
+  int s;
+  struct selectentry *se;
+
+  for (s = 0; s < MAXSELECTS; s++)
+	if (selecttab[s].requestor == NULL) /* Unused slot */
+		break;
+  if (s >= MAXSELECTS) return(ENOSPC);
+
+  se = &selecttab[s];
+  wipe_select(se);
+  se->requestor = fp;
+  se->req_endpt = who_e;
+  se->vir_readfds = KQ_VIR_SET;
+  se->vir_writefds = KQ_VIR_SET;
+  se->vir_errorfds = NULL;
+  se->readfds = *readfds;
+  se->writefds = *writefds;
+  se->kq = kq;
+  se->kq_events = events;
+  se->kq_nevents = nevents;
+  se->block = block;
+  se->expiry = 0;
+
+  return select_core(se, s, nfds, block ? ticks : 0);
+}
+
+/*===========================================================================*
+ *				kq_abort				     *
+ *===========================================================================*/
+void kq_abort(struct kqueue *kq)
+{
+/* The given kqueue is going away (its last descriptor has been closed, by
+ * another thread): kevent calls still waiting on it fail with EBADF, without
+ * looking at it again.  This function MUST NOT block its calling thread.
+ */
+  int s;
+  struct selectentry *se;
+
+  for (s = 0; s < MAXSELECTS; s++) {
+	se = &selecttab[s];
+	if (se->requestor == NULL || se->kq != kq)
+		continue;
+	se->error = EBADF;
+	se->block = 0;
+	if (!se->starting)
+		restart_proc(se);
+	else
+		se->kq = NULL;	/* select_core() returns the error */
+  }
+}
+
+/*===========================================================================*
+ *				kq_wake					     *
+ *===========================================================================*/
+void kq_wake(struct kqueue *kq)
+{
+/* Something other than a descriptor (a timer, a user event, a write to a
+ * watched file) has made an event of the given kqueue ready: end the waits
+ * of kevent calls on it, to have them collect the events.  This function MUST
+ * NOT block its calling thread.
+ */
+  int s;
+  struct selectentry *se;
+
+  for (s = 0; s < MAXSELECTS; s++) {
+	se = &selecttab[s];
+	if (se->requestor == NULL || se->kq != kq)
+		continue;
+	se->block = 0;		/* no more waiting */
+	if (!se->starting)
+		restart_proc(se);
+  }
 }
 
 
@@ -857,6 +984,7 @@ void select_forget(void)
 
   /* Do NOT test on is_deferred here. We can safely cancel ongoing queries. */
   select_cancel_all(se);
+  se->kq = NULL;
 }
 
 
@@ -1326,6 +1454,7 @@ static void wipe_select(struct selectentry *se)
   se->nreadyfds = 0;
   se->error = OK;
   se->block = 0;
+  se->kq = NULL;
   memset(se->filps, 0, sizeof(se->filps));
 
   FD_ZERO(&se->readfds);

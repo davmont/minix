@@ -707,6 +707,9 @@ close_fd(struct fproc * rfp, int fd_nr, int may_suspend)
    */
   rfp->fp_fd->fd_filp[fd_nr] = NULL;
 
+  /* Knotes on the descriptor go with it (kqueue(2)). */
+  kq_fd_closed(rfp->fp_fd, fd_nr);
+
   /* Release the process's locks on the file, if any, while the filp still
    * holds its vnode: close_filp() may put the last reference. */
   lock_release(rfp, vp);

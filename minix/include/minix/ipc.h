@@ -1138,6 +1138,25 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_vfs_fallocate);
 
 typedef struct {
+	int flags;			/* O_CLOEXEC, O_NONBLOCK, O_NOSIGPIPE */
+
+	uint8_t padding[52];
+} mess_lc_vfs_kqueue;
+_ASSERT_MSG_SIZE(mess_lc_vfs_kqueue);
+
+typedef struct {
+	int fd;
+	int nchanges;
+	int nevents;
+	vir_bytes changelist;		/* const struct kevent * */
+	vir_bytes eventlist;		/* struct kevent * */
+	vir_bytes timeout;		/* const struct timespec *, or 0 */
+
+	uint8_t padding[32];		/* 56 bytes on i386 */
+} mess_lc_vfs_kevent;
+_ASSERT_MSG_SIZE(mess_lc_vfs_kevent);
+
+typedef struct {
 	mode_t mask;
 
 	uint8_t padding[52];
@@ -2878,6 +2897,8 @@ typedef struct noxfer_message {
 		mess_lc_vfs_statvfs1	m_lc_vfs_statvfs1;
 		mess_lc_vfs_truncate	m_lc_vfs_truncate;
 		mess_lc_vfs_fallocate	m_lc_vfs_fallocate;
+		mess_lc_vfs_kqueue	m_lc_vfs_kqueue;
+		mess_lc_vfs_kevent	m_lc_vfs_kevent;
 		mess_lc_vfs_umask	m_lc_vfs_umask;
 		mess_lc_vfs_umount	m_lc_vfs_umount;
 		mess_lc_vm_brk		m_lc_vm_brk;

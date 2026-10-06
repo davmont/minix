@@ -43,7 +43,8 @@
 #define	EVFILT_PROC		4U	/* attached to struct proc */
 #define	EVFILT_SIGNAL		5U	/* attached to struct proc */
 #define	EVFILT_TIMER		6U	/* arbitrary timer (in ms) */
-#define	EVFILT_SYSCOUNT		7U	/* number of filters */
+#define	EVFILT_USER		8U	/* user events (as NetBSD 10) */
+#define	EVFILT_SYSCOUNT		9U	/* number of filters */
 
 #define	EV_SET(kevp, a, b, c, d, e, f)					\
 do {									\
@@ -74,6 +75,8 @@ struct kevent {
 /* flags */
 #define	EV_ONESHOT	0x0010U		/* only report one occurrence */
 #define	EV_CLEAR	0x0020U		/* clear event state after reporting */
+#define	EV_RECEIPT	0x0040U		/* force EV_ERROR on success, data=0 */
+#define	EV_DISPATCH	0x0080U		/* disable event after reporting */
 
 #define	EV_SYSFLAGS	0xF000U		/* reserved by system */
 #define	EV_FLAG1	0x2000U		/* filter-specific flag */
@@ -88,6 +91,18 @@ struct kevent {
 #ifdef _KERNEL
 #define NOTE_SUBMIT	0x01000000U		/* initial knote submission */
 #endif
+/*
+ * data/hint flags for EVFILT_USER, shared with userspace
+ */
+#define	NOTE_FFNOP	0x00000000U		/* ignore input fflags */
+#define	NOTE_FFAND	0x40000000U		/* AND fflags */
+#define	NOTE_FFOR	0x80000000U		/* OR fflags */
+#define	NOTE_FFCOPY	0xc0000000U		/* copy fflags */
+#define	NOTE_FFCTRLMASK	0xc0000000U		/* masks for operations */
+#define	NOTE_FFLAGSMASK	0x00ffffffU
+#define	NOTE_TRIGGER	0x01000000U		/* cause the event to be
+						   triggered for output. */
+
 /*
  * data/hint flags for EVFILT_{READ|WRITE}, shared with userspace
  */
