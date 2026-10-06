@@ -449,8 +449,11 @@ udp_input(struct pbuf *p, struct netif *inp)
 #if defined(__minix)
                 /* MINIX 3 only: lwIP's own pbuf pool is disabled here
                    (PBUF_POOL_SIZE is 0), so a PBUF_POOL clone can never
-                   succeed; use our own pbuf chain allocator instead. */
-                q = pchain_alloc(PBUF_RAW, p->tot_len);
+                   succeed; use our own pbuf chain allocator instead.  Keep
+                   room for the headers in front of the copy, as lwIP 2.0
+                   did (it copied the packet with its headers): the
+                   receiving socket puts its own information there. */
+                q = pchain_alloc(PBUF_TRANSPORT, p->tot_len);
                 if (q != NULL && pbuf_copy(q, p) != ERR_OK) {
                   pbuf_free(q);
                   q = NULL;
