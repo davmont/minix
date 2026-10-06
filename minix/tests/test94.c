@@ -65,6 +65,21 @@ test94_signal(int sig)
 }
 
 /*
+ * Catch SIGUSR1 with test94_signal(), so that it interrupts a blocking call:
+ * with signal(3), which sets SA_RESTART as on NetBSD, an interrupted read of
+ * a BPF device is restarted rather than failing with EINTR.
+ */
+static void
+test94_catch(void)
+{
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = test94_signal;
+	if (sigaction(SIGUSR1, &sa, NULL) != 0) e(0);
+}
+
+/*
  * Send UDP packets on the given socket 'fd' so as to fill up a BPF store
  * buffer of size 'size' exactly.  The provided buffer 'buf' may be used for
  * packet generation and is at least of 'size' bytes.  Return the number of
@@ -540,7 +555,7 @@ test94a(void)
 	case 0:
 		errct = 0;
 
-		signal(SIGUSR1, test94_signal);
+		test94_catch();
 
 		usleep(SLEEP_TIME);
 
@@ -603,7 +618,7 @@ test94a(void)
 	case 0:
 		errct = 0;
 
-		signal(SIGUSR1, test94_signal);
+		test94_catch();
 
 		if (read(fd, buf, size) != -1) e(0);
 		if (errno != EINTR) e(0);
@@ -635,7 +650,7 @@ test94a(void)
 	case 0:
 		errct = 0;
 
-		signal(SIGUSR1, test94_signal);
+		test94_catch();
 
 		if (read(fd, buf, size) != -1) e(0);
 		if (errno != EINTR) e(0);

@@ -1636,11 +1636,12 @@ test92n(void)
 }
 
 /*
- * Test small and large ICMP echo ("ping") packets.  This test aims to confirm
- * expected behavior resulting from the LWIP service's memory pool policies:
- * lwIP should reply to ICMP echo requests that fit in a single 512-byte buffer
- * (including space for ethernet headers, even on loopback interfaces), but not
- * to requests exceeding a single buffer.
+ * Test small and large ICMP echo ("ping") packets.  lwIP must reply to ICMP
+ * echo requests that fit in a single 512-byte buffer (including space for
+ * ethernet headers, even on loopback interfaces).  Older lwIP versions, given
+ * the LWIP service's memory pool policies, did not reply to requests exceeding
+ * a single buffer; lwIP 2.2 copies such requests into a new buffer and does,
+ * as one would want.  Accept either, but a reply must be right.
  */
 static void
 test92o(void)
@@ -1679,17 +1680,23 @@ test92o(void)
 	if (sendto(fd, buf, sizeof(buf) - 100, 0, (struct sockaddr *)&sin6,
 	    sizeof(sin6)) != sizeof(buf) - 100) e(0);
 
-	do {
-		memset(buf, '\0', sizeof(buf));
+	for (;;) {
+		do {
+			memset(buf, '\0', sizeof(buf));
 
-		if (recv(fd, buf, sizeof(buf), 0) <= 0) e(0);
+			if (recv(fd, buf, sizeof(buf), 0) <= 0) e(0);
 
-		memcpy(&packet, buf, sizeof(packet));
-	} while (packet.icmp6_type == ICMP6_ECHO_REQUEST);
+			memcpy(&packet, buf, sizeof(packet));
+		} while (packet.icmp6_type == ICMP6_ECHO_REQUEST);
 
-	if (packet.icmp6_type != ICMP6_ECHO_REPLY) e(0);
-	if (packet.icmp6_code != 0) e(0);
-	if (packet.icmp6_id != getpid()) e(0);
+		if (packet.icmp6_type != ICMP6_ECHO_REPLY) e(0);
+		if (packet.icmp6_code != 0) e(0);
+		if (packet.icmp6_id != getpid()) e(0);
+		if (packet.icmp6_seq != 1)
+			break;
+		/* The reply to the large request (see above). */
+		if (buf[sizeof(buf) - 1] != 'A') e(0);
+	}
 	if (packet.icmp6_seq != 2) e(0);
 	if (buf[sizeof(buf) - 101] != 'B') e(0);
 

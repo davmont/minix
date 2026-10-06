@@ -157,6 +157,46 @@ ifconf_ioctl_ifreq(unsigned long request, const struct sockdriver_data * data)
 }
 
 /*
+ * Process an address family independent IOCTL request with an "ifdatareq"
+ * structure: the interface's statistics and link state.  ifconfig(8) uses it
+ * for the link state of interfaces without media, such as lo0, and fails
+ * altogether without it.
+ */
+static int
+ifconf_ioctl_ifdata(unsigned long request,
+	const struct sockdriver_data * data)
+{
+	struct ifdev *ifdev;
+	struct ifdatareq ifdr;
+	struct if_data *ifi;
+	int r;
+
+	if ((r = sockdriver_copyin(data, 0, &ifdr, sizeof(ifdr))) != OK)
+		return r;
+
+	ifdr.ifdr_name[sizeof(ifdr.ifdr_name) - 1] = '\0';
+
+	if ((ifdev = ifdev_find_by_name(ifdr.ifdr_name)) == NULL)
+		return ENXIO;
+
+	ifi = ifdev_get_ifdata(ifdev);
+	memcpy(&ifdr.ifdr_data, ifi, sizeof(ifdr.ifdr_data));
+
+	if ((r = sockdriver_copyout(data, 0, &ifdr, sizeof(ifdr))) != OK)
+		return r;
+
+	if (request == SIOCZIFDATA) {
+		/* Zero the counters, as NetBSD does; keep the rest. */
+		ifi->ifi_ipackets = ifi->ifi_ierrors = ifi->ifi_opackets =
+		    ifi->ifi_oerrors = ifi->ifi_collisions = ifi->ifi_ibytes =
+		    ifi->ifi_obytes = ifi->ifi_imcasts = ifi->ifi_omcasts =
+		    ifi->ifi_iqdrops = ifi->ifi_noproto = 0;
+	}
+
+	return OK;
+}
+
+/*
  * Process an address family independent IOCTL request with an "ifcapreq"
  * structure.
  */
@@ -895,6 +935,14 @@ ifconf_ioctl(struct sock * sock, unsigned long request,
 		/* FALLTHROUGH */
 	case SIOCGIFCAP:
 		return ifconf_ioctl_ifcap(request, data);
+
+	case SIOCZIFDATA:
+		if (!util_is_root(user_endpt))
+			return EPERM;
+
+		/* FALLTHROUGH */
+	case SIOCGIFDATA:
+		return ifconf_ioctl_ifdata(request, data);
 
 	case MINIX_SIOCGIFMEDIA:
 		return ifconf_ioctl_ifmedia(request, data);
