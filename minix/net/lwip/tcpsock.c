@@ -84,11 +84,11 @@ static const unsigned int NETBSD_TF_NODELAY = TF_NODELAY;
  * larger than the TCP window at all times.
  */
 #define TCP_SNDBUF_MIN	1		/* minimum TCP send buffer size */
-#define TCP_SNDBUF_DEF	32768		/* default TCP send buffer size */
-#define TCP_SNDBUF_MAX	131072		/* maximum TCP send buffer size */
+#define TCP_SNDBUF_DEF	65536		/* default TCP send buffer size */
+#define TCP_SNDBUF_MAX	262144		/* maximum TCP send buffer size */
 #define TCP_RCVBUF_MIN	TCP_WND		/* minimum TCP receive buffer size */
 #define TCP_RCVBUF_DEF	MAX(TCP_WND, 32768) /* default TCP recv buffer size */
-#define TCP_RCVBUF_MAX	MAX(TCP_WND, 131072) /* maximum TCP recv buffer size */
+#define TCP_RCVBUF_MAX	MAX(TCP_WND, 262144) /* maximum TCP recv buffer size */
 
 /*
  * The total number of buffers that may in use for TCP socket send queues.  The
@@ -125,13 +125,16 @@ static struct tcpsock {
 		struct pbuf **tr_pre_tailp;	/* ptr-ptr to newest pbuf */
 		size_t tr_len;			/* bytes on receive queue */
 		unsigned short tr_head_off;	/* offset into head pbuf */
-		unsigned short tr_unacked;	/* current window reduction */
+		unsigned int tr_unacked;	/* current window reduction (as
+						 * TCP_WND, may exceed 64KB) */
 	} tcp_rcv;
 } tcp_array[NR_TCPSOCK];
 
 static TAILQ_HEAD(, tcpsock) tcp_freelist;	/* list of free TCP sockets */
 
 static const struct sockevent_ops tcpsock_ops;
+
+static void tcpsock_recved(struct tcp_pcb * pcb, size_t len);
 
 static unsigned int tcpsock_sendbufs;		/* # send buffers in use */
 static unsigned int tcpsock_recvbufs;		/* # receive buffers in use */
@@ -415,7 +418,7 @@ tcpsock_clear_recv(struct tcpsock * tcp, int ack_data)
 	 * as possible, to keep the full window open at all times.
 	 */
 	if (ack_data && tcp->tcp_pcb != NULL && tcp->tcp_rcv.tr_unacked > 0)
-		tcp_recved(tcp->tcp_pcb, tcp->tcp_rcv.tr_unacked);
+		tcpsock_recved(tcp->tcp_pcb, tcp->tcp_rcv.tr_unacked);
 
 	tcpsock_reset_recv(tcp);
 
@@ -870,6 +873,23 @@ tcpsock_event_sent(void * arg, struct tcp_pcb * pcb __unused, uint16_t len)
 }
 
 /*
+ * Tell lwIP that 'len' more bytes of received data have been taken, opening
+ * up the window by as much.  lwIP takes 16 bits at a time; the window (and so
+ * the amount at once) may be larger.
+ */
+static void
+tcpsock_recved(struct tcp_pcb * pcb, size_t len)
+{
+	u16_t chunk;
+
+	while (len > 0) {
+		chunk = (len > UINT16_MAX) ? UINT16_MAX : (u16_t)len;
+		tcp_recved(pcb, chunk);
+		len -= chunk;
+	}
+}
+
+/*
  * Check whether any (additional) data previously received on a TCP socket
  * should be acknowledged, possibly allowing the remote end to send additional
  * data as a result.
@@ -908,7 +928,7 @@ tcpsock_ack_recv(struct tcpsock * tcp)
 			if (ack > tcp->tcp_rcv.tr_unacked)
 				ack = tcp->tcp_rcv.tr_unacked;
 
-			tcp_recved(tcp->tcp_pcb, ack);
+			tcpsock_recved(tcp->tcp_pcb, ack);
 
 			tcp->tcp_rcv.tr_unacked -= ack;
 

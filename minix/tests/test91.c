@@ -35,6 +35,8 @@
 #include "common.h"
 #include "socklib.h"
 
+static int get_window_size(void);
+
 #define ITERATIONS	1
 
 static const enum state tcp_states[] = {
@@ -2576,7 +2578,8 @@ test91k(void)
 	val = 123;
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDLOWAT, &val, sizeof(val)) != 0)
 		e(0);
-	val = 32768;
+	/* Two receive buffer sizes, both valid: at least the window size. */
+	val = get_window_size() * 2;
 	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)) != 0)
 		e(0);
 
@@ -2605,7 +2608,7 @@ test91k(void)
 	val = 456;
 	if (setsockopt(fd, SOL_SOCKET, SO_SNDLOWAT, &val, sizeof(val)) != 0)
 		e(0);
-	val = 16384;
+	val = get_window_size();
 	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)) != 0)
 		e(0);
 
@@ -2648,7 +2651,7 @@ test91k(void)
 	len = sizeof(val);
 	if (getsockopt(fd3, SOL_SOCKET, SO_RCVBUF, &val, &len) != 0) e(0);
 	if (len != sizeof(val)) e(0);
-	if (val != 32768) e(0);
+	if (val != get_window_size() * 2) e(0);
 
 	if ((fl = fcntl(fd3, F_GETFL)) == -1) e(0);
 	if (!(fl & O_NONBLOCK)) e(0);
@@ -2694,7 +2697,7 @@ test91k(void)
 	len = sizeof(val);
 	if (getsockopt(fd3, SOL_SOCKET, SO_RCVBUF, &val, &len) != 0) e(0);
 	if (len != sizeof(val)) e(0);
-	if (val != 16384) e(0);
+	if (val != get_window_size()) e(0);
 
 	if (recv(fd3, buf, sizeof(buf), 0) != 0) e(0);
 
