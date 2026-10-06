@@ -229,11 +229,14 @@ static struct mempool_small_slab mempool_small_pool[MEMPOOL_SMALL_SLABS];
 /*
  * The following setting (mempool_max_slabs) can be changed through sysctl(7).
  * As such it may be set by userland to a completely arbitrary value and must
- * be sanity-checked before any actual use.  The default is picked such that
- * all TCP sockets can fill up their send and receive queues: (TCP_SNDBUF_DEF +
- * TCP_RCVBUF_DEF) * NR_TCPSOCK / (MEMPOOL_BUFSIZE * MEMPOOL_LARGE_COUNT) =
- * (32768 + 32768) * 256 / (512 * 512) = 64.  We put in the resulting number
- * rather than the formula because not all those definitions are public.
+ * be sanity-checked before any actual use.  The default was picked such that
+ * all TCP sockets could fill up their send and receive queues with the then
+ * default buffer sizes: (32768 + 32768) * 256 / (512 * 512) = 64.  With the
+ * larger windows and buffers since (TCP_SNDBUF_DEF 64KB, TCP_RCVBUF_DEF
+ * 128KB), that would be 192 slabs, about 50MB, for a worst case that needs
+ * all 256 sockets busy at once; we keep the cap at 64 (about 17MB, still
+ * enough for some 85 connections with full queues in both directions).  When
+ * the pool runs out, incoming segments are dropped and the peers resend.
  */
 #define MEMPOOL_DEFAULT_MAX_SLABS	64	/* about 17 MB of memory */
 

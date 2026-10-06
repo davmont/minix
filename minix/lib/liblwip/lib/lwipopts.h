@@ -275,11 +275,27 @@
 
 /*
  * The maximum receive window size for TCP connections.  This value must not be
- * too low, because that would affect TCP performance.  It must also not be too
- * high, because it determines the minimum receive buffer size for TCP
- * connections.  The current setting should be reasonable.
+ * too low, because that would affect TCP performance: a connection cannot do
+ * better than a window per round trip, which with the earlier 16KB was less
+ * than 1MB/s at 20ms.  It must also not be too high, because it determines the
+ * minimum receive buffer size for TCP connections (see tcpsock.c), even if
+ * buffers are only taken from the pool as data actually comes in.  128KB
+ * needs window scaling (RFC 7323), which we offer with a scale of 2, enough
+ * for windows of up to 256KB.  With a peer that does not scale, lwIP limits
+ * the window to 64KB.
  */
-#define TCP_WND                         16384
+#define TCP_WND                         (128 * 1024)
+#define LWIP_WND_SCALE                  1
+#define TCP_RCV_SCALE                   2
+
+/*
+ * Selective acknowledgments (RFC 2018): lwIP tells the peer which segments it
+ * has received out of order, so that the peer resends only what is missing.
+ * (lwIP does not use the peer's SACKs when resending itself.)  Timestamps
+ * (RFC 7323): lwIP echoes them, for the peer's RTT measurement.
+ */
+#define LWIP_TCP_SACK_OUT               1
+#define LWIP_TCP_TIMESTAMPS             1
 
 /*
  * The following setting defines the "send window" size, that is, up to how
@@ -290,11 +306,14 @@
  * of any individual connection, so our hope is that the vast majority of TCP
  * connections end up using the maximum MSS (i.e., the TCP_MSS value), which is
  * probably usually true.  The current definition is as close as possible to
- * 16KB while still a multiple of the MSS.  Note that various memory pool size
- * settings in this file depend on the TCP_SND_BUF value, so increasing this
- * value will also make the LWIP service use more memory.
+ * 64KB while still a multiple of the MSS: what lwIP has sent but not yet seen
+ * acknowledged counts towards it, so it limits how much is in flight, and with
+ * 16KB a connection could not send faster than 16KB per round trip whatever
+ * the peer's window.  Note that various memory pool size settings in this file
+ * depend on the TCP_SND_BUF value, so increasing this value also makes the
+ * LWIP service use more memory (statically: about 1MB more for 256 sockets).
  */
-#define TCP_SND_BUF                     (11 * TCP_MSS)
+#define TCP_SND_BUF                     (44 * TCP_MSS)
 
 /*
  * This setting is an artificial limit that can be used to reduce how many
@@ -302,7 +321,7 @@
  * it such that an application that uses large writes will never hit the limit,
  * while an application that uses small writes will not take up more than its
  * fair share of resources.  The formula is as follows: there can be at most
- * (TCP_SND_BUF / TCP_MSS) maximum-sized segments (11) enqueued, each of which
+ * (TCP_SND_BUF / TCP_MSS) maximum-sized segments (44) enqueued, each of which
  * consists of one header pbuf and (ROUND-UP(TCP_MSS / MEMPOOL_BUFSIZE) + 1)
  * references to data (4), yielding a total of 55 pbufs for a full queue.
  * Given that in the very worst case, one single enqueued byte may take two
