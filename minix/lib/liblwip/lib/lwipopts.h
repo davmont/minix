@@ -289,6 +289,17 @@
 #define TCP_RCV_SCALE                   2
 
 /*
+ * How much the window must have opened up, as the application takes data,
+ * before lwIP tells the peer.  lwIP's default, min(TCP_WND / 4, 4 * TCP_MSS),
+ * becomes 4 MSS with the window above: an application reading less than that
+ * at a time leaves the peer waiting for a window update that does not come
+ * (until the next ACK for other reasons), which, for one, stalls a lingering
+ * close.  RFC 1122 asks for an update once the window has grown by an MSS (or
+ * half the buffer); the BSDs use two MSS.  So do we.
+ */
+#define TCP_WND_UPDATE_THRESHOLD        (2 * TCP_MSS)
+
+/*
  * Selective acknowledgments (RFC 2018): lwIP tells the peer which segments it
  * has received out of order, so that the peer resends only what is missing.
  * (lwIP does not use the peer's SACKs when resending itself.)  Timestamps
