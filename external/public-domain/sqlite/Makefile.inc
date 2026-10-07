@@ -14,18 +14,13 @@ CPPFLAGS+=	\
 		-DHAVE_STDINT_H=1 \
 		-DHAVE_STRERROR_R=1 \
 		-DHAVE_USLEEP=1 \
+		-DSQLITE_THREADSAFE \
+		-DSQLITE_MAX_WORKER_THREADS=0 \
 		-DSQLITE_ENABLE_COLUMN_METADATA \
 		-DSQLITE_ENABLE_FTS3_PARENTHESIS \
 		-DSQLITE_ENABLE_FTS4 \
 		-DSQLITE_ENABLE_LOAD_EXTENSION \
 		-DSQLITE_ENABLE_UNLOCK_NOTIFY \
 		-DSQLITE_HAVE_ISNAN
-
-.if defined(__MINIX)
-# Write-ahead logging (WAL) is available: it needs shared writable mappings
-# of the -shm file, which MINIX has (on MFS) since writable MAP_SHARED.
-CPPFLAGS+=	\
-		-DSQLITE_THREADSAFE=0
-.endif # defined(__MINIX)
 
 CWARNFLAGS+=	-Wno-shadow -Wno-unused
