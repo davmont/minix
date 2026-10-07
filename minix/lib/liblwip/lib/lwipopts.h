@@ -26,14 +26,25 @@
  * length are not supported, and (with a single patch to lwIP) should never be
  * made, either.  See the LWIP service's mempool module for more information.
  */
-#define MEM_LIBC_MALLOC                 1
+/*
+ * lwIP 2.2 takes a custom allocator through MEM_CUSTOM_ALLOCATOR and the
+ * MEM_CUSTOM_* macros.  The mem_clib_* names that lwIP 2.0 used are ignored
+ * now, and with MEM_LIBC_MALLOC set, lwIP 2.2 calls the C library's malloc()
+ * instead: from the upgrade to lwIP 2.2.1 on, all of lwIP's heap allocations
+ * (most packet buffers) bypassed the memory pool, its limits and low-memory
+ * policies, and the LWIP service's memory use was unbounded.
+ */
+#define MEM_CUSTOM_ALLOCATOR            1
+#define MEM_CUSTOM_MALLOC               mempool_malloc
+#define MEM_CUSTOM_CALLOC               mempool_calloc
+#define MEM_CUSTOM_FREE                 mempool_free
 
-#define mem_clib_malloc                 mempool_malloc
-#define mem_clib_calloc                 mempool_calloc
-#define mem_clib_free                   mempool_free
-
-/* Just in case, as lwIP does not use this definition.  Implement if needed. */
-#define mem_clib_realloc                __NOT_IMPLEMENTED
+#if !defined(__ASSEMBLER__)
+#include <stddef.h>
+void *mempool_malloc(size_t size);
+void *mempool_calloc(size_t num, size_t size);
+void mempool_free(void *ptr);
+#endif
 
 /*
  * Size of a single buffer in the memory pool, in bytes.  This definition is
