@@ -22,9 +22,10 @@ CPPFLAGS+=	\
 		-DSQLITE_HAVE_ISNAN
 
 .if defined(__MINIX)
+# Write-ahead logging (WAL) is available: it needs shared writable mappings
+# of the -shm file, which MINIX has (on MFS) since writable MAP_SHARED.
 CPPFLAGS+=	\
-		-DSQLITE_THREADSAFE=0 \
-		-DSQLITE_OMIT_WAL
+		-DSQLITE_THREADSAFE=0
 .endif # defined(__MINIX)
 
 CWARNFLAGS+=	-Wno-shadow -Wno-unused
