@@ -40,6 +40,8 @@ void exec_dethread(struct mproc *leader);
 void exit_restart(struct mproc *rmp);
 int do_wait4(void);
 int wait_test(struct mproc *rmp, struct mproc *child);
+struct mproc *find_waiter(struct mproc *parent, struct mproc *child,
+	int want);
 int wait_match(pid_t pidarg, int options, struct mproc *child);
 void exit_report(struct mproc *child, int *code, int *value);
 int wait_siginfo(struct mproc *parent, vir_bytes info, struct mproc *child,

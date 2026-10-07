@@ -37,7 +37,8 @@ static void leader_gone_check(struct mproc *leader);
 static void exit_lwp_group(struct mproc *caller, int status);
 static void zombify(struct mproc *rmp);
 static void check_parent(struct mproc *child, int try_cleanup);
-static int tell_parent(struct mproc *child, vir_bytes addr);
+static int tell_parent(struct mproc *child, struct mproc *parent,
+	vir_bytes addr);
 static void tell_tracer(struct mproc *child);
 static void tracer_died(struct mproc *child);
 static void cleanup(register struct mproc *rmp);
@@ -92,6 +93,9 @@ do_fork(void)
   rmc->mp_sigact = mpsigact[next_child];	/* restore mp_sigact ptr */
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
+  /* Until VFS is done, the parent is the caller, to whom the fork replies;
+   * then it becomes the caller's process (see VFS_PM_FORK_REPLY).
+   */
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
 	rmc->mp_tracer = NO_TRACER;		/* no tracer attached */
@@ -1167,7 +1171,7 @@ do_wait4(void)
  */
   register struct mproc *rp;
   vir_bytes addr, info;
-  int i, pidarg, options, children, waited_for, code, value, r;
+  int i, pidarg, options, children, waited_for, code, value, r, par;
 
   /* Set internal variables. */
   pidarg  = m_in.m_lc_pm_wait4.pid;		/* 1st param */
@@ -1208,11 +1212,14 @@ do_wait4(void)
    *	pidarg  < -1 means wait for any child whose process group = -pidarg
    * (or, with WAIT_PGID, pidarg is the process group).
    */
+  /* Children belong to the process: any of its threads may wait for them. */
+  par = (int)(process_of(mp) - mproc);
+
   children = 0;
   for (rp = &mproc[0]; rp < &mproc[NR_PROCS]; rp++) {
 	if ((rp->mp_flags & (IN_USE | TOLD_PARENT)) != IN_USE) continue;
-	if (rp->mp_parent != who_p && rp->mp_tracer != who_p) continue;
-	if (rp->mp_parent != who_p && (rp->mp_flags & ZOMBIE)) continue;
+	if (rp->mp_parent != par && rp->mp_tracer != who_p) continue;
+	if (rp->mp_parent != par && (rp->mp_flags & ZOMBIE)) continue;
 
 	/* The value of pidarg determines which children qualify. */
 	if (!wait_match(pidarg, options, rp)) continue;
@@ -1244,7 +1251,7 @@ do_wait4(void)
 		}
 	}
 
-	if (rp->mp_parent == who_p) {
+	if (rp->mp_parent == par) {
 		if ((rp->mp_flags & ZOMBIE) && (options & WEXITED)) {
 			/* This child meets the pid test and has exited. */
 			if (options & WAIT_INFO) {
@@ -1255,7 +1262,7 @@ do_wait4(void)
 				if (options & WNOWAIT)
 					return(rp->mp_pid);
 			}
-			waited_for = tell_parent(rp, addr);
+			waited_for = tell_parent(rp, mp, addr);
 
 			if (waited_for &&
 			    !(rp->mp_flags & (VFS_CALL | EVENT_CALL)))
@@ -1378,6 +1385,36 @@ wait_test(
 }
 
 /*===========================================================================*
+ *				find_waiter				     *
+ *===========================================================================*/
+struct mproc *
+find_waiter(
+	struct mproc *parent,			/* parent process of 'child' */
+	struct mproc *child,			/* process that may be waited for */
+	int want				/* WEXITED, WUNTRACED, WCONTINUED */
+)
+{
+/* Find who is waiting for 'child', for news of the kind 'want': the parent
+ * process itself, or any of its threads, as children belong to the process.
+ */
+  struct mproc *t;
+  int group = (int)(parent - mproc);
+
+  if (wait_test(parent, child) && (parent->mp_waitopts & want))
+	return parent;
+  if (parent->mp_lwp_group != group)
+	return NULL;				/* no threads */
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | MP_LWP | EXITING)) != (IN_USE | MP_LWP) ||
+	    t->mp_lwp_group != group)
+		continue;
+	if (wait_test(t, child) && (t->mp_waitopts & want))
+		return t;
+  }
+  return NULL;
+}
+
+/*===========================================================================*
  *				zombify					     *
  *===========================================================================*/
 static void
@@ -1429,7 +1466,7 @@ check_parent(
  * Note that we may call this function twice on a single child; first with
  * its original parent, later (if the parent died) with INIT as its parent.
  */
-  struct mproc *p_mp;
+  struct mproc *p_mp, *w_mp;
 
   p_mp = &mproc[child->mp_parent];
 
@@ -1438,22 +1475,22 @@ check_parent(
 	 * be assigned to INIT and rechecked shortly after. Do nothing.
 	 */
   }
-  else if (wait_test(p_mp, child) && (p_mp->mp_waitopts & WEXITED)) {
-	if (p_mp->mp_waitopts & WAIT_INFO) {
+  else if ((w_mp = find_waiter(p_mp, child, WEXITED)) != NULL) {
+	if (w_mp->mp_waitopts & WAIT_INFO) {
 		/* waitid(2): the report goes in its siginfo_t; with WNOWAIT
 		 * the child stays a zombie, to be waited for again.
 		 */
 		int code, value, r;
 
 		exit_report(child, &code, &value);
-		r = wait_siginfo(p_mp, p_mp->mp_winfo, child, code, value);
-		if (r != OK || (p_mp->mp_waitopts & WNOWAIT)) {
-			p_mp->mp_flags &= ~WAITING;
-			reply((int) (p_mp - mproc), r != OK ? r : child->mp_pid);
+		r = wait_siginfo(w_mp, w_mp->mp_winfo, child, code, value);
+		if (r != OK || (w_mp->mp_waitopts & WNOWAIT)) {
+			w_mp->mp_flags &= ~WAITING;
+			reply((int) (w_mp - mproc), r != OK ? r : child->mp_pid);
 			return;
 		}
 	}
-	if (!tell_parent(child, p_mp->mp_waddr))
+	if (!tell_parent(child, w_mp, w_mp->mp_waddr))
 		try_cleanup = FALSE; /* child is still there */
 
 	/* The 'try_cleanup' flag merely saves us from having to be really
@@ -1483,10 +1520,12 @@ check_parent(
 /*===========================================================================*
  *				tell_parent				     *
  *===========================================================================*/
-static int tell_parent(struct mproc *child, vir_bytes addr)
+static int tell_parent(struct mproc *child, struct mproc *parent,
+	vir_bytes addr)
 {
 /* Tell the parent of the given process that it has terminated, by satisfying
- * the parent's ongoing wait4() call.  If the parent has requested the child
+ * the ongoing wait4() call of 'parent': the parent process, or the thread of
+ * it that is waiting.  If the parent has requested the child
  * tree's resource usage, copy that information out first.  The copy may fail;
  * in that case, the parent's wait4() call will return with an error, but the
  * child will remain a zombie.  Return TRUE if the child is cleaned up, or
@@ -1494,7 +1533,6 @@ static int tell_parent(struct mproc *child, vir_bytes addr)
  */
   struct rusage r_usage;
   int mp_parent;
-  struct mproc *parent;
   int r;
 
   mp_parent= child->mp_parent;
@@ -1504,7 +1542,7 @@ static int tell_parent(struct mproc *child, vir_bytes addr)
   	panic("tell_parent: child not a zombie");
   if(child->mp_flags & TOLD_PARENT)
 	panic("tell_parent: telling parent again");
-  parent = &mproc[mp_parent];
+  assert(process_of(parent) == &mproc[mp_parent]);
 
   /* See if we need to report resource usage to the parent. */
   if (addr) {
@@ -1518,7 +1556,7 @@ static int tell_parent(struct mproc *child, vir_bytes addr)
 
 	if ((r = sys_datacopy(SELF, (vir_bytes)&r_usage, parent->mp_endpoint,
 	    addr, sizeof(r_usage))) != OK) {
-		reply(child->mp_parent, r);
+		reply((int)(parent - mproc), r);
 
 		return FALSE; /* copy error - the child is still there */
 	}
@@ -1527,7 +1565,7 @@ static int tell_parent(struct mproc *child, vir_bytes addr)
   /* Wake up the parent by sending the reply message. */
   parent->mp_reply.m_pm_lc_wait4.status =
 	W_EXITCODE(child->mp_exitstatus, child->mp_sigstatus);
-  reply(child->mp_parent, child->mp_pid);
+  reply((int)(parent - mproc), child->mp_pid);
   parent->mp_flags &= ~WAITING;		/* parent no longer waiting */
   child->mp_flags &= ~ZOMBIE;		/* child no longer a zombie */
   child->mp_flags |= TOLD_PARENT;	/* avoid informing parent twice */

@@ -416,8 +416,16 @@ handle_vfs_reply(void)
 		reply(proc_n, OK);
 
 		/* Wake up the parent, unless the parent is already dead */
-		if (!new_parent)
+		if (!new_parent) {
 			reply(rmp->mp_parent, rmp->mp_pid);
+
+			/* The child of a thread is the child of its process
+			 * (POSIX): any thread of it may wait for the child,
+			 * which outlives the thread.
+			 */
+			rmp->mp_parent =
+			    (int)(process_of(&mproc[rmp->mp_parent]) - mproc);
+		}
 	}
 
 	break;

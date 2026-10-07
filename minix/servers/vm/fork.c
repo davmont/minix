@@ -32,7 +32,7 @@
 int do_fork(message *msg)
 {
   int r, proc, childproc;
-  struct vmproc *vmp, *vmc;
+  struct vmproc *vmp, *vmc, *src;
   pt_t origpt;
   vir_bytes msgaddr;
 
@@ -55,9 +55,16 @@ int do_fork(message *msg)
   vmc = &vmproc[childproc];	/* child */
   assert(vmc->vm_slot == childproc);
 
+  /* A fork() by a thread copies its process, whose address space -- the
+   * regions, totals and limits -- belongs to the group leader: the thread's
+   * own region tree is empty.  The kernel still forks the thread itself, as
+   * the child goes on from the thread's registers.
+   */
+  src = (msg->VMF_FORKFLAGS & VMFF_LWP) ? vmp : vm_lwp_group(vmp);
+
   /* The child is basically a copy of the parent. */
   origpt = vmc->vm_pt;
-  *vmc = *vmp;
+  *vmc = *src;
   vmc->vm_slot = childproc;
   region_init(&vmc->vm_regions_avl);
   vmc->vm_endpoint = NONE;	/* In case someone tries to use it. */
@@ -114,7 +121,7 @@ int do_fork(message *msg)
 
   SANITYCHECK(SCL_DETAIL);
 
-  if(map_proc_copy(vmc, vmp) != OK) {
+  if(map_proc_copy(vmc, src) != OK) {
 	printf("VM: fork: map_proc_copy failed\n");
 	pt_free(&vmc->vm_pt);
 	return(ENOMEM);
@@ -144,7 +151,7 @@ int do_fork(message *msg)
 	if (handle_memory_once(vmc, vir, sizeof(message), 1) != OK)
 	    panic("do_fork: handle_memory for child failed\n");
 	vir = msgaddr;
-	if (handle_memory_once(vmp, vir, sizeof(message), 1) != OK)
+	if (handle_memory_once(src, vir, sizeof(message), 1) != OK)
 	    panic("do_fork: handle_memory for parent failed\n");
   }
 
