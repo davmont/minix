@@ -34,6 +34,10 @@ EXTERN struct filp {
   dev_t filp_select_dev;	/* used for character and socket devices */
 
   struct kqueue *filp_kq;	/* if a kqueue(2): its state (kqueue.c) */
+
+  /* The descriptor get_fd() reserved for this filp, until unlock_filp(). */
+  struct filedesc *filp_rsv_tab;	/* its table, or NULL if none */
+  int filp_rsv_fd;		/* the descriptor */
 } filp[NR_FILPS];
 
 #define FILP_CLOSED	0	/* filp_mode: associated device closed/gone */

@@ -3,10 +3,13 @@
  * The working directory belongs to the process, so getcwd() must not change
  * it even for a moment: a thread using a relative name meanwhile would find
  * another file, or none.  getcwd() used to chdir("..") up to the root and
- * back down.
+ * back down.  Also, descriptors passed over a UNIX socket, which VFS installs
+ * for the socket driver while another thread of the receiver opens files.
  */
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -125,6 +128,161 @@ test_names(void)
 	if (chdir(home) != 0) e(8);
 }
 
+#define PASSES		2000
+
+static int sock;
+static ino_t passed_ino, opened_ino;
+static int pass_errors, open_errors;
+
+static void *
+receiver(void *arg)
+{
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct iovec iov;
+	struct stat st;
+	union {
+		struct cmsghdr hdr;
+		char buf[CMSG_SPACE(sizeof(int))];
+	} control;
+	char c;
+	int i, fd;
+
+	for (i = 0; i < PASSES; i++) {
+		memset(&msg, 0, sizeof(msg));
+		iov.iov_base = &c;
+		iov.iov_len = 1;
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+		msg.msg_control = control.buf;
+		msg.msg_controllen = sizeof(control.buf);
+		if (recvmsg(sock, &msg, 0) != 1 ||
+		    (cmsg = CMSG_FIRSTHDR(&msg)) == NULL ||
+		    cmsg->cmsg_type != SCM_RIGHTS) {
+			pass_errors++;
+			break;
+		}
+		memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
+		/* One descriptor in flight at a time: UDS limits them. */
+		if (write(sock, &c, 1) != 1)
+			pass_errors++;
+		/* The descriptor must be the file passed, not one that an
+		 * open() of the other thread put in the same slot.
+		 */
+		if (fstat(fd, &st) != 0 || st.st_ino != passed_ino)
+			pass_errors++;
+		close(fd);
+	}
+	__atomic_store_n(&stop, 1, __ATOMIC_SEQ_CST);
+	return NULL;
+}
+
+static void *
+opener(void *arg)
+{
+	struct stat st;
+	int fd;
+
+	while (!__atomic_load_n(&stop, __ATOMIC_SEQ_CST)) {
+		if ((fd = open("opened", O_RDONLY)) < 0) {
+			open_errors++;
+			continue;
+		}
+		if (fstat(fd, &st) != 0 || st.st_ino != opened_ino)
+			open_errors++;
+		close(fd);
+	}
+	return NULL;
+}
+
+static void
+sender(int s, int fd)
+{
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct iovec iov;
+	union {
+		struct cmsghdr hdr;
+		char buf[CMSG_SPACE(sizeof(int))];
+	} control;
+	char c = 'x';
+	int i;
+
+	for (i = 0; i < PASSES; i++) {
+		memset(&msg, 0, sizeof(msg));
+		iov.iov_base = &c;
+		iov.iov_len = 1;
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+		msg.msg_control = control.buf;
+		msg.msg_controllen = sizeof(control.buf);
+		cmsg = CMSG_FIRSTHDR(&msg);
+		cmsg->cmsg_level = SOL_SOCKET;
+		cmsg->cmsg_type = SCM_RIGHTS;
+		cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+		memcpy(CMSG_DATA(cmsg), &fd, sizeof(fd));
+		if (sendmsg(s, &msg, 0) != 1) {
+			printf("sendmsg %d: %s\n", i, strerror(errno));
+			_exit(1);
+		}
+		if (read(s, &c, 1) != 1)	/* wait for the receiver */
+			_exit(1);
+	}
+	_exit(0);
+}
+
+static void
+test_passing(void)
+{
+	pthread_t r, o;
+	struct stat st;
+	pid_t pid;
+	int sv[2], fd, status;
+
+	subtest = 3;
+	/* Descriptors received over a UNIX socket are installed by VFS for
+	 * the socket driver (copyfd), outside the calls of the receiving
+	 * process; meanwhile another thread of it opens files.  A descriptor
+	 * that open() chose but has yet to install must not be given out.
+	 */
+	if ((fd = open("passed", O_RDWR | O_CREAT, 0644)) < 0) e(1);
+	if (fstat(fd, &st) != 0) e(2);
+	passed_ino = st.st_ino;
+	close(fd);
+	if ((fd = open("opened", O_RDWR | O_CREAT, 0644)) < 0) e(3);
+	if (fstat(fd, &st) != 0) e(4);
+	opened_ino = st.st_ino;
+	close(fd);
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) e(5);
+	if ((pid = fork()) == 0) {
+		close(sv[0]);
+		if ((fd = open("passed", O_RDONLY)) < 0) _exit(2);
+		sender(sv[1], fd);
+	}
+	if (pid < 0) e(6);
+	close(sv[1]);
+	sock = sv[0];
+
+	stop = 0;
+	pass_errors = open_errors = 0;
+	if (pthread_create(&o, NULL, opener, NULL) != 0) e(7);
+	if (pthread_create(&r, NULL, receiver, NULL) != 0) e(8);
+	if (pthread_join(r, NULL) != 0) e(9);
+	if (pthread_join(o, NULL) != 0) e(10);
+	if (pass_errors != 0) {
+		printf("%d bad passed descriptors\n", pass_errors);
+		e(11);
+	}
+	if (open_errors != 0) {
+		printf("%d bad opened descriptors\n", open_errors);
+		e(12);
+	}
+	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0) e(13);
+	close(sock);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -133,6 +291,7 @@ main(int argc, char **argv)
 
 	test_concurrent();
 	test_names();
+	test_passing();
 
 	quit();
 	return 0;
