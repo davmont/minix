@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <limits.h>
@@ -35,51 +36,50 @@ static int addpath(const char *path, char **ap, const char *entry)
 	return 0;
 }
 
-static int recover(char *p)
-/* Undo all those chdir("..")'s that have been recorded by addpath.  This
- * has to be done entry by entry, because the whole pathname may be too long.
- */
-{
-	int e= errno, slash;
-	char *p0;
-
-	while (*p != 0) {
-		p0= ++p;
-
-		do p++; while (*p != 0 && *p != '/');
-		slash= *p; *p= 0;
-
-		if (chdir(p0) < 0) return -1;
-		*p= slash;
-	}
-	errno= e;
-	return 0;
-}
-
 int __getcwd(char *path, size_t size)
+/* Build the name of the working directory from the bottom up: find the name
+ * of each directory in its parent.  The walk goes through directory
+ * descriptors (openat, fstatat): it used to chdir("..") all the way up and
+ * then back down, which moves the working directory of every thread of the
+ * process, so that their relative names meanwhile led elsewhere.
+ */
 {
 	struct stat above, current, tmp;
 	struct dirent *entry;
 	DIR *d;
-	char *p, *up;
-	const char *dotdot = "..";
-	int cycle;
+	char *p;
+	int fd, ufd, dfd, cycle, e;
 
 	if (path == NULL || size <= 1) { errno= EINVAL; return -1; }
 
 	p= path + size;
 	*--p = 0;
 
+	/* "." itself is not opened: it may be searchable but not readable,
+	 * and only the directories above are read.
+	 */
+	fd= AT_FDCWD;
 	if (stat(".", &current) < 0) return -1;
 
 	while (1) {
-		if (stat(dotdot, &above) < 0) { recover(p); return -1; }
+		ufd= openat(fd, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (ufd < 0) goto fail;
+		if (fstat(ufd, &above) < 0) goto fail_up;
 
 		if (above.st_dev == current.st_dev
-					&& above.st_ino == current.st_ino)
+					&& above.st_ino == current.st_ino) {
+			close(ufd);
 			break;	/* Root dir found */
+		}
 
-		if ((d= opendir(dotdot)) == NULL) { recover(p); return -1; }
+		/* The directory stream gets a descriptor of its own, as
+		 * closedir() closes it; ufd stays for fstatat().
+		 */
+		if ((dfd= fcntl(ufd, F_DUPFD_CLOEXEC, 0)) < 0) goto fail_up;
+		if ((d= fdopendir(dfd)) == NULL) {
+			close(dfd);
+			goto fail_up;
+		}
 
 		/* Cycle is 0 for a simple inode nr search, or 1 for a search
 		 * for inode *and* device nr.
@@ -87,8 +87,6 @@ int __getcwd(char *path, size_t size)
 		cycle= above.st_dev == current.st_dev ? 0 : 1;
 
 		do {
-			char name[3 + NAME_MAX + 1];
-
 			tmp.st_ino= 0;
 			if ((entry= readdir(d)) == NULL) {
 				switch (++cycle) {
@@ -98,8 +96,7 @@ int __getcwd(char *path, size_t size)
 				case 2:
 					closedir(d);
 					errno= ENOENT;
-					recover(p);
-					return -1;
+					goto fail_up;
 				}
 			}
 			if (strcmp(entry->d_name, ".") == 0) continue;
@@ -113,30 +110,37 @@ int __getcwd(char *path, size_t size)
 
 			case 1:
 				/* Current is mounted. */
-				strcpy(name, "../");
-				strcpy(name+3, entry->d_name);
-				if (stat(name, &tmp) < 0) continue;
+				if (fstatat(ufd, entry->d_name, &tmp,
+				    AT_SYMLINK_NOFOLLOW) < 0) continue;
 				break;
 			}
 		} while (tmp.st_ino != current.st_ino
 					|| tmp.st_dev != current.st_dev);
 
-		up= p;
-		if (addpath(path, &up, entry->d_name) < 0) {
+		if (addpath(path, &p, entry->d_name) < 0) {
 			closedir(d);
 			errno = ERANGE;
-			recover(p);
-			return -1;
+			goto fail_up;
 		}
 		closedir(d);
-
-		if (chdir(dotdot) < 0) { recover(p); return -1; }
-		p= up;
-
+		if (fd != AT_FDCWD) close(fd);
+		fd= ufd;
 		current= above;
 	}
-	if (recover(p) < 0) return -1;	/* Undo all those chdir("..")'s. */
+	if (fd != AT_FDCWD) close(fd);
+
 	if (*p == 0) *--p = '/';	/* Cwd is "/" if nothing added */
-	if (p > path) strcpy(path, p);	/* Move string to start of path. */
+	if (p > path)			/* Move string to start of path. */
+		memmove(path, p, strlen(p) + 1);
 	return 0;
+
+fail_up:
+	e= errno;
+	close(ufd);
+	errno= e;
+fail:
+	e= errno;
+	if (fd != AT_FDCWD) close(fd);
+	errno= e;
+	return -1;
 }
