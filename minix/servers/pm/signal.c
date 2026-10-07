@@ -780,7 +780,7 @@ jc_notify_parent(struct mproc *leader, int code)
  * (CLD_CONTINUED).  A parent waiting for that with WUNTRACED or WCONTINUED
  * hears it at once; otherwise it gets SIGCHLD, unless SA_NOCLDSTOP.
  */
-  struct mproc *p_mp = &mproc[leader->mp_parent];
+  struct mproc *p_mp = &mproc[leader->mp_parent], *w_mp;
   struct pm_siginfo saved;
   int want, status;
 
@@ -788,21 +788,21 @@ jc_notify_parent(struct mproc *leader, int code)
 	return;
 
   want = (code == CLD_STOPPED) ? WUNTRACED : WCONTINUED;
-  if (wait_test(p_mp, leader) && (p_mp->mp_waitopts & want)) {
+  if ((w_mp = find_waiter(p_mp, leader, want)) != NULL) {
 	int r = OK;
 
-	if (p_mp->mp_waitopts & WAIT_INFO)	/* waitid(2) */
-		r = wait_siginfo(p_mp, p_mp->mp_winfo, leader, code,
+	if (w_mp->mp_waitopts & WAIT_INFO)	/* waitid(2) */
+		r = wait_siginfo(w_mp, w_mp->mp_winfo, leader, code,
 		    code == CLD_STOPPED ? leader->mp_stopsig : SIGCONT);
 	else {
 		status = (code == CLD_STOPPED) ?
 		    W_STOPCODE(leader->mp_stopsig) : W_CONTCODE();
-		p_mp->mp_reply.m_pm_lc_wait4.status = status;
+		w_mp->mp_reply.m_pm_lc_wait4.status = status;
 	}
-	p_mp->mp_flags &= ~WAITING;
-	if (r == OK && !(p_mp->mp_waitopts & WNOWAIT))
+	w_mp->mp_flags &= ~WAITING;
+	if (r == OK && !(w_mp->mp_waitopts & WNOWAIT))
 		leader->mp_jcreport = 0;
-	reply((int) (p_mp - mproc), r != OK ? r : leader->mp_pid);
+	reply((int) (w_mp - mproc), r != OK ? r : leader->mp_pid);
 	return;
   }
 
