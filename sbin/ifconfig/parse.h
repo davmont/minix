@@ -41,13 +41,30 @@
 #endif
 
 #ifndef LINK_STATE_DESCRIPTIONS
+/*
+ * Link state descriptions, which NetBSD has in <net/if.h> (as here, with
+ * entries for a given interface type before those for any).  Without them,
+ * ifconfig printed "status: [#2]".  Users need <net/if_types.h>.
+ */
 struct if_status_description {
-	int ifs_type;
-	int ifs_state;
+	unsigned char ifs_type;
+	unsigned char ifs_state;
 	const char *ifs_string;
 };
-#define LINK_STATE_DESCRIPTIONS { { 0, 0, NULL } }
-#define LINK_STATE_DESC_MATCH(p, t, s) 0
+#define LINK_STATE_DESCRIPTIONS {					\
+	{ IFT_ETHER, LINK_STATE_DOWN, "no carrier" },			\
+	{ IFT_IEEE80211, LINK_STATE_DOWN, "no network" },		\
+	{ IFT_PPP, LINK_STATE_DOWN, "no carrier" },			\
+	{ IFT_CARP, LINK_STATE_DOWN, "backup" },			\
+	{ IFT_CARP, LINK_STATE_UP, "master" },				\
+	{ 0, LINK_STATE_UP, "active" },					\
+	{ 0, LINK_STATE_UNKNOWN, "unknown" },				\
+	{ 0, LINK_STATE_DOWN, "down" },					\
+	{ 0, 0, NULL }							\
+}
+#define LINK_STATE_DESC_MATCH(p, t, s)					\
+	(((p)->ifs_type == (t) || (p)->ifs_type == 0) &&		\
+	    (p)->ifs_state == (s))
 #endif
 
 #ifndef IN6_IFFBITS
