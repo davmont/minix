@@ -9,6 +9,50 @@ static void worker_wake(struct worker_thread *worker);
 static mthread_attr_t tattr;
 static unsigned int pending;
 static unsigned int busy;
+
+/* The threads of a process share its open-file table (struct filedesc), but
+ * each has a slot of its own, and so would have a worker of its own.  A call
+ * that blocks halfway, e.g. on a file server between choosing a descriptor
+ * and installing it, would then let a call of another thread change the same
+ * table meanwhile.  Work is therefore started for one slot per table at a
+ * time: the work of another slot sharing the table stays pending until the
+ * table is free.  fd_busy counts the workers active per table; w_fdtab holds
+ * the table each worker took (fp_fd may change during the work).
+ */
+static unsigned char fd_busy[NR_PROCS];
+static int w_fdtab[NR_WTHREADS];
+
+static int fdtab_of(struct fproc *rfp)
+{
+  if (rfp->fp_fd == NULL) return -1;
+  return (int)(rfp->fp_fd - fdesc);
+}
+
+static int fdtab_busy(struct fproc *rfp)
+{
+  int t = fdtab_of(rfp);
+
+  return (t >= 0 && fd_busy[t] > 0);
+}
+
+static void fdtab_take(struct worker_thread *worker, struct fproc *rfp)
+{
+  int t = fdtab_of(rfp);
+
+  w_fdtab[worker - workers] = t;
+  if (t >= 0) fd_busy[t]++;
+}
+
+static void fdtab_release(struct worker_thread *worker)
+{
+  int t = w_fdtab[worker - workers];
+
+  if (t >= 0) {
+	assert(fd_busy[t] > 0);
+	fd_busy[t]--;
+  }
+  w_fdtab[worker - workers] = -1;
+}
 static int block_all;
 
 #if defined(_MINIX_MAGIC)
@@ -43,6 +87,7 @@ void worker_init(void)
 	wp = &workers[i];
 
 	wp->w_fp = NULL;		/* Mark not in use */
+	w_fdtab[i] = -1;		/* and using no open-file table */
 	wp->w_next = NULL;
 	wp->w_task = NONE;
 	if (mutex_init(&wp->w_event_mutex, NULL) != 0)
@@ -136,6 +181,7 @@ static void worker_assign(struct fproc *rfp)
   /* Assign work to it. */
   rfp->fp_worker = worker;
   worker->w_fp = rfp;
+  fdtab_take(worker, rfp);
   busy++;
 
   worker_wake(worker);
@@ -174,7 +220,7 @@ void worker_allow(int allow)
 
   /* Assign any pending work to workers. */
   for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
-	if (rfp->fp_flags & FP_PENDING) {
+	if ((rfp->fp_flags & FP_PENDING) && !fdtab_busy(rfp)) {
 		rfp->fp_flags &= ~FP_PENDING; /* No longer pending */
 		assert(pending > 0);
 		pending--;
@@ -203,9 +249,10 @@ static int worker_get_work(void)
   if (worker_may_do_pending()) {
 	/* Find pending work */
 	for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
-		if (rfp->fp_flags & FP_PENDING) {
+		if ((rfp->fp_flags & FP_PENDING) && !fdtab_busy(rfp)) {
 			self->w_fp = rfp;
 			rfp->fp_worker = self;
+			fdtab_take(self, rfp);
 			busy++;
 			rfp->fp_flags &= ~FP_PENDING; /* No longer pending */
 			assert(pending > 0);
@@ -213,7 +260,9 @@ static int worker_get_work(void)
 			return TRUE;
 		}
 	}
-	panic("Pending work inconsistency");
+	/* All the pending work is for tables in use: the workers using them
+	 * take it on when they are done.
+	 */
   }
 
   /* Wait for work to come to us */
@@ -280,6 +329,7 @@ static void *worker_main(void *arg)
 
 	unlock_proc(fp);
 
+	fdtab_release(self);
 	fp->fp_worker = NULL;
 	self->w_fp = NULL;
 	assert(busy > 0);
@@ -346,7 +396,8 @@ static void worker_try_activate(struct fproc *rfp, int use_spare)
    * not support callback calls being marked as pending, so the (entirely
    * theoretical) exception here may (entirely theoretically) avoid deadlocks.
    */
-  if (needed <= worker_available() && (!block_all || use_spare)) {
+  if (needed <= worker_available() && (!block_all || use_spare) &&
+      (use_spare || !fdtab_busy(rfp))) {
 	worker_assign(rfp);
   } else {
 	rfp->fp_flags |= FP_PENDING;
