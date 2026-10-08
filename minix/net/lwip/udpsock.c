@@ -5,6 +5,11 @@
 #include "pktsock.h"
 
 #include "lwip/udp.h"
+#include "lwip/icmp.h"
+#include "lwip/prot/icmp.h"
+#include "lwip/prot/icmp6.h"
+#include "lwip/prot/ip.h"
+#include "lwip/prot/ip6.h"
 
 #include <netinet/udp.h>
 #include <netinet/ip_var.h>
@@ -107,6 +112,124 @@ udpsock_input(void * arg, struct udp_pcb * pcb __unused, struct pbuf * pbuf,
 
 	/* All UDP input processing is handled by pktsock. */
 	pktsock_input(&udp->udp_pktsock, pbuf, ipaddr, port);
+}
+
+/*
+ * An ICMP or ICMPv6 port-unreachable message has come in about a UDP datagram
+ * from 'local':'lport' to 'remote':'rport'.  lwIP answers datagrams for ports
+ * that nobody listens on with such messages, but does not report the ones it
+ * receives to the sending socket.  As on NetBSD, a connected UDP socket that
+ * such a message is about gets ECONNREFUSED, so that its pending and next
+ * receive or send call fails instead of waiting in vain: e.g. a resolver with
+ * no name server running, which used to wait for its full timeout.
+ */
+static void
+udpsock_port_unreach(const ip_addr_t * local, uint16_t lport,
+	const ip_addr_t * remote, uint16_t rport)
+{
+	extern struct udp_pcb *udp_pcbs;
+	struct udp_pcb *pcb;
+
+	for (pcb = udp_pcbs; pcb != NULL; pcb = pcb->next) {
+		if (!(pcb->flags & UDP_FLAGS_CONNECTED) ||
+		    pcb->recv != udpsock_input || pcb->recv_arg == NULL)
+			continue;
+		if (pcb->local_port != lport || pcb->remote_port != rport)
+			continue;
+		if (IP_IS_V6(remote) != IP_IS_V6(&pcb->remote_ip))
+			continue;
+		if (IP_IS_V6(remote) ? !ip6_addr_zoneless_eq(ip_2_ip6(remote),
+		    ip_2_ip6(&pcb->remote_ip)) : !ip_addr_eq(remote,
+		    &pcb->remote_ip))
+			continue;
+		if (!ip_addr_isany(&pcb->local_ip) && (IP_IS_V6(local) ?
+		    !ip6_addr_zoneless_eq(ip_2_ip6(local),
+		    ip_2_ip6(&pcb->local_ip)) :
+		    !ip_addr_eq(local, &pcb->local_ip)))
+			continue;
+
+		sockevent_set_error(udpsock_get_sock(
+		    (struct udpsock *)pcb->recv_arg), ECONNREFUSED);
+	}
+}
+
+/*
+ * lwIP hook for every incoming IPv4 packet, before lwIP processes it: look for
+ * ICMP port-unreachable messages about our UDP datagrams.  The packet itself
+ * is left for lwIP to process as usual.
+ */
+int
+lwip_hook_ip4_input(struct pbuf * p, struct netif * inp __unused)
+{
+	uint8_t buf[60 + 8 + 60 + 8];	/* IP, ICMP, inner IP, UDP headers */
+	ip_addr_t local, remote;
+	unsigned int len, hlen, ilen;
+
+	/* This is called for every packet: rule out most at a glance. */
+	if (p->len < 20 || ((uint8_t *)p->payload)[9] != IP_PROTO_ICMP)
+		return 0;
+
+	len = pbuf_copy_partial(p, buf, sizeof(buf), 0);
+
+	if (len < 20 || (buf[0] >> 4) != 4)
+		return 0;
+	hlen = (buf[0] & 0x0f) * 4;
+	if ((buf[6] & 0x1f) != 0 || buf[7] != 0)	/* not a first fragment */
+		return 0;
+	if (len < hlen + 8 + 20 || buf[hlen] != ICMP_DUR ||
+	    buf[hlen + 1] != ICMP_DUR_PORT)
+		return 0;
+
+	/* The original datagram, which we sent: inner IP and UDP headers. */
+	hlen += 8;
+	if ((buf[hlen] >> 4) != 4 || buf[hlen + 9] != IP_PROTO_UDP)
+		return 0;
+	ilen = (buf[hlen] & 0x0f) * 4;
+	if (len < hlen + ilen + 4)
+		return 0;
+
+	IP_ADDR4(&local, buf[hlen + 12], buf[hlen + 13], buf[hlen + 14],
+	    buf[hlen + 15]);
+	IP_ADDR4(&remote, buf[hlen + 16], buf[hlen + 17], buf[hlen + 18],
+	    buf[hlen + 19]);
+	udpsock_port_unreach(&local,
+	    (buf[hlen + ilen] << 8) | buf[hlen + ilen + 1], &remote,
+	    (buf[hlen + ilen + 2] << 8) | buf[hlen + ilen + 3]);
+
+	return 0;
+}
+
+/*
+ * The same for IPv6: ICMPv6 port-unreachable messages.  Extension headers are
+ * not looked through, in the outer packet or the inner one.
+ */
+int
+lwip_hook_ip6_input(struct pbuf * p, struct netif * inp __unused)
+{
+	uint8_t buf[40 + 8 + 40 + 8];	/* IPv6, ICMPv6, inner IPv6, UDP */
+	ip_addr_t local, remote;
+	unsigned int len;
+
+	if (p->len < 40 || ((uint8_t *)p->payload)[6] != IP6_NEXTH_ICMP6)
+		return 0;
+
+	len = pbuf_copy_partial(p, buf, sizeof(buf), 0);
+
+	if (len < sizeof(buf) || (buf[0] >> 4) != 6 ||
+	    buf[6] != IP6_NEXTH_ICMP6 || buf[40] != ICMP6_TYPE_DUR ||
+	    buf[41] != ICMP6_DUR_PORT)
+		return 0;
+	if ((buf[48] >> 4) != 6 || buf[48 + 6] != IP6_NEXTH_UDP)
+		return 0;
+
+	ip_addr_set_zero_ip6(&local);
+	ip_addr_set_zero_ip6(&remote);
+	memcpy(ip_2_ip6(&local)->addr, &buf[48 + 8], 16);
+	memcpy(ip_2_ip6(&remote)->addr, &buf[48 + 24], 16);
+	udpsock_port_unreach(&local, (buf[88] << 8) | buf[89], &remote,
+	    (buf[90] << 8) | buf[91]);
+
+	return 0;
 }
 
 /*

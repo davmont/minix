@@ -42,4 +42,12 @@ const ip6_addr_t *lwip_hook_nd6_get_gw(struct netif * netif,
 
 #define LWIP_HOOK_ND6_GET_GW lwip_hook_nd6_get_gw
 
+int lwip_hook_ip4_input(struct pbuf * p, struct netif * inp);
+
+#define LWIP_HOOK_IP4_INPUT lwip_hook_ip4_input
+
+int lwip_hook_ip6_input(struct pbuf * p, struct netif * inp);
+
+#define LWIP_HOOK_IP6_INPUT lwip_hook_ip6_input
+
 #endif /* !LWIP_LWIPHOOKS_H */

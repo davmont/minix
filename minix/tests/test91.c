@@ -13,6 +13,7 @@
 #include <sys/param.h>
 #include <sys/wait.h>
 #include <sys/queue.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <net/route.h>
 #include <netinet/in.h>
@@ -5381,6 +5382,92 @@ test91ac(void)
 }
 
 /*
+ * Test that a connected UDP socket learns of a datagram to a port where nobody
+ * listens (an ICMP or ICMPv6 port-unreachable message, here from the loopback
+ * address itself) as ECONNREFUSED, as on NetBSD, so that e.g. a resolver with
+ * no local name server fails at once instead of waiting for its timeout.  An
+ * unconnected socket does not get the error.
+ */
+static void
+sub91ad(int ipv6)
+{
+	struct sockaddr_in sin;
+	struct sockaddr_in6 sin6;
+	struct sockaddr *addr;
+	struct timeval tv;
+	socklen_t len;
+	fd_set fds;
+	char buf[1];
+	int fd;
+
+	if (ipv6) {
+		memset(&sin6, 0, sizeof(sin6));
+		sin6.sin6_family = AF_INET6;
+		sin6.sin6_port = htons(TEST_PORT_A);
+		memcpy(&sin6.sin6_addr, &in6addr_loopback,
+		    sizeof(sin6.sin6_addr));
+		addr = (struct sockaddr *)&sin6;
+		len = sizeof(sin6);
+	} else {
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons(TEST_PORT_A);
+		sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		addr = (struct sockaddr *)&sin;
+		len = sizeof(sin);
+	}
+
+	if ((fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM, 0)) < 0) e(0);
+
+	if (connect(fd, addr, len) != 0) e(0);
+
+	if (send(fd, "A", 1, 0) != 1) e(0);
+
+	/* The error makes the socket readable, soon. */
+	FD_ZERO(&fds);
+	FD_SET(fd, &fds);
+	tv.tv_sec = 2;
+	tv.tv_usec = 0;
+	if (select(fd + 1, &fds, NULL, NULL, &tv) != 1) e(0);
+
+	if (recv(fd, buf, sizeof(buf), MSG_DONTWAIT) != -1) e(0);
+	if (errno != ECONNREFUSED) e(0);
+
+	/* The error is reported once. */
+	if (recv(fd, buf, sizeof(buf), MSG_DONTWAIT) != -1) e(0);
+	if (errno != EWOULDBLOCK) e(0);
+
+	if (close(fd) != 0) e(0);
+
+	/* Not on a socket that is not connected. */
+	if ((fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM, 0)) < 0) e(0);
+
+	if (sendto(fd, "B", 1, 0, addr, len) != 1) e(0);
+
+	tv.tv_sec = 0;
+	tv.tv_usec = 500000;
+	FD_ZERO(&fds);
+	FD_SET(fd, &fds);
+	if (select(fd + 1, &fds, NULL, NULL, &tv) != 0) e(0);
+
+	if (recv(fd, buf, sizeof(buf), MSG_DONTWAIT) != -1) e(0);
+	if (errno != EWOULDBLOCK) e(0);
+
+	if (close(fd) != 0) e(0);
+}
+
+static void
+test91ad(void)
+{
+
+	subtest = 30;
+
+	sub91ad(0 /*ipv6*/);
+
+	sub91ad(1 /*ipv6*/);
+}
+
+/*
  * Test program for LWIP TCP/UDP sockets.
  */
 int
@@ -5426,6 +5513,7 @@ main(int argc, char ** argv)
 		if (m & 0x04000000) test91aa();
 		if (m & 0x08000000) test91ab();
 		if (m & 0x10000000) test91ac();
+		if (m & 0x20000000) test91ad();
 	}
 
 	quit();
