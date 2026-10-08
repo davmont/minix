@@ -56,6 +56,17 @@ int do_runctl(struct proc * caller, message * m_ptr)
 	  /* check if we must stop a process on a different CPU */
 	  if (rp->p_cpu != cpuid) {
 		  smp_schedule_stop_proc(rp);
+		  /* Waiting for the other CPU drops the BKL, so the target may
+		   * have entered a send since the check above.  PM would then
+		   * believe it stopped and still receive its call.  Delay the
+		   * stop exactly as if the send had been seen first.
+		   */
+		  if ((flags & RC_DELAY) && (RTS_ISSET(rp, RTS_SENDING) ||
+				(rp->p_misc_flags & MF_SC_DEFER))) {
+			  RTS_UNSET(rp, RTS_PROC_STOP);
+			  rp->p_misc_flags |= MF_SIG_DELAY;
+			  return(EBUSY);
+		  }
 		  break;
 	  }
 #endif
