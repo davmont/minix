@@ -43,11 +43,16 @@ void uv_loadavg(double avg[3]) {
 
 
 int uv_exepath(char* buffer, size_t* size) {
-  /* MINIX has no /proc/self/exe equivalent. */
+  /* MINIX has no /proc/self/exe equivalent: as on OpenBSD, look for the
+   * argv[0] that uv_setup_args() saved, in $PATH if it has no slash.
+   */
   if (buffer == NULL || size == NULL || *size == 0)
     return UV_EINVAL;
 
-  return UV_ENOSYS;
+  if (uv_saved_argv0 == NULL)
+    return UV_EINVAL;
+
+  return uv__search_path(uv_saved_argv0, buffer, size);
 }
 
 

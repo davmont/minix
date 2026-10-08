@@ -387,11 +387,13 @@ ipsock_get_dst_addr(struct ipsock * ip, const struct sockaddr * addr,
 		return EINVAL;
 
 	/*
-	 * TODO: on NetBSD, an 'any' destination address is replaced with a
-	 * local interface address.
+	 * An 'any' destination address means this host, as on NetBSD (which
+	 * uses ::1 for IPv6 and a local interface address for IPv4) and
+	 * Linux: use the loopback address of the family, which reaches any
+	 * socket bound to the 'any' or the loopback address.
 	 */
 	if (ip_addr_isany(dst_addr))
-		return EHOSTUNREACH;
+		ip_addr_set_loopback(IP_IS_V6(dst_addr), dst_addr);
 
 	/*
 	 * If the address is a multicast address, the multicast address itself

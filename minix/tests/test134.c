@@ -120,6 +120,8 @@ test_names(void)
 	if (getcwd(buf, sizeof(buf)) == NULL || strcmp(buf, "/usr/bin") != 0)
 		e(4);
 	if (getcwd(small, sizeof(small)) != NULL || errno != ERANGE) e(5);
+	/* Positive but too small is ERANGE, even 1 (EINVAL is for 0 only). */
+	if (getcwd(small, 1) != NULL || errno != ERANGE) e(9);
 	/* A failed getcwd() does not move the working directory. */
 	if (getcwd(buf, sizeof(buf)) == NULL || strcmp(buf, "/usr/bin") != 0)
 		e(6);

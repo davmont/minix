@@ -1473,11 +1473,12 @@ socklib_test_addrs(int type, int protocol)
 		int flags;
 		const struct sockaddr_in6 *name;
 	} conn_array[] = {
-		{ &sin6_any,		EHOSTUNREACH, 0 },
-		{ &sin6_any_scope,	EHOSTUNREACH, 0 },
+		/* An 'any' destination is the loopback address of its family. */
+		{ &sin6_any,		0, 0,		&sin6_lo },
+		{ &sin6_any_scope,	0, 0,		&sin6_lo },
 		{ &sin6_ll_kame,	EINVAL, 0 },
 		{ &sin6_ll_bad,		ENXIO, 0 },
-		{ &sin6_v4_any,		EHOSTUNREACH, F_V4 },
+		{ &sin6_v4_any,		0, F_V4,	&sin6_v4_lo },
 		{ &sin6_lo,		0, 0,		&sin6_lo },
 		{ &sin6_lo_scope,	0, 0,		&sin6_lo },
 		{ &sin6_ll_all,		0, 0,		&sin6_ll_lo },

@@ -50,7 +50,8 @@ int __getcwd(char *path, size_t size)
 	char *p;
 	int fd, ufd, dfd, cycle, e;
 
-	if (path == NULL || size <= 1) { errno= EINVAL; return -1; }
+	if (path == NULL || size == 0) { errno= EINVAL; return -1; }
+	if (size == 1) { errno= ERANGE; return -1; }	/* even "/" needs 2 */
 
 	p= path + size;
 	*--p = 0;
