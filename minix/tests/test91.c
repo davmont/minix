@@ -1009,13 +1009,14 @@ test91a(void)
 #define F_ZONE	4	/* binding works only if a scope ID is given */
 #define F_UDP	8	/* do not test on TCP sockets */
 #define F_BAD	16	/* operations on this address result in EINVAL */
+#define F_LO	32	/* connecting reaches the loopback address */
 
 static const struct {
 	const char *addr;
 	int may_bind;
 	int may_connect;	/* UDP only */
 } addrs_v4[] = {
-	{ "0.0.0.0",		F_YES,		F_NO },
+	{ "0.0.0.0",		F_YES,		F_YES | F_LO },
 	{ "0.0.0.1",		F_NO,		F_SKIP },
 	{ "127.0.0.1",		F_YES,		F_YES },
 	{ "127.0.0.255",	F_NO,		F_YES },
@@ -1032,7 +1033,7 @@ static const struct {
 	int may_bind;
 	int may_connect;	/* UDP only */
 } addrs_v6[] = {
-	{ "::0",		F_YES,			F_NO },
+	{ "::0",		F_YES,			F_YES | F_LO },
 	{ "::1",		F_YES,			F_YES },
 	{ "::2",		F_NO,			F_YES },
 	{ "::127.0.0.1",	F_NO,			F_YES },
@@ -1250,12 +1251,10 @@ sub91c_tcp(void)
 	int fd, val;
 
 	/*
-	 * Test connecting to address zero (0.0.0.0 and ::0).  Apparently the
-	 * traditional BSD behavior for IPv4 is to use the first interface's
-	 * local address as destination instead, but our implementation does
-	 * not support that at this time: these 'any' addresses always result
-	 * in connection failures right away, hopefully eliminating some tricky
-	 * implementation boundary cases.
+	 * Test connecting to address zero (0.0.0.0 and ::0).  As on NetBSD and
+	 * Linux, it means this host: the connection goes to the loopback
+	 * address, where nothing listens on this port, so it is refused (it
+	 * used to fail as unreachable right away).
 	 */
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) e(0);
 
@@ -1265,7 +1264,7 @@ sub91c_tcp(void)
 	sin.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (connect(fd, (struct sockaddr *)&sin, sizeof(sin)) != -1) e(0);
-	if (errno != EHOSTUNREACH && errno != ENETUNREACH) e(0);
+	if (errno != ECONNREFUSED) e(0);
 
 	if (close(fd) != 0) e(0);
 
@@ -1277,7 +1276,7 @@ sub91c_tcp(void)
 	memcpy(&sin6.sin6_addr, &in6addr_any, sizeof(sin6.sin6_addr));
 
 	if (connect(fd, (struct sockaddr *)&sin6, sizeof(sin6)) != -1) e(0);
-	if (errno != EHOSTUNREACH && errno != ENETUNREACH) e(0);
+	if (errno != ECONNREFUSED) e(0);
 
 	if (close(fd) != 0) e(0);
 
@@ -1364,7 +1363,10 @@ sub91c_udp(void)
 			if (rsin.sin_len != sizeof(rsin)) e(0);
 			if (rsin.sin_family != AF_INET) e(0);
 			if (rsin.sin_port != htons(TEST_PORT_A)) e(0);
-			if (rsin.sin_addr.s_addr != sin.sin_addr.s_addr) e(0);
+			if (rsin.sin_addr.s_addr !=
+			    ((addrs_v4[i].may_connect & F_LO) ?
+			    htonl(INADDR_LOOPBACK) : sin.sin_addr.s_addr))
+				e(0);
 		} else {
 			if (getpeername(fd, (struct sockaddr *)&rsin,
 			    &len) != -1) e(0);
@@ -1409,7 +1411,9 @@ sub91c_udp(void)
 			if (rsin6.sin6_len != sizeof(rsin6)) e(0);
 			if (rsin6.sin6_family != AF_INET6) e(0);
 			if (rsin6.sin6_port != htons(TEST_PORT_A)) e(0);
-			if (memcmp(&rsin6.sin6_addr, &sin6.sin6_addr,
+			if (memcmp(&rsin6.sin6_addr,
+			    (addrs_v6[i].may_connect & F_LO) ?
+			    &in6addr_loopback : &sin6.sin6_addr,
 			    sizeof(rsin6.sin6_addr))) e(0);
 			if (rsin6.sin6_scope_id !=
 			    ((addrs_v6[i].may_connect & F_ZONE) ? ifindex : 0))
