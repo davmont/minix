@@ -17,7 +17,7 @@ SRCS+=	async.c core.c dl.c fs.c getaddrinfo.c getnameinfo.c loop-watcher.c \
 
 # MINIX uses the portable poll(2) event loop (no kqueue/epoll), plus the
 # generic-POSIX helpers, mirroring the GNU/Hurd profile.
-SRCS+=	bsd-ifaddrs.c no-fsevents.c no-proctitle.c posix-hrtime.c \
+SRCS+=	bsd-ifaddrs.c bsd-proctitle.c no-fsevents.c posix-hrtime.c \
 	posix-poll.c minix.c
 
 CPPFLAGS+=	-I${LIBUVSRCDIR}/include -I${LIBUVSRCDIR}/src
