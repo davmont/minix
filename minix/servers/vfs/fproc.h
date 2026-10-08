@@ -24,6 +24,7 @@ EXTERN struct filedesc {
   struct vnode *fd_rd;		/* root directory; NULL during reboot */
   struct filp *fd_filp[OPEN_MAX];/* the file descriptor table (free if NULL) */
   fd_set fd_cloexec_set;	/* bit map for POSIX Table 6-2 FD_CLOEXEC */
+  fd_set fd_reserved;		/* chosen by get_fd(), not yet installed */
   mode_t fd_umask;		/* mask set by umask system call */
 } fdesc[NR_PROCS];
 

@@ -838,6 +838,7 @@ void pm_fork(endpoint_t pproc, endpoint_t cproc, pid_t cpid)
   cp->fp_fd = &fdesc[childno];
   *cp->fp_fd = *pp->fp_fd;
   cp->fp_fd->fd_refcnt = 1;
+  FD_ZERO(&cp->fp_fd->fd_reserved);	/* the parent's calls in progress */
 
   /* Increase the counters in the 'filp' table. */
   for (i = 0; i < OPEN_MAX; i++)

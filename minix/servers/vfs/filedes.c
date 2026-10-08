@@ -117,9 +117,13 @@ int get_fd(struct fproc *rfp, int start, mode_t bits, int *k, struct filp **fpt)
   register struct filp *f;
   register int i;
 
-  /* Search the fproc fp_fd->fd_filp table for a free file descriptor. */
+  /* Search the fproc fp_fd->fd_filp table for a free file descriptor.  One
+   * that get_fd() gave out already, to a call that has yet to install it, is
+   * not free either.
+   */
   for (i = start; i < OPEN_MAX; i++) {
-	if (rfp->fp_fd->fd_filp[i] == NULL) {
+	if (rfp->fp_fd->fd_filp[i] == NULL &&
+	    !FD_ISSET(i, &rfp->fp_fd->fd_reserved)) {
 		/* A file descriptor has been located. */
 		*k = i;
 		break;
@@ -147,6 +151,17 @@ int get_fd(struct fproc *rfp, int start, mode_t bits, int *k, struct filp **fpt)
 		f->filp_softlock = NULL;
 		f->filp_ioctl_fp = NULL;
 		f->filp_kq = NULL;
+
+		/* The caller installs the descriptor only after steps that
+		 * may block (a path lookup, a new PFS node), and meanwhile
+		 * another caller (copyfd, by a socket driver) could choose
+		 * it as well.  Reserve it until the filp is unlocked, which
+		 * the caller does after installing it or giving up.
+		 */
+		FD_SET(*k, &rfp->fp_fd->fd_reserved);
+		f->filp_rsv_tab = rfp->fp_fd;
+		f->filp_rsv_fd = *k;
+
 		*fpt = f;
 		return(OK);
 	}
@@ -355,9 +370,22 @@ lock_filp(struct filp *filp, tll_access_t locktype)
 /*===========================================================================*
  *				unlock_filp				     *
  *===========================================================================*/
+static void
+unreserve_fd(struct filp *filp)
+{
+/* Drop the descriptor reservation get_fd() made for this filp, if any. */
+
+  if (filp->filp_rsv_tab != NULL) {
+	FD_CLR(filp->filp_rsv_fd, &filp->filp_rsv_tab->fd_reserved);
+	filp->filp_rsv_tab = NULL;
+  }
+}
+
 void
 unlock_filp(struct filp *filp)
 {
+  unreserve_fd(filp);
+
   /* If this filp holds a soft lock on the vnode, we must be the owner */
   if (filp->filp_softlock != NULL)
 	assert(filp->filp_softlock == fp);
@@ -390,6 +418,9 @@ unlock_filps(struct filp *filp1, struct filp *filp2)
   assert(filp1);
   assert(filp2);
   assert(filp1 != filp2);
+
+  unreserve_fd(filp1);
+  unreserve_fd(filp2);
 
   /* Must be tied to the same vnode and not NULL */
   assert(filp1->filp_vno == filp2->filp_vno);
@@ -628,7 +659,8 @@ int do_copyfd(void)
   case COPYFD_TO:
 	/* Find a free file descriptor slot in the local or remote process. */
 	for (fd = 0; fd < OPEN_MAX; fd++)
-		if (rfp->fp_fd->fd_filp[fd] == NULL)
+		if (rfp->fp_fd->fd_filp[fd] == NULL &&
+		    !FD_ISSET(fd, &rfp->fp_fd->fd_reserved))
 			break;
 
 	/* If found, fill the slot and return the slot number. */
