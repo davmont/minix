@@ -1119,13 +1119,17 @@ tcpsock_event_recv(void * arg, struct tcp_pcb * pcb __unused,
 	len = (size_t)pbuf->tot_len;
 
 	/*
-	 * Count the number of buffers that are now owned by us.  The new total
-	 * of buffers owned by us must not exceed the size of the memory pool.
-	 * Any more would indicate an accounting error.  Note that
-	 * tcpsock_recvbufs is currently used for debugging only!
+	 * Count the number of buffers that are now owned by us.  Each is an
+	 * allocated pool buffer, so the total cannot exceed the number of
+	 * those; any more would indicate an accounting error.  It can exceed
+	 * the number of large buffers, though: the loopback copy of a short
+	 * segment is a small buffer, and one that follows a large segment is
+	 * not merged.  With 128 KB windows, a single connection can queue
+	 * several hundred of each.  Note that tcpsock_recvbufs is currently
+	 * used for debugging only!
 	 */
 	tcpsock_recvbufs += pbuf_clen(pbuf);
-	assert(tcpsock_recvbufs < mempool_cur_buffers());
+	assert(tcpsock_recvbufs <= mempool_used_buffers());
 
 	/*
 	 * The pre-tail pointer points to whatever is pointing to the tail

@@ -78,6 +78,7 @@ union sockaddr_any {
 /* mempool.c */
 void mempool_init(void);
 unsigned int mempool_cur_buffers(void);
+unsigned int mempool_used_buffers(void);
 unsigned int mempool_max_buffers(void);
 
 /* pchain.c */

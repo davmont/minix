@@ -501,6 +501,19 @@ mempool_cur_buffers(void)
 }
 
 /*
+ * Return the number of buffers, large and small, currently allocated.  Every
+ * pbuf that this module hands out is one of them, so this bounds the number
+ * of pbufs held anywhere.  A large buffer split up into small ones counts as
+ * well, which only loosens the bound.
+ */
+unsigned int
+mempool_used_buffers(void)
+{
+
+	return mempool_used_large + mempool_used_small;
+}
+
+/*
  * Return the maximum number of large buffers that the system has been allowed
  * to allocate.  Note that due to low-memory conditions, this maximum may not
  * be allocated in practice even when desired.

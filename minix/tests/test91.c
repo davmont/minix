@@ -5468,6 +5468,80 @@ test91ad(void)
 }
 
 /*
+ * Wait until the receiving end of a TCP connection has 'want' bytes queued.
+ */
+static void
+wait_queued(int fd, int want)
+{
+	int i, val;
+
+	for (i = 0; i < 1000; i++) {
+		if (ioctl(fd, FIONREAD, &val) != 0) e(0);
+		if (val == want)
+			return;
+		if (val > want) e(0);
+		usleep(1000);
+	}
+	e(0);
+}
+
+/*
+ * Test a receive queue that alternates large and small buffers.  The loopback
+ * copy of a short segment is a small pool buffer, and one that follows a
+ * segment of more than half a buffer is not merged into it, so the queue
+ * holds two buffers per such pair.  With a large receive window, that is many
+ * more buffers than the pool has large ones, while the pool itself never has
+ * to grow.  The LWIP service used to assert that the receive buffers never
+ * outnumber the large buffers, and would panic (taking all sockets with it).
+ */
+static void
+test91ae(void)
+{
+	char buf[300], *rbuf;
+	socklen_t len;
+	int fd[2], i, j, pairs, rcvbuf, queued;
+
+	subtest = 31;
+
+	get_tcp_pair(AF_INET, SOCK_STREAM, 0, fd);
+
+	len = sizeof(rcvbuf);
+	if (getsockopt(fd[1], SOL_SOCKET, SO_RCVBUF, &rcvbuf, &len) != 0)
+		e(0);
+
+	/* About 760 buffers with the default 128 KB receive buffer. */
+	pairs = rcvbuf * 7 / 8 / (sizeof(buf) + 1);
+	if (pairs > 380)
+		pairs = 380;
+
+	queued = 0;
+	for (i = 0; i < pairs; i++) {
+		memset(buf, 'a' + i % 26, sizeof(buf));
+		if (send(fd[0], buf, sizeof(buf), 0) != sizeof(buf)) e(0);
+		queued += sizeof(buf);
+		wait_queued(fd[1], queued);	/* one segment each */
+
+		if (send(fd[0], "!", 1, 0) != 1) e(0);
+		queued++;
+		wait_queued(fd[1], queued);
+	}
+
+	/* All the data must still be there, in order. */
+	if ((rbuf = malloc(queued)) == NULL) e(0);
+	if (recv(fd[1], rbuf, queued, MSG_WAITALL) != queued) e(0);
+	for (i = 0; i < pairs; i++) {
+		for (j = 0; j < (int)sizeof(buf); j++)
+			if (rbuf[i * (sizeof(buf) + 1) + j] != 'a' + i % 26)
+				e(0);
+		if (rbuf[i * (sizeof(buf) + 1) + sizeof(buf)] != '!') e(0);
+	}
+	free(rbuf);
+
+	if (close(fd[0]) != 0) e(0);
+	if (close(fd[1]) != 0) e(0);
+}
+
+/*
  * Test program for LWIP TCP/UDP sockets.
  */
 int
@@ -5514,6 +5588,7 @@ main(int argc, char ** argv)
 		if (m & 0x08000000) test91ab();
 		if (m & 0x10000000) test91ac();
 		if (m & 0x20000000) test91ad();
+		if (m & 0x40000000) test91ae();
 	}
 
 	quit();
