@@ -9,7 +9,14 @@
  *    of its own.  For regular files, readiness is the BSD one: readable while
  *    the file position is below the size (data: the bytes left), always
  *    writable; writes to the file wake up waiters.
- *  - EVFILT_VNODE, for NOTE_WRITE and NOTE_EXTEND on a regular file.
+ *  - EVFILT_VNODE, on any open file or directory: NOTE_WRITE (a write, or an
+ *    entry added, removed or renamed in a directory), NOTE_EXTEND (a file
+ *    grown), NOTE_ATTRIB (mode, owner, times, size), NOTE_LINK (link count
+ *    changed), NOTE_DELETE (last link removed) and NOTE_RENAME (renamed).
+ *    VFS reports them where it makes the change (see kq_vnode_note()
+ *    callers), as the BSDs do in their file systems.  NOTE_REVOKE is
+ *    accepted but never reported: a file system with open files, as a
+ *    watched file is, cannot be unmounted.
  *  - EVFILT_TIMER, periodic or one-shot, in milliseconds.
  *  - EVFILT_USER, triggered by NOTE_TRIGGER.
  * Other filters fail with EINVAL.
@@ -67,7 +74,7 @@ struct kqueue {
 };
 
 static struct kqueue *kq_list;
-static int kq_watchers;		/* knotes waiting for writes to files */
+static int kq_watchers;		/* knotes waiting for vnode changes */
 
 /* Is clock time 'a' before 'b'?  Uptimes wrap, and clock_t is unsigned and
  * may be narrower than long.
@@ -259,16 +266,19 @@ void kq_fdtab_gone(struct filedesc *fdtab)
 }
 
 /*===========================================================================*
- *				kq_vnode_write				     *
+ *				kq_vnode_note				     *
  *===========================================================================*/
-void kq_vnode_write(struct vnode *vp, int extended)
+void kq_vnode_note(struct vnode *vp, uint32_t notes)
 {
-/* The given regular file has been written to, and grown if 'extended'. */
+/* The given file or directory has changed in the ways that 'notes' (NOTE_*)
+ * say.  Tell the EVFILT_VNODE knotes on it that want to know, and wake up the
+ * EVFILT_READ ones on a regular file that has been written to.
+ */
   struct kqueue *kq;
   struct knote *kn;
   int i, wake;
 
-  if (kq_watchers == 0)
+  if (kq_watchers == 0 || vp == NULL)
 	return;
 
   for (kq = kq_list; kq != NULL; kq = kq->kq_next) {
@@ -278,16 +288,38 @@ void kq_vnode_write(struct vnode *vp, int extended)
 		if (!kn->kn_watch || kn->kn_filp->filp_vno != vp)
 			continue;
 		if (kn->kn_filter == EVFILT_VNODE) {
-			kn->kn_pending |= kn->kn_fflags & (NOTE_WRITE |
-			    (extended ? NOTE_EXTEND : 0));
+			kn->kn_pending |= kn->kn_fflags & notes;
 			if (kn->kn_pending == 0)
 				continue;
-		}
+		} else if (!(notes & NOTE_WRITE))
+			continue;
 		wake = TRUE;
 	}
 	if (wake)
 		kq_wake(kq);
   }
+}
+
+/*===========================================================================*
+ *				kq_vnode_write				     *
+ *===========================================================================*/
+void kq_vnode_write(struct vnode *vp, int extended)
+{
+/* The given regular file has been written to, and grown if 'extended'. */
+
+  kq_vnode_note(vp, NOTE_WRITE | (extended ? NOTE_EXTEND : 0));
+}
+
+/*===========================================================================*
+ *				kq_vnode_watched			     *
+ *===========================================================================*/
+int kq_vnode_watched(void)
+{
+/* Is any knote waiting for changes to files?  If not, callers need not look
+ * up the files they change only to report it.
+ */
+
+  return(kq_watchers > 0);
 }
 
 /*===========================================================================*
@@ -340,11 +372,9 @@ static int kq_change(struct kqueue *kq, struct kevent *kev)
 		return(EBADF);
 	if (f->filp_kq != NULL)
 		return(EINVAL);		/* a kqueue on itself or another */
-	/* Of the vnode notes, only writes are known here: refuse the others
-	 * rather than never report them (tail -F then polls instead).
-	 */
-	if (kev->filter == EVFILT_VNODE && (!kq_is_regular(f) ||
-	    (kev->fflags & ~(NOTE_WRITE | NOTE_EXTEND))))
+	if (kev->filter == EVFILT_VNODE && (f->filp_vno == NULL ||
+	    (kev->fflags & ~(NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND |
+	    NOTE_ATTRIB | NOTE_LINK | NOTE_RENAME | NOTE_REVOKE))))
 		return(EINVAL);
 	break;
   case EVFILT_TIMER:
@@ -379,7 +409,7 @@ static int kq_change(struct kqueue *kq, struct kevent *kev)
 	kn->kn_ident = kev->ident;
 	kn->kn_filter = kev->filter;
 	kn->kn_filp = f;
-	/* Does it wait for writes to its file (see kq_vnode_write())? */
+	/* Does it wait for changes to its file (see kq_vnode_note())? */
 	kn->kn_watch = kn->kn_filter == EVFILT_VNODE ||
 	    (kn->kn_filter == EVFILT_READ && kq_is_regular(f));
 	if (kn->kn_watch)

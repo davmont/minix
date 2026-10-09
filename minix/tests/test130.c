@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -348,6 +349,112 @@ test_file(void)
 	(void)unlink("t130");
 }
 
+#define ALL_NOTES (NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | \
+	NOTE_LINK | NOTE_RENAME | NOTE_REVOKE)
+
+/* A kqueue watching 'fd' for all the vnode notes. */
+static int
+watch(int fd)
+{
+	int kq;
+
+	if ((kq = kqueue()) < 0) e(90);
+	if (kev(kq, fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, ALL_NOTES, 0, NULL,
+	    0, NULL) != 0) e(91);
+	return kq;
+}
+
+/* The vnode notes pending on a watch() kqueue (EV_CLEAR: reading clears). */
+static int
+notes(int kq)
+{
+	struct kevent ev;
+	int n;
+
+	if ((n = kev(kq, 0, -1, 0, 0, 0, &ev, 1, &zero)) < 0) e(92);
+	if (n == 0)
+		return 0;
+	if (ev.filter != EVFILT_VNODE) e(93);
+	return ev.fflags;
+}
+
+static void
+test_vnode_notes(void)
+{
+	struct timeval tv[2];
+	int dkq, fkq, xkq, dfd, ffd, xfd, fd;
+
+	subtest = 9;
+	/* Watching a directory, and all the notes, as libuv's fs_event does
+	 * (only writes to regular files used to be accepted).
+	 */
+	if (mkdir("d", 0755) != 0) e(1);
+	if ((fd = open("d/f", O_RDWR | O_CREAT, 0644)) < 0) e(2);
+	close(fd);
+	if ((dfd = open("d", O_RDONLY)) < 0) e(3);
+	if ((ffd = open("d/f", O_RDONLY)) < 0) e(4);
+	dkq = watch(dfd);
+	fkq = watch(ffd);
+	if (notes(dkq) != 0 || notes(fkq) != 0) e(5);
+
+	/* An entry added: a write to the directory, nothing for the file. */
+	if ((fd = open("d/g", O_RDWR | O_CREAT, 0644)) < 0) e(6);
+	close(fd);
+	if (notes(dkq) != NOTE_WRITE) e(7);
+	if (notes(fkq) != 0) e(8);
+
+	/* Attributes. */
+	if (chmod("d/f", 0600) != 0) e(9);
+	if (notes(fkq) != NOTE_ATTRIB) e(10);
+	memset(tv, 0, sizeof(tv));
+	if (utimes("d/f", tv) != 0) e(11);
+	if (notes(fkq) != NOTE_ATTRIB) e(12);
+	if (notes(dkq) != 0) e(13);
+
+	/* Links. */
+	if (link("d/f", "d/h") != 0) e(14);
+	if (notes(fkq) != NOTE_LINK) e(15);
+	if (notes(dkq) != NOTE_WRITE) e(16);
+	if (unlink("d/h") != 0) e(17);
+	if (notes(fkq) != NOTE_LINK) e(18);	/* not its last link */
+	if (notes(dkq) != NOTE_WRITE) e(19);
+
+	/* Renamed. */
+	if (rename("d/f", "d/f2") != 0) e(20);
+	if (notes(fkq) != NOTE_RENAME) e(21);
+	if (notes(dkq) != NOTE_WRITE) e(22);
+
+	/* A subdirectory: also a link count change of the parent. */
+	if (mkdir("d/sub", 0755) != 0) e(23);
+	if (notes(dkq) != (NOTE_WRITE | NOTE_LINK)) e(24);
+	if (rmdir("d/sub") != 0) e(25);
+	if (notes(dkq) != (NOTE_WRITE | NOTE_LINK)) e(26);
+
+	/* Replaced by a rename: that was its last link. */
+	if (rename("d/g", "d/f2") != 0) e(27);
+	if (notes(fkq) != NOTE_DELETE) e(28);
+	if (notes(dkq) != NOTE_WRITE) e(29);
+
+	/* Unlinked, its last link. */
+	if ((fd = open("d/x", O_RDWR | O_CREAT, 0644)) < 0) e(30);
+	close(fd);
+	if ((xfd = open("d/x", O_RDONLY)) < 0) e(31);
+	xkq = watch(xfd);
+	(void)notes(dkq);
+	if (unlink("d/x") != 0) e(32);
+	if (notes(xkq) != NOTE_DELETE) e(33);
+	if (notes(dkq) != NOTE_WRITE) e(34);
+
+	close(xkq);
+	close(fkq);
+	close(dkq);
+	close(xfd);
+	close(ffd);
+	close(dfd);
+	(void)unlink("d/f2");
+	(void)rmdir("d");
+}
+
 static int ckq;
 
 static void *
@@ -415,6 +522,7 @@ main(int argc, char **argv)
 	test_file();
 	test_eintr();
 	test_close_while_waiting();
+	test_vnode_notes();
 
 	quit();
 	return 0;

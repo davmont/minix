@@ -6,6 +6,7 @@
  */
 
 #include "fs.h"
+#include <sys/event.h>
 #include <minix/com.h>
 #include <minix/const.h>
 #include <minix/endpoint.h>
@@ -23,6 +24,20 @@
 #include "vmnt.h"
 #include "vnode.h"
 
+
+/*===========================================================================*
+ *				kq_note_inode				     *
+ *===========================================================================*/
+static void kq_note_inode(endpoint_t fs_e, ino_t ino, uint32_t notes)
+{
+/* A request has changed the given file or directory in the ways that 'notes'
+ * (kqueue NOTE_*) say.  Only a file that someone has open, and so is in the
+ * vnode table, can have knotes on it.
+ */
+
+  if (kq_vnode_watched())
+	kq_vnode_note(find_vnode(fs_e, ino), notes);
+}
 
 /*===========================================================================*
  *			req_breadwrite_actual				     *
@@ -126,6 +141,7 @@ int req_chmod(
   /* Copy back actual mode. */
   *new_modep = m.m_fs_vfs_chmod.mode;
 
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_ATTRIB);
   return(r);
 }
 
@@ -180,6 +196,7 @@ int req_chown(
   /* Return new mode to caller. */
   *new_modep = m.m_fs_vfs_chown.mode;
 
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_ATTRIB);
   return(r);
 }
 
@@ -233,6 +250,8 @@ int req_create(
   res->gid	= m.m_fs_vfs_create.gid;
   res->dev	= NO_DEV;
 
+  kq_note_inode(fs_e, inode_nr, NOTE_WRITE);
+
   return(OK);
 }
 
@@ -285,6 +304,7 @@ int req_statvfs(endpoint_t fs_e, struct statvfs *buf)
 int req_ftrunc(endpoint_t fs_e, ino_t inode_nr, off_t start, off_t end)
 {
   message m;
+  int r;
   struct vmnt *vmp;
 
   vmp = find_vmnt(fs_e);
@@ -302,7 +322,10 @@ int req_ftrunc(endpoint_t fs_e, ino_t inode_nr, off_t start, off_t end)
   }
 
   /* Send/rec request */
-  return fs_sendrec(fs_e, &m);
+  r = fs_sendrec(fs_e, &m);
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_ATTRIB);
+
+  return(r);
 }
 
 
@@ -437,6 +460,11 @@ int req_link(
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
   cpf_revoke(grant_id);
+
+  if (r == OK) {
+	kq_note_inode(fs_e, link_parent, NOTE_WRITE);
+	kq_note_inode(fs_e, linked_file, NOTE_LINK);
+  }
 
   return(r);
 }
@@ -581,6 +609,8 @@ int req_mkdir(
   r = fs_sendrec(fs_e, &m);
   cpf_revoke(grant_id);
 
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_WRITE | NOTE_LINK);
+
   return(r);
 }
 
@@ -621,6 +651,8 @@ int req_mknod(
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
   cpf_revoke(grant_id);
+
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_WRITE);
 
   return(r);
 }
@@ -997,6 +1029,12 @@ req_rename(endpoint_t fs_e, ino_t old_dir, char *old_name, ino_t new_dir, char *
   cpf_revoke(gid_old);
   cpf_revoke(gid_new);
 
+  if (r == OK) {
+	kq_note_inode(fs_e, old_dir, NOTE_WRITE);
+	if (new_dir != old_dir)
+		kq_note_inode(fs_e, new_dir, NOTE_WRITE);
+  }
+
   return(r);
 }
 
@@ -1026,6 +1064,8 @@ req_rmdir(endpoint_t fs_e, ino_t inode_nr, char *lastc)
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
   cpf_revoke(grant_id);
+
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_WRITE | NOTE_LINK);
 
   return(r);
 }
@@ -1111,6 +1151,8 @@ int req_slink(
 		r = req_slink_actual(fs_e, inode_nr, lastc, proc_e, path_addr,
 			path_length, uid, gid, 0);
 	}
+
+	if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_WRITE);
 
 	return r;
 }
@@ -1210,6 +1252,8 @@ req_unlink(endpoint_t fs_e, ino_t inode_nr, char *lastc)
   r = fs_sendrec(fs_e, &m);
   cpf_revoke(grant_id);
 
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_WRITE);
+
   return(r);
 }
 
@@ -1237,6 +1281,7 @@ int req_utime(endpoint_t fs_e, ino_t inode_nr, struct timespec * actimespec,
 	struct timespec * modtimespec)
 {
   message m;
+  int r;
 
   assert(actimespec != NULL);
   assert(modtimespec != NULL);
@@ -1250,5 +1295,8 @@ int req_utime(endpoint_t fs_e, ino_t inode_nr, struct timespec * actimespec,
   m.m_vfs_fs_utime.modnsec = modtimespec->tv_nsec;
 
   /* Send/rec request */
-  return fs_sendrec(fs_e, &m);
+  r = fs_sendrec(fs_e, &m);
+  if (r == OK) kq_note_inode(fs_e, inode_nr, NOTE_ATTRIB);
+
+  return(r);
 }

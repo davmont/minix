@@ -13,6 +13,7 @@
  */
 
 #include "fs.h"
+#include <sys/event.h>
 #include <sys/stat.h>
 #include <string.h>
 #include <minix/com.h>
@@ -144,6 +145,61 @@ int do_unlinkat(void)
 }
 
 /*===========================================================================*
+ *				entry_inode				     *
+ *===========================================================================*/
+static ino_t entry_inode(struct vnode *dirp, char *name)
+{
+/* For kqueue notes: the inode number of entry 'name' of the locked directory
+ * 'dirp', or 0 if there is none, or nobody watches files at all.  No
+ * reference is kept: an extra one could make the directory busy for rmdir.
+ * A file someone watches is open, so its vnode will still be found by number.
+ */
+  struct lookup look;
+  struct vmnt *vmp2;
+  struct vnode *vp;
+  ino_t ino;
+  int r;
+
+  if (!kq_vnode_watched()) return(0);
+
+  r = err_code;			/* do not disturb the caller's */
+  lookup_init(&look, name, PATH_RET_SYMLINK, &vmp2, &vp);
+  look.l_vmnt_lock = VMNT_READ;
+  look.l_vnode_lock = VNODE_READ;
+  vp = advance(dirp, &look, fp);
+  err_code = r;
+  if (vmp2 != NULL) unlock_vmnt(vmp2);
+  if (vp == NULL) return(0);
+
+  ino = vp->v_inode_nr;
+  unlock_vnode(vp);
+  put_vnode(vp);
+  return(ino);
+}
+
+/*===========================================================================*
+ *				note_removed				     *
+ *===========================================================================*/
+static void note_removed(endpoint_t fs_e, ino_t ino)
+{
+/* For kqueue: the entry for inode 'ino' has been removed (or replaced by a
+ * rename).  NOTE_DELETE if that was its last link, as with a directory, or
+ * else NOTE_LINK.
+ */
+  struct vnode *vp;
+  struct stat sb;
+  uint32_t note;
+
+  if (ino == 0 || (vp = find_vnode(fs_e, ino)) == NULL) return;
+
+  note = NOTE_DELETE;
+  if (!S_ISDIR(vp->v_mode) && req_stat(fs_e, ino, VFS_PROC_NR, (vir_bytes) &sb) == OK &&
+      sb.st_nlink > 0)
+	note = NOTE_LINK;
+  kq_vnode_note(vp, note);
+}
+
+/*===========================================================================*
  *				unlink_path				     *
  *===========================================================================*/
 static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
@@ -155,6 +211,7 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
  */
   struct vnode *dirp, *dirp_l, *vp;
   struct vmnt *vmp, *vmp2;
+  ino_t ino;
   int r;
   struct lookup resolve, stickycheck;
 
@@ -207,12 +264,15 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 	}
   }
 
+  ino = entry_inode(dirp, fullpath);	/* for kqueue */
+
   upgrade_vmnt_lock(vmp);
 
   if (!rmdir)
 	  r = req_unlink(dirp->v_fs_e, dirp->v_inode_nr, fullpath);
   else
 	  r = req_rmdir(dirp->v_fs_e, dirp->v_inode_nr, fullpath);
+  if (r == OK) note_removed(dirp->v_fs_e, ino);
   unlock_vnode(dirp);
   unlock_vmnt(vmp);
   put_vnode(dirp);
@@ -262,6 +322,7 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
  * Both are overwritten by the lookups.
  */
   int r = OK, r1;
+  ino_t old_ino = 0, new_ino = 0;
   struct vnode *old_dirp = NULL, *new_dirp = NULL, *new_dirp_l = NULL, *vp;
   struct vmnt *oldvmp, *newvmp, *vmp2;
   struct lookup resolve, stickycheck;
@@ -332,9 +393,19 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
       (r1 = forbidden(fp, new_dirp, W_BIT|X_BIT)) != OK) r = r1;
 
   if (r == OK) {
+	/* For kqueue: the file renamed, and the one it may replace. */
+	old_ino = entry_inode(old_dirp, name1);
+	new_ino = entry_inode(new_dirp, name2);
+
 	upgrade_vmnt_lock(oldvmp); /* Upgrade to exclusive access */
 	r = req_rename(old_dirp->v_fs_e, old_dirp->v_inode_nr, name1,
 		       new_dirp->v_inode_nr, name2);
+
+	if (r == OK && old_ino != 0 && new_ino != old_ino) {
+		note_removed(old_dirp->v_fs_e, new_ino);
+		kq_vnode_note(find_vnode(old_dirp->v_fs_e, old_ino),
+		    NOTE_RENAME);
+	}
   }
 
   unlock_vnode(old_dirp);

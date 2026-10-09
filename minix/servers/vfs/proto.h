@@ -428,6 +428,8 @@ void kq_free(struct kqueue *kq);
 void kq_fd_closed(struct filedesc *fdtab, int fd);
 void kq_fdtab_gone(struct filedesc *fdtab);
 void kq_vnode_write(struct vnode *vp, int extended);
+void kq_vnode_note(struct vnode *vp, uint32_t notes);
+int kq_vnode_watched(void);
 int kq_output(struct kqueue *kq, endpoint_t ep, fd_set *rdready,
 	fd_set *wrready, vir_bytes events, int nevents);
 
