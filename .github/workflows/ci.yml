@@ -156,6 +156,14 @@ jobs:
         with:
           name: minix_amd64.iso
 
+      # The unstripped kernel: when a test hangs, qemutest.py --kernel
+      # reads the IS process dumps (kernel, PM, VFS, stack traces) out of
+      # its message ring and saves them with the logs.
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-elf
+          path: kernel-elf
+
       - name: Open /dev/kvm
         if: ${{ !inputs.tcg }}
         run: |
@@ -190,7 +198,8 @@ jobs:
             --smp ${SMP} --suite quick --shard ${{ matrix.shard }} \
             --xfail releasetools/qemutest.xfail \
             --xfail releasetools/qemutest-tcg.xfail \
-            --test-timeout 2400 --log-dir ${LOGS}/quick
+            --test-timeout 2400 --kernel kernel-elf/kernel \
+            --log-dir ${LOGS}/quick
 
       - name: pjdfstest (POSIX file-system conformance)
         if: matrix.suite == 'pjdfstest'
@@ -198,7 +207,8 @@ jobs:
           python3 releasetools/qemutest.py --iso minix_amd64.iso ${ACCEL} \
             --smp ${SMP} --suite pjdfstest --shard ${{ matrix.shard }} \
             --xfail releasetools/qemutest-pjdfstest.xfail \
-            --test-timeout 600 --log-dir ${LOGS}/pjdfstest
+            --test-timeout 600 --kernel kernel-elf/kernel \
+            --log-dir ${LOGS}/pjdfstest
 
       - name: Upload test logs
         if: always()
