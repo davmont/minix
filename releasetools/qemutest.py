@@ -69,6 +69,7 @@ RAMDISK_KB = 131072       # testmfs/testisofs build multi-MB images in cwd
 
 MARK = "QT_DONE"          # what the shell prints when a command is done
 PROMPT = "QT#"            # a prompt no MINIX message can produce
+KMESS_BUF_SIZE = 10000    # _KMESS_BUF_SIZE, minix/include/minix/sys_config.h
 
 
 class Timeout(Exception):
@@ -200,25 +201,73 @@ class Guest:
                                      stderr=subprocess.PIPE)
         self.ser = Serial(sock, log)
 
-    def registers(self):
-        """The vCPU registers via QMP ("info registers"), or "" if QEMU is
-        not answering.  Used to see where a stalled boot is spinning."""
+    def qmp_call(self, *cmds):
+        """Run QMP commands (dicts); the last reply's "return", or None if
+        QEMU is not answering."""
         try:
             s = socket.socket(socket.AF_UNIX)
-            s.settimeout(5)
+            s.settimeout(10)
             s.connect(self.qmp)
             f = s.makefile("rw")
             f.readline()                            # greeting
-            for cmd in ('{"execute":"qmp_capabilities"}',
-                        '{"execute":"human-monitor-command","arguments":'
-                        '{"command-line":"info registers"}}'):
-                f.write(cmd + "\n")
+            reply = {}
+            for cmd in ({"execute": "qmp_capabilities"},) + cmds:
+                f.write(json.dumps(cmd) + "\n")
                 f.flush()
-                reply = json.loads(f.readline())
+                while True:                         # skip async events
+                    reply = json.loads(f.readline())
+                    if "event" not in reply:
+                        break
             s.close()
-            return reply.get("return", "")
+            return reply.get("return")
         except (OSError, ValueError):
-            return ""
+            return None
+
+    def registers(self):
+        """The vCPU registers via QMP ("info registers"), or "" if QEMU is
+        not answering.  Used to see where a stalled boot is spinning."""
+        return self.qmp_call({"execute": "human-monitor-command",
+                              "arguments": {"command-line":
+                                            "info registers"}}) or ""
+
+    def kmessages(self, addr):
+        """The kernel message ring at guest address `addr`: (next index,
+        buffer), or None."""
+        out = os.path.join(self.tmp, "kmess.bin")
+        if self.qmp_call({"execute": "memsave", "arguments": {
+                "val": addr, "size": 8 + KMESS_BUF_SIZE, "filename": out,
+                "cpu-index": 0}}) is None:
+            return None
+        b = open(out, "rb").read()
+        return int.from_bytes(b[0:4], "little"), b[8:]
+
+    def hang_dump(self, addr, path):
+        """Write the IS dumps of the process tables to `path`: what every
+        process is blocked on when a test hangs.  IS prints them into the
+        kernel message ring, not on the serial line, so press the keys over
+        QMP and read the ring back after each page.  `addr` is the kernel's
+        kmessages symbol."""
+        with open(path, "w") as f:
+            for keys, name in ((["f1"], "kernel processes"),
+                               (["shift", "f1"], "PM processes"),
+                               (["shift", "f3"], "VFS processes"),
+                               (["shift", "f9"], "stack traces")):
+                f.write("==== %s (%s) ====\n" % (name, "+".join(keys)))
+                for _page in range(8):              # IS pages long dumps
+                    before = self.kmessages(addr)
+                    self.qmp_call({"execute": "send-key", "arguments": {
+                        "keys": [{"type": "qcode", "data": k}
+                                 for k in keys]}})
+                    time.sleep(1.5)
+                    after = self.kmessages(addr)
+                    if before is None or after is None:
+                        f.write("(QEMU not answering)\n")
+                        return
+                    i, j, buf = before[0], after[0], after[1]
+                    text = buf[i:j] if j >= i else buf[i:] + buf[:j]
+                    f.write(text.decode("latin1"))
+                    if b"--more--" not in text:
+                        break
 
     def login(self):
         """Boot to a root shell with a unique prompt.  Raises Timeout."""
@@ -304,6 +353,23 @@ def tap_verdict(name, out):
     return "fail"
 
 
+def kmessages_addr(kernel):
+    """The address of the kernel's message ring (symbol "kmessages")."""
+    nm = shutil.which("nm") or shutil.which("llvm-nm")
+    if nm is None:
+        print("qemutest: no nm; no process dumps on hangs")
+        return None
+    out = subprocess.run([nm, kernel], capture_output=True,
+                         text=True).stdout
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) == 3 and f[2] == "kmessages":
+            return int(f[0], 16)
+    print("qemutest: no kmessages symbol in %s; no process dumps on hangs"
+          % kernel)
+    return None
+
+
 def fresh_guest(args, log):
     """Boot, log in and stage the tests, or return None with a message."""
     for attempt in range(1 + args.boot_retries):
@@ -386,6 +452,11 @@ def main():
                          "under TCG)")
     ap.add_argument("--no-kvm", action="store_true")
     ap.add_argument("--qemu", default="qemu-system-x86_64")
+    ap.add_argument("--kernel", metavar="ELF",
+                    help="the unstripped kernel of the ISO "
+                         "(obj/minix/kernel/kernel): when a test hangs, "
+                         "save the IS process dumps (kernel, PM, VFS, stack "
+                         "traces) to the log dir before rebooting")
     ap.add_argument("--log-dir", default="qemutest-logs")
     args = ap.parse_args()
 
@@ -423,6 +494,7 @@ def main():
 
     os.makedirs(args.log_dir, exist_ok=True)
     transcript = os.path.join(args.log_dir, "serial.log")
+    kmess_addr = kmessages_addr(args.kernel) if args.kernel else None
     tapfile = os.path.join(args.log_dir, "results.tap")
     print("qemutest: %s, %s, suite=%s" % (
         args.iso, "KVM" if args.kvm else "TCG (no KVM)", args.suite),
@@ -513,6 +585,12 @@ def main():
                 # console itself had died; either way the run continues on
                 # a fresh, freshly staged guest.
                 verdict = "hang"
+                if kmess_addr is not None:
+                    dump = os.path.join(args.log_dir, "hang-%s-%d.txt"
+                                        % (t, reboots + 1))
+                    guest.hang_dump(kmess_addr, dump)
+                    print("qemutest: test %s hung; process dumps in %s"
+                          % (t, dump), flush=True)
                 try:
                     ser.interrupt()
                 except Timeout:
