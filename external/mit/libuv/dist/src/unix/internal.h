@@ -301,7 +301,8 @@ void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
     !defined(__DragonFly__) &&                                                \
     !defined(__FreeBSD__) &&                                                  \
     !defined(__NetBSD__) &&                                                   \
-    !defined(__OpenBSD__)
+    !defined(__OpenBSD__) &&                                                  \
+    !defined(__minix)
 #define uv__fs_event(loop, w, events) UNREACHABLE()
 #endif
 

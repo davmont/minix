@@ -34,6 +34,15 @@
 #include <time.h>
 #include <unistd.h>
 
+int uv__platform_loop_init(uv_loop_t* loop) {
+  return uv__kqueue_init(loop);
+}
+
+
+void uv__platform_loop_delete(uv_loop_t* loop) {
+}
+
+
 void uv_loadavg(double avg[3]) {
   /* MINIX does not maintain a load average. */
   avg[0] = 0;
