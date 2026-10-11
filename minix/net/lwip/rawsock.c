@@ -878,8 +878,8 @@ rawsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_LOOP:
 			pktsock_set_mcaware(&raw->raw_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    1)) != OK)
 				return r;
 
 			flags = raw_flags(raw->raw_pcb);
@@ -896,8 +896,8 @@ rawsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_TTL:
 			pktsock_set_mcaware(&raw->raw_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    UINT8_MAX)) != OK)
 				return r;
 
 			raw_set_multicast_ttl(raw->raw_pcb, byte);

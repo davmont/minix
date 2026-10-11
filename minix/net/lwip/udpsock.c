@@ -759,8 +759,8 @@ udpsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_LOOP:
 			pktsock_set_mcaware(&udp->udp_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    1)) != OK)
 				return r;
 
 			flags = udp_flags(udp->udp_pcb);
@@ -777,8 +777,8 @@ udpsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_TTL:
 			pktsock_set_mcaware(&udp->udp_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    UINT8_MAX)) != OK)
 				return r;
 
 			udp_set_multicast_ttl(udp->udp_pcb, byte);
