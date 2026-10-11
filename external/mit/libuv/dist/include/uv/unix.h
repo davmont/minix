@@ -60,14 +60,14 @@
 #elif defined(__DragonFly__)       || \
       defined(__FreeBSD__)         || \
       defined(__OpenBSD__)         || \
-      defined(__NetBSD__)
+      defined(__NetBSD__)          || \
+      defined(__minix)
 # include "uv/bsd.h"
 #elif defined(__CYGWIN__) || \
       defined(__MSYS__)   || \
       defined(__HAIKU__)  || \
       defined(__QNX__)    || \
-      defined(__GNU__)    || \
-      defined(__minix)
+      defined(__GNU__)
 # include "uv/posix.h"
 #endif
 

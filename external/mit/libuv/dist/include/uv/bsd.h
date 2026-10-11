@@ -29,6 +29,11 @@
   int rcount;                                                                 \
   int wcount;                                                                 \
 
+/* MINIX's kqueue has no EVFILT_PROC: libuv waits for children with SIGCHLD,
+ * as without kqueue, but uses kqueue for the rest.
+ */
+#if !defined(__minix)
 #define UV_HAVE_KQUEUE 1
+#endif
 
 #endif /* UV_BSD_H */

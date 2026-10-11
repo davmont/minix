@@ -15,10 +15,10 @@ SRCS+=	async.c core.c dl.c fs.c getaddrinfo.c getnameinfo.c loop-watcher.c \
 	loop.c pipe.c poll.c process.c random-devurandom.c signal.c stream.c \
 	tcp.c thread.c tty.c udp.c
 
-# MINIX uses the portable poll(2) event loop (no kqueue/epoll), plus the
-# generic-POSIX helpers, mirroring the GNU/Hurd profile.
-SRCS+=	bsd-ifaddrs.c bsd-proctitle.c no-fsevents.c posix-hrtime.c \
-	posix-poll.c minix.c
+# MINIX uses the BSD kqueue event loop and fs-event backend.  Its kqueue has
+# no EVFILT_PROC, so uv/bsd.h leaves UV_HAVE_KQUEUE unset and child processes
+# are reaped on SIGCHLD; see minix.c for the loop hooks.
+SRCS+=	bsd-ifaddrs.c bsd-proctitle.c kqueue.c posix-hrtime.c minix.c
 
 CPPFLAGS+=	-I${LIBUVSRCDIR}/include -I${LIBUVSRCDIR}/src
 
