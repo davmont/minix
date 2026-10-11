@@ -51,7 +51,7 @@ __recvmsg(int fd, struct msghdr * msg, int flags)
 
 	if (msg->msg_iovlen > 1) {
 		if ((r = _vectorio_setup(msg->msg_iov, msg->msg_iovlen, &ptr,
-		    _VECTORIO_READ)) < 0)
+		    _VECTORIO_READ, -1, 0)) < 0)
 			return -1;
 
 		iov.iov_base = ptr;

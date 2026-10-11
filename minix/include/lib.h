@@ -46,7 +46,7 @@ void _begsig(int _dummy);
 #define _VECTORIO_READ	1
 #define _VECTORIO_WRITE	2
 ssize_t _vectorio_setup(const struct iovec * iov, int iovcnt, char ** ptr,
-	int op);
+	int op, int fd, int flags);
 void _vectorio_cleanup(const struct iovec * iov, int iovcnt, char * buffer,
 	ssize_t r, int op);
 

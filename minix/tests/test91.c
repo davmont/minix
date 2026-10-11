@@ -15,6 +15,7 @@
 #include <sys/queue.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -5542,6 +5543,85 @@ test91ae(void)
 }
 
 /*
+ * Test nonblocking writev(2) and sendmsg(2) with a vector much larger than the
+ * send buffer.  The C library copies only as much of the vector as the socket
+ * can take, so each partial write must resume at the right byte, also in the
+ * middle of a vector element.
+ */
+static void
+test91af(void)
+{
+	struct iovec iov[512];
+	struct msghdr msg;
+	char *sbuf, *rbuf;
+	size_t chunk, total, sent, got, off;
+	ssize_t r;
+	int fd[2], i, cnt, pass, partial;
+
+	subtest = 32;
+
+	chunk = 3001;			/* not a multiple of anything */
+	total = __arraycount(iov) * chunk;
+	if ((sbuf = malloc(total)) == NULL) e(0);
+	if ((rbuf = malloc(total)) == NULL) e(0);
+	for (off = 0; off < total; off++)
+		sbuf[off] = (char)(off * 7 + off / 251);
+
+	for (pass = 0; pass < 2; pass++) {
+		get_tcp_pair(AF_INET, SOCK_STREAM, 0, fd);
+
+		/* writev on a nonblocking socket, sendmsg with MSG_DONTWAIT. */
+		if (pass == 0 && fcntl(fd[0], F_SETFL, O_NONBLOCK) != 0) e(0);
+
+		memset(rbuf, 0, total);
+		sent = got = 0;
+		partial = 0;
+		while (got < total) {
+			if (sent < total) {
+				off = sent % chunk;
+				iov[0].iov_base = &sbuf[sent];
+				iov[0].iov_len = chunk - off;
+				cnt = 1;
+				for (off = sent - off + chunk; off < total;
+				    off += chunk) {
+					iov[cnt].iov_base = &sbuf[off];
+					iov[cnt++].iov_len = chunk;
+				}
+
+				if (pass == 0)
+					r = writev(fd[0], iov, cnt);
+				else {
+					memset(&msg, 0, sizeof(msg));
+					msg.msg_iov = iov;
+					msg.msg_iovlen = cnt;
+					r = sendmsg(fd[0], &msg, MSG_DONTWAIT);
+				}
+				if (r > 0) {
+					if ((size_t)r < total - sent)
+						partial++;
+					sent += r;
+				} else if (r == 0 || errno != EAGAIN) e(0);
+			}
+
+			r = recv(fd[1], &rbuf[got], total - got, MSG_DONTWAIT);
+			if (r > 0)
+				got += r;
+			else if (r == 0 || errno != EAGAIN) e(0);
+		}
+
+		if (sent != total) e(0);
+		if (partial == 0) e(0);
+		if (memcmp(sbuf, rbuf, total) != 0) e(0);
+
+		if (close(fd[0]) != 0) e(0);
+		if (close(fd[1]) != 0) e(0);
+	}
+
+	free(sbuf);
+	free(rbuf);
+}
+
+/*
  * Test program for LWIP TCP/UDP sockets.
  */
 int
@@ -5553,7 +5633,7 @@ main(int argc, char ** argv)
 	start(91);
 
 	if (argc == 2)
-		m = atoi(argv[1]);
+		m = strtoul(argv[1], NULL, 0);
 	else
 		m = 0xFFFFFFFF;
 
@@ -5589,6 +5669,7 @@ main(int argc, char ** argv)
 		if (m & 0x10000000) test91ac();
 		if (m & 0x20000000) test91ad();
 		if (m & 0x40000000) test91ae();
+		if (m & 0x80000000) test91af();
 	}
 
 	quit();
