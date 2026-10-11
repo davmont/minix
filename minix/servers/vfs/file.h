@@ -28,6 +28,7 @@ EXTERN struct filp {
   int filp_selectors;		/* select()ing processes blocking on this fd */
   int filp_select_ops;		/* interested in these SEL_* operations */
   int filp_select_flags;	/* Select flags for the filp */
+  int filp_select_eof;		/* sockets: SEL_RDEOF, SEL_WREOF as last seen */
 
   /* following are for fd-type-specific select() */
   int filp_pipe_select_ops;	/* used for pipes */

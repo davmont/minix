@@ -1172,6 +1172,8 @@
 #  define SDEV_OP_WR		0x02	/* selected for write operation */
 #  define SDEV_OP_ERR		0x04	/* selected for error operation */
 #  define SDEV_NOTIFY		0x08	/* notification requested */
+#  define SDEV_OP_RDEOF		0x10	/* reply: read ready, at end of file */
+#  define SDEV_OP_WREOF		0x20	/* reply: write ready, cannot send */
 
 /*===========================================================================*
  *			Messages for network devices			     *

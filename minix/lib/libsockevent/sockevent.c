@@ -731,7 +731,8 @@ sockevent_test_writable(struct sock * sock)
 
 /*
  * Test whether any of the given select operations are ready on the given
- * socket.  Return the subset of ready operations; zero if none.
+ * socket.  Return the subset of ready operations, zero if none, with
+ * SDEV_OP_RDEOF and SDEV_OP_WREOF added where they apply.
  */
 static unsigned int
 sockevent_test_select(struct sock * sock, unsigned int ops)
@@ -750,11 +751,32 @@ sockevent_test_select(struct sock * sock, unsigned int ops)
 
 	ready_ops = 0;
 
-	if ((ops & SDEV_OP_RD) && sockevent_test_readable(sock))
+	if ((ops & SDEV_OP_RD) && sockevent_test_readable(sock)) {
 		ready_ops |= SDEV_OP_RD;
 
-	if ((ops & SDEV_OP_WR) && sockevent_test_writable(sock))
+		/*
+		 * Also tell whether a receive call would return end-of-file,
+		 * for kevent's EV_EOF.  Pending data comes first, so unlike on
+		 * NetBSD, this is reported only once the data has been read.
+		 */
+		if ((sock->sock_flags & SFL_SHUT_RD) ||
+		    (!(sock->sock_opt & SO_ACCEPTCONN) &&
+		    sock->sock_ops->sop_test_recv != NULL &&
+		    sock->sock_ops->sop_test_recv(sock, sock->sock_rlowat,
+		    NULL) == SOCKEVENT_EOF))
+			ready_ops |= SDEV_OP_RDEOF;
+	}
+
+	if ((ops & SDEV_OP_WR) && sockevent_test_writable(sock)) {
 		ready_ops |= SDEV_OP_WR;
+
+		/* Likewise, tell whether nothing can be sent anymore. */
+		if ((sock->sock_flags & SFL_SHUT_WR) ||
+		    (sock->sock_ops->sop_test_send != NULL &&
+		    sock->sock_ops->sop_test_send(sock,
+		    sock->sock_slowat) == EPIPE))
+			ready_ops |= SDEV_OP_WREOF;
+	}
 
 	/* TODO: OOB receive support. */
 

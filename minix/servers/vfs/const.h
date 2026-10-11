@@ -46,6 +46,8 @@
 #define SEL_WR		CDEV_OP_WR
 #define SEL_ERR		CDEV_OP_ERR
 #define SEL_NOTIFY	CDEV_NOTIFY /* not a real select operation */
+#define SEL_RDEOF	SDEV_OP_RDEOF	/* sockets, in replies: read EOF */
+#define SEL_WREOF	SDEV_OP_WREOF	/* sockets, in replies: cannot write */
 /* If these constants diverge, VFS must be extended to perform mapping. */
 #if (CDEV_OP_RD != SDEV_OP_RD || CDEV_OP_WR != SDEV_OP_WR || \
     CDEV_OP_ERR != SDEV_OP_ERR || CDEV_NOTIFY != SDEV_NOTIFY)
