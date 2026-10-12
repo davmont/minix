@@ -746,6 +746,16 @@ udpsock_setsockopt(struct sock * sock, int level, int name,
 			    sizeof(in_addr), len)) != OK)
 				return r;
 
+			/* As on NetBSD, the 'any' address means the default
+			 * interface again.
+			 */
+			if (in_addr.s_addr == PP_HTONL(INADDR_ANY)) {
+				udp_set_multicast_netif_index(udp->udp_pcb,
+				    NETIF_NO_INDEX);
+
+				return OK;
+			}
+
 			ip_addr_set_ip4_u32(&ipaddr, in_addr.s_addr);
 
 			if ((ifdev = ifaddr_map_by_addr(&ipaddr)) == NULL)

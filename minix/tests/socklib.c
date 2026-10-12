@@ -672,6 +672,18 @@ socklib_multicast_tx_options(int type)
 	if (len != sizeof(in_addr)) e(0);
 	if (in_addr.s_addr != htonl(INADDR_LOOPBACK)) e(0);
 
+	/* The 'any' address selects the default interface again. */
+	in_addr.s_addr = htonl(INADDR_ANY);
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &in_addr,
+	   sizeof(in_addr)) != 0)
+		e(0);
+
+	in_addr.s_addr = htonl(INADDR_LOOPBACK);
+	len = sizeof(in_addr);
+	if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &in_addr, &len) != 0)
+		e(0);
+	if (in_addr.s_addr != htonl(INADDR_ANY)) e(0);
+
 	if (close(fd) != 0) e(0);
 
 	if ((fd = socket(AF_INET6, type, 0)) < 0) e(0);
