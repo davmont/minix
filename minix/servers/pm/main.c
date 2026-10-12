@@ -150,6 +150,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   /* Initialize process table, including timers. */
   for (rmp=&mproc[0]; rmp<&mproc[NR_PROCS]; rmp++) {
 	init_timer(&rmp->mp_timer);
+	init_timer(&rmp->mp_park_timer);
 	rmp->mp_magic = MP_MAGIC;
 	rmp->mp_sigact = mpsigact[rmp - mproc];
 	mpaltstack[rmp - mproc].ss_flags = SS_DISABLE;	/* none yet */

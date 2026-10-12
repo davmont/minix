@@ -104,6 +104,7 @@ EXTERN struct mproc {
   ixfer_sigaction *mp_sigact;	/* as in sigaction(2), pointer into mpsigact */
   vir_bytes mp_sigreturn; 	/* address of C library __sigreturn function */
   minix_timer_t mp_timer;	/* watchdog timer for alarm(2), setitimer(2) */
+  minix_timer_t mp_park_timer;	/* timeout of a timed _lwp_park(2) */
   clock_t mp_interval[NR_ITIMERS];	/* setitimer(2) repetition intervals */
   clock_t mp_started;		/* when the process was started, for ps(1) */
 
