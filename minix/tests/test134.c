@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,8 @@ int max_error = 3;
 static char expect[PATH_MAX];
 static int stop;
 static int cwd_errors, name_errors;
+/* Progress of each loop, for the watchdog: which thread did not finish. */
+static volatile int cwd_done, name_done[USERS], passes_done, opens_done;
 
 static void *
 cwd_loop(void *arg)
@@ -40,6 +43,7 @@ cwd_loop(void *arg)
 		if (getcwd(buf, sizeof(buf)) == NULL ||
 		    strcmp(buf, expect) != 0)
 			__atomic_fetch_add(&cwd_errors, 1, __ATOMIC_SEQ_CST);
+		cwd_done = i + 1;
 	}
 	__atomic_store_n(&stop, 1, __ATOMIC_SEQ_CST);
 	return NULL;
@@ -54,6 +58,7 @@ name_loop(void *arg)
 
 	snprintf(name, sizeof(name), "new%d", (int)(long)arg);
 	while (!__atomic_load_n(&stop, __ATOMIC_SEQ_CST)) {
+		name_done[(int)(long)arg]++;
 		if (stat("here", &st) != 0 ||
 		    (fd = open("here", O_RDONLY)) < 0) {
 			__atomic_fetch_add(&name_errors, 1, __ATOMIC_SEQ_CST);
@@ -148,6 +153,7 @@ receiver(void *arg)
 		char buf[CMSG_SPACE(sizeof(int))];
 	} control;
 	char c;
+	ssize_t r;
 	int i, fd;
 
 	for (i = 0; i < PASSES; i++) {
@@ -158,9 +164,13 @@ receiver(void *arg)
 		msg.msg_iovlen = 1;
 		msg.msg_control = control.buf;
 		msg.msg_controllen = sizeof(control.buf);
-		if (recvmsg(sock, &msg, 0) != 1 ||
+		errno = 0;
+		if ((r = recvmsg(sock, &msg, 0)) != 1 ||
 		    (cmsg = CMSG_FIRSTHDR(&msg)) == NULL ||
 		    cmsg->cmsg_type != SCM_RIGHTS) {
+			printf("pass %d: recvmsg %zd errno %d flags 0x%x "
+			    "controllen %u\n", i, r, errno, msg.msg_flags,
+			    (unsigned)msg.msg_controllen);
 			pass_errors++;
 			break;
 		}
@@ -174,6 +184,7 @@ receiver(void *arg)
 		if (fstat(fd, &st) != 0 || st.st_ino != passed_ino)
 			pass_errors++;
 		close(fd);
+		passes_done = i + 1;
 	}
 	__atomic_store_n(&stop, 1, __ATOMIC_SEQ_CST);
 	return NULL;
@@ -193,6 +204,7 @@ opener(void *arg)
 		if (fstat(fd, &st) != 0 || st.st_ino != opened_ino)
 			open_errors++;
 		close(fd);
+		opens_done++;
 	}
 	return NULL;
 }
@@ -272,6 +284,10 @@ test_passing(void)
 	if (pthread_create(&r, NULL, receiver, NULL) != 0) e(8);
 	if (pthread_join(r, NULL) != 0) e(9);
 	if (pthread_join(o, NULL) != 0) e(10);
+	/* Close our end first: should the receiver have given up, the sender
+	 * is waiting for it, and gets end-of-file instead.
+	 */
+	close(sock);
 	if (pass_errors != 0) {
 		printf("%d bad passed descriptors\n", pass_errors);
 		e(11);
@@ -282,7 +298,21 @@ test_passing(void)
 	}
 	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
 	    WEXITSTATUS(status) != 0) e(13);
-	close(sock);
+}
+
+/* A thread that never finishes would hang the test: say which one did not. */
+static void
+watchdog(int sig)
+{
+	char buf[256];
+	int len;
+
+	len = snprintf(buf, sizeof(buf), "\nwatchdog: subtest %d, getcwd %d/%d, "
+	    "names %d %d, passes %d/%d, opens %d, stop %d\n", subtest,
+	    cwd_done, LOOPS, name_done[0], name_done[1], passes_done, PASSES,
+	    opens_done, stop);
+	(void)write(STDOUT_FILENO, buf, len);
+	_exit(1);
 }
 
 int
@@ -290,6 +320,8 @@ main(int argc, char **argv)
 {
 
 	start(134);
+	signal(SIGALRM, watchdog);
+	alarm(600);
 
 	test_concurrent();
 	test_names();
