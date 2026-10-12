@@ -294,6 +294,11 @@ lwp_start_teardown(struct mproc *rmp)
   message m;
   int r;
 
+  /* A signal may have been on its way to the thread: VFS has answered its
+   * unpause request.  That no longer matters, and the flag must be clear when
+   * VFS answers again, as exit_proc() makes sure for a process.
+   */
+  rmp->mp_flags &= ~UNPAUSED;
   rmp->mp_flags |= MP_LWP_TEARDOWN;
   if (!(rmp->mp_flags & PROC_STOPPED)) {
 	if ((r = sys_stop(proc_nr_e)) != OK)
@@ -366,9 +371,38 @@ teardown_group_members(int group)
 		continue;			/* already on its way out */
 	t->mp_flags |= MP_LWP_DETACHED;
 	t->mp_flags &= ~MP_LWP_JOINING;
+	/* A thread waiting for VFS or for process event subscribers, say for
+	 * the unpause of a signal, cannot ask VFS for anything else yet: it is
+	 * torn down once that call is done (lwp_teardown_deferred()).
+	 */
+	if (t->mp_flags & (VFS_CALL | EVENT_CALL))
+		continue;
 	lwp_start_teardown(t);
   }
   return members;
+}
+
+/*===========================================================================*
+ *				lwp_teardown_deferred			     *
+ *===========================================================================*/
+int
+lwp_teardown_deferred(struct mproc *rmp)
+{
+/* The thread 'rmp' has finished a VFS or process event call.  If its thread
+ * group was torn down meanwhile, without it (see teardown_group_members()),
+ * tear it down now and return TRUE.  Otherwise return FALSE.
+ */
+  struct mproc *leader;
+
+  if ((rmp->mp_flags & (IN_USE | MP_LWP | EXITING | MP_LWP_TEARDOWN |
+      VFS_CALL | EVENT_CALL)) != (IN_USE | MP_LWP))
+	return FALSE;
+  leader = &mproc[rmp->mp_lwp_group];
+  if (!(leader->mp_flags & (MP_GROUP_DYING | MP_EXEC_DETHREAD)))
+	return FALSE;
+
+  lwp_start_teardown(rmp);
+  return TRUE;
 }
 
 /*===========================================================================*
@@ -1512,7 +1546,8 @@ check_parent(
 	else
 		set_sig_origin(CLD_EXITED, child->mp_pid, child->mp_realuid,
 		    child->mp_exitstatus & 0xff, 0);
-	sig_proc(p_mp, SIGCHLD, TRUE /*trace*/, FALSE /* ksig */);
+	sig_proc(signal_thread(p_mp, SIGCHLD), SIGCHLD, TRUE /*trace*/,
+		FALSE /* ksig */);
 	sig_origin = saved;
   }
 }

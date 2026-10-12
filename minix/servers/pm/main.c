@@ -77,8 +77,10 @@ main(void)
 	mp = &mproc[who_p];	/* process slot of caller */
 	call_nr = m_in.m_type;	/* system call number */
 
-	/* Drop delayed calls from exiting processes. */
-	if (mp->mp_flags & EXITING)
+	/* Drop delayed calls from exiting processes, and from threads being
+	 * torn down: one may have sent a call just before it was stopped.
+	 */
+	if (mp->mp_flags & (EXITING | MP_LWP_TEARDOWN))
 		continue;
 
 	if (IS_VFS_PM_RS(call_nr) && who_e == VFS_PROC_NR) {
