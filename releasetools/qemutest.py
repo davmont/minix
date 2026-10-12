@@ -240,11 +240,15 @@ class Guest:
         """The kernel message ring at guest address `addr`: (next index,
         buffer), or None."""
         out = os.path.join(self.tmp, "kmess.bin")
+        # QMP takes 'val' as a signed 64-bit integer: QEMU 8 refuses a kernel
+        # address above 2^63 ("Invalid parameter type"), so pass its two's
+        # complement.
+        val = addr - (1 << 64) if addr >= (1 << 63) else addr
         # memsave translates the address with that CPU's page tables: should
         # one CPU's not do, try the others.
         for cpu in range(self.args.smp):
             if self.qmp_call({"execute": "memsave", "arguments": {
-                    "val": addr, "size": 8 + KMESS_BUF_SIZE, "filename": out,
+                    "val": val, "size": 8 + KMESS_BUF_SIZE, "filename": out,
                     "cpu-index": cpu}}) is not None:
                 break
         else:
