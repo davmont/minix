@@ -4,23 +4,70 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/param.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
 /*
- * Create a single temporary buffer for the entire vector.  For writes, also
- * copy the actual data into the temporary buffer.
+ * Return how many bytes of a vector of TOTALLEN bytes are worth passing to a
+ * write to FD, with the given send(2) FLAGS: a nonblocking write to a stream
+ * socket or a pipe takes no more than fits in its buffer, so copying the rest
+ * of a large vector into the temporary buffer is wasted.  This matters: libuv
+ * writes its whole queue with writev(2), and when that was 10 MB, every call
+ * copied all of it to send 64 KB.  The limit stays well above the buffer size,
+ * so that the write behaves exactly as for the whole vector (a pipe write of
+ * PIPE_BUF bytes or less, for instance, would be atomic instead).  Checking
+ * costs system calls, so small vectors are not checked.
  */
 ssize_t
-_vectorio_setup(const struct iovec * iov, int iovcnt, char ** ptr, int op)
+_vectorio_wlimit(int fd, ssize_t totallen, int flags)
+{
+	struct stat st;
+	socklen_t len;
+	ssize_t limit;
+	int type, size, errno_saved;
+
+	if (totallen <= 2 * PIPE_BUF)
+		return totallen;
+
+	errno_saved = errno;
+	limit = totallen;
+	if (!(flags & MSG_DONTWAIT) &&
+	    ((flags = fcntl(fd, F_GETFL)) == -1 || !(flags & O_NONBLOCK)))
+		goto out;
+
+	len = sizeof(type);
+	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &len) == 0) {
+		/* Datagrams must be sent whole, or not at all. */
+		len = sizeof(size);
+		if (type == SOCK_STREAM && getsockopt(fd, SOL_SOCKET,
+		    SO_SNDBUF, &size, &len) == 0 && size > 0 &&
+		    (ssize_t)size < totallen / 2)
+			limit = 2 * (ssize_t)size;
+	} else if (fstat(fd, &st) == 0 && S_ISFIFO(st.st_mode))
+		limit = 2 * PIPE_BUF;
+out:
+	errno = errno_saved;
+	return limit;
+}
+
+/*
+ * Create a single temporary buffer for the entire vector, or for the first
+ * LIMIT bytes of it if that is less.  For writes, also copy the actual data
+ * into the temporary buffer.
+ */
+ssize_t
+_vectorio_setup(const struct iovec * iov, int iovcnt, char ** ptr, int op,
+	int fd, int flags)
 {
 	char *buffer;
-	ssize_t totallen, copied;
+	ssize_t totallen, copied, len;
 	int i;
 
 	/* Parameter sanity checks. */
@@ -45,6 +92,9 @@ _vectorio_setup(const struct iovec * iov, int iovcnt, char ** ptr, int op)
 		}
 	}
 
+	if (op == _VECTORIO_WRITE && fd >= 0)
+		totallen = _vectorio_wlimit(fd, totallen, flags);
+
 	/* Anything to do? */
 	if (totallen == 0) {
 		*ptr = NULL;
@@ -59,10 +109,12 @@ _vectorio_setup(const struct iovec * iov, int iovcnt, char ** ptr, int op)
 	/* For writes, copy over the buffer contents before the call. */
 	if (op == _VECTORIO_WRITE) {
 		copied = 0;
-		for (i = 0; i < iovcnt; i++) {
-			memcpy(buffer + copied, iov[i].iov_base,
-			    iov[i].iov_len);
-			copied += iov[i].iov_len;
+		for (i = 0; i < iovcnt && copied < totallen; i++) {
+			len = iov[i].iov_len;
+			if (len > totallen - copied)
+				len = totallen - copied;
+			memcpy(buffer + copied, iov[i].iov_base, len);
+			copied += len;
 		}
 		assert(copied == totallen);
 	}
@@ -126,7 +178,8 @@ readv(int fd, const struct iovec * iov, int iovcnt)
 	 * intermediate buffer.  This approach is preferred over multiple read
 	 * calls, because the actual I/O operation has to be atomic.
 	 */
-	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_READ)) <= 0)
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_READ, -1,
+	    0)) <= 0)
 		return r;
 
 	r = read(fd, ptr, r);
@@ -146,7 +199,8 @@ preadv(int fd, const struct iovec * iov, int iovcnt, off_t offset)
 	ssize_t r;
 
 	/* One pread(2) through a buffer, so that the I/O stays atomic. */
-	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_READ)) <= 0)
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_READ, -1,
+	    0)) <= 0)
 		return r;
 
 	r = pread(fd, ptr, r, offset);
@@ -165,7 +219,8 @@ pwritev(int fd, const struct iovec * iov, int iovcnt, off_t offset)
 	char *ptr;
 	ssize_t r;
 
-	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_WRITE)) <= 0)
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_WRITE, -1,
+	    0)) <= 0)
 		return r;
 
 	r = pwrite(fd, ptr, r, offset);
@@ -189,7 +244,8 @@ writev(int fd, const struct iovec * iov, int iovcnt)
 	 * an intermediate buffer.  This approach is preferred over multiple
 	 * write calls, because the actual I/O operation has to be atomic.
 	 */
-	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_WRITE)) <= 0)
+	if ((r = _vectorio_setup(iov, iovcnt, &ptr, _VECTORIO_WRITE, fd,
+	    0)) <= 0)
 		return r;
 
 	r = write(fd, ptr, r);
