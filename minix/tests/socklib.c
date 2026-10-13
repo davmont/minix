@@ -621,6 +621,45 @@ socklib_multicast_tx_options(int type)
 	if (len != sizeof(byte)) e(0);
 	if (byte != 0) e(0);
 
+	/* As on NetBSD, both options may also be given as an int. */
+	val = 200;
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &val,
+	    sizeof(val)) != 0) e(0);
+
+	byte = 0;
+	len = sizeof(byte);
+	if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &byte, &len) != 0)
+		e(0);
+	if (byte != 200) e(0);
+
+	val = 256;
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &val,
+	    sizeof(val)) != -1) e(0);
+	if (errno != EINVAL) e(0);
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &val,
+	    sizeof(short)) != -1) e(0);
+	if (errno != EINVAL) e(0);
+
+	val = 1;
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val,
+	    sizeof(val)) != 0) e(0);
+
+	byte = 0;
+	len = sizeof(byte);
+	if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &byte, &len) != 0)
+		e(0);
+	if (byte != 1) e(0);
+
+	/* The loop flag must be zero or one. */
+	val = 2;
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val,
+	    sizeof(val)) != -1) e(0);
+	if (errno != EINVAL) e(0);
+	byte = 2;
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &byte,
+	    sizeof(byte)) != -1) e(0);
+	if (errno != EINVAL) e(0);
+
 	in_addr.s_addr = htonl(INADDR_LOOPBACK);
 	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &in_addr,
 	   sizeof(in_addr)) != 0)
@@ -632,6 +671,18 @@ socklib_multicast_tx_options(int type)
 		e(0);
 	if (len != sizeof(in_addr)) e(0);
 	if (in_addr.s_addr != htonl(INADDR_LOOPBACK)) e(0);
+
+	/* The 'any' address selects the default interface again. */
+	in_addr.s_addr = htonl(INADDR_ANY);
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &in_addr,
+	   sizeof(in_addr)) != 0)
+		e(0);
+
+	in_addr.s_addr = htonl(INADDR_LOOPBACK);
+	len = sizeof(in_addr);
+	if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &in_addr, &len) != 0)
+		e(0);
+	if (in_addr.s_addr != htonl(INADDR_ANY)) e(0);
 
 	if (close(fd) != 0) e(0);
 

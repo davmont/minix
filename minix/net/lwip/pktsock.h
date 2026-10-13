@@ -50,6 +50,8 @@ int pktsock_recv(struct sock * sock, const struct sockdriver_data * data,
 	int * rflags);
 int pktsock_test_recv(struct sock * sock, size_t min, size_t * size);
 void pktsock_set_mcaware(struct pktsock * pkt);
+int pktsock_copyin_mcopt(const struct sockdriver_data * data, socklen_t len,
+	uint8_t * byte, unsigned int max);
 int pktsock_setsockopt(struct pktsock * pkt, int level, int name,
 	const struct sockdriver_data * data, socklen_t len,
 	struct ipopts * ipopts);

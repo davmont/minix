@@ -865,6 +865,16 @@ rawsock_setsockopt(struct sock * sock, int level, int name,
 			    sizeof(in_addr), len)) != OK)
 				return r;
 
+			/* As on NetBSD, the 'any' address means the default
+			 * interface again.
+			 */
+			if (in_addr.s_addr == PP_HTONL(INADDR_ANY)) {
+				raw_set_multicast_netif_index(raw->raw_pcb,
+				    NETIF_NO_INDEX);
+
+				return OK;
+			}
+
 			ip_addr_set_ip4_u32(&ipaddr, in_addr.s_addr);
 
 			if ((ifdev = ifaddr_map_by_addr(&ipaddr)) == NULL)
@@ -878,8 +888,8 @@ rawsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_LOOP:
 			pktsock_set_mcaware(&raw->raw_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    1)) != OK)
 				return r;
 
 			flags = raw_flags(raw->raw_pcb);
@@ -896,8 +906,8 @@ rawsock_setsockopt(struct sock * sock, int level, int name,
 		case IP_MULTICAST_TTL:
 			pktsock_set_mcaware(&raw->raw_pktsock);
 
-			if ((r = sockdriver_copyin_opt(data, &byte,
-			    sizeof(byte), len)) != OK)
+			if ((r = pktsock_copyin_mcopt(data, len, &byte,
+			    UINT8_MAX)) != OK)
 				return r;
 
 			raw_set_multicast_ttl(raw->raw_pcb, byte);

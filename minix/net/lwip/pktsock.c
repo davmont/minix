@@ -929,6 +929,36 @@ pktsock_set_mcaware(struct pktsock * pkt)
 }
 
 /*
+ * Copy in the value of a byte-sized IPv4 multicast option, which may be given
+ * as an unsigned char or as an unsigned int, as on NetBSD.  The value must not
+ * exceed 'max'.  Return OK or a negative error code.
+ */
+int
+pktsock_copyin_mcopt(const struct sockdriver_data * data, socklen_t len,
+	uint8_t * byte, unsigned int max)
+{
+	unsigned int val;
+	int r;
+
+	if (len == sizeof(val)) {
+		if ((r = sockdriver_copyin_opt(data, &val, sizeof(val),
+		    len)) != OK)
+			return r;
+	} else {
+		if ((r = sockdriver_copyin_opt(data, byte, sizeof(*byte),
+		    len)) != OK)
+			return r;
+		val = *byte;
+	}
+
+	if (val > max)
+		return EINVAL;
+
+	*byte = (uint8_t)val;
+	return OK;
+}
+
+/*
  * Set socket options on a packet socket.
  */
 int
