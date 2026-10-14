@@ -1120,8 +1120,10 @@ unpause(
   if (rmp->mp_flags & DELAY_CALL)
 	return FALSE;
 
-  /* Check to see if process is hanging on a WAIT or SIGSUSPEND call. */
-  if (rmp->mp_flags & (WAITING | SIGSUSPENDED)) {
+  /* Check to see if process is hanging on a WAIT, SIGSUSPEND or _lwp_park
+   * call.
+   */
+  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | MP_LWP_PARKED)) {
 	/* Stop the process from running. Do not interrupt the actual call yet.
 	 * sig_send() will interrupt the call and resume the process afterward.
 	 * No delay calls: we know for a fact that the process called us.
@@ -1236,11 +1238,14 @@ sig_send(
   /* Was the process suspended in PM? Then interrupt the blocking call:
    * with EINTR, or -- for a wait() and a handler with SA_RESTART -- with
    * ERESTARTSYS, which makes the C library call again.  sigsuspend() always
-   * returns EINTR (POSIX). */
-  if (rmp->mp_flags & (WAITING | SIGSUSPENDED)) {
+   * returns EINTR (POSIX), and so does _lwp_park(), as on NetBSD: libpthread
+   * parks again if it must. */
+  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | MP_LWP_PARKED)) {
 	int restart = (rmp->mp_flags & WAITING) && (sigflags & SA_RESTART);
 
-	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED);
+	if (rmp->mp_flags & MP_LWP_PARKED)
+		cancel_timer(&rmp->mp_park_timer);
+	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED | MP_LWP_PARKED);
 
 	reply(slot, restart ? ERESTARTSYS : EINTR);
 

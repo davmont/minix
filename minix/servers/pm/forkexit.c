@@ -20,6 +20,7 @@
 #include "pm.h"
 #include <sys/wait.h>
 #include <sys/lwp.h>		/* LWP_DETACHED */
+#include <time.h>		/* TIMER_ABSTIME */
 #include <assert.h>
 #include <minix/callnr.h>
 #include <minix/com.h>
@@ -714,10 +715,78 @@ lwp_unpark_one(int lwpid)
 
   if (target->mp_flags & MP_LWP_PARKED) {
 	target->mp_flags &= ~MP_LWP_PARKED;
+	cancel_timer(&target->mp_park_timer);
 	reply(slot, OK);		/* its _lwp_park() returns 0 */
   } else {
 	target->mp_flags |= MP_LWP_UNPARKED;	/* pending: next park won't block */
   }
+  return OK;
+}
+
+/*===========================================================================*
+ *				lwp_park_expire				     *
+ *===========================================================================*/
+static void
+lwp_park_expire(int arg)
+{
+/* A timed _lwp_park() has run out of time: it returns ETIMEDOUT. */
+  int slot;
+
+  if (pm_isokendpt((endpoint_t) arg, &slot) != OK)
+	return;
+  if (!(mproc[slot].mp_flags & MP_LWP_PARKED))
+	return;
+  mproc[slot].mp_flags &= ~MP_LWP_PARKED;
+  reply(slot, ETIMEDOUT);
+}
+
+/*===========================================================================*
+ *				lwp_park_ticks				     *
+ *===========================================================================*/
+static int
+lwp_park_ticks(clock_t *ticksp)
+{
+/* Convert the timeout of the current _lwp_park() call to clock ticks from now,
+ * rounded up.  Return OK, ETIMEDOUT if the time has passed already, or EINVAL.
+ */
+  clock_t uptime, realtime, now;
+  time_t boottime;
+  int64_t sec, ticks, max_sec;
+  int32_t nsec;
+  int r;
+
+  sec = m_in.m_lc_pm_lwp_park.sec;
+  nsec = m_in.m_lc_pm_lwp_park.nsec;
+  if (sec < 0 || nsec < 0 || nsec >= 1000000000)
+	return EINVAL;
+
+  if ((r = getuptime(&uptime, &realtime, &boottime)) != OK)
+	panic("lwp_park_ticks: getuptime failed: %d", r);
+
+  switch (m_in.m_lc_pm_lwp_park.clock_id) {
+  case CLOCK_MONOTONIC:	now = uptime;	break;
+  case CLOCK_REALTIME:	now = realtime;	break;
+  default:		return EINVAL;
+  }
+
+  /* An absolute time counts from the boot time, as in do_gettime(). */
+  if (m_in.m_lc_pm_lwp_park.flags & TIMER_ABSTIME) {
+	if (sec < boottime)
+		return ETIMEDOUT;
+	sec -= boottime;
+  } else
+	now = 0;
+
+  max_sec = TMRDIFF_MAX / system_hz;
+  if (sec >= max_sec) {
+	*ticksp = TMRDIFF_MAX;
+	return OK;
+  }
+  ticks = sec * system_hz +
+	((int64_t) nsec * system_hz + 999999999) / 1000000000 - now;
+  if (ticks <= 0)
+	return ETIMEDOUT;
+  *ticksp = (ticks > TMRDIFF_MAX) ? TMRDIFF_MAX : (clock_t) ticks;
   return OK;
 }
 
@@ -730,7 +799,8 @@ do_lwp_park(void)
 /* Block the calling thread until another thread unparks it (NetBSD-style
  * lwpid-based park; the 'hint' addresses are advisory and ignored here). */
   register struct mproc *rmp = mp;
-  int unpark;
+  clock_t ticks;
+  int r, unpark;
 
   /* libpthread optimization: atomically unpark another LWP before parking. */
   unpark = m_in.m_lc_pm_lwp_park.unpark;
@@ -743,11 +813,17 @@ do_lwp_park(void)
 	return OK;
   }
 
-  /* TODO: honour m_lc_pm_lwp_park.{has_timeout,sec,nsec} via mp_timer so that
-   * pthread_cond_timedwait() can time out; for now a timed park blocks like an
-   * untimed one. */
+  /* A timed park ends with ETIMEDOUT unless unparked or interrupted first. */
+  if (m_in.m_lc_pm_lwp_park.has_timeout) {
+	if ((r = lwp_park_ticks(&ticks)) != OK)
+		return r;
+	set_timer(&rmp->mp_park_timer, ticks, lwp_park_expire,
+	    rmp->mp_endpoint);
+  }
 
-  /* Park: do not reply, so the caller blocks in its SENDREC until unparked. */
+  /* Park: do not reply, so the caller blocks in its SENDREC until unparked,
+   * timed out, or interrupted by a signal.
+   */
   rmp->mp_flags |= MP_LWP_PARKED;
   return SUSPEND;
 }
@@ -964,6 +1040,7 @@ exit_proc(
 
   /* If the exited process has a timer pending, kill it. */
   if (rmp->mp_flags & ALARM_ON) set_alarm(rmp, (clock_t) 0);
+  cancel_timer(&rmp->mp_park_timer);	/* and a timed _lwp_park() */
   ptimer_release(rmp);			/* and its POSIX timers */
 
   /* Do accounting: fetch usage times and save with dead child process.
