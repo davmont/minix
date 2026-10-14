@@ -1775,9 +1775,7 @@ static int set_nice_for_calling_thread(int priority) {
  * If the function fails, the return value is non-zero.
 */
 int uv_thread_setpriority(uv_thread_t tid, int priority) {
-/* MINIX: no sched_get_priority_min/max in libc; fall to the
- * unsupported branch like GNU/Hurd. */
-#if !defined(__GNU__) && !defined(__minix)
+#if !defined(__GNU__)
   int r;
   int min;
   int max;

@@ -31,6 +31,9 @@
 #include "uv.h"
 #include "internal.h"
 
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <uvm/uvm_extern.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -66,14 +69,16 @@ int uv_exepath(char* buffer, size_t* size) {
 
 
 uint64_t uv_get_free_memory(void) {
-#if defined(_SC_AVPHYS_PAGES) && defined(_SC_PAGESIZE)
-  long pages = sysconf(_SC_AVPHYS_PAGES);
-  long psize = sysconf(_SC_PAGESIZE);
+  /* As top(1) does: the MIB service has vm.uvmexp2 (VM_UVMEXP2), not the
+   * vm.uvmexp NetBSD's libuv reads, and there is no _SC_AVPHYS_PAGES. */
+  struct uvmexp_sysctl info;
+  size_t size = sizeof(info);
+  int which[] = {CTL_VM, VM_UVMEXP2};
 
-  if (pages > 0 && psize > 0)
-    return (uint64_t) pages * (uint64_t) psize;
-#endif
-  return 0;
+  if (sysctl(which, ARRAY_SIZE(which), &info, &size, NULL, 0))
+    return 0;
+
+  return (uint64_t) info.free * (uint64_t) info.pagesize;
 }
 
 
