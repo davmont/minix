@@ -39,6 +39,7 @@ LDFLAGS+= -nostdlib -L${DESTDIR}/usr/lib
 LDFLAGS+= -Wl,-z,max-page-size=0x1000
 .endif
 CFLAGS += -fno-stack-protector
+USE_SSP=	no
 
 CPPFLAGS+= -D__kernel__ 
 

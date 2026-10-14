@@ -8,3 +8,5 @@ SRCS+=	initfini.c
 
 # for -fstack-protector
 SRCS+=	stack_protector.c
+# __guard_setup() changes the guard: it must not check one itself.
+COPTS.stack_protector.c+=	-fno-stack-protector

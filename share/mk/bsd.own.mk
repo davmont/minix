@@ -49,7 +49,15 @@ EXTERNAL_OPENSSL_SUBDIR=/does/not/exist
 
 # LSC MINIX does not support these features ATM.
 USE_FORT:=	no
+# The stack protector, on amd64: user programs and libraries.  The kernel,
+# the system services and the libraries only they link opt out (USE_SSP=no
+# in minix/kernel, minix/*/Makefile.inc and minix.service.mk): they have no
+# __stack_chk_fail of their own yet.
+.if ${MACHINE_ARCH} == "x86_64"
+USE_SSP?=	yes
+.else
 USE_SSP:=	no
+.endif
 MKCOMPAT:=	no
 MKGDB:=		no
 MKGROFF:=	no

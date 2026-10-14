@@ -228,7 +228,8 @@ CFLAGS+=	${${_NOWERROR} == "no" :?-Werror:} ${CWARNFLAGS}
 LINTFLAGS+=	${DESTDIR:D-d ${DESTDIR}/usr/include}
 
 .if (${USE_SSP:Uno} != "no") && (${BINDIR:Ux} != "/usr/mdec")
-.if !defined(KERNSRCDIR) && !defined(KERN) # not for kernels nor kern modules
+# MINIX: _FORTIFY_SOURCE goes with USE_FORT, not with the stack protector.
+.if !defined(KERNSRCDIR) && !defined(KERN) && ${USE_FORT:Uno} != "no"
 CPPFLAGS+=	-D_FORTIFY_SOURCE=2
 .endif
 COPTS+=	-fstack-protector -Wstack-protector 
