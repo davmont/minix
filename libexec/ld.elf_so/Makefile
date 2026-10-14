@@ -76,9 +76,10 @@ SRCS+=		rtld.c reloc.c symbol.c xmalloc.c xprintf.c debug.c \
 		map_object.c load.c search.c headers.c paths.c expand.c \
 		tls.c symver.c diagassert.c
 
-.if ${USE_FORT} == "yes"
+.if ${USE_FORT} == "yes" || ${USE_SSP:Uno} != "no"
 .PATH.c: ${NETBSDSRCDIR}/lib/libc/misc
 SRCS+=		stack_protector.c
+COPTS.stack_protector.c+=	-fno-stack-protector
 .endif
 
 .PATH.c: ${NETBSDSRCDIR}/lib/libc/stdlib

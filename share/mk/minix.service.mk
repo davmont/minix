@@ -1,6 +1,10 @@
 # MINIX-specific servers/drivers options
 .include <bsd.own.mk>
 
+# No stack protector for system services yet: libminc's guard is never
+# seeded, and its __stack_chk_fail is not fit for a service.
+USE_SSP=	no
+
 # LSC: Our minimal c library has no putchar, which is called by the builtin
 #      functions of the compiler, so prevent using them.
 

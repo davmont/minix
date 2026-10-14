@@ -59,6 +59,8 @@ __guard_setup(void)
 #if !defined(__minix)
 	static const int mib[2] = { CTL_KERN, KERN_ARND };
 	size_t len;
+#elif !defined(_LIBMINC)
+	long guard[__arraycount(__stack_chk_guard)];
 #endif /* !defined(__minix) */
 
 	if (__stack_chk_guard[0] != 0)
@@ -68,15 +70,25 @@ __guard_setup(void)
 	len = sizeof(__stack_chk_guard);
 	if (__sysctl(mib, (u_int)__arraycount(mib), __stack_chk_guard, &len,
 	    NULL, 0) == -1 || len != sizeof(__stack_chk_guard)) {
+#elif !defined(_LIBMINC)
+	/* MINIX has no KERN_ARND: take the guard from the random driver.  Into
+	 * a buffer first: the guard must not change under the frames of the
+	 * calls that fetch it (read() is protected).  Not in libminc: the
+	 * system services it serves start before /dev/urandom can be opened
+	 * (VFS and PM among them), and keep the canary below.
+	 */
+	if (getentropy(guard, sizeof(guard)) == 0 && guard[0] != 0)
+		memcpy(__stack_chk_guard, guard, sizeof(__stack_chk_guard));
+	else {
 #endif /* !defined(__minix) */
 		/* If sysctl was unsuccessful, use the "terminator canary". */
 		((unsigned char *)(void *)__stack_chk_guard)[0] = 0;
 		((unsigned char *)(void *)__stack_chk_guard)[1] = 0;
 		((unsigned char *)(void *)__stack_chk_guard)[2] = '\n';
 		((unsigned char *)(void *)__stack_chk_guard)[3] = 255;
-#if !defined(__minix)
+#if !defined(__minix) || !defined(_LIBMINC)
 	}
-#endif /* !defined(__minix) */
+#endif /* !defined(__minix) || !defined(_LIBMINC) */
 }
 
 /*ARGSUSED*/
