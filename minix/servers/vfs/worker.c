@@ -241,15 +241,24 @@ static int worker_get_work(void)
  * latter case wait for new work to come in. Return TRUE if there is work to
  * do, or FALSE if the current thread is requested to shut down.
  */
+  static int next_pending;
   struct fproc *rfp;
+  int i, slot;
 
   assert(self->w_fp == NULL);
 
   /* Is there pending work, and should we do it? */
   if (worker_may_do_pending()) {
-	/* Find pending work */
-	for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
+	/* Find pending work.  Start after the slot taken last: the threads of
+	 * a process take turns at their table, and a scan from slot 0 would
+	 * always pick the lowest of them, so that two busy threads could keep
+	 * a third one pending forever.
+	 */
+	for (i = 0; i < NR_PROCS; i++) {
+		slot = (next_pending + i) % NR_PROCS;
+		rfp = &fproc[slot];
 		if ((rfp->fp_flags & FP_PENDING) && !fdtab_busy(rfp)) {
+			next_pending = (slot + 1) % NR_PROCS;
 			self->w_fp = rfp;
 			rfp->fp_worker = self;
 			fdtab_take(self, rfp);
