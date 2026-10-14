@@ -786,10 +786,16 @@ int arch_enable_paging(struct proc *caller)
 		for (i = 0; i < nioapics; i++)
 			io_apic[i].addr = io_apic[i].vaddr;
 	}
-#if CONFIG_SMP
+#endif
+
+	/* The kernel now reaches devices through VM's mappings, which are its
+	 * own, rather than through the boot identity map: SMAP can go on, and
+	 * before the APs boot, so that they turn it on too. */
+	smap_enable();
+
+#if defined(USE_APIC) && CONFIG_SMP
 	barrier();
 	wait_for_APs_to_finish_booting();
-#endif
 #endif
 
 #ifdef USE_WATCHDOG

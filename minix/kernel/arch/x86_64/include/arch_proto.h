@@ -145,6 +145,7 @@ reg_t  read_cr4(void);
 void   write_cr0(reg_t value);
 void   write_cr3(reg_t value);
 void   write_cr4(reg_t value);
+void   smap_enable(void);
 void   reload_cr3(void);
 void   refresh_tlb(void);
 reg_t  read_cpu_flags(void);

@@ -291,6 +291,14 @@ static void ap_finish_booting(void)
 	get_cpulocal_var(bill_ptr) = get_cpulocal_var_ptr(idle_proc);
 	__smp_com1('9');
 
+	/* Leave the boot page tables, where low memory is user-accessible, for
+	 * VM's, as the BSP did in arch_enable_paging(), and turn on SMAP as it
+	 * did (see smap_enable()). */
+	if (use_smap) {
+		switch_address_space(proc_addr(VM_PROC_NR));
+		write_cr4(read_cr4() | CR4_SMAP);
+	}
+
 	ap_boot_finished(cpu);
 	spinlock_unlock(&boot_lock);
 	__smp_com1('!');

@@ -450,10 +450,47 @@ void cpu_enable_features(void)
         use_pcid = 1;
     }
 
+    /* SMEP: the kernel never executes user pages.  SMAP, which keeps it
+     * from touching them, goes on later, off the boot page tables: see
+     * smap_enable().
+     */
+    if (_cpufeature(_CPUF_X86_SMEP))
+        cr4 |= CR4_SMEP;
+
     write_cr4(cr4);
     /* Unconditional: PCID mode changes what CR3 holds, and only some
      * hypervisors expose it, so say which world this boot lives in. */
-    printf("cpu: PCID %s\n", use_pcid ? "enabled" : "not available");
+    printf("cpu: PCID %s, SMEP %s\n",
+        use_pcid ? "enabled" : "not available",
+        (cr4 & CR4_SMEP) ? "enabled" : "not available");
+}
+
+/*===========================================================================*
+ *  smap_enable                                                               *
+ *===========================================================================*/
+/*
+ * Turn on SMAP on the BSP, where the CPU has it: the kernel then may not
+ * touch user pages.  It reaches process memory through the physmap, whose
+ * pages are the kernel's, except for IPC messages, which copy_msg_from_user()
+ * and copy_msg_to_user() access at their user address, between STAC and
+ * CLAC.  Processes cannot hand the kernel their AC flag: SYSCALL clears it
+ * (SYSCALL_FMASK) and the other entries execute CLAC.
+ *
+ * Called once the kernel has left the boot page tables, whose identity map
+ * of low memory -- the VGA console among it -- is user-accessible, for the
+ * boot processes.  use_smap is set first: STAC and CLAC need only the CPU
+ * feature, not CR4.SMAP.  The APs, still on the boot page tables then,
+ * follow at the end of their boot (ap_finish_booting()).
+ */
+void smap_enable(void)
+{
+    if (!_cpufeature(_CPUF_X86_SMAP)) {
+        printf("cpu: SMAP not available\n");
+        return;
+    }
+    use_smap = 1;
+    write_cr4(read_cr4() | CR4_SMAP);
+    printf("cpu: SMAP enabled\n");
 }
 
 /*===========================================================================*

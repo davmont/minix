@@ -233,8 +233,9 @@ int tss_init(unsigned cpu, void *kernel_stack)
      * STAR[63:48]  = user CS selector base        (SYSCALL: CS = STAR[63:48],
      *                                             SS = STAR[63:48]+8)
      * LSTAR        = 64-bit SYSCALL entry RIP
-     * FMASK        = bits to clear in RFLAGS on SYSCALL (clear IF to disable
-     *                interrupts on entry; kernel re-enables selectively)
+     * FMASK        = bits to clear in RFLAGS on SYSCALL (SYSCALL_FMASK: IF
+     *                to disable interrupts on entry, and the flags that the
+     *                kernel must not inherit from the process)
      */
     {
         u32_t star_lo, star_hi;
@@ -265,8 +266,8 @@ int tss_init(unsigned cpu, void *kernel_stack)
                            (u32_t)(lstar & 0xFFFFFFFF));
         }
 
-        /* FMASK: clear IF (bit 9) on SYSCALL so interrupts are off. */
-        ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)IF_MASK);
+        /* FMASK: the RFLAGS bits SYSCALL clears (see SYSCALL_FMASK). */
+        ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)SYSCALL_FMASK);
 
         /*
          * Tell userland that SYSCALL is wired up.  On amd64 SYSCALL is part of
@@ -437,7 +438,7 @@ void ap_setup_syscall_msrs(void)
                    (u32_t)(lstar >> 32),
                    (u32_t)(lstar & 0xFFFFFFFF));
 
-    ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)IF_MASK);
+    ia32_msr_write(AMD_MSR_FMASK, 0, (u32_t)SYSCALL_FMASK);
 }
 
 /* =========================================================================
