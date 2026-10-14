@@ -424,7 +424,7 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 	return EDEADEPT; /* process is gone. */
   }
   rmp = &mproc[proc_nr];
-  if ((rmp->mp_flags & (IN_USE | EXITING)) != IN_USE) {
+  if ((rmp->mp_flags & (IN_USE | EXITING | MP_LWP_TEARDOWN)) != IN_USE) {
 #if 0
 	printf("PM: process_ksig: %d?? exiting / not in use\n", proc_nr_e);
 #endif
@@ -729,6 +729,34 @@ sig_proc(
 }
 
 /*===========================================================================*
+ *				signal_thread				     *
+ *===========================================================================*/
+struct mproc *
+signal_thread(struct mproc *rmp, int signo)
+{
+/* Return the slot that is to take a signal sent to the process 'rmp': its main
+ * thread, unless that thread blocks the signal and another thread does not
+ * (POSIX: any thread not blocking it).  Otherwise the signal stayed pending at
+ * the main thread, with threads ready to take it.
+ */
+  struct mproc *t;
+  int group;
+
+  if (rmp->mp_lwp_group == NO_LWP_GROUP || (rmp->mp_flags & MP_LWP) ||
+      !sigismember(&rmp->mp_sigmask, signo))
+	return rmp;
+
+  group = (int) (rmp - mproc);
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING | MP_LWP | MP_LWP_ZOMBIE |
+	    MP_LWP_TEARDOWN)) == (IN_USE | MP_LWP) &&
+	    t->mp_lwp_group == group && !sigismember(&t->mp_sigmask, signo))
+		return t;
+  }
+  return rmp;
+}
+
+/*===========================================================================*
  *				discard_signal				     *
  *===========================================================================*/
 static void
@@ -812,7 +840,8 @@ jc_notify_parent(struct mproc *leader, int code)
   saved = sig_origin;
   set_sig_origin(code, leader->mp_pid, leader->mp_realuid,
 	(code == CLD_STOPPED) ? leader->mp_stopsig : SIGCONT, 0);
-  sig_proc(p_mp, SIGCHLD, TRUE /*trace*/, FALSE /*ksig*/);
+  sig_proc(signal_thread(p_mp, SIGCHLD), SIGCHLD, TRUE /*trace*/,
+	FALSE /*ksig*/);
   sig_origin = saved;
 }
 
@@ -1006,7 +1035,7 @@ int ksig;			/* non-zero means signal comes from kernel  */
 	 * signal may be caught, blocked, ignored, or cause process
 	 * termination, possibly with core dump.
 	 */
-	sig_proc(rmp, signo, TRUE /*trace*/, ksig);
+	sig_proc(signal_thread(rmp, signo), signo, TRUE /*trace*/, ksig);
 
 	if (proc_id > 0) break;	/* only one process being signaled */
   }
@@ -1068,6 +1097,10 @@ restart_sigs(struct mproc *rmp)
  */
 
   if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | MP_EXEC_DETHREAD | EXITING))
+	return;
+
+  /* A thread whose process went away meanwhile goes with it now. */
+  if (lwp_teardown_deferred(rmp))
 	return;
 
   if (rmp->mp_flags & TRACE_EXIT) {
