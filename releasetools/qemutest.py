@@ -203,7 +203,8 @@ class Guest:
 
     def qmp_call(self, *cmds):
         """Run QMP commands (dicts); the last reply's "return", or None if
-        QEMU is not answering."""
+        QEMU is not answering or refuses one (the reason in self.qmp_error)."""
+        self.qmp_error = None
         try:
             s = socket.socket(socket.AF_UNIX)
             s.settimeout(10)
@@ -218,9 +219,14 @@ class Guest:
                     reply = json.loads(f.readline())
                     if "event" not in reply:
                         break
+                if "error" in reply:
+                    self.qmp_error = "%s: %s" % (cmd["execute"],
+                                                 reply["error"].get("desc"))
+                    break
             s.close()
             return reply.get("return")
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
+            self.qmp_error = repr(e)
             return None
 
     def registers(self):
@@ -234,9 +240,18 @@ class Guest:
         """The kernel message ring at guest address `addr`: (next index,
         buffer), or None."""
         out = os.path.join(self.tmp, "kmess.bin")
-        if self.qmp_call({"execute": "memsave", "arguments": {
-                "val": addr, "size": 8 + KMESS_BUF_SIZE, "filename": out,
-                "cpu-index": 0}}) is None:
+        # QMP takes 'val' as a signed 64-bit integer: QEMU 8 refuses a kernel
+        # address above 2^63 ("Invalid parameter type"), so pass its two's
+        # complement.
+        val = addr - (1 << 64) if addr >= (1 << 63) else addr
+        # memsave translates the address with that CPU's page tables: should
+        # one CPU's not do, try the others.
+        for cpu in range(self.args.smp):
+            if self.qmp_call({"execute": "memsave", "arguments": {
+                    "val": val, "size": 8 + KMESS_BUF_SIZE, "filename": out,
+                    "cpu-index": cpu}}) is not None:
+                break
+        else:
             return None
         b = open(out, "rb").read()
         return int.from_bytes(b[0:4], "little"), b[8:]
@@ -261,7 +276,8 @@ class Guest:
                     time.sleep(1.5)
                     after = self.kmessages(addr)
                     if before is None or after is None:
-                        f.write("(QEMU not answering)\n")
+                        f.write("(QEMU not answering: %s)\n"
+                                % self.qmp_error)
                         return
                     i, j, buf = before[0], after[0], after[1]
                     text = buf[i:j] if j >= i else buf[i:] + buf[:j]
