@@ -519,6 +519,10 @@ static int kq_ready(struct knote *kn, clock_t now, fd_set *rdready,
 			if (find_filp(vp, R_BIT) == NULL)
 				flags |= EV_EOF;
 		}
+	} else if (kn->kn_filp->filp_select_eof & (kn->kn_filter ==
+	    EVFILT_READ ? SEL_RDEOF : SEL_WREOF)) {
+		/* A socket: the peer is done sending, or we cannot send. */
+		flags |= EV_EOF;
 	}
 	break;
   case EVFILT_VNODE:

@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -508,6 +510,110 @@ test_eintr(void)
 	close(kq);
 }
 
+static void
+sock_pair(int domain, int fd[2])
+{
+	struct sockaddr_in sin;
+	socklen_t len;
+	int l;
+
+	if (domain == AF_UNIX) {
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd) != 0) e(1);
+		return;
+	}
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	len = sizeof(sin);
+	if ((l = socket(AF_INET, SOCK_STREAM, 0)) < 0) e(2);
+	if (bind(l, (struct sockaddr *)&sin, sizeof(sin)) != 0) e(3);
+	if (listen(l, 1) != 0) e(4);
+	if (getsockname(l, (struct sockaddr *)&sin, &len) != 0) e(5);
+	if ((fd[0] = socket(AF_INET, SOCK_STREAM, 0)) < 0) e(6);
+	if (connect(fd[0], (struct sockaddr *)&sin, sizeof(sin)) != 0) e(7);
+	if ((fd[1] = accept(l, NULL, NULL)) < 0) e(8);
+	close(l);
+}
+
+/* Wait up to a second for one event, as TCP delivers asynchronously. */
+static int
+kev_wait(int kq, struct kevent *ev)
+{
+	static const struct timespec sec = { 1, 0 };
+
+	return kev(kq, 0, -1, 0, 0, 0, ev, 1, &sec);
+}
+
+static void
+test_sock_eof_domain(int domain)
+{
+	struct kevent ev;
+	char buf[4];
+	int kq, fd[2], i;
+
+	if ((kq = kqueue()) < 0) e(10);
+
+	/* Data, but the peer may still send more: no EV_EOF. */
+	sock_pair(domain, fd);
+	if (kev(kq, fd[0], EVFILT_READ, EV_ADD, 0, 0, NULL, 0, NULL) != 0)
+		e(11);
+	if (write(fd[1], "ab", 2) != 2) e(12);
+	if (kev_wait(kq, &ev) != 1) e(13);
+	if (ev.filter != EVFILT_READ || (ev.flags & EV_EOF)) e(14);
+
+	/* The peer is done sending: once the data is read, EV_EOF. */
+	if (shutdown(fd[1], SHUT_WR) != 0) e(15);
+	if (read(fd[0], buf, sizeof(buf)) != 2) e(16);
+	if (kev_wait(kq, &ev) != 1) e(17);
+	if (ev.filter != EVFILT_READ || !(ev.flags & EV_EOF)) e(18);
+	if (read(fd[0], buf, sizeof(buf)) != 0) e(19);
+	if (kev(kq, fd[0], EVFILT_READ, EV_DELETE, 0, 0, NULL, 0, NULL) != 0)
+		e(20);
+
+	/* Writable; then the peer goes away, and nothing can be sent.  Over
+	 * TCP that takes a send, answered by a reset.
+	 */
+	if (kev(kq, fd[0], EVFILT_WRITE, EV_ADD, 0, 0, &ev, 1, &zero) != 1)
+		e(21);
+	if (ev.filter != EVFILT_WRITE || (ev.flags & EV_EOF)) e(22);
+	close(fd[1]);
+	if (domain == AF_INET)
+		(void)write(fd[0], "c", 1);
+	for (i = 0; i < 50; i++) {
+		if (kev_wait(kq, &ev) != 1) e(23);
+		if (ev.filter != EVFILT_WRITE) e(24);
+		if (ev.flags & EV_EOF)
+			break;
+		usleep(20000);
+	}
+	if (i == 50) e(25);
+	close(fd[0]);
+
+	/* Our own shutdown for reading is end-of-file too. */
+	sock_pair(domain, fd);
+	if (kev(kq, fd[0], EVFILT_READ, EV_ADD, 0, 0, &ev, 1, &zero) != 0)
+		e(26);
+	if (shutdown(fd[0], SHUT_RD) != 0) e(27);
+	if (kev_wait(kq, &ev) != 1) e(28);
+	if (ev.filter != EVFILT_READ || !(ev.flags & EV_EOF)) e(29);
+	close(fd[0]);
+	close(fd[1]);
+	close(kq);
+}
+
+/* Sockets report EV_EOF, as pipes do. */
+static void
+test_sock_eof(void)
+{
+	void (*old)(int);
+
+	subtest = 10;
+	old = signal(SIGPIPE, SIG_IGN);
+	test_sock_eof_domain(AF_UNIX);
+	test_sock_eof_domain(AF_INET);
+	signal(SIGPIPE, old);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -523,6 +629,7 @@ main(int argc, char **argv)
 	test_eintr();
 	test_close_while_waiting();
 	test_vnode_notes();
+	test_sock_eof();
 
 	quit();
 	return 0;

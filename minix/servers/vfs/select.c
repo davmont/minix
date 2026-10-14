@@ -75,6 +75,7 @@ static int is_regular_file(struct filp *f);
 static int is_pipe(struct filp *f);
 static int is_char_device(struct filp *f);
 static int is_sock_device(struct filp *f);
+static void select_eof(struct filp *f, int status);
 static void select_lock_filp(struct filp *f, int ops);
 static int select_request_file(struct filp *f, int *ops, int block,
 	struct fproc *rfp);
@@ -1084,6 +1085,26 @@ void select_unsuspend_by_endpt(endpoint_t proc_e)
 }
 
 /*===========================================================================*
+ *				select_eof				     *
+ *===========================================================================*/
+static void select_eof(struct filp *f, int status)
+{
+/* A socket driver reports with read and write readiness whether it is due to
+ * end-of-file, for kevent(2)'s EV_EOF.  Remember that for the operations that
+ * the given status reports.  This function MUST NOT block its calling thread.
+ */
+
+  if (!is_sock_device(f))
+	return;
+  if (status & SEL_RD)
+	f->filp_select_eof = (f->filp_select_eof & ~SEL_RDEOF) |
+	    (status & SEL_RDEOF);
+  if (status & SEL_WR)
+	f->filp_select_eof = (f->filp_select_eof & ~SEL_WREOF) |
+	    (status & SEL_WREOF);
+}
+
+/*===========================================================================*
  *				select_reply1				     *
  *===========================================================================*/
 static void select_reply1(struct filp *f, int status)
@@ -1116,6 +1137,7 @@ static void select_reply1(struct filp *f, int status)
   /* Record new filp status */
   if (!(status == 0 && (f->filp_select_flags & FSF_BLOCKED))) {
 	if (status > 0) {	/* operations ready */
+		select_eof(f, status);
 		if (status & SEL_RD)
 			f->filp_select_flags &= ~FSF_RD_BLOCK;
 		if (status & SEL_WR)
@@ -1269,6 +1291,7 @@ static void select_reply2(int is_char, dev_t dev, int status)
 			 */
 			if (!(f->filp_select_flags & FSF_UPDATE))
 				f->filp_select_ops &= ~status;
+			select_eof(f, status);
 			if (status & SEL_RD)
 				f->filp_select_flags &= ~FSF_RD_BLOCK;
 			if (status & SEL_WR)
