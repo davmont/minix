@@ -255,14 +255,21 @@ void exception_handler(int is_nested, struct exception_frame *frame)
             copr_not_available_handler();
             NOT_REACHABLE;
         }
-        printf("exception: proc=%s/%d vec=%d (%s) rip=0x%lx rsp=0x%lx err=0x%lx sig=%d\n",
-               saved_proc->p_name, saved_proc->p_endpoint,
-               (int)frame->vector,
-               (ep && ep->msg) ? ep->msg : "?",
-               (unsigned long)frame->rip,
-               (unsigned long)frame->rsp,
-               (unsigned long)frame->errcode,
-               ep ? ep->signum : SIGILL);
+        /* Debug and breakpoint traps (#DB, #BP) are how a debugger
+         * single-steps and stops a process: expected, and many, so they
+         * are not logged -- one line per step of test42's T_STEP filled
+         * the 128 KB /tmp holding /tmp/log/messages. */
+        if (frame->vector != 1 && frame->vector != 3) {
+            printf("exception: proc=%s/%d vec=%d (%s) rip=0x%lx rsp=0x%lx "
+                   "err=0x%lx sig=%d\n",
+                   saved_proc->p_name, saved_proc->p_endpoint,
+                   (int)frame->vector,
+                   (ep && ep->msg) ? ep->msg : "?",
+                   (unsigned long)frame->rip,
+                   (unsigned long)frame->rsp,
+                   (unsigned long)frame->errcode,
+                   ep ? ep->signum : SIGILL);
+        }
         if (frame->vector == 6) {
             printf("  #UD cr0=0x%lx cr4=0x%lx\n",
                    (unsigned long)read_cr0(), (unsigned long)read_cr4());
