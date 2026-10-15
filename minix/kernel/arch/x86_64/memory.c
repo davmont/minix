@@ -60,6 +60,12 @@ void mem_clear_mapcache(void)
 /*===========================================================================*
  *                              vm_lookup                                    *
  *===========================================================================*/
+/* Translate an address of a process.  Only its own memory counts: every page
+ * table maps the kernel and the physmap too, without the user bit, and the
+ * kernel reaches what it translates here through the physmap, where page
+ * protection does not apply -- so a process naming a kernel address as its
+ * buffer must get EFAULT here, as it would from the CPU.
+ */
 int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	phys_bytes *physical, u64_t *ptent)
 {
@@ -78,14 +84,16 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	/* PML4 */
 	pml4i = AMD64_VM_PML4(virtual);
 	pml4e = phys_get64(cr3 + (phys_bytes)pml4i * AMD64_VM_PT_ENT_SIZE);
-	if (!(pml4e & AMD64_VM_PRESENT))
+	if ((pml4e & (AMD64_VM_PRESENT | AMD64_VM_USER)) !=
+	    (AMD64_VM_PRESENT | AMD64_VM_USER))
 		return EFAULT;
 
 	/* PDPT */
 	pdpti = AMD64_VM_PDPT(virtual);
 	pdpte = phys_get64((AMD64_VM_PFA(pml4e)) +
 	                   (phys_bytes)pdpti * AMD64_VM_PT_ENT_SIZE);
-	if (!(pdpte & AMD64_VM_PRESENT))
+	if ((pdpte & (AMD64_VM_PRESENT | AMD64_VM_USER)) !=
+	    (AMD64_VM_PRESENT | AMD64_VM_USER))
 		return EFAULT;
 
 	/* 1 GB huge page at PDPT level */
@@ -101,7 +109,8 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	pdi = AMD64_VM_PD(virtual);
 	pde = phys_get64((AMD64_VM_PFA(pdpte)) +
 	                 (phys_bytes)pdi * AMD64_VM_PT_ENT_SIZE);
-	if (!(pde & AMD64_VM_PRESENT))
+	if ((pde & (AMD64_VM_PRESENT | AMD64_VM_USER)) !=
+	    (AMD64_VM_PRESENT | AMD64_VM_USER))
 		return EFAULT;
 
 	/* 2 MB huge page at PD level */
@@ -116,7 +125,8 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	pti = AMD64_VM_PT(virtual);
 	pte = phys_get64((AMD64_VM_PFA(pde)) +
 	                 (phys_bytes)pti * AMD64_VM_PT_ENT_SIZE);
-	if (!(pte & AMD64_VM_PRESENT))
+	if ((pte & (AMD64_VM_PRESENT | AMD64_VM_USER)) !=
+	    (AMD64_VM_PRESENT | AMD64_VM_USER))
 		return EFAULT;
 
 	*physical = AMD64_VM_PFA(pte) + (virtual % AMD64_PAGE_SIZE);

@@ -508,10 +508,13 @@ ENTRY(arch_spinlock_unlock)
  * insb/insw need: DX=port, RDI=dst, RCX=count
  * outsb/outsw need: DX=port, RSI=src, RCX=count
  * The buffer is at its user address in the current address space (see
- * do_sdevio()), so SMAP is lifted (STAC) for the transfer only.
+ * do_sdevio()), so SMAP is lifted (STAC) for the transfer only.  They return
+ * 0, or 1 if a page of the buffer faults: exception_handler() resumes
+ * such a fault at __phys_portio_failure, as do_sdevio() checks the buffer
+ * but VM may still take a page away (reclaim) before the transfer.
  */
 
-/* void phys_insw(u16_t port, phys_bytes buf, size_t count) */
+/* int phys_insw(u16_t port, phys_bytes buf, size_t count) */
 ENTRY(phys_insw)
 	cld
 	mov	%rdi, %r8	/* save port */
@@ -522,9 +525,10 @@ ENTRY(phys_insw)
 	SMAP_STAC
 	rep insw
 	SMAP_CLAC
+	xor	%eax, %eax
 	ret
 
-/* void phys_insb(u16_t port, phys_bytes buf, size_t count) */
+/* int phys_insb(u16_t port, phys_bytes buf, size_t count) */
 ENTRY(phys_insb)
 	cld
 	mov	%rdi, %r8	/* save port */
@@ -534,9 +538,10 @@ ENTRY(phys_insb)
 	SMAP_STAC
 	rep insb
 	SMAP_CLAC
+	xor	%eax, %eax
 	ret
 
-/* void phys_outsw(u16_t port, phys_bytes buf, size_t count) */
+/* int phys_outsw(u16_t port, phys_bytes buf, size_t count) */
 ENTRY(phys_outsw)
 	cld
 	mov	%rdx, %rcx	/* RCX = byte count (save before overwriting RDX) */
@@ -546,9 +551,10 @@ ENTRY(phys_outsw)
 	SMAP_STAC
 	rep outsw
 	SMAP_CLAC
+	xor	%eax, %eax
 	ret
 
-/* void phys_outsb(u16_t port, phys_bytes buf, size_t count) */
+/* int phys_outsb(u16_t port, phys_bytes buf, size_t count) */
 ENTRY(phys_outsb)
 	cld
 	mov	%rdx, %rcx	/* RCX = byte count */
@@ -557,6 +563,14 @@ ENTRY(phys_outsb)
 	SMAP_STAC
 	rep outsb
 	SMAP_CLAC
+	xor	%eax, %eax
+	ret
+
+/* A fault in the four routines above resumes here, on their own stack frame
+ * (they push nothing), so this returns to their caller. */
+ENTRY(__phys_portio_failure)
+	SMAP_CLAC
+	mov	$1, %eax
 	ret
 
 /* void poweroff_vmware_clihlt(void) — for VMware/QEMU power-off fallback */
