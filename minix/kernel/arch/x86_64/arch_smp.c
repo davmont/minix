@@ -266,6 +266,11 @@ static void ap_finish_booting(void)
 	ap_cpu_ready = cpu;
 	__smp_com1('2');
 
+	/* The BSP lets go of the BKL whenever it runs a boot process, before
+	 * paging is on; wait until it waits for us, after paging, so that we
+	 * see use_smap and VM's page tables as they will stay. */
+	while (!bsp_waits_for_aps)
+		arch_pause();
 	spinlock_lock(&boot_lock);
 	__smp_com1('3');
 	BKL_LOCK();

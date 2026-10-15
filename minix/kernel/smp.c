@@ -23,6 +23,9 @@ static struct sched_ipi_data  sched_ipi_data[CONFIG_MAX_CPUS];
 #define SCHED_IPI_SAVE_CTX	4
 
 static volatile unsigned ap_cpus_booted;
+/* Set when the BSP waits for the APs, with paging on (VM's page tables in
+ * use, devices reached through VM's mappings): APs finish booting then. */
+volatile int bsp_waits_for_aps;
 
 SPINLOCK_DEFINE(big_kernel_lock)
 SPINLOCK_DEFINE(boot_lock)
@@ -51,6 +54,7 @@ void wait_for_APs_to_finish_booting(void)
 		printf("WARNING only %d out of %d cpus booted\n", n, ncpus);
 
 	/* we must let the other CPUs to run in kernel mode first */
+	bsp_waits_for_aps = 1;
 	BKL_UNLOCK();
 	while (ap_cpus_booted != (n - 1))
 		arch_pause();

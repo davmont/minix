@@ -234,14 +234,6 @@ void exception_handler(int is_nested, struct exception_frame *frame)
             frame->rip = (reg_t)__xrstor_failure;
             return;
         }
-
-        /* Debug trap while tracing through a SYSCALL entry. */
-        if (frame->vector == DEBUG_VECTOR &&
-            (saved_proc->p_reg.psw & TRACEBIT) &&
-            saved_proc->p_seg.p_kern_trap_style == KTS_NONE) {
-            frame->rflags &= ~TRACEBIT;
-            return;
-        }
     }
 
     if (frame->vector == PAGE_FAULT_VECTOR) {

@@ -715,7 +715,6 @@ void restore_user_context(struct proc *p)
                 /* One-shot dump: only first 30 entries to avoid flooding. */
                 static int dumped = 0;
                 if (dumped < 30) {
-                    u8_t *up = (u8_t *)(uintptr_t)p->p_reg.pc;
                     printf("ruc: -> restore_user_context_int, cr3=0x%lx "
                         "pcid=%u pc=0x%lx sp=0x%lx cs=0x%lx ss=0x%lx psw=0x%lx\n",
                         (unsigned long)p->p_seg.p_cr3,
@@ -725,10 +724,6 @@ void restore_user_context(struct proc *p)
                         (unsigned long)p->p_reg.cs,
                         (unsigned long)p->p_reg.ss,
                         (unsigned long)p->p_reg.psw);
-                    printf("ruc: bytes @ pc: %02x %02x %02x %02x "
-                        "%02x %02x %02x %02x\n",
-                        up[0], up[1], up[2], up[3],
-                        up[4], up[5], up[6], up[7]);
                     dumped++;
                 }
             });
