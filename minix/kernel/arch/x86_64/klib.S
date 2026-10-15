@@ -382,9 +382,11 @@ LABEL(memset_fault_in_kernel)
  *  + 96-byte payload union (LP64 grows the per-call structs).  Copy it as  *
  *  13 qwords (last qword starts at offset 96, covers bytes 96..103).       *
  *  The exception handler redirects to __user_copy_msg_pointer_failure      *
- *  if a page fault or GP fires during the copy.                             *
+ *  if a page fault or GP fires during the copy.  The user message is read  *
+ *  at its user address, so SMAP is lifted (STAC) for the copy only.        *
  *===========================================================================*/
 ENTRY(copy_msg_from_user)
+	SMAP_STAC
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
 	mov	  8(%rdi), %rax ;  mov %rax,   8(%rsi)
 	mov	 16(%rdi), %rax ;  mov %rax,  16(%rsi)
@@ -399,6 +401,7 @@ ENTRY(copy_msg_from_user)
 	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
 	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_from_user_end)
+	SMAP_CLAC
 	xor	%eax, %eax
 	ret
 
@@ -408,6 +411,7 @@ LABEL(__copy_msg_from_user_end)
  *  Same 104-byte (13-qword) layout as copy_msg_from_user.                  *
  *===========================================================================*/
 ENTRY(copy_msg_to_user)
+	SMAP_STAC
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
 	mov	  8(%rdi), %rax ;  mov %rax,   8(%rsi)
 	mov	 16(%rdi), %rax ;  mov %rax,  16(%rsi)
@@ -422,12 +426,28 @@ ENTRY(copy_msg_to_user)
 	mov	 88(%rdi), %rax ;  mov %rax,  88(%rsi)
 	mov	 96(%rdi), %rax ;  mov %rax,  96(%rsi)
 LABEL(__copy_msg_to_user_end)
+	SMAP_CLAC
 	xor	%eax, %eax
 	ret
 
 ENTRY(__user_copy_msg_pointer_failure)
+	SMAP_CLAC
 	mov	$-1, %rax
 	ret
+
+/*
+ * SMAP: non-zero once cpu_enable_features() has set CR4.SMAP.  The kernel
+ * then may touch user pages only between STAC and CLAC, which the code here
+ * and the entry code execute only when this is set: they are invalid opcodes
+ * on CPUs without SMAP.  Defined here, as klib.o is also linked unpaged,
+ * with its symbols renamed.
+ */
+.data
+.balign 4
+.globl _C_LABEL(use_smap)
+_C_LABEL(use_smap):
+	.long	0
+.text
 
 /*===========================================================================*
  *  switch_k_stack(void *rsp, void (*cont)(void))                           *
@@ -487,6 +507,8 @@ ENTRY(arch_spinlock_unlock)
  *   arg1=RDI(port), arg2=RSI(buf), arg3=RDX(count)
  * insb/insw need: DX=port, RDI=dst, RCX=count
  * outsb/outsw need: DX=port, RSI=src, RCX=count
+ * The buffer is at its user address in the current address space (see
+ * do_sdevio()), so SMAP is lifted (STAC) for the transfer only.
  */
 
 /* void phys_insw(u16_t port, phys_bytes buf, size_t count) */
@@ -497,7 +519,9 @@ ENTRY(phys_insw)
 	mov	%rdx, %rcx	/* RCX = byte count */
 	shr	$1, %rcx	/* word count */
 	mov	%r8,  %rdx	/* DX = port */
+	SMAP_STAC
 	rep insw
+	SMAP_CLAC
 	ret
 
 /* void phys_insb(u16_t port, phys_bytes buf, size_t count) */
@@ -507,7 +531,9 @@ ENTRY(phys_insb)
 	mov	%rsi, %rdi	/* RDI = destination buffer */
 	mov	%rdx, %rcx	/* RCX = byte count */
 	mov	%r8,  %rdx	/* DX = port */
+	SMAP_STAC
 	rep insb
+	SMAP_CLAC
 	ret
 
 /* void phys_outsw(u16_t port, phys_bytes buf, size_t count) */
@@ -517,7 +543,9 @@ ENTRY(phys_outsw)
 	shr	$1, %rcx	/* word count */
 	mov	%rdi, %rdx	/* DX = port */
 	/* RSI already holds source buffer */
+	SMAP_STAC
 	rep outsw
+	SMAP_CLAC
 	ret
 
 /* void phys_outsb(u16_t port, phys_bytes buf, size_t count) */
@@ -526,7 +554,9 @@ ENTRY(phys_outsb)
 	mov	%rdx, %rcx	/* RCX = byte count */
 	mov	%rdi, %rdx	/* DX = port */
 	/* RSI already holds source buffer */
+	SMAP_STAC
 	rep outsb
+	SMAP_CLAC
 	ret
 
 /* void poweroff_vmware_clihlt(void) — for VMware/QEMU power-off fallback */

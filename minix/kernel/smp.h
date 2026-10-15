@@ -56,6 +56,7 @@ extern volatile int bkl_held_by_cpu[CONFIG_MAX_CPUS];
  */
 SPINLOCK_DECLARE(boot_lock)
 	
+extern volatile int bsp_waits_for_aps;
 void wait_for_APs_to_finish_booting(void);
 void ap_boot_finished(unsigned cpu);
 void smp_shutdown_aps(void );

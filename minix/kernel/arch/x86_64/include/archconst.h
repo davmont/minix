@@ -114,6 +114,8 @@
  * bits 11:0 and the no-flush hint in bit 63. */
 #define CR3_PTBASE_MASK     0x7FFFFFFFFFFFF000ULL
 #define CR4_OSXSAVE         (1 << 18)  /* XSAVE/XRSTOR and AVX enable */
+#define CR4_SMEP            (1 << 20)  /* no kernel execution of user pages */
+#define CR4_SMAP            (1 << 21)  /* no kernel access to user pages */
 
 /* CR0 bits */
 #define CR0_PE              (1 << 0)   /* Protection Enable */
@@ -151,6 +153,15 @@
 #define IF_MASK         0x0000000000000200ULL
 #define IOPL_MASK       0x0000000000003000ULL
 #define TRACEBIT        0x0000000000000100ULL
+#define DF_MASK         0x0000000000000400ULL
+#define NT_MASK         0x0000000000004000ULL
+#define AC_MASK         0x0000000000040000ULL
+/* RFLAGS bits that SYSCALL clears, so that the kernel never runs with flags
+ * that a process chose: TF would trap on the entry's first instruction,
+ * before the stack switch; DF would run memcpy() backwards; AC would lift
+ * SMAP; NT would make IRETQ fault.  IF keeps interrupts off on entry.
+ */
+#define SYSCALL_FMASK   (IF_MASK | TRACEBIT | DF_MASK | NT_MASK | AC_MASK)
 #define SETPSW(rp, new)         /* permits only certain bits to be set */ \
         ((rp)->p_reg.psw = ((rp)->p_reg.psw & ~0xCD5) | ((new) & 0xCD5))
 

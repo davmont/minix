@@ -127,6 +127,10 @@ int _cpufeature(int cpufeature)
 			return l7_ebx & CPUID7_EBX_FSGSBASE;
 		case _CPUF_X86_AVX2:
 			return l7_ebx & CPUID7_EBX_AVX2;
+		case _CPUF_X86_SMEP:
+			return l7_ebx & CPUID7_EBX_SMEP;
+		case _CPUF_X86_SMAP:
+			return l7_ebx & CPUID7_EBX_SMAP;
 
 		/* --- XSAVE sub-features (leaf 0xD, subleaf 1, EAX) --- */
 		case _CPUF_X86_XSAVEOPT:

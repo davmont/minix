@@ -37,6 +37,8 @@
 /* Modern x86-64 features (CPUID leaf 7, subleaf 0, EBX) */
 #define _CPUF_X86_FSGSBASE	24	/* RDFSBASE/WRFSBASE/RDGSBASE/WRGSBASE */
 #define _CPUF_X86_AVX2		25	/* AVX2 (256-bit integer) instructions */
+#define _CPUF_X86_SMEP		28	/* Supervisor Mode Execution Prevention */
+#define _CPUF_X86_SMAP		29	/* Supervisor Mode Access Prevention */
 
 /* XSAVE sub-features (CPUID leaf 0xD, subleaf 1, EAX) */
 #define _CPUF_X86_XSAVEOPT	26	/* XSAVEOPT: save only modified state */

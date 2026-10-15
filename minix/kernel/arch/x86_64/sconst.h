@@ -103,6 +103,24 @@
 	mov     %ax, %es                ;
 
 /*
+ * Allow (STAC) and deny again (CLAC) kernel access to user pages, where SMAP
+ * is on: both are invalid opcodes on CPUs without it (see use_smap).  The
+ * test clobbers the arithmetic flags.
+ */
+#define SMAP_TEST                                       \
+	cmpl    $0, _C_LABEL(use_smap)(%rip)
+#define SMAP_STAC                                       \
+	SMAP_TEST                                       ;\
+	je      7771f                                   ;\
+	stac                                            ;\
+7771:
+#define SMAP_CLAC                                       \
+	SMAP_TEST                                       ;\
+	je      7772f                                   ;\
+	clac                                            ;\
+7772:
+
+/*
  * Full context save macro.
  * 'displ' = bytes of extra data above the CPU frame (vector + errcode = 16).
  * 'trapcode' = KTS_* constant indicating how the kernel was entered.
@@ -117,6 +135,7 @@
  */
 #define SAVE_PROCESS_CTX(displ, trapcode)                               \
 	cld                                                             ;\
+	SMAP_CLAC    /* interrupt and trap gates keep the process's AC */;\
 	push    %rbp                                                    ;\
 	mov     (CURR_PROC_PTR + 8 + displ)(%rsp), %rbp                ;\
 	SAVE_GP_REGS(%rbp)                                              ;\

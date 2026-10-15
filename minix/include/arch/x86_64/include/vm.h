@@ -101,6 +101,8 @@
 /* CPUID leaf 7, subleaf 0 — structured extended feature flags (EBX). */
 #define CPUID7_EBX_FSGSBASE	(1UL <<  0)	/* RDFSBASE/WRFSBASE etc. */
 #define CPUID7_EBX_AVX2		(1UL <<  5)	/* AVX2 */
+#define CPUID7_EBX_SMEP		(1UL <<  7)	/* Supervisor Mode Exec Prevention */
+#define CPUID7_EBX_SMAP		(1UL << 20)	/* Supervisor Mode Access Prevention */
 
 /* CPUID leaf 0xD, subleaf 1 — XSAVE extended features (EAX). */
 #define CPUIDD1_EAX_XSAVEOPT	(1UL <<  0)	/* XSAVEOPT instruction */
