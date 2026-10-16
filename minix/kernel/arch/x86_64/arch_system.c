@@ -404,6 +404,13 @@ void cpu_enable_features(void)
     if (!(efer_lo & AMD_EFER_NXE))
         ia32_msr_write(AMD_MSR_EFER, efer_hi, efer_lo | AMD_EFER_NXE);
 
+    /* Write protection holds in the kernel too: head.S sets CR0.WP on the
+     * BSP, but the AP trampoline does not, and without it an AP's kernel
+     * writes through read-only pages -- its own text, and the copy-on-write
+     * pages a process shares after fork() -- where the BSP faults.
+     */
+    write_cr0(read_cr0() | CR0_WP);
+
     cr4 = read_cr4();
 
     /* P2.1 — FSGSBASE.

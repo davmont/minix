@@ -374,6 +374,16 @@ LABEL(memset_fault_in_kernel)
 	mov	%cr2, %rax
 	ret
 
+/* The message must lie in the user half: the kernel accesses it there
+ * directly, where it reaches its own pages as well as the process's, and the
+ * pointer comes from the process.  104 bytes are copied; USER_PC_LIMIT is
+ * 0x0000800000000000.
+ */
+#define CHECK_USER_MSG(reg)						\
+	movabs	$(0x0000800000000000 - 104), %rax			;\
+	cmp	%rax, reg						;\
+	ja	_C_LABEL(__user_copy_msg_pointer_failure)
+
 /*===========================================================================*
  *  copy_msg_from_user(message *user_src, message *dst)                     *
  *  RDI = user source, RSI = kernel destination                             *
@@ -386,6 +396,7 @@ LABEL(memset_fault_in_kernel)
  *  at its user address, so SMAP is lifted (STAC) for the copy only.        *
  *===========================================================================*/
 ENTRY(copy_msg_from_user)
+	CHECK_USER_MSG(%rdi)
 	SMAP_STAC
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
 	mov	  8(%rdi), %rax ;  mov %rax,   8(%rsi)
@@ -411,6 +422,7 @@ LABEL(__copy_msg_from_user_end)
  *  Same 104-byte (13-qword) layout as copy_msg_from_user.                  *
  *===========================================================================*/
 ENTRY(copy_msg_to_user)
+	CHECK_USER_MSG(%rsi)
 	SMAP_STAC
 	mov	  0(%rdi), %rax ;  mov %rax,   0(%rsi)
 	mov	  8(%rdi), %rax ;  mov %rax,   8(%rsi)
