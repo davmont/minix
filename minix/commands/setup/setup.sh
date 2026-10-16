@@ -572,6 +572,42 @@ echo ""
 
 /bin/netconf -p /mnt || echo FAILED TO CONFIGURE NETWORK
 
+# The root password.  The installation media log root in without one; the
+# installed system must not.  Hash it here, with the hash passwd.conf names,
+# rather than with passwd(1) chrooted into /mnt.
+echo ""
+echo " --- Step 9: Set the root password -------------------------------------"
+echo ""
+while :
+do
+	stty -echo
+	echo -n "New root password: "; IFS= read -r pw1; echo
+	echo -n "Retype new root password: "; IFS= read -r pw2; echo
+	stty echo
+	case "$pw1" in
+	'')	echo "The root password must not be empty."; continue ;;
+	[\ \	]*|*[\ \	])
+		# pwhash(1) would drop them, and login(1) would not.
+		echo "The password must not begin or end with a space."
+		continue ;;
+	esac
+	[ "$pw1" = "$pw2" ] && break
+	echo "The passwords do not match."
+done
+hash=$(printf '%s\n' "$pw1" | pwhash -b 10)
+pw1= pw2=
+case "$hash" in
+'$2a$'*)
+	sed "s|^root:[^:]*:|root:$hash:|" /mnt/etc/master.passwd \
+		>/mnt/etc/master.passwd.new &&
+	chmod 600 /mnt/etc/master.passwd.new &&
+	mv /mnt/etc/master.passwd.new /mnt/etc/master.passwd &&
+	pwd_mkdb -p -d /mnt /mnt/etc/master.passwd ||
+		echo "FAILED TO SET THE ROOT PASSWORD: run passwd after booting."
+	;;
+*)	echo "FAILED TO SET THE ROOT PASSWORD: run passwd after booting."
+esac
+
 PACKAGES_DIR="/packages/$(uname -v | cut -f2 -d' ')/$(uname -p)/All"
 if [ -e "$PACKAGES_DIR" ]
 then
