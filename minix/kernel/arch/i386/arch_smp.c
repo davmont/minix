@@ -229,6 +229,11 @@ static void ap_finish_booting(void)
 
 	printf("CPU %d is up\n", cpu);
 
+	/* Write protection holds in the kernel too, as on the BSP (see
+	 * vm_enable_paging()): the trampoline turns on paging only, and
+	 * without it this CPU's kernel writes through read-only pages. */
+	write_cr0(read_cr0() | I386_CR0_WP);
+
 	cpu_identify();
 
 	lapic_enable(cpu);

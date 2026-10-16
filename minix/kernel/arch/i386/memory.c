@@ -144,6 +144,22 @@ static int check_resumed_caller(struct proc *caller)
 }
   
 /*===========================================================================*
+ *				proc_range_ok				     *
+ *===========================================================================*/
+/* A process's memory lies below USR_DATATOP.  Above it, every page directory
+ * maps the kernel, the kernel's copy windows (freepdes) and VM's own
+ * page-directory mappings, all reachable from the kernel: a process naming an
+ * address there as its buffer would have the kernel copy kernel memory, or
+ * whatever a window last held, to or from it.
+ */
+static int proc_range_ok(const struct proc *pr, vir_bytes addr, vir_bytes bytes)
+{
+	if (!pr || iskernelp(pr))
+		return 1;
+	return addr + bytes >= addr && addr + bytes <= USR_DATATOP;
+}
+
+/*===========================================================================*
  *				lin_lin_copy				     *
  *===========================================================================*/
 static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr, 
@@ -166,6 +182,9 @@ static int lin_lin_copy(struct proc *srcproc, vir_bytes srclinaddr,
 	assert(get_cpulocal_var(ptproc)->p_seg.p_cr3_v);
 	if(srcproc) assert(!RTS_ISSET(srcproc, RTS_VMINHIBIT));
 	if(dstproc) assert(!RTS_ISSET(dstproc, RTS_VMINHIBIT));
+
+	if (!proc_range_ok(srcproc, srclinaddr, bytes)) return EFAULT_SRC;
+	if (!proc_range_ok(dstproc, dstlinaddr, bytes)) return EFAULT_DST;
 
 	while(bytes > 0) {
 		phys_bytes srcptr, dstptr;
@@ -334,6 +353,10 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	assert(!isemptyp(proc));
 	assert(HASPT(proc));
 
+	/* Only the process's own memory counts (see proc_range_ok()). */
+	if (!proc_range_ok(proc, virtual, 1))
+		return EFAULT;
+
 	/* Retrieve page directory entry. */
 	root = (u32_t *) proc->p_seg.p_cr3;
 	assert(!((u32_t) root % I386_PAGE_SIZE));
@@ -341,7 +364,8 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 	assert(pde >= 0 && pde < I386_VM_DIR_ENTRIES);
 	pde_v = phys_get32((u32_t) (root + pde));
 
-	if(!(pde_v & I386_VM_PRESENT)) {
+	if((pde_v & (I386_VM_PRESENT | I386_VM_USER)) !=
+	    (I386_VM_PRESENT | I386_VM_USER)) {
 		return EFAULT;
 	}
 
@@ -357,7 +381,8 @@ int vm_lookup(const struct proc *proc, const vir_bytes virtual,
 		pte = I386_VM_PTE(virtual);
 		assert(pte >= 0 && pte < I386_VM_PT_ENTRIES);
 		pte_v = phys_get32((u32_t) (pt + pte));
-		if(!(pte_v & I386_VM_PRESENT)) {
+		if((pte_v & (I386_VM_PRESENT | I386_VM_USER)) !=
+		    (I386_VM_PRESENT | I386_VM_USER)) {
 			return EFAULT;
 		}
 
@@ -539,6 +564,8 @@ int vm_memset(struct proc* caller, endpoint_t who, phys_bytes ph, int c,
 	/* NONE for physical, otherwise virtual */
 	if (who != NONE && !(whoptr = endpoint_lookup(who)))
 		return ESRCH;
+	if (!proc_range_ok(whoptr, ph, count))
+		return EFAULT;
 
 	c &= 0xFF;
 	pattern = c | (c << 8) | (c << 16) | (c << 24);
