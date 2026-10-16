@@ -49,8 +49,10 @@ __strncat_chk(char * __restrict dst, const char * __restrict src, size_t len,
 	if (len == 0)
 		return dst;
 
-	if (len > slen)
-		__chk_fail();
+	/* MINIX: no "len > slen" check here.  len bounds what is taken from
+	 * src, not the size of dst: strncat(dst, src, n) with n larger than
+	 * dst is valid C when the result fits, which the loops below check
+	 * byte by byte, as glibc's __strncat_chk does. */
 
 	for (d = dst; *d; d++) {
 		if (slen-- == 0)

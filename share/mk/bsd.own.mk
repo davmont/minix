@@ -47,8 +47,16 @@ EXTERNAL_OPENSSL_SUBDIR=bsd/openssl
 EXTERNAL_OPENSSL_SUBDIR=/does/not/exist
 .endif
 
-# LSC MINIX does not support these features ATM.
+# FORTIFY (_FORTIFY_SOURCE=2: the <ssp/*.h> wrappers check the sizes of
+# known buffers given to string, stdio and read functions, at compile time
+# and in libc's __*_chk at run time), on amd64: for whatever the stack
+# protector covers, as bsd.sys.mk adds it with -fstack-protector only.  libc
+# itself opts out (lib/libc/Makefile.inc).
+.if ${MACHINE_ARCH} == "x86_64"
+USE_FORT?=	yes
+.else
 USE_FORT:=	no
+.endif
 # The stack protector, on amd64: user programs and libraries.  The kernel,
 # the system services and the libraries only they link opt out (USE_SSP=no
 # in minix/kernel, minix/*/Makefile.inc and minix.service.mk): they have no
