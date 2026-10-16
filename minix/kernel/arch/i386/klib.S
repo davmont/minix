@@ -239,6 +239,12 @@ ENTRY(copy_msg_from_user)
 	/* load the destination pointer */
 	mov	8(%esp), %edx
 
+	/* The message must lie below USR_DATATOP: the kernel, its copy windows
+	 * and VM's page directories are above it, in every page directory, and
+	 * reachable from here.  The pointer comes from the process. */
+	cmp	$(USR_DATATOP - 64), %ecx
+	ja	_C_LABEL(__user_copy_msg_pointer_failure)
+
 /*	mov	0*4(%ecx), %eax
 	mov	%eax, 0*4(%edx) */ 
 	mov	1*4(%ecx), %eax
@@ -292,6 +298,10 @@ ENTRY(copy_msg_to_user)
 	mov	4(%esp), %ecx
 	/* load the destination pointer */
 	mov	8(%esp), %edx
+
+	/* As in copy_msg_from_user(). */
+	cmp	$(USR_DATATOP - 64), %edx
+	ja	_C_LABEL(__user_copy_msg_pointer_failure)
 
 	mov	0*4(%ecx), %eax
 	mov	%eax, 0*4(%edx)

@@ -23,7 +23,9 @@
  *===========================================================================*/
 int do_sdevio(struct proc * caller, message *m_ptr)
 {
-  vir_bytes newoffset;
+  vir_bytes newoffset, va;
+  phys_bytes ph;
+  u64_t pte;
   endpoint_t newep;
   int proc_nr;
   endpoint_t proc_nr_e = m_ptr->m_lsys_krn_sys_sdevio.vec_endpt;
@@ -92,6 +94,25 @@ int do_sdevio(struct proc * caller, message *m_ptr)
      destproc = proc_addr(proc_nr);
   }
      /* current process must be target for phys_* to be OK */
+
+  /* The transfer accesses the buffer at its address in the process, from
+   * the kernel: it must be the process's own memory, below USR_DATATOP,
+   * never the kernel's, which every page directory maps above it.  A grant
+   * names any address its granter likes.
+   */
+  if (vir_buf + count < vir_buf || vir_buf + count > USR_DATATOP)
+	return EFAULT;
+
+  /* Every page of the buffer must be there, user-accessible, and writable
+   * for input, or the transfer faults in the kernel: have VM fault in the
+   * missing ones, or fail the call. */
+  for (va = vir_buf & ~(vir_bytes)(I386_PAGE_SIZE - 1); va < vir_buf + count;
+      va += I386_PAGE_SIZE) {
+	if (vm_lookup(destproc, va, &ph, &pte) != OK ||
+	    (req_dir == _DIO_INPUT && !(pte & I386_VM_WRITE)))
+		return vm_check_range(caller, destproc, vir_buf, count,
+		    req_dir == _DIO_INPUT);
+  }
 
   switch_address_space(destproc);
 
