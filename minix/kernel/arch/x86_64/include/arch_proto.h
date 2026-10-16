@@ -125,13 +125,14 @@ void   write_fsbase(u64_t base);
 u64_t  read_gsbase(void);
 void   write_gsbase(u64_t base);
 
-void   phys_insb(u16_t port, phys_bytes buf, size_t count);
-void   phys_insw(u16_t port, phys_bytes buf, size_t count);
-void   phys_outsb(u16_t port, phys_bytes buf, size_t count);
-void   phys_outsw(u16_t port, phys_bytes buf, size_t count);
+int    phys_insb(u16_t port, phys_bytes buf, size_t count);
+int    phys_insw(u16_t port, phys_bytes buf, size_t count);
+int    phys_outsb(u16_t port, phys_bytes buf, size_t count);
+int    phys_outsw(u16_t port, phys_bytes buf, size_t count);
 void   __copy_msg_from_user_end(void);
 void   __copy_msg_to_user_end(void);
 void   __user_copy_msg_pointer_failure(void);
+void   __phys_portio_failure(void);
 void   switch_k_stack(void *rsp, void (*cont)(void));
 void   amd64_invlpg(vir_bytes addr);
 phys_bytes phys_memset(phys_bytes dst, u64_t pattern, phys_bytes count);

@@ -23,8 +23,10 @@
  *===========================================================================*/
 int do_sdevio(struct proc * caller, message *m_ptr)
 {
-  vir_bytes newoffset;
+  vir_bytes newoffset, va;
   endpoint_t newep;
+  phys_bytes ph;
+  u64_t pte;
   int proc_nr;
   endpoint_t proc_nr_e = m_ptr->m_lsys_krn_sys_sdevio.vec_endpt;
   vir_bytes count = m_ptr->m_lsys_krn_sys_sdevio.vec_size;
@@ -93,6 +95,14 @@ int do_sdevio(struct proc * caller, message *m_ptr)
   }
      /* current process must be target for phys_* to be OK */
 
+  /* The transfer accesses the buffer at its address in the process, from
+   * the kernel: it must be the process's own memory, never the kernel's,
+   * which every address space maps too.  A grant names any address its
+   * granter likes.
+   */
+  if (vir_buf + count < vir_buf || vir_buf + count > USER_PC_LIMIT)
+	return EFAULT;
+
   /*
    * For an input transfer (device -> memory) the destination buffer in the
    * target process may be a freshly mmap'd, demand-zero page that is not yet
@@ -108,6 +118,16 @@ int do_sdevio(struct proc * caller, message *m_ptr)
 	r = vm_memset(caller, destproc->p_endpoint, vir_buf, 0, count);
 	if (r != OK)
 		return r;	/* VMSUSPEND (retried) or a real fault */
+  }
+
+  /* Every page of the buffer must be there, user-accessible, and writable
+   * for input: have VM fault in the missing ones, or fail the call. */
+  for (va = vir_buf & ~(vir_bytes)(AMD64_PAGE_SIZE - 1); va < vir_buf + count;
+      va += AMD64_PAGE_SIZE) {
+	if (vm_lookup(destproc, va, &ph, &pte) != OK ||
+	    (req_dir == _DIO_INPUT && !(pte & AMD64_VM_WRITE)))
+		return vm_check_range(caller, destproc, vir_buf, count,
+		    req_dir == _DIO_INPUT);
   }
 
   switch_address_space(destproc);
@@ -150,16 +170,16 @@ int do_sdevio(struct proc * caller, message *m_ptr)
   /* Perform device I/O for bytes and words. Longs are not supported. */
   if (req_dir == _DIO_INPUT) { 
       switch (req_type) {
-      case _DIO_BYTE: phys_insb(port, vir_buf, count); break; 
-      case _DIO_WORD: phys_insw(port, vir_buf, count); break; 
+      case _DIO_BYTE: r = phys_insb(port, vir_buf, count); break; 
+      case _DIO_WORD: r = phys_insw(port, vir_buf, count); break; 
       default:
   		retval = EINVAL;
 		goto return_error;
       } 
   } else if (req_dir == _DIO_OUTPUT) { 
       switch (req_type) {
-      case _DIO_BYTE: phys_outsb(port, vir_buf, count); break; 
-      case _DIO_WORD: phys_outsw(port, vir_buf, count); break; 
+      case _DIO_BYTE: r = phys_outsb(port, vir_buf, count); break; 
+      case _DIO_WORD: r = phys_outsw(port, vir_buf, count); break; 
       default:
   		retval = EINVAL;
 		goto return_error;
@@ -169,7 +189,8 @@ int do_sdevio(struct proc * caller, message *m_ptr)
 	  retval = EINVAL;
 	  goto return_error;
   }
-  retval = OK;
+  /* A page went away after the check above. */
+  retval = (r != 0) ? EFAULT : OK;
 
 return_error:
   /* switch back to the address of the process which made the call */

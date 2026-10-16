@@ -221,6 +221,14 @@ void exception_handler(int is_nested, struct exception_frame *frame)
             }
         }
 
+        /* Port string I/O to or from a process buffer (do_sdevio()). */
+        if ((void *)frame->rip >= (void *)phys_insw &&
+            (void *)frame->rip < (void *)__phys_portio_failure &&
+            frame->vector == PAGE_FAULT_VECTOR) {
+            frame->rip = (reg_t)__phys_portio_failure;
+            return;
+        }
+
         /* FPU state restore fault (FXRSTOR path). */
         if ((void *)frame->rip >= (void *)fxrstor &&
             (void *)frame->rip <= (void *)__fxrstor_end) {
