@@ -158,6 +158,9 @@ static void *thread_h(void *arg) {
   int reply;
   if (mthread_mutex_lock(condition_mutex) != 0) err(14, 1);
   memset(bigarray, '\0', 2 * MEG); /* Actually allocate it */
+  /* bigarray is not read: keep the compiler from dropping the memset, as it
+   * may when memset is a builtin (FORTIFY makes it __builtin___memset_chk). */
+  __asm__ __volatile__("" : : "r" (bigarray) : "memory");
   th_h++;
   if (mthread_cond_signal(&condition) != 0) err(14, 2);
   if (mthread_mutex_unlock(condition_mutex) != 0) err(14, 3);

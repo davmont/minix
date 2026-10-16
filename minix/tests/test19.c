@@ -276,7 +276,7 @@ void test19e()
 /* Test link, unlink, stat, fstat, dup, umask.  */
 
   int i, j, n, n1, flag;
-  char a[255], b[255];
+  char a[255], b[512];	/* b: read(n1, b, 512) below */
   struct stat s, s1;
 
   subtest = 5;
