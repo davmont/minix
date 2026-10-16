@@ -33,6 +33,7 @@ SRCS+=  \
 	kputs.c \
 	mapdriver.c \
 	optset.c \
+	rand32.c \
 	panic.c \
 	proceventmask.c \
 	rmib.c \
