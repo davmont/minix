@@ -2,6 +2,6 @@
 
 .include <bsd.own.mk>
 
-SUBDIR+=	bind
+SUBDIR+=	bind mozilla-certdata
 
 .include <bsd.subdir.mk>

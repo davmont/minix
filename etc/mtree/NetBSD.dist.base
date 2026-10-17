@@ -280,6 +280,12 @@
 ./usr/share
 ./usr/share/atf
 ./usr/share/calendar
+./usr/share/certs
+./usr/share/certs/mozilla
+./usr/share/certs/mozilla/all
+./usr/share/certs/mozilla/code
+./usr/share/certs/mozilla/email
+./usr/share/certs/mozilla/server
 ./usr/share/dhcpd
 ./usr/share/doc
 ./usr/share/doc/fonts
@@ -300,6 +306,7 @@
 ./usr/share/examples
 ./usr/share/examples/atf
 ./usr/share/examples/blacklist
+./usr/share/examples/certctl
 ./usr/share/examples/dhcp
 ./usr/share/examples/dhcpcd
 ./usr/share/examples/dhcpcd/hooks
