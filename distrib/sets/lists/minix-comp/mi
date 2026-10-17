@@ -281,6 +281,7 @@
 ./usr/include/dirent.h                                  minix-comp
 ./usr/include/disktab.h                                 minix-comp
 ./usr/include/dlfcn.h                                   minix-comp
+./usr/include/endian.h                                  minix-comp
 ./usr/include/elf.h                                     minix-comp
 ./usr/include/env.h                                     minix-comp      obsolete
 ./usr/include/err.h                                     minix-comp

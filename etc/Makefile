@@ -479,6 +479,9 @@ install-etc-files-safe: .PHONY .MAKE check_DESTDIR MAKEDEV
 	${MAKEDIRTARGET} ${subdir} configinstall
 .endfor
 	${MAKEDIRTARGET} ${NETBSDSRCDIR}/external/bsd/dhcpcd/sbin/dhcpcd configinstall
+.if (${MKCRYPTO} != "no")
+	${MAKEDIRTARGET} ${NETBSDSRCDIR}/crypto/external/bsd/openssh/bin configinstall
+.endif
 	${_MKMSG_INSTALL} ${DESTDIR}/usr/lib/fonts
 	${INSTALL_DIR} ${DESTDIR}/usr/lib/fonts
 	${INSTALL_FILE} -m ${BINMODE} -o ${BINOWN} -g ${BINGRP} ${NETBSDSRCDIR}/etc/fonts/*.fnt ${DESTDIR}/usr/lib/fonts

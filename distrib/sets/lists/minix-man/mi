@@ -344,12 +344,14 @@
 ./usr/man/man1/rmdir.1                                  minix-man
 ./usr/man/man1/rsh.1                                    minix-man
 ./usr/man/man1/rz.1                                     minix-man
+./usr/man/man1/scp.1                                    minix-man
 ./usr/man/man1/sdiff.1                                  minix-man
 ./usr/man/man1/sed.1                                    minix-man
 ./usr/man/man1/seq.1                                    minix-man
 ./usr/man/man1/set.1                                    minix-man       obsolete
 ./usr/man/man1/setfacl.1                                minix-man
 ./usr/man/man1/setvar.1                                 minix-man       obsolete
+./usr/man/man1/sftp.1                                   minix-man
 ./usr/man/man1/sh.1                                     minix-man
 ./usr/man/man1/sha1.1                                   minix-man
 ./usr/man/man1/sha256.1                                 minix-man
@@ -360,12 +362,19 @@
 ./usr/man/man1/shlock.1                                 minix-man
 ./usr/man/man1/shuffle.1                                minix-man
 ./usr/man/man1/sleep.1                                  minix-man
+./usr/man/man1/slogin.1                                 minix-man
 ./usr/man/man1/soelim.1                                 minix-man
 ./usr/man/man1/sort.1                                   minix-man
 ./usr/man/man1/source.1                                 minix-man
 ./usr/man/man1/spell.1                                  minix-man
 ./usr/man/man1/split.1                                  minix-man
 ./usr/man/man1/sqlite3.1                                minix-man
+./usr/man/man1/ssh-add.1                                minix-man
+./usr/man/man1/ssh-agent.1                              minix-man
+./usr/man/man1/ssh-copy-id.1                            minix-man
+./usr/man/man1/ssh-keygen.1                             minix-man
+./usr/man/man1/ssh-keyscan.1                            minix-man
+./usr/man/man1/ssh.1                                    minix-man
 ./usr/man/man1/stat.1                                   minix-man
 ./usr/man/man1/stop.1                                   minix-man
 ./usr/man/man1/stty.1                                   minix-man
@@ -3928,6 +3937,7 @@
 ./usr/man/man5/locale.alias.5                           minix-man
 ./usr/man/man5/magic.5                                  minix-man
 ./usr/man/man5/man.conf.5                               minix-man
+./usr/man/man5/moduli.5                                 minix-man
 ./usr/man/man5/mtree.5                                  minix-man
 ./usr/man/man5/named.conf.5                             minix-man
 ./usr/man/man5/nsswitch.conf.5                          minix-man
@@ -3946,6 +3956,8 @@
 ./usr/man/man5/route.conf.5                             minix-man
 ./usr/man/man5/rtadvd.conf.5                            minix-man       use_inet6
 ./usr/man/man5/serv.access.5                            minix-man       obsolete
+./usr/man/man5/ssh_config.5                             minix-man
+./usr/man/man5/sshd_config.5                            minix-man
 ./usr/man/man5/statvfs.5                                minix-man
 ./usr/man/man5/syslog.conf.5                            minix-man
 ./usr/man/man5/system.conf.5                            minix-man
@@ -4150,11 +4162,15 @@
 ./usr/man/man8/service.8                                minix-man
 ./usr/man/man8/services_mkdb.8                          minix-man
 ./usr/man/man8/setup.8                                  minix-man
+./usr/man/man8/sftp-server.8                            minix-man
 ./usr/man/man8/shutdown.8                               minix-man
 ./usr/man/man8/slip.8                                   minix-man
 ./usr/man/man8/sprofalyze.8                             minix-man
 ./usr/man/man8/sprofdiff.8                              minix-man
 ./usr/man/man8/srccrc.8                                 minix-man
+./usr/man/man8/ssh-keysign.8                            minix-man
+./usr/man/man8/ssh-pkcs11-helper.8                      minix-man
+./usr/man/man8/sshd.8                                   minix-man
 ./usr/man/man8/strfile.8                                minix-man
 ./usr/man/man8/string2key.8                             minix-man       crypto
 ./usr/man/man8/sync.8                                   minix-man

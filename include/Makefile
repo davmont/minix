@@ -9,7 +9,7 @@ NOOBJ=		# defined
 
 INCS=	a.out.h aio.h ar.h assert.h atomic.h \
 	bitstring.h bm.h cdbw.h complex.h cpio.h ctype.h \
-	db.h dirent.h disktab.h dlfcn.h err.h errno.h fenv.h fmtmsg.h fnmatch.h \
+	db.h dirent.h disktab.h dlfcn.h endian.h err.h errno.h fenv.h fmtmsg.h fnmatch.h \
 	fstab.h fts.h ftw.h getopt.h glob.h grp.h ifaddrs.h iconv.h \
 	inttypes.h iso646.h kvm.h langinfo.h libgen.h \
 	limits.h link.h link_aout.h link_elf.h locale.h \
