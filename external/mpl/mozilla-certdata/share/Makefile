@@ -13,10 +13,22 @@ TRUSTDOMAINS=	server email code
 CERTS!=		cd ${.CURDIR:Q} && echo certs/*.pem
 FILES+=		${CERTS}
 
+.if defined(__MINIX)
+# MINIX file systems (MFS) keep names of at most 60 bytes and truncate longer
+# ones, which would leave these two as "....pe", which certctl(8) does not
+# take for certificates: install them under shorter names.
+FILESNAME_certs/Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068.pem=	Autoridad_Certificacion_Firmaprofesional_CIF_A62634068.pem
+FILESNAME_certs/Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015.pem=	Hellenic_Academic_Research_Institutions_ECC_RootCA_2015.pem
+.endif
+
 .for D in ${TRUSTDOMAINS}
 $D_CERTS!=	cat ${.CURDIR:Q}/$D.trust
 .  for C in ${$D_CERTS}
+.if defined(__MINIX)
+SYMLINKS+=	../all/${C:S/^Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068$$/Autoridad_Certificacion_Firmaprofesional_CIF_A62634068/:S/^Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015$$/Hellenic_Academic_Research_Institutions_ECC_RootCA_2015/}.pem ${MOZCERTS}/$D/${C:S/^Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068$$/Autoridad_Certificacion_Firmaprofesional_CIF_A62634068/:S/^Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015$$/Hellenic_Academic_Research_Institutions_ECC_RootCA_2015/}.pem
+.else
 SYMLINKS+=	../all/$C.pem ${MOZCERTS}/$D/$C.pem
+.endif
 .  endfor
 .endfor
 

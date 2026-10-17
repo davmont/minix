@@ -1407,7 +1407,7 @@
 ./usr/share/certs/mozilla/all/Atos_TrustedRoot_Root_CA_ECC_TLS_2021.pem minix-base
 ./usr/share/certs/mozilla/all/Atos_TrustedRoot_Root_CA_RSA_G2_2020.pem minix-base
 ./usr/share/certs/mozilla/all/Atos_TrustedRoot_Root_CA_RSA_TLS_2021.pem minix-base
-./usr/share/certs/mozilla/all/Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068.pem minix-base
+./usr/share/certs/mozilla/all/Autoridad_Certificacion_Firmaprofesional_CIF_A62634068.pem minix-base
 ./usr/share/certs/mozilla/all/BJCA_Global_Root_CA1.pem  minix-base
 ./usr/share/certs/mozilla/all/BJCA_Global_Root_CA2.pem  minix-base
 ./usr/share/certs/mozilla/all/Baltimore_CyberTrust_Root.pem minix-base
@@ -1481,7 +1481,7 @@
 ./usr/share/certs/mozilla/all/HARICA_Client_RSA_Root_CA_2021.pem minix-base
 ./usr/share/certs/mozilla/all/HARICA_TLS_ECC_Root_CA_2021.pem minix-base
 ./usr/share/certs/mozilla/all/HARICA_TLS_RSA_Root_CA_2021.pem minix-base
-./usr/share/certs/mozilla/all/Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015.pem minix-base
+./usr/share/certs/mozilla/all/Hellenic_Academic_Research_Institutions_ECC_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/all/Hellenic_Academic_and_Research_Institutions_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/all/HiPKI_Root_CA_-_G1.pem    minix-base
 ./usr/share/certs/mozilla/all/Hongkong_Post_Root_CA_3.pem minix-base
@@ -1624,7 +1624,7 @@
 ./usr/share/certs/mozilla/email/Go_Daddy_Class_2_CA.pem minix-base
 ./usr/share/certs/mozilla/email/HARICA_Client_ECC_Root_CA_2021.pem minix-base
 ./usr/share/certs/mozilla/email/HARICA_Client_RSA_Root_CA_2021.pem minix-base
-./usr/share/certs/mozilla/email/Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015.pem minix-base
+./usr/share/certs/mozilla/email/Hellenic_Academic_Research_Institutions_ECC_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/email/Hellenic_Academic_and_Research_Institutions_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/email/IdenTrust_Commercial_Root_CA_1.pem minix-base
 ./usr/share/certs/mozilla/email/IdenTrust_Public_Sector_Root_CA_1.pem minix-base
@@ -1692,7 +1692,7 @@
 ./usr/share/certs/mozilla/server/Atos_TrustedRoot_2011.pem minix-base
 ./usr/share/certs/mozilla/server/Atos_TrustedRoot_Root_CA_ECC_TLS_2021.pem minix-base
 ./usr/share/certs/mozilla/server/Atos_TrustedRoot_Root_CA_RSA_TLS_2021.pem minix-base
-./usr/share/certs/mozilla/server/Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068.pem minix-base
+./usr/share/certs/mozilla/server/Autoridad_Certificacion_Firmaprofesional_CIF_A62634068.pem minix-base
 ./usr/share/certs/mozilla/server/BJCA_Global_Root_CA1.pem minix-base
 ./usr/share/certs/mozilla/server/BJCA_Global_Root_CA2.pem minix-base
 ./usr/share/certs/mozilla/server/Baltimore_CyberTrust_Root.pem minix-base
@@ -1752,7 +1752,7 @@
 ./usr/share/certs/mozilla/server/Go_Daddy_Root_Certificate_Authority_-_G2.pem minix-base
 ./usr/share/certs/mozilla/server/HARICA_TLS_ECC_Root_CA_2021.pem minix-base
 ./usr/share/certs/mozilla/server/HARICA_TLS_RSA_Root_CA_2021.pem minix-base
-./usr/share/certs/mozilla/server/Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015.pem minix-base
+./usr/share/certs/mozilla/server/Hellenic_Academic_Research_Institutions_ECC_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/server/Hellenic_Academic_and_Research_Institutions_RootCA_2015.pem minix-base
 ./usr/share/certs/mozilla/server/HiPKI_Root_CA_-_G1.pem minix-base
 ./usr/share/certs/mozilla/server/Hongkong_Post_Root_CA_3.pem minix-base
