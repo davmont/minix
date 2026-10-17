@@ -29,6 +29,7 @@ CONFIGFILES=\
 		DAEMON DISKS LOGIN NETWORKING SERVERS \
 		\
 		bootconf.sh \
+		certctl_init \
 		\
 		dhcpcd downinterfaces \
 		fsck ftpd \

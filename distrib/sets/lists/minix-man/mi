@@ -4043,6 +4043,7 @@
 ./usr/man/man8/bozohttpd.8                              minix-man
 ./usr/man/man8/btrace.8                                 minix-man
 ./usr/man/man8/cdprobe.8                                minix-man
+./usr/man/man8/certctl.8                                minix-man
 ./usr/man/man8/chown.8                                  minix-man
 ./usr/man/man8/chroot.8                                 minix-man
 ./usr/man/man8/cleantmp.8                               minix-man

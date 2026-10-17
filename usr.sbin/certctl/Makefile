@@ -10,7 +10,7 @@ SCRIPTS=	certctl.sh
 # once you arrange the build to do that, you can get rid of this hack.
 etc-certs.conf base-certs.conf: certs.conf
 	cat ${.ALLSRC} >${.TARGET}.tmp
-	${MV} -f ${.TARGET}.tmp ${.TARGET}
+	${MV:Umv} -f ${.TARGET}.tmp ${.TARGET}	# MINIX: no MV in share/mk
 
 CONFIGFILES+=	etc-certs.conf
 FILESBUILD_etc-certs.conf=	yes

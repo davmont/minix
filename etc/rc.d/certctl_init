@@ -32,6 +32,11 @@ certctl_init()
 
 	certsdir=/etc/openssl/certs
 
+	# MINIX: on read-only media (the live CD) there is nothing to do.
+	if ! [ -w /etc/openssl ]; then
+		return
+	fi
+
 	# If /etc/openssl/certs is a symlink, or exists but is not a
 	# directory, or is a directory but is nonempty, then we're not
 	# in the first boot's initial configuration.  So do nothing.

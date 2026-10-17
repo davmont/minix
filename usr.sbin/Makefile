@@ -5,7 +5,7 @@
 
 SUBDIR= arp \
 	\
-	chroot \
+	certctl chroot \
 	dev_mkdb \
 	\
 	\
