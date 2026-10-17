@@ -94,6 +94,7 @@
 ./etc/man.conf                                          minix-base
 ./etc/master.passwd                                     minix-base
 ./etc/mk.conf                                           minix-base
+./etc/moduli                                            minix-base
 ./etc/motd                                              minix-base
 ./etc/mtab                                              minix-base
 ./etc/mtree                                             minix-base
@@ -147,6 +148,7 @@
 ./etc/rc.d/pwcheck                                      minix-base
 ./etc/rc.d/root                                         minix-base
 ./etc/rc.d/rtadvd                                       minix-base
+./etc/rc.d/sshd                                         minix-base
 ./etc/rc.d/staticroute                                  minix-base
 ./etc/rc.d/sysctl                                       minix-base
 ./etc/rc.d/sysdb                                        minix-base
@@ -177,6 +179,9 @@
 ./etc/skel/.profile                                     minix-base
 ./etc/skel/.shrc                                        minix-base
 ./etc/spwd.db                                           minix-base
+./etc/ssh                                               minix-base
+./etc/ssh/ssh_config                                    minix-base
+./etc/ssh/sshd_config                                   minix-base
 ./etc/syslog.conf                                       minix-base
 ./etc/system.conf                                       minix-base
 ./etc/system.conf.d                                     minix-base
@@ -573,11 +578,13 @@
 ./usr/bin/rput                                          minix-base      obsolete
 ./usr/bin/rsh                                           minix-base
 ./usr/bin/rz                                            minix-base
+./usr/bin/scp                                           minix-base
 ./usr/bin/screendump                                    minix-base
 ./usr/bin/sdiff                                         minix-base
 ./usr/bin/sed                                           minix-base
 ./usr/bin/seq                                           minix-base
 ./usr/bin/setfacl                                       minix-base
+./usr/bin/sftp                                          minix-base
 ./usr/bin/sha1                                          minix-base
 ./usr/bin/sha256                                        minix-base
 ./usr/bin/sha384                                        minix-base
@@ -586,6 +593,7 @@
 ./usr/bin/shlock                                        minix-base
 ./usr/bin/shuffle                                       minix-base
 ./usr/bin/slip                                          minix-base
+./usr/bin/slogin                                        minix-base
 ./usr/bin/sockprobe                                     minix-base
 ./usr/bin/soelim                                        minix-base
 ./usr/bin/sort                                          minix-base
@@ -595,6 +603,12 @@
 ./usr/bin/sprofdiff                                     minix-base
 ./usr/bin/sqlite3                                       minix-base
 ./usr/bin/srccrc                                        minix-base
+./usr/bin/ssh                                           minix-base
+./usr/bin/ssh-add                                       minix-base
+./usr/bin/ssh-agent                                     minix-base
+./usr/bin/ssh-copy-id                                   minix-base
+./usr/bin/ssh-keygen                                    minix-base
+./usr/bin/ssh-keyscan                                   minix-base
 ./usr/bin/startlxqt                                     minix-base
 ./usr/bin/stat                                          minix-base
 ./usr/bin/string2key                                    minix-base      crypto
@@ -1242,6 +1256,11 @@
 ./usr/libexec/named                                     minix-base
 ./usr/libexec/named/filter-aaaa.so                      minix-base
 ./usr/libexec/rshd                                      minix-base
+./usr/libexec/sftp-server                               minix-base
+./usr/libexec/ssh-keysign                               minix-base
+./usr/libexec/ssh-pkcs11-helper                         minix-base
+./usr/libexec/sshd-auth                                 minix-base
+./usr/libexec/sshd-session                              minix-base
 ./usr/libexec/telnetd                                   minix-base
 ./usr/libexec/virecover                                 minix-base
 ./usr/log                                               minix-base
@@ -1321,6 +1340,7 @@
 ./usr/sbin/rtadvd                                       minix-base      use_inet6
 ./usr/sbin/service                                      minix-base
 ./usr/sbin/services_mkdb                                minix-base
+./usr/sbin/sshd                                         minix-base
 ./usr/sbin/syslogd                                      minix-base
 ./usr/sbin/tcpdump                                      minix-base
 ./usr/sbin/traceroute                                   minix-base
@@ -4158,6 +4178,7 @@
 ./var/chroot/rtadvd/etc                                 minix-base
 ./var/chroot/rtadvd/var                                 minix-base
 ./var/chroot/rtadvd/var/run                             minix-base
+./var/chroot/sshd                                       minix-base
 ./var/chroot/tcpdump                                    minix-base
 ./var/db                                                minix-base
 ./var/db/obsolete                                       minix-base

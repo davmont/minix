@@ -32,7 +32,9 @@ __RCSID("$NetBSD: misc.c,v 1.43 2026/10/07 17:32:07 christos Exp $");
 #include <sys/un.h>
 
 #include <net/if.h>
+#ifndef __minix	/* no tun(4): tun_open() fails to open /dev/tunN */
 #include <net/if_tun.h>
+#endif
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>

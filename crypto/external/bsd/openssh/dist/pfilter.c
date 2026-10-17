@@ -5,7 +5,9 @@
 #include "packet.h"
 #include "log.h"
 #include "pfilter.h"
+#ifndef SMALL
 #include <blocklist.h>
+#endif
 #include <syslog.h>
 
 #ifndef SMALL

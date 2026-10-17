@@ -15,6 +15,12 @@
 # use it to link.
 NOLINKLIB=		# defined
 
+.if defined(__MINIX)
+# The programs link libssh statically, as everything on MINIX does: no
+# shared libssh to ship.
+MKPIC=	no
+.endif
+
 .include <bsd.own.mk>
 
 .include "../Makefile.inc"

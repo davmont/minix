@@ -28,7 +28,9 @@ __RCSID("$NetBSD: sshconnect.c,v 1.44 2026/10/07 17:32:08 christos Exp $");
 #include <netinet/in.h>
 #include <netinet/in_var.h>
 #include <netinet6/ip6_var.h>
+#ifndef __minix	/* no RPC; nothing here uses it */
 #include <rpc/rpc.h>
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -399,6 +401,7 @@ check_ifaddrs(const char *ifname, int af, const struct ifaddrs *ifaddrs,
 					return -1;
 				}
 
+#ifndef __minix	/* no ifa_addrflags: take any address of the interface */
 				/*
 				 * For now, ignore scope and
 				 * don't allow deprecated addresses.  XXX
@@ -418,6 +421,7 @@ check_ifaddrs(const char *ifname, int af, const struct ifaddrs *ifaddrs,
 					if (!!istemp != prefertemp)
 						continue;
 				}
+#endif /* !__minix */
 				*rlenp = sizeof(struct sockaddr_in6);
 				memcpy(resultp, sa6, *rlenp);
 				return 0;

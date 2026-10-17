@@ -76,6 +76,8 @@ MKISCSI:=	no
 MKKERBEROS:=	no
 MKKMOD:=	no
 MKLDAP:=	no
+# No libfido2: OpenSSH without security-key (FIDO2) support.
+MKFIDO2:=	no
 MKLINT:=	no
 MKLVM:=		no
 MKMDNS:=	no

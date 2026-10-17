@@ -64,7 +64,8 @@ DPADD+=	${LIBCRYPT} ${LIBUTIL}
 LDADD+=	-lwrap
 DPADD+=	${LIBWRAP}
 
-.ifdef CRUNCHEDPROG
+# MINIX: no blocklistd(8); pfilter.c then reports nothing.
+.if defined(CRUNCHEDPROG) || defined(__MINIX)
 CPPFLAGS+=-DSMALL
 .else
 LDADD+=	-lblocklist

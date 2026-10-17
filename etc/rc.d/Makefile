@@ -48,7 +48,7 @@ CONFIGFILES=\
 		root rtadvd \
 		\
 		\
-		staticroute sysctl sysdb syslogd \
+		sshd staticroute sysctl sysdb syslogd \
 		ttys \
 		wscons \
 		

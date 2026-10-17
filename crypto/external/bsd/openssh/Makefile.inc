@@ -30,6 +30,11 @@ CPPFLAGS+=-DWITH_OPENSSL -DENABLE_PKCS11
 .endif
 
 CPPFLAGS+=-DWITH_ZLIB
+.if defined(__MINIX)
+# MINIX's libc (an older NetBSD's) exports _getshort/_getlong and <resolv.h>
+# declares them, so getrrsetbyname.c must not define its own static ones.
+CPPFLAGS+=-DHAVE__GETSHORT -DHAVE__GETLONG
+.endif
 
 .if !defined(NOPIC)
 CPPFLAGS+=-DHAVE_DLOPEN

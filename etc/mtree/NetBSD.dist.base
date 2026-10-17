@@ -54,6 +54,7 @@
 ./etc/saslc.d/saslc
 ./etc/saslc.d/saslc/mech
 ./etc/skel
+./etc/ssh
 ./etc/system.conf.d
 ./home
 ./lib
@@ -827,6 +828,7 @@
 ./var/chroot/rtadvd/etc		type=dir  mode=0755
 ./var/chroot/rtadvd/var		type=dir  mode=0755
 ./var/chroot/rtadvd/var/run	type=dir  mode=0775 gname=_rtadvd
+./var/chroot/sshd
 ./var/chroot/tcpdump		mode=0755
 ./var/db
 ./var/db/obsolete
