@@ -76,6 +76,7 @@ u32_t frclock_64_to_micros(u64_t tsc);
 void ser_putc(char c);
 void get_randomness(struct k_randomness *, int);
 u32_t sqrt_approx(u32_t);
+u32_t minix_rand32(void);
 
 int stime(time_t *_top);
 

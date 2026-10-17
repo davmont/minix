@@ -20,6 +20,7 @@ struct vmproc {
 	/* Regions in virtual address space. */
 	region_avl vm_regions_avl;
 	vir_bytes  vm_region_top;	/* highest vaddr last inserted */
+	vir_bytes  vm_mmap_top;	/* ASLR: top of mmap() placement, 0 if none */
 	int vm_acl;
 	int vm_slot;		/* process table slot */
 #if VMSTATS

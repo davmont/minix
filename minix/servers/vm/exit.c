@@ -66,6 +66,7 @@ void free_proc(struct vmproc *vmp)
 		vmp->vm_bytecopies = 0;
 #endif
 		vmp->vm_region_top = 0;
+		vmp->vm_mmap_top = 0;
 		reset_vm_rusage(vmp);
 		return;
 	}
@@ -93,6 +94,7 @@ void free_proc(struct vmproc *vmp)
 	vmp->vm_bytecopies = 0;
 #endif
 	vmp->vm_region_top = 0;
+	vmp->vm_mmap_top = 0;
 	reset_vm_rusage(vmp);
 }
 
@@ -110,6 +112,7 @@ void clear_proc(struct vmproc *vmp)
 	vmp->vm_bytecopies = 0;
 #endif
 	vmp->vm_region_top = 0;
+	vmp->vm_mmap_top = 0;
 	reset_vm_rusage(vmp);
 }
 
@@ -194,6 +197,13 @@ int do_procctl(message *msg, int transid)
 			if(pt_new(&vmp->vm_pt) != OK)
 				panic("VMPPARAM_CLEAR: pt_new failed");
 			pt_bind(&vmp->vm_pt, vmp);
+			/* A user process being exec'd (VFS asks): place its
+			 * mmap()s below a random top, which its forks keep.
+			 * System services (RS asks) keep the fixed layout that
+			 * live update expects. */
+			if(msg->m_source == VFS_PROC_NR)
+				vmp->vm_mmap_top = VM_MMAPTOP - VM_PAGE_SIZE *
+				    (minix_rand32() % ASLR_MMAP_PAGES);
 			return OK;
 		case VMPPARAM_HANDLEMEM:
 		{

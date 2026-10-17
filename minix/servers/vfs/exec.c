@@ -58,6 +58,7 @@ static int patch_stack(struct vnode *vp, char stack[ARG_MAX],
 static int is_script(struct vfs_exec_info *execi);
 static int insert_arg(char stack[ARG_MAX], size_t *stk_bytes, char *arg,
 	vir_bytes *vsp, char replace);
+static void relocate_frame(char *frame, size_t frame_len, vir_bytes delta);
 static void clo_exec(struct fproc *rfp);
 static int stack_prepare_elf(struct vfs_exec_info *execi,
 	char *curstack, size_t *frame_len, vir_bytes *vsp);
@@ -65,6 +66,11 @@ static int map_header(struct vfs_exec_info *execi);
 static int read_seg(struct exec_info *execi, off_t off, vir_bytes seg_addr, size_t seg_bytes);
 
 #define PTRSIZE	sizeof(char *) /* Size of pointers in argv[] and envp[]. */
+
+/* ASLR: the initial stack frame goes up to this many pages, in 16-byte steps,
+ * below the top of the stack region: 14 bits, and at most 256 KB of the 4 MB
+ * stack. */
+#define ASLR_STACK_PAGES	64
 
 /* Array of loaders for different object file formats */
 typedef int (*exechook_t)(struct vfs_exec_info *execpackage);
@@ -185,14 +191,14 @@ static int vfs_memmap(struct exec_info *execi,
  *				pm_exec					     *
  *===========================================================================*/
 int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
-	vir_bytes *pc, vir_bytes *newsp, vir_bytes *UNUSED(ps_str), int solo)
+	vir_bytes *pc, vir_bytes *newsp, vir_bytes *ps_str, int solo)
 {
 /* Perform the execve(name, argv, envp) call.  The user library builds a
  * complete stack image, including pointers, args, environ, etc.  The stack
  * is copied to a buffer inside VFS, and then to the new core image.
  *
- * ps_str is not currently used, but may be if the ps_strings structure has to
- * be moved to another location.
+ * ps_str is where the user library put the ps_strings structure, at the top
+ * of the frame; it moves with the frame (ASLR, below).
  *
  * solo: the caller has other threads.  Stop once the exec has passed its
  * checks, before anything is changed, and return VFS_PM_EXEC_DETHREAD; PM
@@ -367,6 +373,20 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
   }
 
   FAILCHECK(r);
+
+  /* ASLR: lower the initial stack frame by a random amount within the stack
+   * region, now mapped, and tell PM, which starts the process at
+   * stack_high - frame_len.  Multiples of 16 bytes keep the frame's
+   * alignment. */
+  {
+	vir_bytes delta = (vir_bytes) (minix_rand32() %
+	    (ASLR_STACK_PAGES * PAGE_SIZE)) & ~(vir_bytes) 15;
+
+	relocate_frame(mbuf, frame_len, delta);
+	execi.args.stack_high -= delta;
+	vsp -= delta;
+	*ps_str -= delta;
+  }
 
   /* Inform PM */
   FAILCHECK(libexec_pm_newexec(fp->fp_endpoint, &execi.args));
@@ -707,6 +727,37 @@ static int insert_arg(char stack[ARG_MAX], size_t *stk_bytes, char *arg,
 	psp->ps_envstr = psp->ps_argvstr + psp->ps_nargvstr + 1;
 
 	return TRUE;
+}
+
+/*===========================================================================*
+ *				relocate_frame				     *
+ *===========================================================================*/
+static void relocate_frame(char *frame, size_t frame_len, vir_bytes delta)
+{
+/* The frame moves delta bytes down in the new process: fix the pointers in it,
+ * which all point into it.  It looks like
+ *	nargs argv[0] ... argv[nargs-1] NULL envp[0] ... NULL auxv strings
+ *	ps_strings
+ * (see insert_arg()); the auxv is filled in afterwards, by the stack hook.
+ */
+  struct ps_strings *psp;
+  char **p, **end;
+  int nulls = 0;
+
+  if (delta == 0 || frame_len < PTRSIZE + sizeof(*psp))
+	return;
+
+  end = (char **) (frame + frame_len - sizeof(*psp));
+  for (p = (char **) frame + 1; p < end && nulls < 2; p++) {
+	if (*p == NULL)
+		nulls++;
+	else
+		*p -= delta;
+  }
+
+  psp = (struct ps_strings *) (frame + frame_len - sizeof(*psp));
+  psp->ps_argvstr = (char **) ((char *) psp->ps_argvstr - delta);
+  psp->ps_envstr = (char **) ((char *) psp->ps_envstr - delta);
 }
 
 /*===========================================================================*

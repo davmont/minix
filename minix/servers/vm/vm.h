@@ -88,6 +88,10 @@
 #define VM_MMAPBASE	VM_PAGE_SIZE
 #endif
 
+/* ASLR: a user process's mmap()s go below a top up to this many pages under
+ * VM_MMAPTOP, drawn at exec (64 MB; 14 bits). */
+#define ASLR_MMAP_PAGES	((64 * 1024 * 1024) / VM_PAGE_SIZE)
+
 extern char _end;
 #define VM_OWN_HEAPSTART ((vir_bytes) (&_end))
 #define VM_OWN_HEAPBASE   roundup(VM_OWN_HEAPSTART, VM_PAGE_SIZE)
