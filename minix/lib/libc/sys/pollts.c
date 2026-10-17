@@ -61,4 +61,6 @@ pollts(struct pollfd * __restrict fds, nfds_t nfds,
 
 #if defined(__minix) && defined(__weak_alias)
 __weak_alias(pollts, __pollts50)
+/* POSIX.1-2024 ppoll() is pollts(), as in NetBSD. */
+__weak_alias(ppoll, __pollts50)
 #endif

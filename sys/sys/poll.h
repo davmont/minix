@@ -83,18 +83,26 @@ __BEGIN_DECLS
 int	poll(struct pollfd *, nfds_t, int);
 __END_DECLS
 
-#ifdef _NETBSD_SOURCE
+/*
+ * IEEE Std 1003.1-2024 (POSIX.1-2024)
+ */
+#if (_POSIX_C_SOURCE - 0) >= 202405L || (_XOPEN_SOURCE - 0 >= 800) || \
+    defined(_NETBSD_SOURCE)
 #include <sys/sigtypes.h>	/* for sigset_t */
 struct timespec;
 
 __BEGIN_DECLS
 #ifndef __LIBC12_SOURCE__
+#ifdef _NETBSD_SOURCE
 int	pollts(struct pollfd * __restrict, nfds_t,
     const struct timespec * __restrict, const sigset_t * __restrict)
     __RENAME(__pollts50);
+#endif
+int	ppoll(struct pollfd * __restrict, nfds_t,
+    const struct timespec * __restrict, const sigset_t * __restrict);
 #endif /* __LIBC12_SOURCE__ */
 __END_DECLS
-#endif /* _NETBSD_SOURCE */
+#endif /* POSIX.1-2024 || _NETBSD_SOURCE */
 
 #endif /* _KERNEL */
 

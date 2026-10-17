@@ -366,6 +366,12 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
   execi.args.frame_len = frame_len;
   execi.args.filesize = execi.vp->v_size;
 
+  /* The aux vector names the executable (AT_SUN_EXECNAME, which
+   * getexecpath(3) returns): for a dynamic one, the main program, remembered
+   * above; for a static one, the file itself. */
+  if (execi.execname[0] == '\0')
+	strlcpy(execi.execname, finalexec, PATH_MAX);
+
   for (i = 0; exec_loaders[i].load_object != NULL; i++) {
       r = (*exec_loaders[i].load_object)(&execi.args);
       /* Loaded successfully, so no need to try other loaders */
