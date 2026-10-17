@@ -373,7 +373,7 @@
 #define SVMCTL_PARAM	m1_i2	/* All SYS_VMCTL requests. */
 #define SVMCTL_VALUE	m1_i3
 #define	SVMCTL_MRG_TARGET	m2_i1	/* MEMREQ_GET reply: target process */
-#define	SVMCTL_MRG_ADDR		m2_i2	/* MEMREQ_GET reply: address */
+#define	SVMCTL_MRG_ADDR		m2_ll1	/* MEMREQ_GET reply: address */
 #define	SVMCTL_MRG_LENGTH	m2_i3	/* MEMREQ_GET reply: length */
 #define	SVMCTL_MRG_FLAG		m2_s1	/* MEMREQ_GET reply: flag */
 #define	SVMCTL_MRG_EP2		m2_l1	/* MEMREQ_GET reply: source process */
@@ -586,7 +586,7 @@
 					 */
 #  define VFS_PM_FRAME		m7_p2	/* arguments and environment */
 #  define VFS_PM_FRAME_LEN	m7_i3	/* size of frame */
-#  define VFS_PM_PS_STR		m7_i5	/* ps_strings pointer */
+#  define VFS_PM_PS_STR		m7_p3	/* ps_strings pointer */
 #  define VFS_PM_EXEC_FLAGS	m7_i4	/* VFS_PM_EXEC_* below */
 #    define VFS_PM_EXEC_SOLO	0x01	/* threaded caller: stop before the
 					 * point of no return, see below */
@@ -599,7 +599,7 @@
 #  define VFS_PM_STATUS		m7_i2	/* OK or failure */
 #  define VFS_PM_PC		m7_p1	/* program counter */
 #  define VFS_PM_NEWSP		m7_p2	/* possibly-changed stack ptr */
-#  define VFS_PM_NEWPS_STR	m7_i5	/* possibly-changed ps_strings ptr */
+#  define VFS_PM_NEWPS_STR	m7_p3	/* possibly-changed ps_strings ptr */
 
 /* Additional parameters for PM_FORK and PM_SRV_FORK */
 #  define VFS_PM_PENDPT		m7_i2	/* parent process endpoint */
@@ -848,7 +848,7 @@
 
 /* not handled as a normal VM call, thus at the end of the reserved rage */
 #define VM_PAGEFAULT		(VM_RQ_BASE+0xff)
-#	define VPF_ADDR		m1_i1
+#	define VPF_ADDR		m1_ull1
 #	define VPF_FLAGS	m1_i2
 
 /* Basic vm calls allowed to every process. */
