@@ -69,8 +69,8 @@ _ASSERT_MSG_SIZE(mess_4);
 
 typedef struct {
 	int m7i1, m7i2, m7i3, m7i4, m7i5;
-	char *m7p1, *m7p2;
-	uint8_t padding[28];
+	char *m7p1, *m7p2, *m7p3;
+	uint8_t padding[24];
 } mess_7;
 _ASSERT_MSG_SIZE(mess_7);
 
@@ -2746,8 +2746,8 @@ typedef struct {
 	dev_t dev;
 	ino_t ino;
 	endpoint_t who;
-	u32_t vaddr;
-	u32_t len;
+	vir_bytes vaddr;
+	vir_bytes len;
 	u32_t flags;
 	u32_t fd;
 	u16_t clearend;
@@ -3129,6 +3129,7 @@ typedef int _ASSERT_message[/* CONSTCOND */sizeof(message) == 64 ? 1 : -1];
 #define m7_i5  m_m7.m7i5
 #define m7_p1  m_m7.m7p1
 #define m7_p2  m_m7.m7p2
+#define m7_p3  m_m7.m7p3
 
 #define m9_l1  m_m9.m9l1
 #define m9_l2  m_m9.m9l2
