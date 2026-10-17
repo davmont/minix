@@ -20,7 +20,7 @@ int execve(const char *path, char * const *argv, char * const *envp)
 	char overflow = 0;	/* No overflow yet. */
 	char *frame;
 	struct ps_strings *psp;
-	int vsp = 0;	/* (virtual) Stack pointer in new address space. */
+	vir_bytes vsp = 0;	/* (virtual) Stack pointer in new address space. */
 
 	minix_stack_params(path, argv, envp, &frame_size, &overflow,
 		&argc, &envc);
@@ -38,7 +38,7 @@ int execve(const char *path, char * const *argv, char * const *envp)
 	}
 
 	minix_stack_fill(path, argc, argv, envc, envp, frame_size, frame,
-	       	&vsp, &psp);
+	       	minix_get_user_sp(), &vsp, &psp);
 
 	/* Clear unused message fields */
 	memset(&m, 0, sizeof(m));

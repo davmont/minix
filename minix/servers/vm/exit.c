@@ -67,6 +67,8 @@ void free_proc(struct vmproc *vmp)
 #endif
 		vmp->vm_region_top = 0;
 		vmp->vm_mmap_top = 0;
+		vmp->vm_mmap_base = 0;
+		vmp->vm_mmap_end = 0;
 		reset_vm_rusage(vmp);
 		return;
 	}
@@ -95,6 +97,8 @@ void free_proc(struct vmproc *vmp)
 #endif
 	vmp->vm_region_top = 0;
 	vmp->vm_mmap_top = 0;
+	vmp->vm_mmap_base = 0;
+	vmp->vm_mmap_end = 0;
 	reset_vm_rusage(vmp);
 }
 
@@ -113,6 +117,8 @@ void clear_proc(struct vmproc *vmp)
 #endif
 	vmp->vm_region_top = 0;
 	vmp->vm_mmap_top = 0;
+	vmp->vm_mmap_base = 0;
+	vmp->vm_mmap_end = 0;
 	reset_vm_rusage(vmp);
 }
 
@@ -201,9 +207,26 @@ int do_procctl(message *msg, int transid)
 			 * mmap()s below a random top, which its forks keep.
 			 * System services (RS asks) keep the fixed layout that
 			 * live update expects. */
-			if(msg->m_source == VFS_PROC_NR)
+			if(msg->m_source == VFS_PROC_NR) {
+#ifdef VM_HOLE_END
+				/* A stack above 1 GB (an exec'd user
+				 * process, kernel/const.h): the mmap()s
+				 * below it, in the upper half of the
+				 * address space under it. */
+				vir_bytes top = msg->VMPCTL_M1;
+				if(top >= VM_HOLE_END + VM_EXEC_STACKGAP) {
+					vmp->vm_mmap_end =
+					    top - VM_EXEC_STACKGAP;
+					vmp->vm_mmap_base =
+					    vmp->vm_mmap_end / 2;
+					vmp->vm_mmap_top = vmp->vm_mmap_end -
+					    VM_PAGE_SIZE * (minix_rand32() %
+					    ASLR_MMAP_PAGES_HIGH);
+				} else
+#endif
 				vmp->vm_mmap_top = VM_MMAPTOP - VM_PAGE_SIZE *
 				    (minix_rand32() % ASLR_MMAP_PAGES);
+			}
 			return OK;
 		case VMPPARAM_HANDLEMEM:
 		{

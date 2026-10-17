@@ -88,7 +88,20 @@
 #define VM_MMAPBASE	VM_PAGE_SIZE
 #endif
 
-/* ASLR: a user process's mmap()s go below a top up to this many pages under
+#if defined(__x86_64__)
+/* The band of every address space the kernel's mappings and the page
+ * directory windows are in (kernel/const.h): no region may be in it. */
+#define VM_HOLE_START	0x38000000UL		/* 896 MB */
+#define VM_HOLE_END	0x40000000UL		/* 1 GB */
+/* An exec'd process with its stack above 1 GB has its mmap() area below
+ * the stack, less this for the stack and ld.so (VFS puts it 10 MB under the
+ * stack), down to half the stack's address: about 64 TB. */
+#define VM_EXEC_STACKGAP	((vir_bytes) 64 * 1024 * 1024)
+/* ASLR there: a top up to this many pages under the area's (1 TB; 28
+ * bits). */
+#define ASLR_MMAP_PAGES_HIGH	((vir_bytes) 1 << 28)
+#endif
+/* ASLR in the default mmap() area: a top up to this many pages under
  * VM_MMAPTOP, drawn at exec (64 MB; 14 bits). */
 #define ASLR_MMAP_PAGES	((64 * 1024 * 1024) / VM_PAGE_SIZE)
 

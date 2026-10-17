@@ -55,7 +55,7 @@ int libexec_alloc_mmap_ondemand(struct exec_info *execi, vir_bytes vaddr, size_t
 
 int libexec_clearproc_vm_procctl(struct exec_info *execi)
 {
-	return vm_procctl_clear(execi->proc_e);
+	return vm_procctl_clear_stack(execi->proc_e, execi->stack_high);
 }
 
 int libexec_clear_sys_memset(struct exec_info *execi, vir_bytes vaddr, size_t len)

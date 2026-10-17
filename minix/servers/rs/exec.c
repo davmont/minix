@@ -27,7 +27,7 @@ int srv_execve(int proc_e, char *exec, size_t exec_len, char *progname,
 	char overflow = 0;	/* No overflow yet. */
 	char *frame;
 	struct ps_strings *psp;
-	int vsp = 0;	/* (virtual) Stack pointer in new address space. */
+	vir_bytes vsp = 0;	/* (virtual) Stack pointer in new address space. */
 
 	int r;
 
@@ -46,8 +46,10 @@ int srv_execve(int proc_e, char *exec, size_t exec_len, char *progname,
 		return -1;
 	}
 
+	/* System services keep the low layout (kernel/const.h): their frame,
+	 * and so their stack, goes below kinfo's stack top. */
 	minix_stack_fill(argv[0], argc, argv, envc, envp, frame_size, frame,
-		&vsp, &psp);
+		get_minix_kerninfo()->kinfo->user_sp, &vsp, &psp);
 
 	r = do_exec(proc_e, exec, exec_len, progname, frame, frame_size,
 		vsp + ((char *)psp - frame));
@@ -69,7 +71,8 @@ static int do_exec(int proc_e, char *exec, size_t exec_len, char *progname,
 
 	memset(&execi, 0, sizeof(execi));
 
-	execi.stack_high = minix_get_user_sp();
+	/* The low stack top RS makes service frames for (see above). */
+	execi.stack_high = get_minix_kerninfo()->kinfo->user_sp;
 	execi.stack_size = DEFAULT_STACK_LIMIT;
 	execi.proc_e = proc_e;
 	execi.hdr = exec;

@@ -554,7 +554,13 @@ void cstart(void)
 
   memset(&kuserinfo, 0, sizeof(kuserinfo));
   kuserinfo.kui_size = sizeof(kuserinfo);
+  /* What libc's execve() builds stack frames for (see kernel/const.h). */
+#ifdef USR_EXEC_STACKTOP
+  kuserinfo.kui_user_sp = (kinfo.user_sp == (vir_bytes) USR_STACKTOP) ?
+      (vir_bytes) USR_EXEC_STACKTOP : kinfo.user_sp;	/* not ac_layout */
+#else
   kuserinfo.kui_user_sp = kinfo.user_sp;
+#endif
 
 #ifdef USE_APIC
   value = env_get("no_apic");
