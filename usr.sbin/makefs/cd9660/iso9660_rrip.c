@@ -49,6 +49,7 @@ __RCSID("$NetBSD: iso9660_rrip.c,v 1.14 2014/05/30 13:14:47 martin Exp $");
 
 static void cd9660_rrip_initialize_inode(cd9660node *);
 static int cd9660_susp_handle_continuation(iso9660_disk *, cd9660node *);
+static int64_t cd9660_susp_ca_place(iso9660_disk *, int64_t, int64_t);
 static int cd9660_susp_handle_continuation_common(iso9660_disk *, cd9660node *,
     int);
 
@@ -130,6 +131,28 @@ cd9660_susp_finalize(iso9660_disk *diskStructure, cd9660node *node)
  */
 
 /*
+ * Where a continuation area of len bytes goes, the areas being used up to
+ * at: at the next byte, unless that would make it cross into the next
+ * sector.  A CE entry gives a sector and an offset within it, so an area
+ * must lie in one sector; offsets of a sector or more, which handing out
+ * the areas one after another from the first sector gave, made readers
+ * (Linux, MINIX isofs, isoinfo) drop the Rock Ridge names and symlinks
+ * that the areas held, past the first 2 KB of them.
+ */
+static int64_t
+cd9660_susp_ca_place(iso9660_disk *diskStructure, int64_t at, int64_t len)
+{
+	int64_t ss = diskStructure->sectorSize;
+
+	if (len > ss)
+		errx(EXIT_FAILURE, "Rock Ridge continuation area of %jd bytes",
+		    (intmax_t)len);
+	if (at % ss + len > ss)
+		at += ss - at % ss;
+	return at;
+}
+
+/*
  * SUSP needs to update the following types:
  * CE (continuation area)
  */
@@ -137,13 +160,21 @@ int
 cd9660_susp_finalize_node(iso9660_disk *diskStructure, cd9660node *node)
 {
 	struct ISO_SUSP_ATTRIBUTES *t;
+	int64_t ss = diskStructure->sectorSize;
 
 	/* Handle CE counters */
 	if (node->susp_entry_ce_length > 0) {
-		node->susp_entry_ce_start =
-		    diskStructure->susp_continuation_area_current_free;
-		diskStructure->susp_continuation_area_current_free +=
-		    node->susp_entry_ce_length;
+		node->susp_entry_ce_start = cd9660_susp_ca_place(diskStructure,
+		    diskStructure->susp_continuation_area_current_free,
+		    node->susp_entry_ce_length);
+		diskStructure->susp_continuation_area_current_free =
+		    node->susp_entry_ce_start + node->susp_entry_ce_length;
+		if (diskStructure->susp_continuation_area_current_free >
+		    diskStructure->susp_continuation_area_size)
+			errx(EXIT_FAILURE, "Rock Ridge continuation areas "
+			    "overflow their %jd bytes",
+			    (intmax_t)diskStructure->
+			    susp_continuation_area_size);
 	}
 
 	TAILQ_FOREACH(t, &node->head, rr_ll) {
@@ -151,15 +182,10 @@ cd9660_susp_finalize_node(iso9660_disk *diskStructure, cd9660node *node)
 		    t->entry_type != SUSP_ENTRY_SUSP_CE)
 			continue;
 		cd9660_bothendian_dword(
-			diskStructure->
-			  susp_continuation_area_start_sector,
+			diskStructure->susp_continuation_area_start_sector +
+			    node->susp_entry_ce_start / ss,
 			t->attr.su_entry.CE.ca_sector);
-
-		cd9660_bothendian_dword(
-			diskStructure->
-			  susp_continuation_area_start_sector,
-			t->attr.su_entry.CE.ca_sector);
-		cd9660_bothendian_dword(node->susp_entry_ce_start,
+		cd9660_bothendian_dword(node->susp_entry_ce_start % ss,
 			t->attr.su_entry.CE.offset);
 		cd9660_bothendian_dword(node->susp_entry_ce_length,
 			t->attr.su_entry.CE.length);
@@ -276,7 +302,12 @@ cd9660_susp_handle_continuation_common(iso9660_disk *diskStructure,
 	node->susp_entry_size = susp_used;
 	node->susp_entry_ce_length = ca_used;
 
-	diskStructure->susp_continuation_area_size += ca_used;
+	/* Lay the areas out as cd9660_susp_finalize_node() will. */
+	if (ca_used > 0)
+		diskStructure->susp_continuation_area_size =
+		    cd9660_susp_ca_place(diskStructure,
+			diskStructure->susp_continuation_area_size, ca_used) +
+		    ca_used;
 	return 1;
 }
 
