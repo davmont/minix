@@ -116,6 +116,10 @@ if [ "${UEFI}" = "yes" ]; then
 	add_file_spec "boot/grub/grub.cfg" extra.cdfiles
 fi
 
+# TLS trust anchors: the CD's /etc is read-only, so certctl_init cannot
+# configure them at boot.
+add_ca_certs extra.cdfiles
+
 echo "Creating specification files..."
 create_input_spec
 create_protos

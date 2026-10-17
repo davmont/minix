@@ -35,6 +35,61 @@ add_link_spec()
 }
 
 #
+# Configure the TLS trust anchors in /etc/openssl/certs as "certctl rehash"
+# does (usr.sbin/certctl), for media whose /etc is read-only, so that their
+# first boot cannot (etc/rc.d/certctl_init).  certctl itself does not run
+# here: it needs NetBSD's find(1) and vis(1).  The subject hashes OpenSSL
+# looks certificates up by come from the build host's openssl(1); without
+# one, the image has no trust anchors, as before.
+#
+# $1 : spec file
+#
+add_ca_certs()
+{
+	local certsdir=etc/openssl/certs conf dir f name hash n
+	# Globs in byte order, as certctl's in the guest: the same bundle.
+	local LC_ALL=C
+
+	conf=${ROOT_DIR}/etc/openssl/certs.conf
+	[ -f ${conf} ] || return 0
+	if grep -q '^[[:space:]]*manual' ${conf}; then
+		return 0
+	fi
+	if ! command -v openssl >/dev/null 2>&1; then
+		echo "WARNING: no openssl(1) on the build host:" \
+		    "the image has no TLS trust anchors"
+		return 0
+	fi
+
+	echo " * Configuring TLS trust anchors..."
+	rm -rf ${ROOT_DIR}/${certsdir}
+	mkdir -p ${ROOT_DIR}/${certsdir}
+	printf 'This directory is managed by certctl(8).\n' \
+	    > ${ROOT_DIR}/${certsdir}/.certctl
+	echo "./${certsdir}/.certctl type=file uid=0 gid=0 mode=0644 size=$(wc -c < ${ROOT_DIR}/${certsdir}/.certctl)" >> ${WORK_DIR}/$1
+	: > ${ROOT_DIR}/${certsdir}/ca-certificates.crt
+
+	for dir in $(sed -n 's/^[[:space:]]*path[[:space:]]\{1,\}//p' ${conf}); do
+		for f in ${ROOT_DIR}${dir}/*.pem; do
+			[ -f "${f}" ] || continue
+			name=${f##*/}
+			ln -s ${dir}/${name} ${ROOT_DIR}/${certsdir}/${name}
+			add_link_spec "${certsdir}/${name}" "${dir}/${name}" $1
+			hash=$(openssl x509 -noout -subject_hash -in "${f}") ||
+			    return 1
+			n=0
+			while [ -h ${ROOT_DIR}/${certsdir}/${hash}.${n} ]; do
+				n=$((n + 1))
+			done
+			ln -s ${name} ${ROOT_DIR}/${certsdir}/${hash}.${n}
+			add_link_spec "${certsdir}/${hash}.${n}" "${name}" $1
+			cat "${f}" >> ${ROOT_DIR}/${certsdir}/ca-certificates.crt
+		done
+	done
+	echo "./${certsdir}/ca-certificates.crt type=file uid=0 gid=0 mode=0644 size=$(wc -c < ${ROOT_DIR}/${certsdir}/ca-certificates.crt)" >> ${WORK_DIR}/$1
+}
+
+#
 # workdir handling
 #
 
