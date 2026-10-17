@@ -59,8 +59,17 @@ typedef u64_t pte_t;
 
 #define VM_PAGE_SIZE	AMD64_PAGE_SIZE
 
-/* Virtual address -> PD index and PT index. */
-#define ARCH_VM_PDE(v)	AMD64_VM_PD(v)
+/* Virtual address -> page directory entry and PT index.  Page directory
+ * entries are numbered across the whole user half of the address space
+ * (PML4 entries 0-255), 512 per page directory: entry pde maps
+ * [pde << 21, (pde + 1) << 21).  pagetable.c finds the page directory of an
+ * entry (PDE_PML4, PDE_PDPT) and the entry in it (PDE_PD).
+ */
+#define ARCH_VM_PDE(v)	((long) ((vir_bytes) (v) >> 21))
 #define ARCH_VM_PTE(v)	AMD64_VM_PT(v)
+#define PDE_PML4(pde)	((int) ((pde) >> 18))
+#define PDE_PDPT(pde)	((int) (((pde) >> 9) & 511))
+#define PDE_PD(pde)	((int) ((pde) & 511))
+#define PT_NPDES	(256L << 18)		/* entries in the user half */
 
 #endif /* _PAGETABLE_H */
