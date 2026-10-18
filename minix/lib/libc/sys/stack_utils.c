@@ -121,7 +121,7 @@ void minix_stack_params(const char *path, char * const *argv, char * const *envp
  *****************************************************************************/
 void minix_stack_fill(const char *path, int argc, char * const *argv,
 	int envc, char * const *envp, size_t stack_size, char *frame,
-	int *vsp, struct ps_strings **psp)
+	vir_bytes stack_top, vir_bytes *vsp, struct ps_strings **psp)
 {
 	char * const *p;
 
@@ -133,7 +133,7 @@ void minix_stack_fill(const char *path, int argc, char * const *argv,
 	size_t const min_size = STACK_MIN_SZ;
 
 	/* Virtual address of the stack pointer, in new memory space. */
-	*vsp = minix_get_user_sp() - stack_size;
+	*vsp = stack_top - stack_size;
 
 	/* Fill in the frame now. */
 	fpw = (char **) frame;

@@ -436,6 +436,35 @@ static vir_bytes region_find_slot_range(struct vmproc *vmp,
 	return startv;
 }
 
+#ifdef VM_HOLE_START
+/*===========================================================================*
+ *				region_find_slot_range_hole		     *
+ *===========================================================================*/
+static vir_bytes region_find_slot_range_hole(struct vmproc *vmp,
+		vir_bytes minv, vir_bytes maxv, vir_bytes length)
+{
+/* region_find_slot_range(), keeping out of the kernel's band of the address
+ * space: a slot above it, failing that below it; a mapping asked for at a
+ * fixed place in it fails.
+ */
+	vir_bytes end = maxv ? maxv : minv + length, v = SLOT_FAIL;
+
+	if(minv >= VM_HOLE_END || end <= VM_HOLE_START)
+		return region_find_slot_range(vmp, minv, maxv, length);
+	if(!maxv)
+		return SLOT_FAIL;
+	if(maxv > VM_HOLE_END && maxv - MAX(minv, VM_HOLE_END) >= length)
+		v = region_find_slot_range(vmp, MAX(minv, VM_HOLE_END), maxv,
+		    length);
+	if(v == SLOT_FAIL && minv < VM_HOLE_START &&
+	    MIN(maxv, VM_HOLE_START) - minv >= length)
+		v = region_find_slot_range(vmp, minv, MIN(maxv, VM_HOLE_START),
+		    length);
+	return v;
+}
+#define region_find_slot_range region_find_slot_range_hole
+#endif
+
 /*===========================================================================*
  *				region_find_slot			     *
  *===========================================================================*/
@@ -1090,6 +1119,11 @@ int map_region_extend_upto_v(struct vmproc *vmp, vir_bytes v)
 		printf("VM: can't grow into next region\n");
 		return ENOMEM;
 	}
+#ifdef VM_HOLE_START
+	/* Nor into the kernel's band of the address space. */
+	if(limit <= VM_HOLE_START && offset > VM_HOLE_START)
+		return ENOMEM;
+#endif
 
 	if(!vr->def_memtype->ev_resize) {
 		if(!map_page_region(vmp, limit, 0, extralen,

@@ -98,12 +98,15 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 	if (!vr && vmp->vm_mmap_top) {
 		/* No address given or address already in use: below the
 		 * process's random top (ASLR), */
-		vr = map_page_region(vmp, VM_MMAPBASE, vmp->vm_mmap_top, len,
+		vr = map_page_region(vmp, vmp->vm_mmap_base ?
+			vmp->vm_mmap_base : VM_MMAPBASE, vmp->vm_mmap_top, len,
 			vrflags, mfflags, mt);
 	}
 	if (!vr) {
-		/* or anywhere in the mmap area. */
-		vr = map_page_region(vmp, VM_MMAPBASE, VM_MMAPTOP, len,
+		/* or anywhere in its mmap area. */
+		vr = map_page_region(vmp, vmp->vm_mmap_base ?
+			vmp->vm_mmap_base : VM_MMAPBASE, vmp->vm_mmap_end ?
+			vmp->vm_mmap_end : VM_MMAPTOP, len,
 			vrflags, mfflags, mt);
 	}
 

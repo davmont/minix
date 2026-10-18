@@ -226,7 +226,11 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 
   /* passed from exec() libc code */
   execi.userflags = 0;
-  execi.args.stack_high = minix_get_user_sp();
+  /* The stack goes where its frame was made for: the frame's ps_strings is
+   * at its top (minix_stack_fill()).  libc's execve() makes it for
+   * minix_get_user_sp(), RS for the low stack top of system services
+   * (kernel/const.h); checked below. */
+  execi.args.stack_high = *ps_str + sizeof(struct ps_strings);
   execi.args.stack_size = DEFAULT_STACK_LIMIT;
 
   lookup_init(&resolve, fullpath, PATH_NOFLAGS, &execi.vmp, &execi.vp);
@@ -237,6 +241,9 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
   /* Fetch the stack from the user before destroying the old core image. */
   if (frame_len > ARG_MAX)
 	FAILCHECK(ENOMEM); /* stack too big */
+  if (execi.args.stack_high % PAGE_SIZE != 0 ||
+      execi.args.stack_high < DEFAULT_STACK_LIMIT + ARG_MAX)
+	FAILCHECK(ENOEXEC); /* not a frame minix_stack_fill() made */
 
   r = sys_datacopy_wrapper(fp->fp_endpoint, (vir_bytes) frame, SELF, (vir_bytes) mbuf,
 		   (size_t) frame_len);

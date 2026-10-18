@@ -30,6 +30,13 @@ int vm_procctl_clear(endpoint_t ep)
 	return vm_procctl(ep, VMPPARAM_CLEAR, 0, 0, 0);
 }
 
+/* As vm_procctl_clear(), for an exec whose stack will be below stack_top:
+ * VM lays out the process's mmap()s by it. */
+int vm_procctl_clear_stack(endpoint_t ep, vir_bytes stack_top)
+{
+	return vm_procctl(ep, VMPPARAM_CLEAR, stack_top, 0, 0);
+}
+
 int vm_procctl_handlemem(endpoint_t ep, vir_bytes m1, vir_bytes len,
 	int writeflag)
 {

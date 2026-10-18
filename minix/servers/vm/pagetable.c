@@ -1024,7 +1024,7 @@ int pt_writable(struct vmproc *vmp, vir_bytes v)
 /*===========================================================================*
  *				lwp_inhibit		     		     *
  *===========================================================================*/
-static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, int pages,
+static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, vir_bytes pages,
 	int set)
 {
 /* The threads of a process share its page tables, each on a CPU of its own.
@@ -1036,7 +1036,8 @@ static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, int pages,
  * was stopped, so that the caller lets the same ones go again.
  */
 	struct vmproc *v2;
-	int leader, i, p, present = 0;
+	int leader, i, present = 0;
+	vir_bytes p;
 
 	if (vmp < vmproc || vmp >= &vmproc[NR_PROCS])
 		return 0;
@@ -1086,7 +1087,7 @@ int pt_writemap(struct vmproc * vmp,
 {
 /* Write mapping into page table. Allocate a new page table if necessary. */
 /* Page directory and table entries for this virtual address. */
-	int p, pages;
+	vir_bytes p, pages;	/* a range may be terabytes */
 	int verify = 0;
 	int ret = OK;
 
@@ -1253,7 +1254,7 @@ resume_exit:
 int pt_checkrange(pt_t *pt, vir_bytes v,  size_t bytes,
 	int write)
 {
-	int p, pages;
+	vir_bytes p, pages;	/* a range may be terabytes */
 
 	assert(!(bytes % VM_PAGE_SIZE));
 

@@ -34,22 +34,24 @@
 #ifndef _MINIX_MAGIC
 #ifdef __x86_64__
 /*
- * On amd64 the VM server uses a single PD covering 0-1 GB.  pg_mapkernel()
- * returns freepde_start = 448, reserving PD[448..511] (896 MB-1 GB) for VM's
- * device and pagedir mappings; PD[0..447] (0-896 MB) is user virtual space.
- * The 896 MB ceiling lets a large executable (e.g. clang, ~156 MB text) plus
- * its libraries and stack all fit (the old 512 MB / 128 MB-stack layout could
- * not).  Keep this in sync with pg_mapkernel()'s return value.
+ * A process may have the user half of the address space, 128 TB, less its
+ * top page (so that SYSRET never returns to the edge of the canonical range)
+ * and less 896 MB-1 GB, where every address space has the kernel's device
+ * mappings and the page directory windows (PD 0 from pg_mapkernel()'s
+ * freepde_start = 448; VM keeps processes out of it, VM_HOLE_* in
+ * servers/vm/vm.h).
  */
-#define USR_DATATOP 0x38000000		/* 896 MB */
+#define USR_DATATOP 0x00007ffffffff000UL
 /*
- * Stack top at 864 MB, just below USR_DATATOP and above the mmap region (see
- * VM_MMAPTOP in servers/vm/vm.h).  NOTE: the kernel sets the *initial* VM
- * server stack here too, so it must be within physical RAM at boot -- fine for
- * the >=1 GB configurations needed to run a self-hosting toolchain, but this
- * raises the previous 128 MB value that supported tiny (-m 256) configs.
+ * Two stack tops.  The low one (kinfo.user_sp) is for VM, which the kernel
+ * loads into its boot page tables (0-1 GB), the other boot processes and the
+ * system services RS starts: their layout stays as it was, in the first GB.
+ * The high one (kuserinfo.kui_user_sp, minix_get_user_sp()) is for the rest:
+ * what libc's execve() builds a stack frame for, and VFS then places the
+ * process's stack, and VM its mmap()s, accordingly.
  */
-#define USR_STACKTOP 0x36000000		/* 864 MB */
+#define USR_STACKTOP 0x36000000			/* 864 MB */
+#define USR_EXEC_STACKTOP 0x00007ff000000000UL
 #else
 #define USR_DATATOP 0xF0000000
 #endif

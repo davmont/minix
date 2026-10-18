@@ -378,7 +378,7 @@ static void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
 	char overflow = 0;	/* No overflow yet. */
 	struct ps_strings *psp;
 
-	int vsp = 0;	/* (virtual) Stack pointer in new address space. */
+	vir_bytes vsp = 0;	/* (virtual) Stack pointer in new address space. */
 	char *argv[] = { ip->proc_name, NULL };
 	char *envp[] = { NULL };
 	char *path = ip->proc_name;
@@ -431,8 +431,8 @@ static void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
 		panic("vm: could not alloc stack for boot process %s (ep=%d)\n",
 			execi->progname, vmp->vm_endpoint);
 
-	minix_stack_fill(path, argc, argv, envc, envp, frame_size, frame, &vsp,
-		&psp);
+	minix_stack_fill(path, argc, argv, envc, envp, frame_size, frame,
+		execi->stack_high, &vsp, &psp);
 
 	if(handle_memory_once(vmp, vsp, frame_size, 1) != OK)
 		panic("vm: could not map stack for boot process %s (ep=%d)\n",
@@ -444,7 +444,7 @@ static void exec_bootproc(struct vmproc *vmp, struct boot_image *ip)
 
 	if(sys_exec(vmp->vm_endpoint, (vir_bytes)vsp,
 		   (vir_bytes)execi->progname, execi->pc,
-		   vsp + ((int)psp - (int)frame), (vir_bytes) 0 /* tlsbase */,
+		   vsp + (vir_bytes)((char *)psp - frame), (vir_bytes) 0 /* tlsbase */,
 		   (vir_bytes) 0 /* arg */) != OK)
 		panic("vm: boot process exec of process %s (ep=%d) failed\n",
 			execi->progname,vmp->vm_endpoint);
