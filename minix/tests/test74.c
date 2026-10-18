@@ -838,7 +838,7 @@ softfault_partial(void)
 	 */
 	size = MAX(stf.f_bsize, PAGE_SIZE) * 2;
 
-	if ((buf = mmap(NULL, size, PROT_READ | PROT_READ,
+	if ((buf = mmap(NULL, size, PROT_READ | PROT_WRITE,
 	    MAP_ANON | MAP_PRIVATE | MAP_PREALLOC, -1, 0)) == MAP_FAILED) e(0);
 
 	if (read(fd, buf, size) != size) {
@@ -856,7 +856,7 @@ softfault_partial(void)
 	 * after faulting in the missing page(s), thus resulting in the read
 	 * succeeding in full.
 	 */
-	if ((buf2 = mmap(NULL, size, PROT_READ | PROT_READ,
+	if ((buf2 = mmap(NULL, size, PROT_READ | PROT_WRITE,
 	    MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) e(0);
 	buf2[0] = '\0'; /* fault in the first page */
 

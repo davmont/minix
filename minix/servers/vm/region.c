@@ -532,9 +532,13 @@ struct vir_region *map_page_region(struct vmproc *vmp, vir_bytes minv,
 		}
 	}
 
+	/* Fault the pages in as a write only where the region allows writing:
+	 * map_pf() asserts on a write fault in a read-only region, and a
+	 * process may ask for a read-only preallocated mapping.
+	 */
 	if(mapflags & MF_PREALLOC) {
-		if(map_handle_memory(vmp, newregion, 0, length, 1,
-			NULL, 0, 0) != OK) {
+		if(map_handle_memory(vmp, newregion, 0, length,
+			!!(newregion->flags & VR_WRITABLE), NULL, 0, 0) != OK) {
 			printf("VM: map_page_region: prealloc failed\n");
 			map_free(newregion);
 			return NULL;
