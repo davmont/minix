@@ -81,7 +81,7 @@ pm_send_exec(struct mproc *rmp, int solo)
 	m.VFS_PM_PATH_LEN = pe->pe_namelen;
 	m.VFS_PM_FRAME = (void *)pe->pe_frame;
 	m.VFS_PM_FRAME_LEN = pe->pe_framelen;
-	m.VFS_PM_PS_STR = pe->pe_ps_str;
+	m.VFS_PM_PS_STR = (char *) pe->pe_ps_str;
 	m.VFS_PM_EXEC_FLAGS = solo ? VFS_PM_EXEC_SOLO : 0;
 
 	tell_vfs(rmp, &m);

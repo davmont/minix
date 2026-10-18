@@ -723,7 +723,7 @@ void service_pm_postponed(void)
 	m_out.VFS_PM_PC = (void *) pc;
 	m_out.VFS_PM_STATUS = r;
 	m_out.VFS_PM_NEWSP = (void *) newsp;
-	m_out.VFS_PM_NEWPS_STR = ps_str;
+	m_out.VFS_PM_NEWPS_STR = (char *) ps_str;
 
 	break;
 

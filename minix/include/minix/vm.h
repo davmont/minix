@@ -21,13 +21,13 @@ int vm_update(endpoint_t src_e, endpoint_t dst_e, int flags);
 int vm_memctl(endpoint_t ep, int req, void** addr, size_t *len);
 int vm_prepare(endpoint_t src_e, endpoint_t dst_e, int flags);
 int minix_vfs_mmap(endpoint_t who, off_t offset, size_t len,
-        dev_t dev, ino_t ino, int fd, u32_t vaddr, u16_t clearend, u16_t
+        dev_t dev, ino_t ino, int fd, vir_bytes vaddr, u16_t clearend, u16_t
 	flags);
 
 void *minix_mmap_for(endpoint_t forwhom,
         void *addr, size_t len, int prot, int flags, int fd, off_t offset);
 int minix_vfs_mmap(endpoint_t who, off_t offset, size_t len,
-        dev_t dev, ino_t ino, int fd, u32_t vaddr, u16_t clearend,
+        dev_t dev, ino_t ino, int fd, vir_bytes vaddr, u16_t clearend,
         u16_t flags);
 
 /* minix vfs mmap flags */
