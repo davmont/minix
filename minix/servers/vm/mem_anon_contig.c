@@ -46,6 +46,12 @@ static int anon_contig_pagefault(struct vmproc *vmp, struct vir_region *region,
 	struct phys_region *ph, int write, vfs_callback_t cb, void *state,
 	int len, int *io)
 {
+	/* anon_contig_new() put every page in place, so a read fault, which
+	 * preallocating a read-only mapping makes, has nothing to do.
+	 */
+	if(!write && ph->ph->phys != MAP_NONE)
+		return OK;
+
 	panic("anon_contig_pagefault: pagefault cannot happen");
 }
 
