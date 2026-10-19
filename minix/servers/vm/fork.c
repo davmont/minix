@@ -71,6 +71,7 @@ int do_fork(message *msg)
   vmc->vm_pt = origpt;
   vmc->vm_lwp_leader = NO_LWP_LEADER;	/* not a thread unless set below */
   vmc->vm_lwp_refcount = 0;		/* not a group leader unless set below */
+  vmc->vm_inhibit_nest = 0;
 
 #if VMSTATS
   vmc->vm_bytecopies = 0;

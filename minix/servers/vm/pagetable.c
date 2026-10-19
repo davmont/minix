@@ -1022,6 +1022,27 @@ int pt_writable(struct vmproc *vmp, vir_bytes v)
 
 #ifdef CONFIG_SMP
 /*===========================================================================*
+ *				vm_inhibit		     		     *
+ *===========================================================================*/
+static void vm_inhibit(struct vmproc *vmp, int set)
+{
+/* Stop (set) or let go (!set) a process whose page table is being changed.
+ * The changes nest (see vm_inhibit_nest), and the kernel keeps only a flag:
+ * a nested change that let the process go would leave the outer one running
+ * against a process that may be on a CPU, and the outer one's release would
+ * then find the flag clear and trip the kernel's assertion.
+ */
+	if (set) {
+		if (vmp->vm_inhibit_nest++ == 0)
+			sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_SET, 0);
+	} else {
+		assert(vmp->vm_inhibit_nest > 0);
+		if (--vmp->vm_inhibit_nest == 0)
+			sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_CLEAR, 0);
+	}
+}
+
+/*===========================================================================*
  *				lwp_inhibit		     		     *
  *===========================================================================*/
 static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, vir_bytes pages,
@@ -1067,8 +1088,7 @@ static int lwp_inhibit(struct vmproc *vmp, pt_t *pt, vir_bytes v, vir_bytes page
 			continue;
 		if (i != leader && v2->vm_lwp_leader != leader)
 			continue;
-		sys_vmctl(v2->vm_endpoint, set ? VMCTL_VMINHIBIT_SET :
-		    VMCTL_VMINHIBIT_CLEAR, 0);
+		vm_inhibit(v2, set);
 	}
 	return 1;
 }
@@ -1100,7 +1120,7 @@ int pt_writemap(struct vmproc * vmp,
 	 */
 	if (vmp && vmp->vm_endpoint != NONE && vmp->vm_endpoint != VM_PROC_NR &&
 			!(vmp->vm_flags & VMF_EXITING)) {
-		sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_SET, 0);
+		vm_inhibit(vmp, 1);
 		vminhibit_clear = 1;
 	}
 	if (vmp && vmp->vm_endpoint != VM_PROC_NR)
@@ -1239,7 +1259,7 @@ resume_exit:
 	if (vminhibit_clear) {
 		assert(vmp && vmp->vm_endpoint != NONE && vmp->vm_endpoint != VM_PROC_NR &&
 			!(vmp->vm_flags & VMF_EXITING));
-		sys_vmctl(vmp->vm_endpoint, VMCTL_VMINHIBIT_CLEAR, 0);
+		vm_inhibit(vmp, 0);
 	}
 	if (lwp_clear)
 		(void)lwp_inhibit(vmp, pt, 0, 0, 0);

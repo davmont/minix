@@ -57,6 +57,13 @@ struct vmproc {
 	 * process.  The shared page tables are freed only on the 1->0 transition
 	 * (the last member's exit) — see free_proc(). */
 	int		vm_lwp_refcount;
+
+	/* SMP: how many page table changes in progress hold this process
+	 * stopped (VMINHIBIT).  They nest: changing one page table can allocate,
+	 * and the allocation can reclaim pages of the same process or of its
+	 * threads, which changes their page tables in turn.  Only the outermost
+	 * change may let the process run again.  See vm_inhibit(). */
+	int		vm_inhibit_nest;
 };
 
 /* Sentinel for vm_lwp_leader: this vmproc is not a thread. */
