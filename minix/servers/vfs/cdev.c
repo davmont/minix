@@ -268,6 +268,30 @@ cdev_close(dev_t dev)
 }
 
 /*
+ * Return TRUE if the character driver 'driver_e' is also the block driver of a
+ * mounted file system.  The memory driver is the case in point: it serves
+ * /dev/zero, /dev/null and /dev/mem as well as the RAM disks that the live CD
+ * and the test suite run from.
+ */
+static int
+cdev_serves_fs(endpoint_t driver_e)
+{
+	struct vmnt *vmp;
+	devmajor_t major;
+
+	for (vmp = &vmnt[0]; vmp < &vmnt[NR_MNTS]; ++vmp) {
+		if (vmp->m_dev == NO_DEV)
+			continue;
+		major = major(vmp->m_dev);
+		if (major >= 0 && major < NR_DEVICES &&
+		    dmap[major].dmap_driver == driver_e)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+/*
  * Initiate a read, write, or ioctl to a character device.  The given operation
  * must be CDEV_READ, CDEV_WRITE, or CDEV_IOCTL.  The call is made on behalf of
  * user process 'proc_e'.  For read/write requests, 'bytes' is the number of
@@ -284,7 +308,7 @@ cdev_io(int op, dev_t dev, endpoint_t proc_e, vir_bytes buf, off_t pos,
 	struct dmap *dp;
 	message dev_mess;
 	cp_grant_id_t gid;
-	int r;
+	int r, cpflag;
 
 	assert(op == CDEV_READ || op == CDEV_WRITE || op == CDEV_IOCTL);
 
@@ -302,10 +326,27 @@ cdev_io(int op, dev_t dev, endpoint_t proc_e, vir_bytes buf, off_t pos,
 		fp->fp_tty = dev;
 	}
 
+	/*
+	 * A driver that also serves a mounted file system must not take a page
+	 * fault on the user buffer: if the buffer is a mapping of a file on
+	 * that file system, VM needs the driver to bring the page in while the
+	 * driver waits for VM, and the system hangs (read(2) from /dev/zero
+	 * into a MAP_PRIVATE file mapping on a RAM disk did).  Fault the buffer
+	 * in from here, where waiting is safe, and let the driver's copy fail
+	 * rather than block should a page be reclaimed in between.
+	 */
+	cpflag = 0;
+	if (op != CDEV_IOCTL && bytes > 0 && cdev_serves_fs(dp->dmap_driver)) {
+		if ((r = vm_vfs_procctl_handlemem(proc_e, buf, (vir_bytes)bytes,
+		    op == CDEV_READ)) != OK)
+			return r;
+		cpflag = CPF_TRY;
+	}
+
 	/* Create a grant for the buffer provided by the user process. */
 	if (op != CDEV_IOCTL) {
-		gid = cpf_grant_magic(dp->dmap_driver, proc_e, buf,
-		    (size_t)bytes, (op == CDEV_READ) ? CPF_WRITE : CPF_READ);
+		gid = cpf_grant_magic(dp->dmap_driver, proc_e, buf, (size_t)bytes,
+		    ((op == CDEV_READ) ? CPF_WRITE : CPF_READ) | cpflag);
 		if (!GRANT_VALID(gid))
 			panic("VFS: cpf_grant_magic failed");
 	} else

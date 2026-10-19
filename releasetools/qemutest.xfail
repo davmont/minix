@@ -13,9 +13,6 @@
 45          # strtoll at the 64-bit boundary returns a value, not ERANGE (T2)
 53          # 64-bit helper arithmetic (T2)
 66          # signed division / modulo (T2)
-74:300      # mmap: read() of /dev/ram into a file mapping whose file is on the ramdisk the
-            # suite runs from deadlocks the memory driver (it waits on VM, which waits on
-            # the file's pages, which wait on the driver); passes from a disk
 77          # ptyfs dirent / stat fields, subtest 7 (T2)
 31 flaky    # mkfifo: FIFO write() intermittently EINVAL (T2)
 25 flaky    # open/close: expects atime to advance across a re-read; relatime + 1 s clock (T2)
