@@ -707,6 +707,16 @@ static phys_bytes alloc_pages(int pages, int memflags)
 }
 
 /*===========================================================================*
+ *				usermem_total				     *
+ *===========================================================================*/
+/* How many pages user-process allocations can take at most: all memory but
+ * the OOM reserve. */
+unsigned long usermem_total(void)
+{
+	return total_pages > OOM_RESERVE ? total_pages - OOM_RESERVE : 0;
+}
+
+/*===========================================================================*
  *				vm_reclaim_active			     *
  *===========================================================================*/
 /* True while free memory is below the low watermark (a reclaim episode is in

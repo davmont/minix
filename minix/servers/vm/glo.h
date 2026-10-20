@@ -50,4 +50,11 @@ EXTERN  mem_type_t mem_type_anon,       /* anonymous memory */
 EXTERN int total_pages;
 EXTERN int num_vm_instances;
 
+/* Set while VM allocates memory of its own on behalf of a user process: the
+ * page tables of its address space and the per-page arrays of its regions.
+ * Those are that process's memory as much as its pages are, and are
+ * allocated as such (PAF_USERMEM) so that they stop at the OOM reserve.
+ * Save and restore it around use: such allocations nest. */
+EXTERN int vm_usermem;
+
 #endif /* !_VM_GLO_H */
