@@ -60,7 +60,7 @@ QUICK_TESTS = ("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
                "61 62 63 64 66 67 68 69 70 71 72 73 74 75 76 77 78 79 "
                "95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 "
                "110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 "
-               "126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 sh1 interp mfs isofs")
+               "126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 sh1 interp mfs isofs")
 
 # Where the tests live on the image and how much ramdisk they get (KB).
 TESTS_DIR = "/usr/tests/minix-posix"
@@ -255,6 +255,18 @@ class Guest:
             return None
         b = open(out, "rb").read()
         return int.from_bytes(b[0:4], "little"), b[8:]
+
+    def fail_dump(self, addr, before, path):
+        """Write to `path` what the kernel message ring gained since
+        `before` (an earlier kmessages()): what servers such as VM printed
+        while a test failed, which never reaches the serial line."""
+        after = self.kmessages(addr)
+        if after is None:
+            return
+        i, j, buf = before[0], after[0], after[1]
+        text = buf[i:j] if j >= i else buf[i:] + buf[:j]
+        with open(path, "w") as f:
+            f.write(text.decode("latin1"))
 
     def hang_dump(self, addr, path):
         """Write the IS dumps of the process tables to `path`: what every
@@ -472,7 +484,8 @@ def main():
                     help="the unstripped kernel of the ISO "
                          "(obj/minix/kernel/kernel): when a test hangs, "
                          "save the IS process dumps (kernel, PM, VFS, stack "
-                         "traces) to the log dir before rebooting")
+                         "traces) to the log dir before rebooting; when one "
+                         "fails, save the kernel messages it caused")
     ap.add_argument("--log-dir", default="qemutest-logs")
     args = ap.parse_args()
 
@@ -589,10 +602,15 @@ def main():
         for n, t in enumerate(tests, 1):
             t0 = time.time()
             out = ""
+            kbefore = (guest.kmessages(kmess_addr)
+                       if kmess_addr is not None else None)
             try:
                 r, out = ser.run(cmd_for(t),
                                  xfail.get(t, (None,))[0] or test_timeout)
                 verdict = verdict_for(t, out)
+                if verdict == "fail" and kbefore is not None:
+                    guest.fail_dump(kmess_addr, kbefore, os.path.join(
+                        args.log_dir, "fail-%s.txt" % t.replace("/", "_")))
             except Timeout:
                 # A hung test is thrown away together with its guest: ^C
                 # only reaches the foreground job, and what a storage or VM
