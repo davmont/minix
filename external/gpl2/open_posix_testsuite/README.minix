@@ -1,0 +1,22 @@
+The Open POSIX Test Suite
+=========================
+
+dist/ is testcases/open_posix_testsuite of the Linux Test Project, release
+20250130:
+
+  https://github.com/linux-test-project/ltp/releases/download/20250130/ltp-full-20250130.tar.xz
+  sha256 02e4ec326be54c3fd92968229a468c02c665d168a8a673edc38a891f7395ae10
+
+Only conformance/, functional/, include/, tools/ and the top-level notices
+are kept; upstream's GNU Makefiles, autoconf files and stress/ are not.  The
+code is GPLv2+ (COPYING); it is never linked into anything shipped, and the
+release build does not build it.
+
+releasetools/posixsuite.py cross-compiles the tests on the build host against
+a destdir and packs them onto a disk image; releasetools/qemutest.py runs that
+image with --suite posix.  A test that does not compile is a result, not a
+build failure: usually the interface it tests is missing.  See
+releasetools/qemutest-posix.xfail for the known failures.
+
+To update: unpack a newer LTP release, replace dist/ with the same
+directories, update the version and checksum here, and rebaseline.
