@@ -4639,6 +4639,7 @@
 ./var/run/lwresd                                        minix-base
 ./var/run/named                                         minix-base
 ./var/mqueue                                            minix-base
+./var/sem                                               minix-base
 ./var/shm                                               minix-base
 ./var/spool                                             minix-base
 ./var/spool/ftp                                         minix-base

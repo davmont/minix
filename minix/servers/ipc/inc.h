@@ -45,6 +45,7 @@
 /* main.c */
 void update_sem_sub(int);
 void update_mq_sub(int);
+void update_psem_sub(int);
 
 /* shm.c */
 int do_shmget(message *);
@@ -69,6 +70,16 @@ int do_mq_getattr(message *);
 int do_mq_notify(message *);
 int do_mq_unlink(message *);
 void mq_process_event(endpoint_t, int);
+
+/* psem.c */
+int do_psem_open(message *);
+int do_psem_init(message *);
+int do_psem_destroy(message *);
+int do_psem_unlink(message *);
+int do_psem_wait(message *);
+int do_psem_post(message *);
+int do_psem_getvalue(message *);
+void psem_process_event(endpoint_t, int);
 
 /* sem.c */
 int do_semget(message *);

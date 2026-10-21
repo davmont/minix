@@ -890,6 +890,15 @@
 #define IPC_MQ_NOTIFY	(IPC_BASE+15)	/* mq_notify(); also from mq_close() */
 #define IPC_MQ_UNLINK	(IPC_BASE+16)	/* mq_unlink() */
 
+/* POSIX semaphores, named and process-shared. */
+#define IPC_PSEM_OPEN	(IPC_BASE+17)	/* sem_open(): create or attach */
+#define IPC_PSEM_INIT	(IPC_BASE+18)	/* sem_init() with pshared */
+#define IPC_PSEM_DESTROY (IPC_BASE+19)	/* sem_destroy() */
+#define IPC_PSEM_UNLINK	(IPC_BASE+20)	/* sem_unlink() */
+#define IPC_PSEM_WAIT	(IPC_BASE+21)	/* sem_wait(), sem_trywait(), ... */
+#define IPC_PSEM_POST	(IPC_BASE+22)	/* sem_post() */
+#define IPC_PSEM_GETVALUE (IPC_BASE+23)	/* sem_getvalue() */
+
 /*===========================================================================*
  *                Messages for Scheduling				     *
  *===========================================================================*/

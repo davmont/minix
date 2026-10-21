@@ -2,6 +2,7 @@
 
 #define SEM_EVENTS	0x01	/* semaphore code wants process events */
 #define MQ_EVENTS	0x02	/* message queue code wants process events */
+#define PSEM_EVENTS	0x04	/* POSIX semaphore code wants process events */
 static unsigned int event_mask = 0;
 
 static int verbose = 0;
@@ -27,6 +28,13 @@ static int (* const call_vec[])(message *) = {
 	CALL(IPC_MQ_GETATTR)	= do_mq_getattr,
 	CALL(IPC_MQ_NOTIFY)	= do_mq_notify,
 	CALL(IPC_MQ_UNLINK)	= do_mq_unlink,
+	CALL(IPC_PSEM_OPEN)	= do_psem_open,
+	CALL(IPC_PSEM_INIT)	= do_psem_init,
+	CALL(IPC_PSEM_DESTROY)	= do_psem_destroy,
+	CALL(IPC_PSEM_UNLINK)	= do_psem_unlink,
+	CALL(IPC_PSEM_WAIT)	= do_psem_wait,
+	CALL(IPC_PSEM_POST)	= do_psem_post,
+	CALL(IPC_PSEM_GETVALUE)	= do_psem_getvalue,
 };
 
 /*
@@ -210,6 +218,21 @@ update_mq_sub(int want_events)
 }
 
 /*
+ * Update the process event subscription mask for the POSIX semaphore code.
+ */
+void
+update_psem_sub(int want_events)
+{
+	unsigned int new_mask;
+
+	new_mask = event_mask & ~PSEM_EVENTS;
+	if (want_events)
+		new_mask |= PSEM_EVENTS;
+
+	update_sub(new_mask);
+}
+
+/*
  * PM sent us a process event message.  Handle it, and reply.
  */
 static void
@@ -229,6 +252,8 @@ got_proc_event(message * m)
 		sem_process_event(endpt, has_exited);
 	if (event_mask & MQ_EVENTS)
 		mq_process_event(endpt, has_exited);
+	if (event_mask & PSEM_EVENTS)
+		psem_process_event(endpt, has_exited);
 
 	/* Echo the request as a reply back to PM. */
 	m->m_type = PROC_EVENT_REPLY;

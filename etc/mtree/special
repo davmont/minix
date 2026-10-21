@@ -421,6 +421,7 @@
 ./var/run/utmp			type=file mode=0664 gname=utmp tags=exclude
 ./var/run/utmpx			type=file mode=0664 gname=utmp tags=exclude
 ./var/mqueue			type=dir  mode=1777
+./var/sem			type=dir  mode=1777
 ./var/shm			type=dir  mode=1777
 ./var/spool			type=dir  mode=0755
 ./var/spool/ftp			type=dir  mode=0755 optional
