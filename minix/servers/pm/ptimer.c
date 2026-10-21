@@ -337,14 +337,15 @@ timer_settime_op(struct ptimer *pt)
 	return OK;			/* disarm only */
 
   if (m_in.m_lc_pm_timer.flags & TIMER_ABSTIME) {
-	/* An absolute time on the timer's clock: how far away is it?  Both
-	 * clocks count from the boot time (see do_gettime).  A time that has
-	 * passed expires at once.
+	/* An absolute time on the timer's clock: how far away is it?
+	 * CLOCK_REALTIME counts from the boot time, CLOCK_MONOTONIC from the
+	 * boot (see do_gettime).  A time that has passed expires at once.
 	 */
 	clock_t clk = (pt->pt_clock == CLOCK_REALTIME) ? realtime : now;
 	clock_t since_boot;
 
-	now_ts.tv_sec = its.it_value.tv_sec - boottime;
+	now_ts.tv_sec = its.it_value.tv_sec -
+	    (pt->pt_clock == CLOCK_REALTIME ? boottime : 0);
 	now_ts.tv_nsec = its.it_value.tv_nsec;
 	if (now_ts.tv_sec < 0)
 		since_boot = 0;

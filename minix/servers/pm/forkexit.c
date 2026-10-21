@@ -818,16 +818,24 @@ lwp_park_ticks(clock_t *ticksp)
   default:		return EINVAL;
   }
 
-  /* An absolute time counts from the boot time, as in do_gettime(). */
+  /* An absolute CLOCK_REALTIME time counts from the boot time, as in
+   * do_gettime(); CLOCK_MONOTONIC counts from the boot.
+   */
   if (m_in.m_lc_pm_lwp_park.flags & TIMER_ABSTIME) {
-	if (sec < boottime)
-		return ETIMEDOUT;
-	sec -= boottime;
+	if (m_in.m_lc_pm_lwp_park.clock_id == CLOCK_REALTIME) {
+		if (sec < boottime)
+			return ETIMEDOUT;
+		sec -= boottime;
+	}
   } else
 	now = 0;
 
+  /* Further ahead than a timer can reach: wait as long as one can.  For an
+   * absolute time this is the distance from now, not from the boot time,
+   * which can be years back after the clock was set.
+   */
   max_sec = TMRDIFF_MAX / system_hz;
-  if (sec >= max_sec) {
+  if (sec - (int64_t)(now / system_hz) >= max_sec) {
 	*ticksp = TMRDIFF_MAX;
 	return OK;
   }

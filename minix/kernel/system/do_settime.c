@@ -39,9 +39,14 @@ int do_settime(struct proc * caller, message * m_ptr)
   timediff = m_ptr->m_lsys_krn_sys_settime.sec - boottime;
   timediff_ticks = timediff * system_hz;
 
-  /* prevent a negative value for realtime */
+  /* Prevent a negative value for realtime, or one that a clock_t cannot
+   * hold: it is 32 bits wide, so setting the clock years ahead of boottime
+   * (back again after setting it far into the past, say) would truncate it.
+   * The bound used to be LONG_MAX/2, which only did this where long is
+   * 32 bits.
+   */
   if (m_ptr->m_lsys_krn_sys_settime.sec <= boottime ||
-      timediff_ticks < LONG_MIN/2 || timediff_ticks > LONG_MAX/2) {
+      timediff_ticks > (time_t)((clock_t)-1 / 2)) {
   	/* boottime was likely wrong, try to correct it. */
 	set_boottime(m_ptr->m_lsys_krn_sys_settime.sec);
 	set_realtime(1);
