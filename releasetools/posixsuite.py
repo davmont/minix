@@ -184,9 +184,13 @@ def main():
 
         with tarfile.open(args.out, "w", format=tarfile.USTAR_FORMAT) as tf:
             tf.add(top, arcname="posix")
-        size = os.path.getsize(args.out)
-        with open(args.out, "ab") as f:      # whole MBs, for the disk
-            f.truncate((size + (1 << 20) - 1) & ~((1 << 20) - 1))
+        # The guest's IDE driver sees whole cylinders of 16 heads and 63
+        # sectors only, and tar reads in 10 KB records: pad to whole
+        # cylinders, with at least a record to spare.
+        cyl = 16 * 63 * 512
+        size = os.path.getsize(args.out) + 10240
+        with open(args.out, "ab") as f:
+            f.truncate((size + cyl - 1) // cyl * cyl)
         print("posixsuite: %d tests, %d did not build (see %s.log); %s, %d KB"
               % (len(tests), nobuild, args.out, args.out,
                  os.path.getsize(args.out) // 1024))
