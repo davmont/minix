@@ -19,7 +19,7 @@
  */
 #include "inc.h"
 
-#define POSIX_SHM_MAX	128
+#define POSIX_SHM_MAX	1024	/* named objects in the system */
 #define POSIX_SHM_OLD_MAX 64
 
 struct pshm {

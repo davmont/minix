@@ -19,7 +19,7 @@
 
 int max_error = 4;
 
-#define OBJECTS	1000		/* more than the IPC server has slots */
+#define OBJECTS	3000		/* more than the IPC server has slots */
 
 static char name[32];
 
