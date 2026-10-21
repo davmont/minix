@@ -165,7 +165,6 @@ interfaces/mmap/13-1                                     # fail
 interfaces/mmap/18-1                                     # nobuild
 interfaces/mmap/19-1                                     # fail
 interfaces/mmap/21-1                                     # fail
-interfaces/mmap/23-1:60                                  # wedge
 interfaces/mmap/24-1                                     # timeout
 interfaces/mmap/24-2                                     # signal
 interfaces/mmap/6-6                                      # fail
