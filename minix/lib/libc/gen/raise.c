@@ -4,18 +4,13 @@
  */
 /* $Header$ */
 
-#if	defined(_POSIX_SOURCE)
-#include	<sys/types.h>
-#endif
+#include	<lwp.h>
 #include	<signal.h>
 
-int _kill(int pid, int sig);
-pid_t getpid(void);
-
+/* POSIX: raise() signals the calling thread, as pthread_kill(pthread_self())
+ * would, and fails with EINVAL for a bad signal number (PM checks it). */
 int
 raise(int sig)
 {
-	if (sig < 0 || sig >= _NSIG)
-		return -1;
-	return _kill(getpid(), sig);
+	return _lwp_kill(_lwp_self(), sig);
 }

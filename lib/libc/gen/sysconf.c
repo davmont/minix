@@ -53,6 +53,7 @@ __RCSID("$NetBSD: sysconf.c,v 1.36 2013/12/19 19:11:50 rmind Exp $");
 #include <unistd.h>
 #include <paths.h>
 #include <pwd.h>
+#include <signal.h>
 
 #ifdef __weak_alias
 __weak_alias(sysconf,__sysconf)
@@ -420,6 +421,19 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		return -1;
 	case _SC_TTY_NAME_MAX:
 		return pathconf(_PATH_DEV, _PC_NAME_MAX);
+#ifdef __minix
+	/* What PM implements: see minix/servers/pm/signal.c and ptimer.c. */
+	case _SC_REALTIME_SIGNALS:
+		return _POSIX_REALTIME_SIGNALS;
+	case _SC_RTSIG_MAX:
+		return SIGRTMAX - SIGRTMIN + 1;
+	case _SC_SIGQUEUE_MAX:
+		return _POSIX_SIGQUEUE_MAX;
+	case _SC_TIMER_MAX:
+		return _POSIX_TIMER_MAX;
+	case _SC_DELAYTIMER_MAX:
+		return INT_MAX;
+#endif /* __minix */
 	default:
 		errno = EINVAL;
 		return (-1);

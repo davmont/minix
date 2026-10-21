@@ -25,9 +25,10 @@ EXTERN ixfer_sigaction mpsigact[NR_PROCS][_NSIG];
 /*
  * Where each pending signal came from, for the siginfo_t of an SA_SIGINFO
  * handler: recorded by sig_proc() when the signal is raised, handed to the
- * kernel by sig_send() when it is delivered.  Signals do not queue, so one
- * record per signal, from its latest instance.  Kept out of struct mproc,
- * whose layout other services read.
+ * kernel by sig_send() when it is delivered.  One record per signal: for an
+ * ordinary signal its latest instance, for a realtime signal the oldest, the
+ * later ones waiting in signal.c's queue.  Kept out of struct mproc, whose
+ * layout other services read.
  */
 struct pm_siginfo {
   int ps_code;			/* SI_USER, CLD_EXITED, ..., or SI_NOINFO */
@@ -45,6 +46,14 @@ EXTERN struct pm_siginfo sig_origin;
 /* sigaltstack(2): the alternate signal stack of each process (and thread);
  * ss_flags is SS_DISABLE when there is none. */
 EXTERN stack_t mpaltstack[NR_PROCS];
+
+/* sigtimedwait(2): what a thread with SIGWAITING waits for, and where its
+ * siginfo_t goes (0: nowhere).  The timeout is mp_park_timer. */
+struct pm_sigwait {
+  sigset_t sw_set;
+  vir_bytes sw_info;
+};
+EXTERN struct pm_sigwait mpsigwait[NR_PROCS];
 
 /* The arguments of an exec in progress, kept so that PM can ask VFS again
  * once a threaded caller's other threads are gone (see exec_dethread()). */
@@ -104,7 +113,7 @@ EXTERN struct mproc {
   ixfer_sigaction *mp_sigact;	/* as in sigaction(2), pointer into mpsigact */
   vir_bytes mp_sigreturn; 	/* address of C library __sigreturn function */
   minix_timer_t mp_timer;	/* watchdog timer for alarm(2), setitimer(2) */
-  minix_timer_t mp_park_timer;	/* timeout of a timed _lwp_park(2) */
+  minix_timer_t mp_park_timer;	/* timeout of _lwp_park(2), sigtimedwait(2) */
   clock_t mp_interval[NR_ITIMERS];	/* setitimer(2) repetition intervals */
   clock_t mp_started;		/* when the process was started, for ps(1) */
 
@@ -151,6 +160,7 @@ EXTERN struct mproc {
 #define TOLD_PARENT	0x00040	/* parent wait() completed, ZOMBIE off */
 #define TRACE_STOPPED	0x00080	/* set if process stopped for tracing */
 #define SIGSUSPENDED	0x00100	/* set by SIGSUSPEND system call */
+#define SIGWAITING	0x00200	/* in sigtimedwait(2): see mpsigwait */
 #define VFS_CALL       	0x00400	/* set if waiting for VFS (normal calls) */
 #define NEW_PARENT	0x00800	/* process's parent changed during VFS call */
 #define UNPAUSED	0x01000	/* VFS has replied to unpause request */

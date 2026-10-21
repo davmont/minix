@@ -21,7 +21,7 @@ SRCS+= 	accept.c access.c adjtime.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
 	setgid.c setresuid.c settimeofday.c setuid.c shmat.c shmctl.c shmget.c \
 	shm_open.c stime.c \
 	vectorio.c shutdown.c sigaction.c sigaltstack.c sigpending.c sigreturn.c sigsuspend.c\
-	sigprocmask.c socket.c socketpair.c stat.c statvfs.c svrctl.c \
+	sigprocmask.c sigtimedwait.c socket.c socketpair.c stat.c statvfs.c svrctl.c \
 	symlink.c \
 	sync.c syscall.c truncate.c umask.c unlink.c \
 	wait4.c write.c \

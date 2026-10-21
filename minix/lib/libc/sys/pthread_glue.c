@@ -160,6 +160,12 @@ _sys___sigprocmask14(int how, const sigset_t *set, sigset_t *oset)
 		m.m_lc_pm_sigset.how = SIG_INQUIRE;
 		sigemptyset(&m.m_lc_pm_sigset.set);
 	} else {
+		/* SIG_INQUIRE is ours, not the caller's. */
+		if (how != SIG_BLOCK && how != SIG_UNBLOCK &&
+		    how != SIG_SETMASK) {
+			errno = EINVAL;
+			return -1;
+		}
 		m.m_lc_pm_sigset.how = how;
 		m.m_lc_pm_sigset.set = *set;
 	}

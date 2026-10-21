@@ -128,7 +128,7 @@
 					/* read/write locks */
 #define	_POSIX_READER_WRITER_LOCKS	200112L
 					/* realtime signals */
-#undef	_POSIX_REALTIME_SIGNALS
+#define	_POSIX_REALTIME_SIGNALS		200112L
 					/* regular expressions */
 #define	_POSIX_REGEXP			1
 					/* semaphores */
@@ -310,6 +310,15 @@
 /* These are implemented */
 #define	_SC_SPAWN			86
 #define	_SC_SHARED_MEMORY_OBJECTS	87
+
+#define	_SC_TIMER_MAX			88
+#define	_SC_SEM_NSEMS_MAX		89
+#define	_SC_CPUTIME			90
+#define	_SC_THREAD_CPUTIME		91
+#define	_SC_DELAYTIMER_MAX		92
+#define	_SC_SIGQUEUE_MAX		93
+#define	_SC_REALTIME_SIGNALS		94
+#define	_SC_RTSIG_MAX			95
 
 /* Extensions found in Solaris and Linux. */
 #define	_SC_PHYS_PAGES		121

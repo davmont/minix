@@ -57,7 +57,9 @@ int	_sys___sigprocmask14(int, const sigset_t *, sigset_t *);
 int	_sys_sched_yield(void);
 
 __strong_alias(__libc_thr_sigsetmask,pthread_sigmask)
+#ifndef __minix
 __strong_alias(__sigprocmask14,pthread_sigmask)
+#endif
 __strong_alias(__libc_thr_yield,pthread__sched_yield)
 
 int
@@ -168,6 +170,18 @@ pthread_sigmask(int how, const sigset_t *set, sigset_t *oset)
 		return errno;
 	return 0;
 }
+
+#ifdef __minix
+/* sigprocmask(2) fails with -1 and errno (POSIX), where pthread_sigmask()
+ * returns the error: not the same function. */
+int	__sigprocmask14(int, const sigset_t *, sigset_t *);
+
+int
+__sigprocmask14(int how, const sigset_t *set, sigset_t *oset)
+{
+	return _sys___sigprocmask14(how, set, oset);
+}
+#endif
 
 int
 pthread__sched_yield(void)

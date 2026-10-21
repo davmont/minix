@@ -83,12 +83,8 @@
 #define	SIGUSR2		31	/* user defined signal 2 */
 #define	SIGPWR		32	/* power fail/restart (not reset when caught) */
 
-#if !defined(__minix)
-#ifdef _KERNEL
-#define	SIGRTMIN	33	/* Kernel only; not exposed to userland yet */
-#define	SIGRTMAX	63	/* Kernel only; not exposed to userland yet */
-#endif
-#endif /* !defined(__minix) */
+#define	SIGRTMIN	33	/* realtime signals: queued, lowest first */
+#define	SIGRTMAX	63
 
 #ifndef _KERNEL
 #include <sys/cdefs.h>

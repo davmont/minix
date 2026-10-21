@@ -117,6 +117,9 @@ do_fork(void)
 
   /* Inherit only these flags. In normal fork(), PRIV_PROC is not inherited. */
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
+  /* POSIX: the child has no signals pending. */
+  (void) sigemptyset(&rmc->mp_sigpending);
+  (void) sigemptyset(&rmc->mp_ksigpending);
   rmc->mp_stopsig = 0;			/* a new process runs */
   rmc->mp_jcreport = 0;
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
@@ -223,6 +226,9 @@ do_lwp_create(void)
   rmc->mp_trace_flags = 0;
   (void) sigemptyset(&rmc->mp_sigtrace);
   rmc->mp_flags &= (IN_USE|DELAY_CALL|TAINTED);	/* not MP_EXECED */
+  /* POSIX: nor does a new thread (the process's stay with the leader). */
+  (void) sigemptyset(&rmc->mp_sigpending);
+  (void) sigemptyset(&rmc->mp_ksigpending);
   rmc->mp_stopsig = 0;			/* a new process runs */
   rmc->mp_jcreport = 0;
   rmc->mp_flags |= MP_LWP;		/* this slot is a thread, not a leader */
@@ -308,13 +314,14 @@ lwp_start_teardown(struct mproc *rmp)
   rmp->mp_flags &= ~UNPAUSED;
   rmp->mp_flags |= MP_LWP_TEARDOWN;
 
-  /* A thread parked with a timeout (pthread_cond_timedwait(), say) goes
-   * without returning: its timer must not stay queued once the slot is free,
-   * where a new process or thread copies over it and corrupts the timer list.
+  /* A thread parked with a timeout (pthread_cond_timedwait(), say), or in
+   * sigtimedwait(), goes without returning: its timer must not stay queued
+   * once the slot is free, where a new process or thread copies over it and
+   * corrupts the timer list.
    */
-  if (rmp->mp_flags & MP_LWP_PARKED) {
+  if (rmp->mp_flags & (MP_LWP_PARKED | SIGWAITING)) {
 	cancel_timer(&rmp->mp_park_timer);
-	rmp->mp_flags &= ~MP_LWP_PARKED;
+	rmp->mp_flags &= ~(MP_LWP_PARKED | SIGWAITING);
   }
   if (!(rmp->mp_flags & PROC_STOPPED)) {
 	if ((r = sys_stop(proc_nr_e)) != OK)
@@ -927,10 +934,17 @@ do_lwp_kill(void)
   if (sig == 0)
 	return OK;
 
+  /* raise() is a thread signalling itself: SI_USER, which POSIX lets it be
+   * and programs expect, as from kill(). */
   saved = sig_origin;
-  set_sig_origin(SI_LWP, mp->mp_pid, mp->mp_realuid, 0, 0);
+  set_sig_origin(target == mp ? SI_USER : SI_LWP, mp->mp_pid, mp->mp_realuid,
+	0, 0);
   sig_proc(target, sig, TRUE /*trace*/, FALSE /*ksig*/);
   sig_origin = saved;
+
+  /* If the caller has killed itself (raise(SIGABRT), say), don't reply. */
+  if ((mp->mp_flags & (IN_USE | EXITING)) != IN_USE)
+	return SUSPEND;
   return OK;
 }
 
@@ -997,6 +1011,8 @@ do_srv_fork(void)
   }
   /* inherit only these flags */
   rmc->mp_flags &= (IN_USE|PRIV_PROC|DELAY_CALL);
+  (void) sigemptyset(&rmc->mp_sigpending);
+  (void) sigemptyset(&rmc->mp_ksigpending);
   rmc->mp_lwp_group = NO_LWP_GROUP;	/* fork() yields a new single-thread proc */
   rmc->mp_child_utime = 0;		/* reset administration */
   rmc->mp_child_stime = 0;		/* reset administration */

@@ -11,6 +11,8 @@
  *   do_sigreturn:	perform the SIGRETURN system call
  *   do_sigsuspend:	perform the SIGSUSPEND system call
  *   do_kill:		perform the KILL system call
+ *   do_sigqueue:	perform the SIGQUEUE system call
+ *   do_sigtimedwait:	perform the SIGTIMEDWAIT system call
  *   process_ksig:	process a signal an behalf of the kernel
  *   sig_proc:		interrupt or terminate a signaled process
  *   check_sig:		check which processes to signal with sig_proc()
@@ -29,7 +31,30 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <assert.h>
+#include <limits.h>
+#include <string.h>
+#include <minix/sysutil.h>
 #include "mproc.h"
+
+/* Realtime signals queue (POSIX): while an instance of one is pending, those
+ * raised after it wait here, in order, and come in as each earlier one is
+ * taken.  An entry belongs to a thread slot and its endpoint, so the entries
+ * of a slot that has since been freed are stale and reused.
+ */
+#define NR_SIGQ		1024		/* queued instances in the system */
+#define SIGQ_MAX	_POSIX_SIGQUEUE_MAX	/* per process: _SC_SIGQUEUE_MAX */
+
+struct sigq {
+  int sq_signo;			/* 0: free */
+  int sq_slot;
+  endpoint_t sq_endpt;
+  unsigned long sq_seq;		/* order of arrival */
+  struct pm_siginfo sq_info;
+};
+static struct sigq sigq[NR_SIGQ];
+static unsigned long sigq_seq;
+
+#define IS_RTSIG(s)	((s) >= SIGRTMIN && (s) <= SIGRTMAX)
 
 static void set_sigaction_slot(struct mproc *rmp, int sig_nr,
 	struct sigaction *svec, vir_bytes sigreturn);
@@ -43,6 +68,13 @@ static void discard_signal(struct mproc *rmp, int signo);
 static void jc_notify_parent(struct mproc *leader, int code);
 static void job_stop(struct mproc *rmp, int signo);
 static void job_continue(struct mproc *rmp);
+static int sigq_live(struct sigq *sq);
+static int sigq_count(struct mproc *rmp);
+static void sigq_add(struct mproc *rmp, int signo);
+static void sigq_next(struct mproc *rmp, int signo);
+static void sigq_flush(struct mproc *rmp, int signo);
+static int sigwait_take(struct mproc *rmp, struct mproc *from, int signo);
+static void sigwait_expire(int arg);
 
 /*===========================================================================*
  *				do_sigaction				     *
@@ -103,6 +135,7 @@ set_sigaction_slot(struct mproc *rmp, int sig_nr, struct sigaction *svec,
 	sigaddset(&rmp->mp_ignore, sig_nr);
 	sigdelset(&rmp->mp_sigpending, sig_nr);
 	sigdelset(&rmp->mp_ksigpending, sig_nr);
+	sigq_flush(rmp, sig_nr);	/* and the queued instances */
 	sigdelset(&rmp->mp_catch, sig_nr);
   } else if (svec->sa_handler == SIG_DFL) {
 	sigdelset(&rmp->mp_ignore, sig_nr);
@@ -267,8 +300,10 @@ int do_sigaltstack(void)
 	new.ss_sp = m_in.m_lc_pm_sigaltstack.sp;
 	new.ss_size = m_in.m_lc_pm_sigaltstack.size;
 	new.ss_flags = m_in.m_lc_pm_sigaltstack.flags;
-	/* SS_ONSTACK is ignored on input, as on NetBSD. */
-	if (new.ss_flags & ~(SS_DISABLE | SS_ONSTACK))
+	/* SS_ONSTACK is ignored on input, as on NetBSD and Linux; but not
+	 * with SS_DISABLE, which contradicts it (POSIX: EINVAL). */
+	if (new.ss_flags != 0 && new.ss_flags != SS_ONSTACK &&
+	    new.ss_flags != SS_DISABLE)
 		return EINVAL;
 	new.ss_flags &= SS_DISABLE;
 	if (!(new.ss_flags & SS_DISABLE) && new.ss_size < MINSIGSTKSZ)
@@ -302,6 +337,163 @@ int do_kill(void)
   r = check_sig(m_in.m_lc_pm_sig.pid, m_in.m_lc_pm_sig.nr, FALSE /* ksig */);
   sig_origin = saved;
   return r;
+}
+
+/*===========================================================================*
+ *				do_sigqueue				     *
+ *===========================================================================*/
+int do_sigqueue(void)
+{
+/* Perform the sigqueue(pid, signo, value) system call: kill() with a value,
+ * and EAGAIN rather than a realtime signal lost when the process has as many
+ * queued as it may.
+ */
+  struct pm_siginfo saved;
+  struct mproc *rmp;
+  pid_t pid;
+  int sig, r;
+
+  pid = m_in.m_lc_pm_sigqueue.pid;
+  sig = m_in.m_lc_pm_sigqueue.sig;
+  if (sig < 0 || sig >= _NSIG)
+	return(EINVAL);
+  if (pid <= 0 || (rmp = find_proc(pid)) == NULL)
+	return(ESRCH);
+  if (IS_RTSIG(sig) && sigq_count(rmp) >= SIGQ_MAX)
+	return(EAGAIN);
+
+  saved = sig_origin;
+  set_sig_origin(SI_QUEUE, mp->mp_pid, mp->mp_realuid, 0, 0);
+  sig_origin.ps_value = m_in.m_lc_pm_sigqueue.value;
+  r = check_sig(pid, sig, FALSE /* ksig */);
+  sig_origin = saved;
+  return(r);
+}
+
+/*===========================================================================*
+ *				do_sigtimedwait				     *
+ *===========================================================================*/
+int do_sigtimedwait(void)
+{
+/* Perform the sigtimedwait(set, info, timeout) system call, which also makes
+ * sigwaitinfo() and sigwait(): take a pending signal of 'set', or wait for
+ * one, and return its number.  The signal goes with no handler run, blocked
+ * or not.  A signal not in 'set' and caught interrupts the wait (EINTR), and
+ * the timeout ends it (EAGAIN).  A thread takes a signal sent to itself or,
+ * as POSIX has it, one pending for its process (at the main thread's slot).
+ */
+  struct pm_sigwait *sw = &mpsigwait[who_p];
+  struct mproc *leader = process_of(mp);
+  struct timespec ts;
+  clock_t ticks = 0;
+  int64_t t;
+  int i, r;
+
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+
+  sw->sw_set = m_in.m_lc_pm_sigtimedwait.set;
+  sigdelset(&sw->sw_set, SIGKILL);
+  sigdelset(&sw->sw_set, SIGSTOP);
+  sw->sw_info = m_in.m_lc_pm_sigtimedwait.info;
+
+  if (m_in.m_lc_pm_sigtimedwait.timeout != 0) {
+	r = sys_datacopy(who_e, m_in.m_lc_pm_sigtimedwait.timeout,
+		PM_PROC_NR, (vir_bytes) &ts, sizeof(ts));
+	if (r != OK)
+		return(r);
+	if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000L)
+		return(EINVAL);
+  }
+
+  /* The lowest pending first: POSIX has that for the realtime signals. */
+  for (i = 1; i < _NSIG; i++) {
+	if (!sigismember(&sw->sw_set, i))
+		continue;
+	if (sigismember(&mp->mp_sigpending, i))
+		return sigwait_take(mp, mp, i);
+	if (leader != mp && sigismember(&leader->mp_sigpending, i))
+		return sigwait_take(mp, leader, i);
+  }
+
+  if (m_in.m_lc_pm_sigtimedwait.timeout != 0) {
+	if (ts.tv_sec == 0 && ts.tv_nsec == 0)
+		return(EAGAIN);			/* a poll */
+	/* In ticks, rounded up. */
+	if (ts.tv_sec >= TMRDIFF_MAX / system_hz)
+		ticks = TMRDIFF_MAX;
+	else {
+		t = (int64_t) ts.tv_sec * system_hz +
+			((int64_t) ts.tv_nsec * system_hz + 999999999) /
+			1000000000;
+		ticks = (t > TMRDIFF_MAX) ? TMRDIFF_MAX : (clock_t) t;
+	}
+	if (ticks == 0)
+		ticks = 1;
+	set_timer(&mp->mp_park_timer, ticks, sigwait_expire, mp->mp_endpoint);
+  }
+
+  mp->mp_flags |= SIGWAITING;
+  return(SUSPEND);
+}
+
+/*===========================================================================*
+ *				sigwait_take				     *
+ *===========================================================================*/
+static int
+sigwait_take(struct mproc *rmp, struct mproc *from, int signo)
+{
+/* The thread 'rmp', in or entering sigtimedwait(), takes the pending signal
+ * 'signo' of the slot 'from' (itself or its main thread): tell it where the
+ * signal came from, and return the call's result.  The signal is used up
+ * even if the siginfo_t cannot be written, as it is when a handler's stack
+ * cannot be.
+ */
+  struct pm_siginfo *ps;
+  siginfo_t si;
+  int slot = (int) (from - mproc);
+
+  ps = &mpsiginfo[slot][signo];
+  memset(&si, 0, sizeof(si));
+  si.si_signo = signo;
+  si.si_code = ps->ps_code;
+  si.si_pid = ps->ps_pid;
+  si.si_uid = ps->ps_uid;
+  if (signo == SIGCHLD)
+	si.si_status = ps->ps_status;
+  if (ps->ps_addr != 0)
+	si.si_addr = (void *) ps->ps_addr;
+  if (ps->ps_code == SI_TIMER || ps->ps_code == SI_MESGQ ||
+      ps->ps_code == SI_QUEUE)
+	si.si_value.sival_ptr = (void *) ps->ps_value;
+  if (ps->ps_code == SI_TIMER)
+	ptimer_delivered(slot, ps->ps_status);
+
+  sigdelset(&from->mp_sigpending, signo);
+  sigdelset(&from->mp_ksigpending, signo);
+  sigq_next(from, signo);		/* the next instance, if queued */
+
+  if (mpsigwait[rmp - mproc].sw_info != 0 &&
+      sys_datacopy(PM_PROC_NR, (vir_bytes) &si, rmp->mp_endpoint,
+      mpsigwait[rmp - mproc].sw_info, sizeof(si)) != OK)
+	return(EFAULT);
+  return(signo);
+}
+
+/*===========================================================================*
+ *				sigwait_expire				     *
+ *===========================================================================*/
+static void
+sigwait_expire(int arg)
+{
+/* A sigtimedwait() has run out of time: it fails with EAGAIN. */
+  int slot;
+
+  if (pm_isokendpt((endpoint_t) arg, &slot) != OK)
+	return;
+  if (!(mproc[slot].mp_flags & SIGWAITING))
+	return;
+  mproc[slot].mp_flags &= ~SIGWAITING;
+  reply(slot, EAGAIN);
 }
 
 /*===========================================================================*
@@ -565,6 +757,14 @@ sig_proc(
 
   slot = (int) (rmp - mproc);
 
+  /* A realtime signal does not merge with an instance of it still pending:
+   * it waits behind that one.
+   */
+  if (IS_RTSIG(signo) && sigismember(&rmp->mp_sigpending, signo)) {
+	sigq_add(rmp, signo);
+	return;
+  }
+
   /* Remember where this instance came from, for an SA_SIGINFO handler. */
   mpsiginfo[slot][signo] = sig_origin;
 
@@ -654,6 +854,18 @@ sig_proc(
 	return;
   }
 
+  /* A thread in sigtimedwait() for this signal takes it, blocked or ignored,
+   * unless it is a fault the thread cannot go on from.
+   */
+  if ((rmp->mp_flags & SIGWAITING) &&
+      sigismember(&mpsigwait[slot].sw_set, signo) &&
+      !(ksig && sigismember(&noign_sset, signo))) {
+	rmp->mp_flags &= ~SIGWAITING;
+	cancel_timer(&rmp->mp_park_timer);
+	reply(slot, sigwait_take(rmp, rmp, signo));
+	return;
+  }
+
   /* Handle user processes now. See if the signal cannot be safely ignored. */
   badignore = ksig && sigismember(&noign_sset, signo) && (
 	  sigismember(&rmp->mp_ignore, signo) ||
@@ -661,6 +873,8 @@ sig_proc(
 
   if (!badignore && sigismember(&rmp->mp_ignore, signo)) {
 	/* Signal should be ignored. */
+	if (mpsiginfo[slot][signo].ps_code == SI_TIMER)
+		ptimer_delivered(slot, mpsiginfo[slot][signo].ps_status);
 	return;
   }
   if (!badignore && sigismember(&rmp->mp_sigmask, signo)) {
@@ -720,7 +934,10 @@ sig_proc(
 	return;
   }
   else if (!badignore && sigismember(&ign_sset, signo)) {
-	/* Signal defaults to being ignored. */
+	/* Signal defaults to being ignored.  A timer's still counts as
+	 * delivered, for timer_getoverrun(). */
+	if (mpsiginfo[slot][signo].ps_code == SI_TIMER)
+		ptimer_delivered(slot, mpsiginfo[slot][signo].ps_status);
 	return;
   }
 
@@ -737,16 +954,28 @@ signal_thread(struct mproc *rmp, int signo)
 /* Return the slot that is to take a signal sent to the process 'rmp': its main
  * thread, unless that thread blocks the signal and another thread does not
  * (POSIX: any thread not blocking it).  Otherwise the signal stayed pending at
- * the main thread, with threads ready to take it.
+ * the main thread, with threads ready to take it.  But first a thread waiting
+ * for the signal in sigtimedwait(), which takes it however it is blocked.
  */
   struct mproc *t;
   int group;
 
-  if (rmp->mp_lwp_group == NO_LWP_GROUP || (rmp->mp_flags & MP_LWP) ||
-      !sigismember(&rmp->mp_sigmask, signo))
+  if (rmp->mp_lwp_group == NO_LWP_GROUP || (rmp->mp_flags & MP_LWP))
 	return rmp;
 
+  /* A thread waiting for it in sigtimedwait() first. */
   group = (int) (rmp - mproc);
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING | SIGWAITING)) ==
+	    (IN_USE | SIGWAITING) && (t == rmp || ((t->mp_flags & MP_LWP) &&
+	    t->mp_lwp_group == group)) &&
+	    sigismember(&mpsigwait[t - mproc].sw_set, signo))
+		return t;
+  }
+
+  if (!sigismember(&rmp->mp_sigmask, signo))
+	return rmp;
+
   for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
 	if ((t->mp_flags & (IN_USE | EXITING | MP_LWP | MP_LWP_ZOMBIE |
 	    MP_LWP_TEARDOWN)) == (IN_USE | MP_LWP) &&
@@ -774,6 +1003,119 @@ discard_signal(struct mproc *rmp, int signo)
 		sigdelset(&t->mp_ksigpending, signo);
 	}
   }
+}
+
+/*===========================================================================*
+ *				sigq_live				     *
+ *===========================================================================*/
+static int
+sigq_live(struct sigq *sq)
+{
+/* Is 'sq' a queued instance, of a thread that is still there?  Free it if
+ * its thread is gone. */
+  struct mproc *rmp;
+
+  if (sq->sq_signo == 0)
+	return FALSE;
+  rmp = &mproc[sq->sq_slot];
+  if ((rmp->mp_flags & IN_USE) && rmp->mp_endpoint == sq->sq_endpt)
+	return TRUE;
+  sq->sq_signo = 0;
+  return FALSE;
+}
+
+/*===========================================================================*
+ *				sigq_count				     *
+ *===========================================================================*/
+static int
+sigq_count(struct mproc *rmp)
+{
+/* The number of realtime signal instances pending for the process 'rmp' is
+ * part of: those queued, and the first of each, pending in its thread.
+ */
+  struct mproc *proc = process_of(rmp), *t;
+  struct sigq *sq;
+  int n = 0, s;
+
+  for (sq = &sigq[0]; sq < &sigq[NR_SIGQ]; sq++)
+	if (sigq_live(sq) && process_of(&mproc[sq->sq_slot]) == proc)
+		n++;
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if (!(t->mp_flags & IN_USE) || process_of(t) != proc)
+		continue;
+	for (s = SIGRTMIN; s <= SIGRTMAX; s++)
+		if (sigismember(&t->mp_sigpending, s))
+			n++;
+  }
+  return n;
+}
+
+/*===========================================================================*
+ *				sigq_add				     *
+ *===========================================================================*/
+static void
+sigq_add(struct mproc *rmp, int signo)
+{
+/* Queue an instance of 'signo', from sig_origin, behind the one pending at
+ * 'rmp'.  With no room it is lost, as an ordinary signal would be; sigqueue()
+ * has checked the process's share already.
+ */
+  struct sigq *sq, *free_sq = NULL;
+
+  for (sq = &sigq[0]; sq < &sigq[NR_SIGQ]; sq++) {
+	if (!sigq_live(sq)) {
+		free_sq = sq;
+		break;
+	}
+  }
+  if (free_sq == NULL || sigq_count(rmp) >= SIGQ_MAX)
+	return;
+  free_sq->sq_signo = signo;
+  free_sq->sq_slot = (int) (rmp - mproc);
+  free_sq->sq_endpt = rmp->mp_endpoint;
+  free_sq->sq_seq = sigq_seq++;
+  free_sq->sq_info = sig_origin;
+}
+
+/*===========================================================================*
+ *				sigq_next				     *
+ *===========================================================================*/
+static void
+sigq_next(struct mproc *rmp, int signo)
+{
+/* The pending 'signo' of 'rmp' has been taken: make the oldest instance
+ * queued behind it pending in its place.  Call with 'signo' not pending.
+ */
+  struct sigq *sq, *first = NULL;
+  int slot = (int) (rmp - mproc);
+
+  if (!IS_RTSIG(signo))
+	return;
+  for (sq = &sigq[0]; sq < &sigq[NR_SIGQ]; sq++) {
+	if (sigq_live(sq) && sq->sq_slot == slot && sq->sq_signo == signo &&
+	    (first == NULL || sq->sq_seq - first->sq_seq > ULONG_MAX / 2))
+		first = sq;
+  }
+  if (first == NULL)
+	return;
+  mpsiginfo[slot][signo] = first->sq_info;
+  sigaddset(&rmp->mp_sigpending, signo);
+  first->sq_signo = 0;
+}
+
+/*===========================================================================*
+ *				sigq_flush				     *
+ *===========================================================================*/
+static void
+sigq_flush(struct mproc *rmp, int signo)
+{
+/* Drop the instances of 'signo' queued at 'rmp'. */
+  struct sigq *sq;
+  int slot = (int) (rmp - mproc);
+
+  for (sq = &sigq[0]; sq < &sigq[NR_SIGQ]; sq++)
+	if (sigq_live(sq) && sq->sq_slot == slot && sq->sq_signo == signo)
+		sq->sq_signo = 0;
 }
 
 /*===========================================================================*
@@ -1057,11 +1399,14 @@ check_pending(register struct mproc *rmp)
    * There are several places in this file where the signal mask is
    * changed.  At each such place, check_pending() should be called to
    * check for newly unblocked signals.
+   *
+   * The highest first: the handler set up last runs first, and POSIX wants
+   * the lowest realtime signal first.
    */
   int i;
   int ksig;
 
-  for (i = 1; i < _NSIG; i++) {
+  for (i = _NSIG - 1; i >= 1; i--) {
 	if (sigismember(&rmp->mp_sigpending, i) &&
 		!sigismember(&rmp->mp_sigmask, i)) {
 		struct pm_siginfo saved = sig_origin;
@@ -1153,10 +1498,10 @@ unpause(
   if (rmp->mp_flags & DELAY_CALL)
 	return FALSE;
 
-  /* Check to see if process is hanging on a WAIT, SIGSUSPEND or _lwp_park
-   * call.
+  /* Check to see if process is hanging on a WAIT, SIGSUSPEND, SIGTIMEDWAIT
+   * or _lwp_park call.
    */
-  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | MP_LWP_PARKED)) {
+  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | SIGWAITING | MP_LWP_PARKED)) {
 	/* Stop the process from running. Do not interrupt the actual call yet.
 	 * sig_send() will interrupt the call and resume the process afterward.
 	 * No delay calls: we know for a fact that the process called us.
@@ -1253,6 +1598,7 @@ sig_send(
   }
   sigdelset(&rmp->mp_sigpending, signo);
   sigdelset(&rmp->mp_ksigpending, signo);
+  sigq_next(rmp, signo);		/* the next instance, if queued */
 
   /* Ask the kernel to deliver the signal */
   r = sys_sigsend(rmp->mp_endpoint, &sigmsg);
@@ -1271,14 +1617,15 @@ sig_send(
   /* Was the process suspended in PM? Then interrupt the blocking call:
    * with EINTR, or -- for a wait() and a handler with SA_RESTART -- with
    * ERESTARTSYS, which makes the C library call again.  sigsuspend() always
-   * returns EINTR (POSIX), and so does _lwp_park(), as on NetBSD: libpthread
-   * parks again if it must. */
-  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | MP_LWP_PARKED)) {
+   * returns EINTR (POSIX), and so do sigtimedwait() and _lwp_park(), as on
+   * NetBSD: libpthread parks again if it must. */
+  if (rmp->mp_flags & (WAITING | SIGSUSPENDED | SIGWAITING | MP_LWP_PARKED)) {
 	int restart = (rmp->mp_flags & WAITING) && (sigflags & SA_RESTART);
 
-	if (rmp->mp_flags & MP_LWP_PARKED)
+	if (rmp->mp_flags & (SIGWAITING | MP_LWP_PARKED))
 		cancel_timer(&rmp->mp_park_timer);
-	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED | MP_LWP_PARKED);
+	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED | SIGWAITING |
+		MP_LWP_PARKED);
 
 	reply(slot, restart ? ERESTARTSYS : EINTR);
 

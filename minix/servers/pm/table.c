@@ -75,5 +75,7 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_SETPGID)	= do_setpgid,		/* setpgid(2) */
 	CALL(PM_GETPGID)	= do_get,		/* getpgid(2) */
 	CALL(PM_TTYJC)		= do_ttyjc,		/* terminal job control */
-	CALL(PM_SRV_SIGQUEUE)	= do_srv_sigqueue	/* signal with siginfo */
+	CALL(PM_SRV_SIGQUEUE)	= do_srv_sigqueue,	/* signal with siginfo */
+	CALL(PM_SIGQUEUE)	= do_sigqueue,		/* sigqueue(2) */
+	CALL(PM_SIGTIMEDWAIT)	= do_sigtimedwait	/* sigtimedwait(2) */
 };
