@@ -92,6 +92,9 @@ do_fork(void)
   procs_in_use++;
   *rmc = *rmp;			/* copy parent's process slot to child's */
   rmc->mp_sigact = mpsigact[next_child];	/* restore mp_sigact ptr */
+  /* The parent's timers are its own: the copies are not queued. */
+  init_timer(&rmc->mp_timer);
+  init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   /* Until VFS is done, the parent is the caller, to whom the fork replies;
@@ -208,6 +211,9 @@ do_lwp_create(void)
   procs_in_use++;
   *rmc = *rmp;				/* copy parent's slot */
   rmc->mp_sigact = mpsigact[next_lwp];	/* restore mp_sigact ptr */
+  /* The creator's timers are its own: the copies are not queued. */
+  init_timer(&rmc->mp_timer);
+  init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
   /* A new thread starts without an alternate signal stack. */
   mpaltstack[next_lwp].ss_sp = NULL;
@@ -301,6 +307,15 @@ lwp_start_teardown(struct mproc *rmp)
    */
   rmp->mp_flags &= ~UNPAUSED;
   rmp->mp_flags |= MP_LWP_TEARDOWN;
+
+  /* A thread parked with a timeout (pthread_cond_timedwait(), say) goes
+   * without returning: its timer must not stay queued once the slot is free,
+   * where a new process or thread copies over it and corrupts the timer list.
+   */
+  if (rmp->mp_flags & MP_LWP_PARKED) {
+	cancel_timer(&rmp->mp_park_timer);
+	rmp->mp_flags &= ~MP_LWP_PARKED;
+  }
   if (!(rmp->mp_flags & PROC_STOPPED)) {
 	if ((r = sys_stop(proc_nr_e)) != OK)
 		panic("lwp_start_teardown: sys_stop failed: %d", r);
@@ -961,6 +976,9 @@ do_srv_fork(void)
   procs_in_use++;
   *rmc = *rmp;			/* copy parent's process slot to child's */
   rmc->mp_sigact = mpsigact[next_child];	/* restore mp_sigact ptr */
+  /* The parent's timers are its own: the copies are not queued. */
+  init_timer(&rmc->mp_timer);
+  init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   rmc->mp_parent = who_p;			/* record child's parent */
