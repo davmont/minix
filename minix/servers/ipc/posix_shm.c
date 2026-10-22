@@ -19,18 +19,20 @@
  */
 #include "inc.h"
 
-#define POSIX_SHM_MAX	128
+#define POSIX_SHM_MAX	1024	/* named objects in the system */
 #define POSIX_SHM_OLD_MAX 64
 
 struct pshm {
 	int		used;
 	int		unlinked;	/* shm_unlink() seen; free when idle */
+	unsigned int	unlink_seq;	/* when, for pshm_reclaim() */
 	dev_t		dev;
 	ino_t		ino;
 	vir_bytes	page;		/* held MAP_ANON region, 0 if none yet */
 	size_t		size;		/* rounded region size in bytes */
 };
 static struct pshm pshm_list[POSIX_SHM_MAX];
+static unsigned int pshm_unlink_seq;
 
 /*
  * Superseded regions from a grow (see do_shm_map).  A grown object gets a new,
@@ -102,12 +104,43 @@ pshm_lookup(dev_t dev, ino_t ino, int include_unlinked)
 	return stale;			/* NULL unless include_unlinked */
 }
 
+/*
+ * Find a slot for a new object when all are in use: that of the object
+ * unlinked longest ago and never mapped.
+ *
+ * posix_shm_update() frees an unlinked object once no one maps it, but one
+ * that was never mapped has no pages to count mappers by, and we cannot see
+ * whether anyone still has its token open: it would hold its slot for ever.
+ * Creating and unlinking objects without mapping them (the Open POSIX Test
+ * Suite's shm_open/23-1 does a thousand) filled the table, and every
+ * shm_open() after it failed with ENOSPC.  Such an object holds nothing, so
+ * it can go -- unless someone still has the token open and maps it only
+ * after the table has filled up: mmap() then falls back to the token file,
+ * and the mapping is not shared.
+ */
+static struct pshm *
+pshm_reclaim(void)
+{
+	struct pshm *oldest = NULL;
+	int i;
+
+	for (i = 0; i < POSIX_SHM_MAX; i++) {
+		if (!pshm_list[i].unlinked || pshm_list[i].page != 0)
+			continue;
+		if (oldest == NULL || (int)(pshm_list[i].unlink_seq -
+		    oldest->unlink_seq) < 0)
+			oldest = &pshm_list[i];
+	}
+	return oldest;
+}
+
 /* Register a (dev, ino) token as a POSIX shm object (idempotent). */
 int
 do_shm_open(message *m)
 {
 	dev_t dev = (dev_t)m->m_lc_ipc_shm.dev;
 	ino_t ino = (ino_t)m->m_lc_ipc_shm.ino;
+	struct pshm *shm;
 	int i;
 
 	/* An unlinked object must not be matched here: its inode may have been
@@ -115,16 +148,16 @@ do_shm_open(message *m)
 	if (pshm_lookup(dev, ino, 0 /*live only*/) != NULL)
 		return OK;			/* already registered */
 
-	for (i = 0; i < POSIX_SHM_MAX; i++)
+	for (i = 0, shm = NULL; i < POSIX_SHM_MAX && shm == NULL; i++)
 		if (!pshm_list[i].used)
-			break;
-	if (i == POSIX_SHM_MAX)
+			shm = &pshm_list[i];
+	if (shm == NULL && (shm = pshm_reclaim()) == NULL)
 		return ENOSPC;
 
-	memset(&pshm_list[i], 0, sizeof(pshm_list[i]));
-	pshm_list[i].used = 1;
-	pshm_list[i].dev = dev;
-	pshm_list[i].ino = ino;
+	memset(shm, 0, sizeof(*shm));
+	shm->used = 1;
+	shm->dev = dev;
+	shm->ino = ino;
 	return OK;
 }
 
@@ -238,6 +271,7 @@ do_shm_unlink(message *m)
 	if ((shm = pshm_lookup(dev, ino, 0 /*live only*/)) == NULL)
 		return ENOENT;
 	shm->unlinked = 1;
+	shm->unlink_seq = pshm_unlink_seq++;
 	posix_shm_update();
 	return OK;
 }
