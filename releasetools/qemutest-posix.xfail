@@ -1,0 +1,680 @@
+# Known failures of the Open POSIX Test Suite on amd64, for
+# releasetools/qemutest.py --suite posix --xfail.  Same format as
+# qemutest.xfail.  Baseline taken 2026-10-21 on 2 CPUs: 1287 of 1757 tests pass,
+# 30 skip (UNSUPPORTED/UNTESTED).  The verdict after each test is what it
+# gave then: nobuild (does not compile: the interface or a definition is
+# missing), fail, unresolved (the test could not set itself up), timeout,
+# signal, wedge (took the system down).  Remove a test here in the change
+# that fixes it; XPASS fails the run.
+
+# behavior/timers
+behavior/timers/1-1                                      # nobuild
+behavior/timers/2-1                                      # nobuild
+
+# interfaces/aio_cancel
+interfaces/aio_cancel/1-1                                # nobuild
+interfaces/aio_cancel/10-1                               # nobuild
+interfaces/aio_cancel/2-1                                # nobuild
+interfaces/aio_cancel/2-2                                # nobuild
+interfaces/aio_cancel/3-1                                # nobuild
+interfaces/aio_cancel/4-1                                # nobuild
+interfaces/aio_cancel/5-1                                # nobuild
+interfaces/aio_cancel/6-1                                # nobuild
+interfaces/aio_cancel/7-1                                # nobuild
+interfaces/aio_cancel/8-1                                # nobuild
+interfaces/aio_cancel/9-1                                # nobuild
+
+# interfaces/aio_error
+interfaces/aio_error/1-1                                 # nobuild
+interfaces/aio_error/2-1                                 # nobuild
+interfaces/aio_error/3-1                                 # nobuild
+
+# interfaces/aio_fsync
+interfaces/aio_fsync/12-1                                # nobuild
+interfaces/aio_fsync/14-1                                # nobuild
+interfaces/aio_fsync/2-1                                 # nobuild
+interfaces/aio_fsync/3-1                                 # nobuild
+interfaces/aio_fsync/4-1                                 # nobuild
+interfaces/aio_fsync/5-1                                 # nobuild
+interfaces/aio_fsync/8-1                                 # nobuild
+interfaces/aio_fsync/8-2                                 # nobuild
+interfaces/aio_fsync/8-3                                 # nobuild
+interfaces/aio_fsync/8-4                                 # nobuild
+interfaces/aio_fsync/9-1                                 # nobuild
+
+# interfaces/aio_read
+interfaces/aio_read/1-1                                  # nobuild
+interfaces/aio_read/10-1                                 # nobuild
+interfaces/aio_read/11-1                                 # nobuild
+interfaces/aio_read/11-2                                 # nobuild
+interfaces/aio_read/3-1                                  # nobuild
+interfaces/aio_read/3-2                                  # nobuild
+interfaces/aio_read/4-1                                  # nobuild
+interfaces/aio_read/5-1                                  # nobuild
+interfaces/aio_read/7-1                                  # nobuild
+interfaces/aio_read/8-1                                  # nobuild
+interfaces/aio_read/9-1                                  # nobuild
+
+# interfaces/aio_return
+interfaces/aio_return/1-1                                # nobuild
+interfaces/aio_return/2-1                                # nobuild
+interfaces/aio_return/3-1                                # nobuild
+interfaces/aio_return/3-2                                # nobuild
+interfaces/aio_return/4-1                                # nobuild
+
+# interfaces/aio_suspend
+interfaces/aio_suspend/1-1                               # nobuild
+interfaces/aio_suspend/3-1                               # nobuild
+interfaces/aio_suspend/4-1                               # nobuild
+interfaces/aio_suspend/9-1                               # nobuild
+
+# interfaces/aio_write
+interfaces/aio_write/1-1                                 # nobuild
+interfaces/aio_write/1-2                                 # nobuild
+interfaces/aio_write/2-1                                 # nobuild
+interfaces/aio_write/3-1                                 # nobuild
+interfaces/aio_write/5-1                                 # nobuild
+interfaces/aio_write/6-1                                 # nobuild
+interfaces/aio_write/7-1                                 # nobuild
+interfaces/aio_write/8-1                                 # nobuild
+interfaces/aio_write/8-2                                 # nobuild
+interfaces/aio_write/9-1                                 # nobuild
+interfaces/aio_write/9-2                                 # nobuild
+
+# interfaces/clock
+interfaces/clock/1-1                                     flaky  # timing: passed on 1 CPU, failed once on 2
+interfaces/clock/2-1                                     # fail
+
+# interfaces/clock_getcpuclockid
+interfaces/clock_getcpuclockid/1-1                       # nobuild
+interfaces/clock_getcpuclockid/1-2                       # nobuild
+interfaces/clock_getcpuclockid/2-1                       # nobuild
+
+# interfaces/clock_getres
+interfaces/clock_getres/7-1                              # nobuild
+interfaces/clock_getres/8-1                              # nobuild
+
+# interfaces/clock_gettime
+interfaces/clock_gettime/4-1                             # nobuild
+
+# interfaces/clock_nanosleep
+interfaces/clock_nanosleep/13-1                          # fail
+
+# interfaces/clock_settime
+interfaces/clock_settime/19-1                            # fail
+interfaces/clock_settime/4-1                             # fail
+interfaces/clock_settime/4-2                             # fail
+interfaces/clock_settime/7-1                             # fail
+interfaces/clock_settime/7-2                             # fail
+interfaces/clock_settime/speculative/4-3                 # fail
+
+# interfaces/fork
+interfaces/fork/1-1                                      # unresolved
+interfaces/fork/12-1                                     # fail
+interfaces/fork/14-1                                     # unresolved
+interfaces/fork/17-1                                     # unresolved
+interfaces/fork/17-2                                     # unresolved
+interfaces/fork/18-1                                     # unresolved
+interfaces/fork/21-1                                     # unresolved
+interfaces/fork/22-1                                     # nobuild
+
+# interfaces/fsync
+interfaces/fsync/7-1                                     # fail
+
+# interfaces/killpg
+interfaces/killpg/1-2                                    # nobuild
+
+# interfaces/lio_listio
+interfaces/lio_listio/1-1                                # nobuild
+interfaces/lio_listio/10-1                               # nobuild
+interfaces/lio_listio/12-1                               # nobuild
+interfaces/lio_listio/13-1                               # nobuild
+interfaces/lio_listio/14-1                               # nobuild
+interfaces/lio_listio/15-1                               # nobuild
+interfaces/lio_listio/18-1                               # nobuild
+interfaces/lio_listio/2-1                                # nobuild
+interfaces/lio_listio/3-1                                # nobuild
+interfaces/lio_listio/4-1                                # nobuild
+interfaces/lio_listio/5-1                                # nobuild
+interfaces/lio_listio/7-1                                # nobuild
+interfaces/lio_listio/8-1                                # nobuild
+interfaces/lio_listio/9-1                                # nobuild
+
+# interfaces/mlock
+interfaces/mlock/10-1                                    # nobuild
+interfaces/mlock/12-1                                    # nobuild
+interfaces/mlock/5-1                                     # nobuild
+interfaces/mlock/8-1                                     # nobuild
+interfaces/mlock/speculative/12-1                        # nobuild
+
+# interfaces/mlockall
+interfaces/mlockall/13-1                                 # nobuild
+interfaces/mlockall/13-2                                 # nobuild
+interfaces/mlockall/15-1                                 # nobuild
+interfaces/mlockall/3-6                                  # nobuild
+interfaces/mlockall/3-7                                  # nobuild
+interfaces/mlockall/8-1                                  # nobuild
+interfaces/mlockall/speculative/15-1                     # nobuild
+
+# interfaces/mmap
+interfaces/mmap/1-2                                      # fail
+interfaces/mmap/11-1                                     # fail
+interfaces/mmap/11-3                                     # fail
+interfaces/mmap/11-4                                     # fail
+interfaces/mmap/13-1                                     # fail
+interfaces/mmap/18-1                                     # nobuild
+interfaces/mmap/19-1                                     # fail
+interfaces/mmap/21-1                                     # fail
+interfaces/mmap/23-1:60                                  # wedge
+interfaces/mmap/24-1                                     # timeout
+interfaces/mmap/24-2                                     # signal
+interfaces/mmap/6-6                                      # fail
+interfaces/mmap/7-4                                      # fail
+interfaces/mmap/9-1                                      # fail
+
+# interfaces/mq_close
+interfaces/mq_close/2-1                                  # fail
+
+# interfaces/mq_timedreceive
+interfaces/mq_timedreceive/5-1                           # fail
+
+# interfaces/mq_timedsend
+interfaces/mq_timedsend/5-1                              # fail
+interfaces/mq_timedsend/5-2                              # fail
+
+# interfaces/munlock
+interfaces/munlock/10-1                                  # nobuild
+interfaces/munlock/11-1                                  # nobuild
+interfaces/munlock/7-1                                   # nobuild
+
+# interfaces/munlockall
+interfaces/munlockall/5-1                                # nobuild
+
+# interfaces/munmap
+interfaces/munmap/1-1                                    flaky  # signal or pass, both CPU counts
+interfaces/munmap/2-1                                    # unresolved
+interfaces/munmap/3-1                                    # fail
+interfaces/munmap/8-1                                    # fail
+
+# interfaces/nanosleep
+interfaces/nanosleep/2-1                                 # unresolved
+
+# interfaces/pthread_atfork
+interfaces/pthread_atfork/3-3                            # timeout
+
+# interfaces/pthread_attr_getschedparam
+interfaces/pthread_attr_getschedparam/1-1                # unresolved
+
+# interfaces/pthread_attr_getstack
+interfaces/pthread_attr_getstack/1-1                     # nobuild
+
+# interfaces/pthread_attr_getstacksize
+interfaces/pthread_attr_getstacksize/1-1                 # nobuild
+
+# interfaces/pthread_attr_setdetachstate
+interfaces/pthread_attr_setdetachstate/2-1               # fail
+
+# interfaces/pthread_attr_setinheritsched
+interfaces/pthread_attr_setinheritsched/2-2              # fail
+interfaces/pthread_attr_setinheritsched/2-3              # unresolved
+interfaces/pthread_attr_setinheritsched/2-4              # unresolved
+
+# interfaces/pthread_attr_setschedparam
+interfaces/pthread_attr_setschedparam/1-1                # fail
+interfaces/pthread_attr_setschedparam/1-2                # fail
+interfaces/pthread_attr_setschedparam/1-3                # unresolved
+interfaces/pthread_attr_setschedparam/1-4                # unresolved
+interfaces/pthread_attr_setschedparam/speculative/3-1    # fail
+interfaces/pthread_attr_setschedparam/speculative/3-2    # fail
+
+# interfaces/pthread_attr_setschedpolicy
+interfaces/pthread_attr_setschedpolicy/1-2               # unresolved
+interfaces/pthread_attr_setschedpolicy/1-3               # unresolved
+interfaces/pthread_attr_setschedpolicy/2-1               # unresolved
+interfaces/pthread_attr_setschedpolicy/4-1               # fail
+
+# interfaces/pthread_attr_setstack
+interfaces/pthread_attr_setstack/1-1                     # nobuild
+interfaces/pthread_attr_setstack/2-1                     # nobuild
+interfaces/pthread_attr_setstack/4-1                     # nobuild
+interfaces/pthread_attr_setstack/6-1                     # nobuild
+interfaces/pthread_attr_setstack/7-1                     # nobuild
+
+# interfaces/pthread_attr_setstacksize
+interfaces/pthread_attr_setstacksize/1-1                 # nobuild
+interfaces/pthread_attr_setstacksize/2-1                 # nobuild
+interfaces/pthread_attr_setstacksize/4-1                 # nobuild
+
+# interfaces/pthread_barrierattr_getpshared
+interfaces/pthread_barrierattr_getpshared/1-1            # nobuild
+interfaces/pthread_barrierattr_getpshared/2-1            # nobuild
+
+# interfaces/pthread_barrierattr_init
+interfaces/pthread_barrierattr_init/1-1                  # nobuild
+
+# interfaces/pthread_barrierattr_setpshared
+interfaces/pthread_barrierattr_setpshared/1-1            # nobuild
+interfaces/pthread_barrierattr_setpshared/2-1            # nobuild
+
+# interfaces/pthread_cancel
+interfaces/pthread_cancel/1-1                            # fail
+interfaces/pthread_cancel/2-1                            # fail
+interfaces/pthread_cancel/2-2                            # fail
+interfaces/pthread_cancel/2-3                            # fail
+interfaces/pthread_cancel/3-1                            # timeout
+
+# interfaces/pthread_cleanup_push
+interfaces/pthread_cleanup_push/1-2                      # unresolved
+
+# interfaces/pthread_cond_broadcast
+interfaces/pthread_cond_broadcast/1-2                    # nobuild
+interfaces/pthread_cond_broadcast/2-3                    # nobuild
+interfaces/pthread_cond_broadcast/4-2                    # unresolved
+
+# interfaces/pthread_cond_destroy
+interfaces/pthread_cond_destroy/2-1                      # nobuild
+
+# interfaces/pthread_cond_signal
+interfaces/pthread_cond_signal/1-2                       # nobuild
+interfaces/pthread_cond_signal/4-2                       # unresolved
+
+# interfaces/pthread_cond_timedwait
+interfaces/pthread_cond_timedwait/2-3                    # unresolved
+interfaces/pthread_cond_timedwait/2-4                    # nobuild
+interfaces/pthread_cond_timedwait/2-5                    # nobuild
+interfaces/pthread_cond_timedwait/2-6                    # nobuild
+interfaces/pthread_cond_timedwait/2-7                    # nobuild
+interfaces/pthread_cond_timedwait/4-2                    # nobuild
+interfaces/pthread_cond_timedwait/4-3                    # timeout
+
+# interfaces/pthread_cond_wait
+interfaces/pthread_cond_wait/2-2                         # nobuild
+interfaces/pthread_cond_wait/2-3                         # nobuild
+interfaces/pthread_cond_wait/4-1                         # unresolved
+
+# interfaces/pthread_condattr_destroy
+interfaces/pthread_condattr_destroy/4-1                  # signal
+
+# interfaces/pthread_condattr_getclock
+interfaces/pthread_condattr_getclock/1-1                 # fail
+
+# interfaces/pthread_condattr_getpshared
+interfaces/pthread_condattr_getpshared/1-1               # nobuild
+interfaces/pthread_condattr_getpshared/1-2               # nobuild
+interfaces/pthread_condattr_getpshared/2-1               # nobuild
+
+# interfaces/pthread_condattr_init
+interfaces/pthread_condattr_init/1-1                     # nobuild
+
+# interfaces/pthread_condattr_setclock
+interfaces/pthread_condattr_setclock/1-3                 # nobuild
+
+# interfaces/pthread_condattr_setpshared
+interfaces/pthread_condattr_setpshared/1-1               # nobuild
+interfaces/pthread_condattr_setpshared/1-2               # nobuild
+interfaces/pthread_condattr_setpshared/2-1               # nobuild
+
+# interfaces/pthread_create
+interfaces/pthread_create/1-3                            # timeout
+interfaces/pthread_create/1-5                            # unresolved
+interfaces/pthread_create/1-6                            # unresolved
+interfaces/pthread_create/11-1                           # nobuild
+interfaces/pthread_create/14-1                           # unresolved
+interfaces/pthread_create/15-1                           # unresolved
+interfaces/pthread_create/3-2                            # unresolved
+interfaces/pthread_create/8-1                            # fail
+
+# interfaces/pthread_detach
+interfaces/pthread_detach/1-1                            # fail
+interfaces/pthread_detach/1-2                            # unresolved
+interfaces/pthread_detach/2-2                            # unresolved
+interfaces/pthread_detach/4-3                            # unresolved
+
+# interfaces/pthread_equal
+interfaces/pthread_equal/2-1                             # timeout
+
+# interfaces/pthread_exit
+interfaces/pthread_exit/1-2                              # unresolved
+interfaces/pthread_exit/2-2                              # unresolved
+interfaces/pthread_exit/3-2                              # unresolved
+interfaces/pthread_exit/4-1                              # unresolved
+interfaces/pthread_exit/5-1                              # unresolved
+interfaces/pthread_exit/6-1                              # unresolved
+interfaces/pthread_exit/6-2                              # unresolved
+
+# interfaces/pthread_getschedparam
+interfaces/pthread_getschedparam/1-2                     # unresolved
+interfaces/pthread_getschedparam/1-3                     # unresolved
+
+# interfaces/pthread_join
+interfaces/pthread_join/1-2                              # unresolved
+interfaces/pthread_join/3-1                              # unresolved
+interfaces/pthread_join/4-1                              # unresolved
+interfaces/pthread_join/6-3                              # unresolved
+interfaces/pthread_join/speculative/6-1                  # fail
+
+# interfaces/pthread_kill
+interfaces/pthread_kill/8-1                              # timeout
+
+# interfaces/pthread_mutex_destroy
+interfaces/pthread_mutex_destroy/2-2                     # nobuild
+interfaces/pthread_mutex_destroy/5-2                     # nobuild
+
+# interfaces/pthread_mutex_init
+interfaces/pthread_mutex_init/1-2                        # timeout
+interfaces/pthread_mutex_init/3-2                        # timeout
+
+# interfaces/pthread_mutex_timedlock
+interfaces/pthread_mutex_timedlock/5-1                   # timeout
+interfaces/pthread_mutex_timedlock/5-2                   # timeout
+
+# interfaces/pthread_mutex_trylock
+interfaces/pthread_mutex_trylock/1-2                     # nobuild
+interfaces/pthread_mutex_trylock/2-1                     # nobuild
+interfaces/pthread_mutex_trylock/4-2                     # nobuild
+interfaces/pthread_mutex_trylock/4-3                     # nobuild
+
+# interfaces/pthread_mutexattr_destroy
+interfaces/pthread_mutexattr_destroy/4-1                 # signal
+
+# interfaces/pthread_mutexattr_getprioceiling
+interfaces/pthread_mutexattr_getprioceiling/1-1          # fail
+interfaces/pthread_mutexattr_getprioceiling/1-2          # unresolved
+
+# interfaces/pthread_mutexattr_getprotocol
+interfaces/pthread_mutexattr_getprotocol/1-2             # unresolved
+
+# interfaces/pthread_mutexattr_getpshared
+interfaces/pthread_mutexattr_getpshared/1-1              # nobuild
+interfaces/pthread_mutexattr_getpshared/1-2              # nobuild
+interfaces/pthread_mutexattr_getpshared/1-3              # nobuild
+interfaces/pthread_mutexattr_getpshared/3-1              # nobuild
+
+# interfaces/pthread_mutexattr_init
+interfaces/pthread_mutexattr_init/1-1                    # nobuild
+
+# interfaces/pthread_mutexattr_setprioceiling
+interfaces/pthread_mutexattr_setprioceiling/1-1          # fail
+
+# interfaces/pthread_mutexattr_setprotocol
+interfaces/pthread_mutexattr_setprotocol/1-1             # unresolved
+
+# interfaces/pthread_mutexattr_setpshared
+interfaces/pthread_mutexattr_setpshared/1-1              # nobuild
+interfaces/pthread_mutexattr_setpshared/1-2              # nobuild
+interfaces/pthread_mutexattr_setpshared/2-1              # nobuild
+interfaces/pthread_mutexattr_setpshared/2-2              # nobuild
+interfaces/pthread_mutexattr_setpshared/3-1              # nobuild
+interfaces/pthread_mutexattr_setpshared/3-2              # nobuild
+
+# interfaces/pthread_once
+interfaces/pthread_once/3-1                              # unresolved
+interfaces/pthread_once/6-1                              # timeout
+
+# interfaces/pthread_rwlock_destroy
+interfaces/pthread_rwlock_destroy/3-1                    # fail
+
+# interfaces/pthread_rwlock_timedrdlock
+interfaces/pthread_rwlock_timedrdlock/6-2                # unresolved
+
+# interfaces/pthread_rwlock_timedwrlock
+interfaces/pthread_rwlock_timedwrlock/6-2                # unresolved
+
+# interfaces/pthread_rwlock_trywrlock
+interfaces/pthread_rwlock_trywrlock/speculative/3-1      # unresolved
+
+# interfaces/pthread_rwlockattr_getpshared
+interfaces/pthread_rwlockattr_getpshared/1-1             # nobuild
+interfaces/pthread_rwlockattr_getpshared/2-1             # nobuild
+interfaces/pthread_rwlockattr_getpshared/4-1             # nobuild
+
+# interfaces/pthread_rwlockattr_init
+interfaces/pthread_rwlockattr_init/1-1                   # nobuild
+
+# interfaces/pthread_rwlockattr_setpshared
+interfaces/pthread_rwlockattr_setpshared/1-1             # nobuild
+
+# interfaces/pthread_setcanceltype
+interfaces/pthread_setcanceltype/1-1                     # fail
+
+# interfaces/pthread_setschedparam
+interfaces/pthread_setschedparam/1-1                     # fail
+interfaces/pthread_setschedparam/4-1                     # unresolved
+interfaces/pthread_setschedparam/5-1                     # timeout
+
+# interfaces/pthread_setschedprio
+interfaces/pthread_setschedprio/1-1                      # unresolved
+
+# interfaces/pthread_sigmask
+interfaces/pthread_sigmask/18-1                          # timeout
+interfaces/pthread_sigmask/4-1                           # fail
+interfaces/pthread_sigmask/5-1                           # unresolved
+interfaces/pthread_sigmask/6-1                           # fail
+interfaces/pthread_sigmask/9-1                           # fail
+
+# interfaces/raise
+interfaces/raise/10000-1                                 # fail
+interfaces/raise/7-1                                     # fail
+
+# interfaces/sched_get_priority_max
+interfaces/sched_get_priority_max/1-1                    # fail
+interfaces/sched_get_priority_max/1-2                    # fail
+interfaces/sched_get_priority_max/1-4                    # fail
+
+# interfaces/sched_get_priority_min
+interfaces/sched_get_priority_min/1-1                    # fail
+interfaces/sched_get_priority_min/1-2                    # fail
+interfaces/sched_get_priority_min/1-4                    # fail
+
+# interfaces/sched_getparam
+interfaces/sched_getparam/1-1                            # fail
+interfaces/sched_getparam/2-1                            # fail
+interfaces/sched_getparam/3-1                            # fail
+
+# interfaces/sched_getscheduler
+interfaces/sched_getscheduler/1-1                        # fail
+interfaces/sched_getscheduler/3-1                        # fail
+interfaces/sched_getscheduler/4-1                        # fail
+
+# interfaces/sched_rr_get_interval
+interfaces/sched_rr_get_interval/1-1                     # unresolved
+interfaces/sched_rr_get_interval/2-1                     # unresolved
+interfaces/sched_rr_get_interval/3-1                     # unresolved
+
+# interfaces/sched_setparam
+interfaces/sched_setparam/27-1                           flaky  # timing: passed on 1 CPU, failed once on 2
+interfaces/sched_setparam/2-1                            # unresolved
+interfaces/sched_setparam/2-2                            # unresolved
+interfaces/sched_setparam/23-6                           # unresolved
+interfaces/sched_setparam/25-2                           # nobuild
+interfaces/sched_setparam/25-3                           # nobuild
+interfaces/sched_setparam/25-4                           # nobuild
+interfaces/sched_setparam/26-1                           # fail
+interfaces/sched_setparam/9-1                            # unresolved
+
+# interfaces/sched_setscheduler
+interfaces/sched_setscheduler/1-1                        # unresolved
+interfaces/sched_setscheduler/15-1                       # unresolved
+interfaces/sched_setscheduler/15-2                       # unresolved
+interfaces/sched_setscheduler/16-1                       # fail
+interfaces/sched_setscheduler/17-1                       # unresolved
+interfaces/sched_setscheduler/19-1                       # unresolved
+interfaces/sched_setscheduler/20-1                       # fail
+interfaces/sched_setscheduler/21-1                       # fail
+interfaces/sched_setscheduler/22-1                       # unresolved
+interfaces/sched_setscheduler/22-2                       # unresolved
+interfaces/sched_setscheduler/4-1                        # fail
+
+# interfaces/sched_yield
+interfaces/sched_yield/1-1                               # unresolved
+
+# interfaces/sem_close
+interfaces/sem_close/1-1                                 # unresolved
+interfaces/sem_close/2-1                                 # unresolved
+interfaces/sem_close/3-1                                 # unresolved
+interfaces/sem_close/3-2                                 # unresolved
+
+# interfaces/sem_getvalue
+interfaces/sem_getvalue/1-1                              # unresolved
+interfaces/sem_getvalue/2-1                              # unresolved
+interfaces/sem_getvalue/4-1                              # unresolved
+interfaces/sem_getvalue/5-1                              # unresolved
+
+# interfaces/sem_init
+interfaces/sem_init/3-2                                  # unresolved
+interfaces/sem_init/3-3                                  # unresolved
+interfaces/sem_init/7-1                                  # nobuild
+
+# interfaces/sem_open
+interfaces/sem_open/1-1                                  # fail
+interfaces/sem_open/1-2                                  # fail
+interfaces/sem_open/1-3                                  # unresolved
+interfaces/sem_open/1-4                                  # unresolved
+interfaces/sem_open/10-1                                 # unresolved
+interfaces/sem_open/15-1                                 # unresolved
+interfaces/sem_open/2-1                                  # unresolved
+interfaces/sem_open/2-2                                  # unresolved
+interfaces/sem_open/3-1                                  # fail
+interfaces/sem_open/4-1                                  # fail
+interfaces/sem_open/5-1                                  # fail
+interfaces/sem_open/6-1                                  # fail
+
+# interfaces/sem_post
+interfaces/sem_post/1-1                                  # unresolved
+interfaces/sem_post/1-2                                  # unresolved
+interfaces/sem_post/2-1                                  # unresolved
+interfaces/sem_post/4-1                                  # unresolved
+interfaces/sem_post/5-1                                  # unresolved
+interfaces/sem_post/6-1                                  # unresolved
+interfaces/sem_post/8-1                                  # unresolved
+
+# interfaces/sem_timedwait
+interfaces/sem_timedwait/2-1                             # unresolved
+interfaces/sem_timedwait/9-1                             # fail
+
+# interfaces/sem_unlink
+interfaces/sem_unlink/1-1                                # unresolved
+interfaces/sem_unlink/2-1                                # unresolved
+interfaces/sem_unlink/2-2                                # unresolved
+interfaces/sem_unlink/3-1                                # unresolved
+interfaces/sem_unlink/4-1                                # fail
+interfaces/sem_unlink/4-2                                # fail
+interfaces/sem_unlink/6-1                                # unresolved
+interfaces/sem_unlink/7-1                                # unresolved
+interfaces/sem_unlink/9-1                                # unresolved
+
+# interfaces/sem_wait
+interfaces/sem_wait/1-1                                  # unresolved
+interfaces/sem_wait/1-2                                  # unresolved
+interfaces/sem_wait/11-1                                 # unresolved
+interfaces/sem_wait/12-1                                 # unresolved
+interfaces/sem_wait/3-1                                  # unresolved
+interfaces/sem_wait/5-1                                  # unresolved
+interfaces/sem_wait/7-1                                  # unresolved
+
+# interfaces/shm_open
+interfaces/shm_open/11-1                                 # fail
+interfaces/shm_open/23-1                                 # unresolved
+interfaces/shm_open/28-3                                 # fail
+interfaces/shm_open/32-1                                 # fail
+interfaces/shm_open/34-1                                 # fail
+interfaces/shm_open/37-1                                 # fail
+interfaces/shm_open/39-2                                 # fail
+
+# interfaces/shm_unlink
+interfaces/shm_unlink/10-2                               # fail
+interfaces/shm_unlink/9-1                                # fail
+
+# interfaces/sigaction
+interfaces/sigaction/16-1                                # nobuild
+interfaces/sigaction/18-19                               # nobuild
+interfaces/sigaction/19-1                                # nobuild
+interfaces/sigaction/19-10                               # nobuild
+interfaces/sigaction/19-11                               # nobuild
+interfaces/sigaction/19-12                               # nobuild
+interfaces/sigaction/19-13                               # nobuild
+interfaces/sigaction/19-14                               # nobuild
+interfaces/sigaction/19-15                               # nobuild
+interfaces/sigaction/19-16                               # nobuild
+interfaces/sigaction/19-17                               # nobuild
+interfaces/sigaction/19-18                               # nobuild
+interfaces/sigaction/19-19                               # nobuild
+interfaces/sigaction/19-2                                # nobuild
+interfaces/sigaction/19-20                               # nobuild
+interfaces/sigaction/19-21                               # nobuild
+interfaces/sigaction/19-22                               # nobuild
+interfaces/sigaction/19-23                               # nobuild
+interfaces/sigaction/19-24                               # nobuild
+interfaces/sigaction/19-25                               # nobuild
+interfaces/sigaction/19-26                               # nobuild
+interfaces/sigaction/19-3                                # nobuild
+interfaces/sigaction/19-4                                # nobuild
+interfaces/sigaction/19-5                                # nobuild
+interfaces/sigaction/19-6                                # nobuild
+interfaces/sigaction/19-7                                # nobuild
+interfaces/sigaction/19-8                                # nobuild
+interfaces/sigaction/19-9                                # nobuild
+interfaces/sigaction/21-1                                # fail
+interfaces/sigaction/28-19                               # nobuild
+interfaces/sigaction/29-1                                # nobuild
+interfaces/sigaction/30-1                                # nobuild
+
+# interfaces/sigaltstack
+interfaces/sigaltstack/11-1                              # fail
+
+# interfaces/sigpause
+interfaces/sigpause/2-1                                  # unresolved
+interfaces/sigpause/4-1                                  # timeout
+
+# interfaces/sigprocmask
+interfaces/sigprocmask/12-1                              # unresolved
+interfaces/sigprocmask/17-1                              # timeout
+
+# interfaces/sigqueue
+interfaces/sigqueue/1-1                                  # nobuild
+interfaces/sigqueue/10-1                                 # nobuild
+interfaces/sigqueue/11-1                                 # nobuild
+interfaces/sigqueue/12-1                                 # nobuild
+interfaces/sigqueue/2-1                                  # nobuild
+interfaces/sigqueue/2-2                                  # nobuild
+interfaces/sigqueue/3-1                                  # nobuild
+interfaces/sigqueue/4-1                                  # nobuild
+interfaces/sigqueue/5-1                                  # nobuild
+interfaces/sigqueue/6-1                                  # nobuild
+interfaces/sigqueue/7-1                                  # nobuild
+interfaces/sigqueue/8-1                                  # nobuild
+interfaces/sigqueue/9-1                                  # nobuild
+
+# interfaces/sigtimedwait
+interfaces/sigtimedwait/1-1                              # nobuild
+interfaces/sigtimedwait/2-1                              # nobuild
+interfaces/sigtimedwait/4-1                              # nobuild
+interfaces/sigtimedwait/5-1                              # nobuild
+interfaces/sigtimedwait/6-1                              # nobuild
+
+# interfaces/sigwait
+interfaces/sigwait/2-1                                   # nobuild
+interfaces/sigwait/6-1                                   flaky  # signal or pass on 2 CPUs
+interfaces/sigwait/6-2                                   flaky  # signal or pass on 2 CPUs
+interfaces/sigwait/7-1                                   # nobuild
+
+# interfaces/sigwaitinfo
+interfaces/sigwaitinfo/1-1                               # nobuild
+interfaces/sigwaitinfo/2-1                               # nobuild
+interfaces/sigwaitinfo/3-1                               # nobuild
+interfaces/sigwaitinfo/5-1                               # nobuild
+interfaces/sigwaitinfo/6-1                               # nobuild
+interfaces/sigwaitinfo/7-1                               # nobuild
+interfaces/sigwaitinfo/8-1                               # nobuild
+interfaces/sigwaitinfo/9-1                               # nobuild
+
+# interfaces/timer_create
+interfaces/timer_create/10-1                             # nobuild
+interfaces/timer_create/11-1                             # nobuild
+
+# interfaces/timer_getoverrun
+interfaces/timer_getoverrun/2-1                          # fail
+interfaces/timer_getoverrun/2-2                          # unresolved
+
+# interfaces/timer_gettime
+interfaces/timer_gettime/1-4                             # unresolved

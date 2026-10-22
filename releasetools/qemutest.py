@@ -18,6 +18,9 @@ Suites:
     full    every test the run script knows about (hours).
     kyua    kyua over /usr/tests (only meaningful when the "tests" set is
             on the image).
+    pjdfstest  the POSIX file-system suite (external/bsd/pjdfstest).
+    posix   the Open POSIX Test Suite (external/gpl2/open_posix_testsuite),
+            from a disk image releasetools/posixsuite.py builds: --drive.
 
 How it works: the ISO gets a getty on tty00, so the serial line is a shell.
 The CD root is read-only isofs and /tmp is a 128 KB ramdisk, so the suite
@@ -351,6 +354,21 @@ class Guest:
             return "could not stage pjdfstest on a ramdisk:\n" + out
         return None
 
+    def stage_posix(self):
+        """Unpack the Open POSIX Test Suite from the second disk (a tar
+        written by releasetools/posixsuite.py) onto a ramdisk and cd to the
+        suite.  Returns an error message, or None."""
+        if not self.args.drive:
+            return "--suite posix needs --drive (releasetools/posixsuite.py)"
+        setup = ("ramdisk %d %s >/dev/null && mkfs.mfs %s >/dev/null && "
+                 "mount %s /mnt >/dev/null && cd /mnt && tar xf /dev/c0d1 && "
+                 "cd /mnt/posix && test -f MANIFEST"
+                 % (RAMDISK_KB, RAMDISK_DEV, RAMDISK_DEV, RAMDISK_DEV))
+        r, out = self.ser.run(setup, 300)
+        if r != 0:
+            return "could not stage the Open POSIX suite:\n" + out
+        return None
+
     def stop(self):
         self.qemu.terminate()
         try:
@@ -379,6 +397,24 @@ def tap_verdict(name, out):
             "No test binaries found" in out:
         return "skip"
     return "fail"
+
+
+# What an Open POSIX test's exit status means (include/posixtest.h); t0
+# exits with 128 + the signal that killed the test, SIGALRM's when it timed
+# out.
+POSIX_RC = {0: "ok", 1: "fail", 2: "unresolved", 4: "skip", 5: "skip",
+            128 + 14: "timeout"}
+
+
+def posix_verdict(name, out):
+    """What run1.sh said about one Open POSIX test."""
+    m = re.search(r"^POSIXTS (?:rc=(\d+)|(\w+))\s*$", out, re.M)
+    if not m:
+        return "fail"
+    if m.group(2):
+        return m.group(2)                       # nobuild
+    rc = int(m.group(1))
+    return POSIX_RC.get(rc, "signal" if rc > 128 else "fail")
 
 
 def kmessages_addr(kernel):
@@ -430,7 +466,9 @@ def fresh_guest(args, log):
         print("qemutest: the image did not boot to a root shell")
         return None
     msg = None
-    if args.suite in ("quick", "full") or args.tests:
+    if args.suite == "posix":
+        msg = g.stage_posix()
+    elif args.suite in ("quick", "full") or args.tests:
         msg = g.stage_tests()
     elif args.suite == "pjdfstest":
         msg = g.stage_pjdfstest()
@@ -445,12 +483,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--iso", required=True)
     ap.add_argument("--suite",
-                    choices=["boot", "quick", "full", "kyua", "pjdfstest"],
+                    choices=["boot", "quick", "full", "kyua", "pjdfstest",
+                             "posix"],
                     default="boot")
     ap.add_argument("--drive", metavar="IMG",
                     help="raw disk image attached as the second IDE disk "
                          "(/dev/c0d1 in the guest); the pjdfstest suite "
-                         "expects the suite there")
+                         "can and the posix suite must find its tests there")
     ap.add_argument("--tests", help="explicit test list, e.g. '1 2 3 sh1'")
     ap.add_argument("--shard", metavar="K/N",
                     help="run only every Nth test starting at the Kth "
@@ -576,6 +615,20 @@ def main():
                 done = len(re.findall(r"^(not )?ok\b", out, re.M))
                 # Fewer results than planned: the script died part-way.
                 return "ok" if done >= int(m.group(1)) else "fail"
+        elif args.suite == "posix":
+            r, out = ser.run("cut -d' ' -f1 MANIFEST", 120)
+            tests = [l.strip() for l in out.splitlines()
+                     if re.match(r"^(interfaces|definitions|behavior)/",
+                                 l.strip())]
+            if args.tests:
+                tests = [t for t in tests
+                         if any(t == w or t.startswith(w.rstrip("/") + "/")
+                                for w in args.tests.split())]
+
+            def cmd_for(t):
+                return "sh run1.sh %s" % t
+
+            verdict_for = posix_verdict
         else:
             if args.tests:
                 tests = args.tests.split()
@@ -621,7 +674,7 @@ def main():
                 verdict = "hang"
                 if kmess_addr is not None:
                     dump = os.path.join(args.log_dir, "hang-%s-%d.txt"
-                                        % (t, reboots + 1))
+                                        % (t.replace("/", "_"), reboots + 1))
                     guest.hang_dump(kmess_addr, dump)
                     print("qemutest: test %s hung; process dumps in %s"
                           % (t, dump), flush=True)
@@ -688,6 +741,12 @@ def main():
               "%d skipped, %d not run in %.0fs"
               % (len(ok), len(bad), len(expected), len(skipped), len(unrun),
                  time.time() - t_suite))
+        kinds = {}
+        for v in results.values():
+            v = re.sub(r"^xfail\((.*)\)$", r"\1", v)
+            kinds[v] = kinds.get(v, 0) + 1
+        print("qemutest: by verdict: %s" % ", ".join(
+            "%s %d" % kv for kv in sorted(kinds.items())))
         if expected:
             print("qemutest: known failures: %s" % " ".join(expected))
         if bad:
