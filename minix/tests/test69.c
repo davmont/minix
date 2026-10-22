@@ -75,9 +75,11 @@ static void test_clock_settime(void)
 {
   struct timespec ts;
   struct timespec ts2;
+  struct timespec mono;
 
   /* shouldn't be able to set MONOTONIC */
   if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) e(50);
+  mono = ts;
   if (clock_settime(CLOCK_MONOTONIC, &ts) == 0) e(51);
   if (errno != EINVAL) e(52); /* reponse should be EINVAL */
 
@@ -92,6 +94,10 @@ static void test_clock_settime(void)
   /* get the value we set, if it's not about 10 minutes ahead, it failed */
   if (ts.tv_sec - ts2.tv_sec < 500 ||
 	ts.tv_sec - ts2.tv_sec > 700) e(57);
+
+  /* setting the time must not move MONOTONIC */
+  if (clock_gettime(CLOCK_MONOTONIC, &ts2) == -1) e(61);
+  if (ts2.tv_sec - mono.tv_sec < 0 || ts2.tv_sec - mono.tv_sec > 60) e(62);
 
   /* back to current time - don't leave the system time 10 ahead */
   if (clock_gettime(CLOCK_REALTIME, &ts) == -1) e(58);
@@ -151,10 +157,11 @@ static void show_timespec(char *msg, struct timespec *ts)
 int main(void)
 {
   start(69);
-  struct timespec starttime, endtime;
+  struct timespec starttime, endtime, realtime;
 
   /* get test start time */
   if (clock_gettime(CLOCK_MONOTONIC, &starttime) == -1) e(1);
+  if (clock_gettime(CLOCK_REALTIME, &realtime) == -1) e(4);
 
   test_clock_getres();
   test_clock_gettime();
@@ -168,6 +175,20 @@ int main(void)
   if ((starttime.tv_sec > endtime.tv_sec) ||
 	(starttime.tv_sec == endtime.tv_sec &&
 		 starttime.tv_nsec > endtime.tv_nsec)) e(3);
+
+  /* the tests set REALTIME to MONOTONIC, the time since the boot: put the
+   * clock back to what it would have said
+   */
+  realtime.tv_sec += endtime.tv_sec - starttime.tv_sec;
+  realtime.tv_nsec += endtime.tv_nsec - starttime.tv_nsec;
+  if (realtime.tv_nsec < 0) {
+	realtime.tv_sec--;
+	realtime.tv_nsec += 1000000000L;
+  } else if (realtime.tv_nsec >= 1000000000L) {
+	realtime.tv_sec++;
+	realtime.tv_nsec -= 1000000000L;
+  }
+  if (clock_settime(CLOCK_REALTIME, &realtime) == -1) e(5);
 
   quit();
   return(-1);			/* impossible */

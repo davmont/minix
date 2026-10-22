@@ -104,7 +104,11 @@ do_gettime(void)
 		clock = realtime;
 		break;
 	case CLOCK_MONOTONIC:
+		/* The time since the boot: setting the clock moves the boot
+		 * time, and must not move this clock.
+		 */
 		clock = ticks;
+		boottime = 0;
 		break;
 	default:
 		/* A CPU time clock counts from zero, not from the boot. */
