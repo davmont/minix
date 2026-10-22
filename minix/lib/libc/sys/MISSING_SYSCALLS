@@ -40,12 +40,8 @@ _sched_*
 semconfig
 setregid
 setreuid
-sigqueue
 sigqueueinfo
 sigstack
-sigtimedwait
-sigwait
-sigwaitinfo
 swapctl
 swapon
 sysarch

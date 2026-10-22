@@ -2199,6 +2199,26 @@ typedef struct {
 } mess_lsys_pm_sigqueue;
 _ASSERT_MSG_SIZE(mess_lsys_pm_sigqueue);
 
+/* PM_SIGQUEUE: sigqueue(2). */
+typedef struct {
+	pid_t pid;
+	int sig;
+	vir_bytes value;		/* si_value */
+
+	uint8_t padding[48 - sizeof(vir_bytes)];
+} mess_lc_pm_sigqueue;
+_ASSERT_MSG_SIZE(mess_lc_pm_sigqueue);
+
+/* PM_SIGTIMEDWAIT: sigtimedwait(2), sigwaitinfo(2), sigwait(3). */
+typedef struct {
+	sigset_t set;			/* the signals to wait for */
+	vir_bytes info;			/* siginfo_t *, or 0 */
+	vir_bytes timeout;		/* const struct timespec *, or 0 */
+
+	uint8_t padding[40 - 2 * sizeof(vir_bytes)];
+} mess_lc_pm_sigtimedwait;
+_ASSERT_MSG_SIZE(mess_lc_pm_sigtimedwait);
+
 typedef struct {
 	int		len;
 	int		name_len;
@@ -3017,6 +3037,8 @@ typedef struct noxfer_message {
 		mess_rs_pm_srv_kill	m_rs_pm_srv_kill;
 		mess_lsys_pm_ttyjc	m_lsys_pm_ttyjc;
 		mess_lsys_pm_sigqueue	m_lsys_pm_sigqueue;
+		mess_lc_pm_sigqueue	m_lc_pm_sigqueue;
+		mess_lc_pm_sigtimedwait	m_lc_pm_sigtimedwait;
 		mess_pm_lsys_ttyjc	m_pm_lsys_ttyjc;
 		mess_rs_req		m_rs_req;
 		mess_rs_update		m_rs_update;
