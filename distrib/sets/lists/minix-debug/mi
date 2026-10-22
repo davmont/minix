@@ -102,6 +102,7 @@
 ./usr/lib/libpuffs_g.a                                  minix-debug     debuglib
 ./usr/lib/librefuse_g.a                                 minix-debug     debuglib
 ./usr/lib/librmt_g.a                                    minix-debug     debuglib
+./usr/lib/librt_g.a                                     minix-debug     debuglib
 ./usr/lib/libsaslc_g.a                                  minix-debug     debuglib
 ./usr/lib/libsffs_g.a                                   minix-debug     debuglib
 ./usr/lib/libsockdriver_g.a                             minix-debug     debuglib
@@ -584,6 +585,7 @@
 ./usr/libdata/debug/usr/lib/libprop.so.1.1.debug        minix-debug     debug
 ./usr/libdata/debug/usr/lib/libpuffs.so.2.0.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/librefuse.so.2.0.debug      minix-debug     debug
+./usr/libdata/debug/usr/lib/librt.so.1.0.debug          minix-debug     debug
 ./usr/libdata/debug/usr/lib/libsaslc.so.1.0.debug       minix-debug     debug
 ./usr/libdata/debug/usr/lib/libsqlite3.so.1.2.debug     minix-debug     debug
 ./usr/libdata/debug/usr/lib/libssl.so.15.0.debug        minix-debug     debug

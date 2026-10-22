@@ -92,6 +92,13 @@
 /* Not yet: PTHREAD_STACK_MIN */
 #define	PTHREAD_THREADS_MAX		_POSIX_THREAD_THREADS_MAX
 
+#ifdef __minix
+/* librt's asynchronous I/O: requests a process has outstanding until
+ * aio_return(), and requests in one lio_listio(). */
+#define	AIO_LISTIO_MAX			512
+#define	AIO_MAX				512
+#endif
+
 #define	_POSIX_TIMER_MAX	32
 #define	_POSIX_SEM_NSEMS_MAX	256
 #define	_POSIX_SIGQUEUE_MAX	32

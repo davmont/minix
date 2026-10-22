@@ -319,6 +319,11 @@
 #define	_SC_SIGQUEUE_MAX		93
 #define	_SC_REALTIME_SIGNALS		94
 #define	_SC_RTSIG_MAX			95
+#ifdef __minix
+/* Asynchronous I/O (librt), which NetBSD does not number. */
+#define	_SC_PRIORITIZED_IO		96
+#define	_SC_AIO_PRIO_DELTA_MAX		97
+#endif
 
 /* Extensions found in Solaris and Linux. */
 #define	_SC_PHYS_PAGES		121

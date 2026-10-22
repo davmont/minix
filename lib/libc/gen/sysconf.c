@@ -293,6 +293,7 @@ sysconf(int name)
 		goto yesno;
 
 /* 1003.1-2001, XSI Option Group */
+#ifndef __minix
 	case _SC_AIO_LISTIO_MAX:
 		if (sysctlgetmibinfo("kern.aio_listio_max", &mib[0], &mib_len,
 		    NULL, NULL, NULL, SYSCTL_VERSION))
@@ -308,6 +309,7 @@ sysconf(int name)
 		    NULL, NULL, NULL, SYSCTL_VERSION))
 			return -1;
 		goto yesno;
+#endif /* !__minix */
 	case _SC_MESSAGE_PASSING:
 		if (sysctlgetmibinfo("kern.posix_msg", &mib[0], &mib_len,
 		    NULL, NULL, NULL, SYSCTL_VERSION))
@@ -437,6 +439,17 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 	 * and a shared one fails with ENOSPC when the IPC server is full. */
 	case _SC_SEM_NSEMS_MAX:
 		return -1;
+	/* What librt's aio.c implements, with threads. */
+	case _SC_ASYNCHRONOUS_IO:
+		return _POSIX_ASYNCHRONOUS_IO;
+	case _SC_AIO_LISTIO_MAX:
+		return AIO_LISTIO_MAX;
+	case _SC_AIO_MAX:
+		return AIO_MAX;
+	case _SC_PRIORITIZED_IO:	/* aio_reqprio must be 0 */
+		return _POSIX_PRIORITIZED_IO;
+	case _SC_AIO_PRIO_DELTA_MAX:
+		return 0;
 #endif /* __minix */
 	default:
 		errno = EINVAL;
