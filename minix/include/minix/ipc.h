@@ -2222,8 +2222,9 @@ typedef struct {
 	pid_t pid;
 	int sig;
 	vir_bytes value;		/* si_value */
+	int code;			/* SI_QUEUE, or SI_ASYNCIO (librt) */
 
-	uint8_t padding[48 - sizeof(vir_bytes)];
+	uint8_t padding[44 - sizeof(vir_bytes)];
 } mess_lc_pm_sigqueue;
 _ASSERT_MSG_SIZE(mess_lc_pm_sigqueue);
 
