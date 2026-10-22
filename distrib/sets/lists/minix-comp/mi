@@ -2074,6 +2074,7 @@
 ./usr/lib/bc/libpuffs.a                                 minix-comp      bitcode
 ./usr/lib/bc/librefuse.a                                minix-comp      bitcode
 ./usr/lib/bc/librmt.a                                   minix-comp      bitcode
+./usr/lib/bc/librt.a                                    minix-comp      bitcode
 ./usr/lib/bc/libsaslc.a                                 minix-comp      bitcode
 ./usr/lib/bc/libsffs.a                                  minix-comp      bitcode
 ./usr/lib/bc/libsockdriver.a                            minix-comp      bitcode
@@ -2283,6 +2284,8 @@
 ./usr/lib/librefuse.a                                   minix-comp
 ./usr/lib/librefuse_pic.a                               minix-comp
 ./usr/lib/librmt.a                                      minix-comp
+./usr/lib/librt.a                                       minix-comp
+./usr/lib/librt_pic.a                                   minix-comp
 ./usr/lib/libroken.a                                    minix-comp      crypto
 ./usr/lib/libroken_pic.a                                minix-comp      crypto
 ./usr/lib/libsffs.a                                     minix-comp

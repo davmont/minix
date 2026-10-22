@@ -26,6 +26,9 @@ SUBDIR+=	.WAIT
 SUBDIR+=	libpthread
 SUBDIR+=	.WAIT
 
+# Asynchronous I/O, done by a pool of threads: needs libpthread.
+SUBDIR+=	librt
+
 .if defined(__MINIX)
 SUBDIR+=	../minix/lib/libasyn \
 		../minix/lib/libaudiodriver \

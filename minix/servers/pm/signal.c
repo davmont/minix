@@ -41,8 +41,12 @@
  * taken.  An entry belongs to a thread slot and its endpoint, so the entries
  * of a slot that has since been freed are stale and reused.
  */
-#define NR_SIGQ		1024		/* queued instances in the system */
+#define NR_SIGQ		2048		/* queued instances in the system */
 #define SIGQ_MAX	_POSIX_SIGQUEUE_MAX	/* per process: _SC_SIGQUEUE_MAX */
+/* Asynchronous I/O completions are not sigqueue()s, which SIGQUEUE_MAX
+ * limits: a process may have one pending for each request it may have
+ * outstanding (librt's aio.c sends them, to itself). */
+#define SIGQ_ASYNCIO_MAX (SIGQ_MAX + AIO_MAX)
 
 struct sigq {
   int sq_signo;			/* 0: free */
@@ -346,24 +350,32 @@ int do_sigqueue(void)
 {
 /* Perform the sigqueue(pid, signo, value) system call: kill() with a value,
  * and EAGAIN rather than a realtime signal lost when the process has as many
- * queued as it may.
+ * queued as it may.  librt's asynchronous I/O sends its completions this way
+ * too, as SI_ASYNCIO and only to the process itself.
  */
   struct pm_siginfo saved;
-  struct mproc *rmp;
+  struct mproc *rmp, *self;
   pid_t pid;
-  int sig, r;
+  int sig, code, r;
 
   pid = m_in.m_lc_pm_sigqueue.pid;
   sig = m_in.m_lc_pm_sigqueue.sig;
+  /* Programs linked before the code field send 0 there: a sigqueue(). */
+  code = (m_in.m_lc_pm_sigqueue.code == SI_ASYNCIO) ? SI_ASYNCIO : SI_QUEUE;
   if (sig < 0 || sig >= _NSIG)
 	return(EINVAL);
   if (pid <= 0 || (rmp = find_proc(pid)) == NULL)
 	return(ESRCH);
-  if (IS_RTSIG(sig) && sigq_count(rmp) >= SIGQ_MAX)
+  /* A thread is its process: getpid() is its group leader's pid. */
+  self = (mp->mp_lwp_group != NO_LWP_GROUP) ? &mproc[mp->mp_lwp_group] : mp;
+  if (code == SI_ASYNCIO && pid != self->mp_pid)
+	return(EPERM);
+  if (IS_RTSIG(sig) && sigq_count(rmp) >=
+      (code == SI_ASYNCIO ? SIGQ_ASYNCIO_MAX : SIGQ_MAX))
 	return(EAGAIN);
 
   saved = sig_origin;
-  set_sig_origin(SI_QUEUE, mp->mp_pid, mp->mp_realuid, 0, 0);
+  set_sig_origin(code, self->mp_pid, mp->mp_realuid, 0, 0);
   sig_origin.ps_value = m_in.m_lc_pm_sigqueue.value;
   r = check_sig(pid, sig, FALSE /* ksig */);
   sig_origin = saved;
@@ -463,7 +475,7 @@ sigwait_take(struct mproc *rmp, struct mproc *from, int signo)
   if (ps->ps_addr != 0)
 	si.si_addr = (void *) ps->ps_addr;
   if (ps->ps_code == SI_TIMER || ps->ps_code == SI_MESGQ ||
-      ps->ps_code == SI_QUEUE)
+      ps->ps_code == SI_QUEUE || ps->ps_code == SI_ASYNCIO)
 	si.si_value.sival_ptr = (void *) ps->ps_value;
   if (ps->ps_code == SI_TIMER)
 	ptimer_delivered(slot, ps->ps_status);
@@ -1068,7 +1080,8 @@ sigq_add(struct mproc *rmp, int signo)
 		break;
 	}
   }
-  if (free_sq == NULL || sigq_count(rmp) >= SIGQ_MAX)
+  if (free_sq == NULL || sigq_count(rmp) >=
+      (sig_origin.ps_code == SI_ASYNCIO ? SIGQ_ASYNCIO_MAX : SIGQ_MAX))
 	return;
   free_sq->sq_signo = signo;
   free_sq->sq_slot = (int) (rmp - mproc);

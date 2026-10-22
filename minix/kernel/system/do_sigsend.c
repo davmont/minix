@@ -216,7 +216,7 @@ int do_sigsend(struct proc * caller, message * m_ptr)
 	if (smsg.sm_addr != 0)
 		fr.sf_si.si_addr = (void *) smsg.sm_addr;
 	if (smsg.sm_code == SI_TIMER || smsg.sm_code == SI_MESGQ ||
-	    smsg.sm_code == SI_QUEUE)
+	    smsg.sm_code == SI_QUEUE || smsg.sm_code == SI_ASYNCIO)
 		fr.sf_si.si_value.sival_ptr = (void *) smsg.sm_value;
 
 	fr.sf_uc.uc_flags = _UC_SIGMASK | _UC_CPU | _UC_STACK;

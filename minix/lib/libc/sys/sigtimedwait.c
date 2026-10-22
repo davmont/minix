@@ -18,6 +18,7 @@ sigqueue(pid_t pid, int signo, const union sigval value)
   m.m_lc_pm_sigqueue.pid = pid;
   m.m_lc_pm_sigqueue.sig = signo;
   m.m_lc_pm_sigqueue.value = (vir_bytes) value.sival_ptr;
+  m.m_lc_pm_sigqueue.code = SI_QUEUE;
   return(_syscall(PM_PROC_NR, PM_SIGQUEUE, &m));
 }
 

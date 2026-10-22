@@ -1122,6 +1122,9 @@
 ./usr/lib/libroken.so                                   minix-base      crypto
 ./usr/lib/libroken.so.20                                minix-base      crypto
 ./usr/lib/libroken.so.20.0                              minix-base      crypto
+./usr/lib/librt.so                                      minix-base
+./usr/lib/librt.so.1                                    minix-base
+./usr/lib/librt.so.1.0                                  minix-base
 ./usr/lib/libsaslc.a                                    minix-base      crypto
 ./usr/lib/libsaslc.so                                   minix-base      crypto
 ./usr/lib/libsaslc.so.1                                 minix-base      crypto
