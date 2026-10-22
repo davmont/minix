@@ -472,6 +472,24 @@ typedef struct {
 } mess_lc_ipc_mqio;
 _ASSERT_MSG_SIZE(mess_lc_ipc_mqio);
 
+/* IPC_PSEM_*: the result is the semaphore's id, or its value. */
+#define IPC_PSEM_FRESH	0x1	/* open: the token file was just created */
+#define IPC_PSEM_CREAT	0x2	/* open: O_CREAT */
+#define IPC_PSEM_TRY	0x4	/* wait: do not block (sem_trywait) */
+#define IPC_PSEM_TIMED	0x8	/* wait: give up at the timeout */
+typedef struct {
+	uint64_t	dev;		/* open, unlink: token file device */
+	uint64_t	ino;		/* and inode number */
+	int64_t		tv_sec;		/* absolute CLOCK_REALTIME timeout */
+	int32_t		tv_nsec;
+	int		id;		/* all but open, init and unlink */
+	unsigned int	value;		/* open, init: initial value */
+	int		flags;
+
+	uint8_t		padding[16];
+} mess_lc_ipc_psem;
+_ASSERT_MSG_SIZE(mess_lc_ipc_psem);
+
 typedef struct {
 	long		maxmsg;
 	long		msgsize;
@@ -2851,6 +2869,7 @@ typedef struct noxfer_message {
 		mess_lc_ipc_shm		m_lc_ipc_shm;
 		mess_lc_ipc_mqopen	m_lc_ipc_mqopen;
 		mess_lc_ipc_mqio	m_lc_ipc_mqio;
+		mess_lc_ipc_psem	m_lc_ipc_psem;
 		mess_ipc_lc_mq		m_ipc_lc_mq;
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;

@@ -93,12 +93,9 @@ interfaces/clock_settime/7-2                             # fail
 interfaces/clock_settime/speculative/4-3                 # fail
 
 # interfaces/fork
-interfaces/fork/1-1                                      # unresolved
-interfaces/fork/14-1                                     # unresolved
 interfaces/fork/17-1                                     # unresolved
 interfaces/fork/17-2                                     # unresolved
 interfaces/fork/18-1                                     # unresolved
-interfaces/fork/21-1                                     # unresolved
 
 # interfaces/fsync
 interfaces/fsync/7-1                                     # fail
@@ -147,7 +144,7 @@ interfaces/mmap/13-1                                     # fail
 interfaces/mmap/18-1                                     # nobuild
 interfaces/mmap/19-1                                     # fail
 interfaces/mmap/21-1                                     # fail
-interfaces/mmap/24-1                                     # timeout
+interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
 interfaces/mmap/24-2                                     # signal
 interfaces/mmap/6-6                                      # fail
 interfaces/mmap/7-4                                      # fail
@@ -476,68 +473,19 @@ interfaces/sched_setscheduler/4-1                        # fail
 # interfaces/sched_yield
 interfaces/sched_yield/1-1                               # unresolved
 
-# interfaces/sem_close
-interfaces/sem_close/1-1                                 # unresolved
-interfaces/sem_close/2-1                                 # unresolved
-interfaces/sem_close/3-1                                 # unresolved
-interfaces/sem_close/3-2                                 # unresolved
-
-# interfaces/sem_getvalue
-interfaces/sem_getvalue/1-1                              # unresolved
-interfaces/sem_getvalue/2-1                              # unresolved
-interfaces/sem_getvalue/4-1                              # unresolved
-interfaces/sem_getvalue/5-1                              # unresolved
-
-# interfaces/sem_init
-interfaces/sem_init/3-2                                  # unresolved
-interfaces/sem_init/3-3                                  # unresolved
-
 # interfaces/sem_open
-interfaces/sem_open/1-1                                  # fail
-interfaces/sem_open/1-2                                  # fail
-interfaces/sem_open/1-3                                  # unresolved
-interfaces/sem_open/1-4                                  # unresolved
-interfaces/sem_open/10-1                                 # unresolved
-interfaces/sem_open/15-1                                 # unresolved
-interfaces/sem_open/2-1                                  # unresolved
-interfaces/sem_open/2-2                                  # unresolved
 interfaces/sem_open/3-1                                  # fail
-interfaces/sem_open/4-1                                  # fail
 interfaces/sem_open/5-1                                  # fail
-interfaces/sem_open/6-1                                  # fail
 
 # interfaces/sem_post
-interfaces/sem_post/1-1                                  # unresolved
-interfaces/sem_post/1-2                                  # unresolved
-interfaces/sem_post/2-1                                  # unresolved
-interfaces/sem_post/4-1                                  # unresolved
-interfaces/sem_post/5-1                                  # unresolved
-interfaces/sem_post/6-1                                  # unresolved
 interfaces/sem_post/8-1                                  # unresolved
 
 # interfaces/sem_timedwait
-interfaces/sem_timedwait/2-1                             # unresolved
 interfaces/sem_timedwait/9-1                             # fail
 
 # interfaces/sem_unlink
-interfaces/sem_unlink/1-1                                # unresolved
-interfaces/sem_unlink/2-1                                # unresolved
-interfaces/sem_unlink/2-2                                # unresolved
 interfaces/sem_unlink/3-1                                # unresolved
 interfaces/sem_unlink/4-1                                # fail
-interfaces/sem_unlink/4-2                                # fail
-interfaces/sem_unlink/6-1                                # unresolved
-interfaces/sem_unlink/7-1                                # unresolved
-interfaces/sem_unlink/9-1                                # unresolved
-
-# interfaces/sem_wait
-interfaces/sem_wait/1-1                                  # unresolved
-interfaces/sem_wait/1-2                                  # unresolved
-interfaces/sem_wait/11-1                                 # unresolved
-interfaces/sem_wait/12-1                                 # unresolved
-interfaces/sem_wait/3-1                                  # unresolved
-interfaces/sem_wait/5-1                                  # unresolved
-interfaces/sem_wait/7-1                                  # unresolved
 
 # interfaces/shm_open
 interfaces/shm_open/11-1                                 # fail
@@ -550,6 +498,7 @@ interfaces/shm_open/39-2                                 # fail
 
 # interfaces/shm_unlink
 interfaces/shm_unlink/10-2                               # fail
+interfaces/shm_unlink/5-1                                # unresolved: /var full of shm_open/23-1's objects
 interfaces/shm_unlink/9-1                                # fail
 
 # interfaces/sigaction

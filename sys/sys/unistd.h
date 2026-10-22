@@ -132,7 +132,7 @@
 					/* regular expressions */
 #define	_POSIX_REGEXP			1
 					/* semaphores */
-#define	_POSIX_SEMAPHORES		0
+#define	_POSIX_SEMAPHORES		200112L
 					/* shared memory objects */
 #define	_POSIX_SHARED_MEMORY_OBJECTS	0
 					/* shell */

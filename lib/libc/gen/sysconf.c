@@ -433,6 +433,10 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		return _POSIX_TIMER_MAX;
 	case _SC_DELAYTIMER_MAX:
 		return INT_MAX;
+	/* No limit on semaphores: a process-private one is only memory,
+	 * and a shared one fails with ENOSPC when the IPC server is full. */
+	case _SC_SEM_NSEMS_MAX:
+		return -1;
 #endif /* __minix */
 	default:
 		errno = EINVAL;

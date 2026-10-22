@@ -466,7 +466,11 @@ static struct mib_node mib_kern_table[] = {
 				    "forkfsleep", "Milliseconds to sleep on "
 				    "fork failure due to process limits"),
 /*66*/	/* KERN_POSIX_THREADS: not yet supported */
-/*67*/	/* KERN_POSIX_SEMAPHORES: not yet supported */
+/*67*/	[KERN_POSIX_SEMAPHORES]	= MIB_INT(_P | _RO, _POSIX_SEMAPHORES,
+				    "posix_semaphores",
+				    "Version of IEEE Std 1003.1 and its "
+				    "Semaphores option to which the system "
+				    "attempts to conform"),
 /*68*/	/* KERN_POSIX_BARRIERS: not yet supported */
 /*69*/	/* KERN_POSIX_TIMERS: not yet supported */
 /*70*/	/* KERN_POSIX_SPIN_LOCKS: not yet supported */
