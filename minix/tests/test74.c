@@ -457,6 +457,18 @@ static void basic_regression(void)
 	close(fd1);
 	close(fd2);
 
+	/* A pipe cannot be mapped (this took VFS, and the system, down). */
+	{
+		int p[2];
+
+		if(pipe(p) != 0) e(30);
+		if(mmap(0, PAGE_SIZE, PROT_READ, MAP_SHARED, p[0], 0) !=
+		    MAP_FAILED || errno != ENODEV) e(31);
+		if(mmap(0, PAGE_SIZE, PROT_READ, MAP_PRIVATE, p[0], 0) !=
+		    MAP_FAILED || errno != ENODEV) e(32);
+		close(p[0]);
+		close(p[1]);
+	}
 }
 
 /*

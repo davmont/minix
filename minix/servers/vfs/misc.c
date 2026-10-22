@@ -511,22 +511,24 @@ int dupvm(struct fproc *rfp, int pfd, int *vmfd, struct filp **newfilp)
 		return EBADF;
 	}
 
+	/* Only regular files and block devices can be mapped: ENODEV, as
+	 * POSIX has it, for the rest.  Check the type first: a pipe's vnode
+	 * belongs to no mounted file system (v_vmnt is NULL), and looking at
+	 * that file system's flags first took VFS down on mmap() of a pipe.
+	 */
+	assert(f->filp_vno);
+	if ((!S_ISREG(f->filp_vno->v_mode) && !S_ISBLK(f->filp_vno->v_mode)) ||
+	    f->filp_vno->v_vmnt == NULL) {
+		unlock_filp(f);
+		return ENODEV;
+	}
+
 	if(!(f->filp_vno->v_vmnt->m_fs_flags & RES_HASPEEK)) {
 		unlock_filp(f);
 #if 0	/* Noisy diagnostic for mmap() by ld.so */
 		printf("VFS dupvm: no peek available\n");
 #endif
-		return EINVAL;
-	}
-
-	assert(f->filp_vno);
-	assert(f->filp_vno->v_vmnt);
-
-	if (!S_ISREG(f->filp_vno->v_mode) && !S_ISBLK(f->filp_vno->v_mode)) {
-		printf("VFS: mmap regular/blockdev only; dev 0x%llx ino %llu has mode 0%o\n",
-			(unsigned long long)f->filp_vno->v_dev, (unsigned long long)f->filp_vno->v_inode_nr, f->filp_vno->v_mode);
-		unlock_filp(f);
-		return EINVAL;
+		return ENODEV;
 	}
 
 	/* get free FD in VM */
