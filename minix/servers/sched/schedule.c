@@ -329,7 +329,11 @@ static int schedule_process(struct schedproc * rmp, unsigned flags)
 	int err;
 	int new_prio, new_quantum, new_cpu, niced;
 
-	pick_cpu(rmp);
+	/* rmp->cpu is where the kernel has the process: the caller picked it
+	 * (pick_cpu) if it is to change.  Picking one here for every new
+	 * quantum would only move rmp->cpu, not the process, and count it
+	 * again in cpu_proc[].
+	 */
 
 	if (flags & SCHEDULE_CHANGE_PRIO)
 		new_prio = rmp->priority;
@@ -491,13 +495,8 @@ static void colocate_system_servers(void)
 		    !cpu_is_available(dominant_cpu)) continue;
 
 		/* Migrate.  Apply exponential backoff on repeat migrations.
-		 *
-		 * IMPORTANT: schedule_process_migrate(rmp) calls schedule_process
-		 * which calls pick_cpu(rmp) which OVERWRITES rmp->cpu with its
-		 * own load-balancing decision (BSP for system procs, least-loaded
-		 * non-BSP for users).  That clobbers our explicit dominant_cpu
-		 * choice.  Bypass it by calling sys_schedule directly with our
-		 * chosen CPU.
+		 * sys_schedule() directly, with our chosen CPU: only the
+		 * CPU changes.
 		 *
 		 * sched_proc's lazy migration path now releases FPU ownership
 		 * and clears MF_FPU_INITIALIZED so the proc gets a fresh xrstor
