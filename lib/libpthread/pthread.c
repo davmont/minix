@@ -210,6 +210,12 @@ pthread__init(void)
 	ssize_t slen;
 	size_t len;
 	extern int __isthreaded;
+#ifdef __minix
+	/* This runs before main(), which must find errno as the program left
+	 * it: the sysctl below fails here (no vm.thread_guard_size).
+	 */
+	int serrno = errno;
+#endif
 
 	/*
 	 * Allocate pthread_keys descriptors before
@@ -297,6 +303,9 @@ pthread__init(void)
 	/* Tell libc that we're here and it should role-play accordingly. */
 	pthread_atfork(pthread__prefork, pthread__fork_parent, pthread__fork_child);
 	__isthreaded = 1;
+#ifdef __minix
+	errno = serrno;
+#endif
 }
 
 /* General-purpose thread data structure sanitization. */
