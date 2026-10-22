@@ -1,9 +1,10 @@
 /* Test 116 - POSIX process scheduling: sched_*(2).
  *
- * MINIX offers SCHED_OTHER only, at priority 0: the calls report and accept
- * that, refuse SCHED_FIFO and SCHED_RR with EINVAL, check the target process
- * (ESRCH, and EPERM to change another user's), and sched_yield() is a real
- * system call.
+ * SCHED_OTHER has priority 0 only, SCHED_FIFO and SCHED_RR a range of at
+ * least 32 and are for root only: the calls report and check that, check the
+ * target process (ESRCH, and EPERM to change another user's), and
+ * sched_yield() is a real system call.  How the real-time policies schedule
+ * is test152's.
  *
  * "test116 measure" compares how much a CPU-bound child gets done while this
  * process spins and while it calls sched_yield(), which shows the yield on a
@@ -37,8 +38,8 @@ test_policy(void)
 	subtest = 1;
 	if (sched_get_priority_min(SCHED_OTHER) != 0) e(1);
 	if (sched_get_priority_max(SCHED_OTHER) != 0) e(2);
-	if (sched_get_priority_min(SCHED_FIFO) != -1 || errno != EINVAL) e(3);
-	if (sched_get_priority_max(SCHED_RR) != -1 || errno != EINVAL) e(4);
+	if (sched_get_priority_min(SCHED_FIFO) != 0) e(3);
+	if (sched_get_priority_max(SCHED_RR) < 31) e(4);
 	if (sched_get_priority_max(1234) != -1 || errno != EINVAL) e(5);
 
 	subtest = 2;
@@ -58,11 +59,13 @@ test_policy(void)
 	if (sched_setscheduler(0, SCHED_OTHER, &sp) != SCHED_OTHER) e(2);
 	sp.sched_priority = 5;
 	if (sched_setparam(0, &sp) != -1 || errno != EINVAL) e(3);
-	sp.sched_priority = 0;
+	sp.sched_priority = sched_get_priority_max(SCHED_FIFO) + 1;
 	if (sched_setscheduler(0, SCHED_FIFO, &sp) != -1 || errno != EINVAL)
 		e(4);
+	sp.sched_priority = -1;
 	if (sched_setscheduler(0, SCHED_RR, &sp) != -1 || errno != EINVAL)
 		e(5);
+	sp.sched_priority = 0;
 	if (sched_setparam(NOPID, &sp) != -1 || errno != ESRCH) e(6);
 	if (sched_setparam(0, NULL) != -1 || errno != EINVAL) e(7);
 
@@ -98,6 +101,9 @@ test_perm(void)
 		if (sched_setscheduler(parent, SCHED_OTHER, &sp) != -1 ||
 		    errno != EPERM) _exit(5);
 		if (sched_setparam(0, &sp) != 0) _exit(6);	/* own: fine */
+		if (sched_setscheduler(0, SCHED_FIFO, &sp) != -1 ||
+		    errno != EPERM) _exit(7);			/* not root */
+		if (sched_getscheduler(0) != SCHED_OTHER) _exit(8);
 		_exit(0);
 	}
 	if (waitpid(pid, &status, 0) != pid) e(2);
@@ -120,6 +126,7 @@ test_thread(void)
 	if (policy != SCHED_OTHER || sp.sched_priority != 0) e(2);
 	sp.sched_priority = 0;
 	if (pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp) != 0) e(3);
+	sp.sched_priority = sched_get_priority_max(SCHED_FIFO) + 1;
 	if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != EINVAL)
 		e(4);
 	if (pthread_setschedprio(pthread_self(), 0) != 0) e(5);

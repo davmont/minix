@@ -739,6 +739,11 @@ pthread_mutex_getprioceiling(const pthread_mutex_t *ptm, int *ceil)
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
+#ifdef __minix
+	/* A ceiling means something only for PTHREAD_PRIO_PROTECT (POSIX). */
+	if (!MUTEX_PROTECT(ptm->ptm_owner))
+		return EINVAL;
+#endif
 	*ceil = ptm->ptm_ceiling;
 	return 0;
 }
@@ -751,6 +756,10 @@ pthread_mutex_setprioceiling(pthread_mutex_t *ptm, int ceil, int *old_ceil)
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
+#ifdef __minix
+	if (!MUTEX_PROTECT(ptm->ptm_owner))
+		return EINVAL;
+#endif
 	error = pthread_mutex_lock(ptm);
 	if (error == 0) {
 		*old_ceil = ptm->ptm_ceiling;

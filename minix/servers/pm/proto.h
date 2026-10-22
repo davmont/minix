@@ -65,6 +65,7 @@ int do_reboot(void);
 int do_sysuname(void);
 int do_getsysinfo(void);
 int do_sched_yield(void);
+int do_sched_param(void);
 int do_getprocnr(void);
 int do_getepinfo(void);
 int do_svrctl(void);
@@ -76,6 +77,7 @@ void sched_init(void);
 int sched_start_user(endpoint_t ep, struct mproc *rmp);
 int sched_nice(struct mproc *rmp, int nice);
 int sched_yield_proc(struct mproc *rmp);
+int sched_set_policy(struct mproc *rmp, int policy, int prio);
 
 /* profile.c */
 int do_sprofile(void);

@@ -77,5 +77,7 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_TTYJC)		= do_ttyjc,		/* terminal job control */
 	CALL(PM_SRV_SIGQUEUE)	= do_srv_sigqueue,	/* signal with siginfo */
 	CALL(PM_SIGQUEUE)	= do_sigqueue,		/* sigqueue(2) */
-	CALL(PM_SIGTIMEDWAIT)	= do_sigtimedwait	/* sigtimedwait(2) */
+	CALL(PM_SIGTIMEDWAIT)	= do_sigtimedwait,	/* sigtimedwait(2) */
+	CALL(PM_SCHED_SETPARAM)	= do_sched_param,	/* sched_setscheduler(2) */
+	CALL(PM_SCHED_GETPARAM)	= do_sched_param	/* sched_getscheduler(2) */
 };

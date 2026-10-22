@@ -16,6 +16,7 @@
 #include <sys/svrctl.h>
 #include <sys/reboot.h>
 #include <sys/resource.h>
+#include <sys/sched.h>
 #include <sys/utsname.h>
 #include <minix/com.h>
 #include <minix/config.h>
@@ -116,6 +117,94 @@ do_sched_yield(void)
  * caller at the tail of its new priority queue.
  */
   return(sched_yield_proc(mp));
+}
+
+/*===========================================================================*
+ *				do_sched_param			       	     *
+ *===========================================================================*/
+int
+do_sched_param(void)
+{
+/* Perform PM_SCHED_GETPARAM and PM_SCHED_SETPARAM, for sched_getscheduler(2),
+ * sched_setscheduler(2) and co. and pthread_[gs]etschedparam(3).  The target
+ * is process 'pid' (0: the caller), or its thread 'lid' if not 0; a thread
+ * has a slot of its own, so the policy is per thread.  Anyone may look.
+ * Changing it takes what nice(3) does, and root for SCHED_FIFO and SCHED_RR:
+ * those run ahead of every time-sharing process.  SET returns the previous
+ * policy.
+ */
+  struct mproc *rmp;
+  pid_t pid;
+  int lid, policy, prio, old, r, proc_nr;
+
+  pid = m_in.m_lc_pm_sched.pid;
+  lid = m_in.m_lc_pm_sched.lid;
+  if (pid < 0)
+	return(EINVAL);
+  if (pid == 0)
+	rmp = mp;
+  else if ((rmp = find_proc(pid)) == NULL)
+	return(ESRCH);
+  if (lid != 0) {
+	if (pm_isokendpt(lid, &proc_nr) != OK ||
+	    !(mproc[proc_nr].mp_flags & IN_USE) ||
+	    process_of(&mproc[proc_nr]) != process_of(rmp))
+		return(ESRCH);
+	rmp = &mproc[proc_nr];
+  }
+  /* An exiting process has no scheduler any more, and may well have been
+   * waited for already: its slot goes once VFS is done with it.
+   */
+  if (rmp->mp_flags & EXITING)
+	return(ESRCH);
+
+  if (call_nr == PM_SCHED_GETPARAM) {
+	mp->mp_reply.m_lc_pm_sched.policy = rmp->mp_policy;
+	mp->mp_reply.m_lc_pm_sched.prio = rmp->mp_rtprio;
+	return(OK);
+  }
+
+  policy = m_in.m_lc_pm_sched.policy;
+  prio = m_in.m_lc_pm_sched.prio;
+  if (policy == SCHED_NONE)
+	policy = rmp->mp_policy;
+  switch (policy) {
+  case SCHED_OTHER:
+	if (prio != 0)
+		return(EINVAL);
+	break;
+  case SCHED_FIFO:
+  case SCHED_RR:
+	if (prio < RT_PRIO_MIN || prio > RT_PRIO_MAX)
+		return(EINVAL);
+	break;
+  default:
+	return(EINVAL);
+  }
+
+  if (mp->mp_effuid != SUPER_USER &&
+     mp->mp_effuid != rmp->mp_effuid && mp->mp_effuid != rmp->mp_realuid)
+	return(EPERM);
+  if (policy != SCHED_OTHER && mp->mp_effuid != SUPER_USER)
+	return(EPERM);
+
+  /* System services have a band of their own and keep it.  A new process or
+   * thread is in its scheduler only once VFS has it (VFS_PM_FORK_REPLY,
+   * VFS_PM_LWP_REPLY), and pthread_create() sets the policy of the thread
+   * before: the scheduler does not know it yet (EBADEPT), and is to start
+   * it with what is set here.
+   */
+  r = sched_set_policy(rmp, policy, prio);
+  if (r == EBADEPT && (rmp->mp_flags & VFS_CALL) &&
+      !(rmp->mp_flags & MP_LWP_TEARDOWN))
+	r = OK;
+  if (r != OK)
+	return(r);
+
+  old = rmp->mp_policy;
+  rmp->mp_policy = policy;
+  rmp->mp_rtprio = prio;
+  return(old);
 }
 
 /*===========================================================================*

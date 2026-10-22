@@ -6,6 +6,8 @@
  *   do_stop_scheduling   Request to stop scheduling a proc
  *   do_nice		  Request to change the nice level on a proc
  *   do_yield		  Request to treat a proc's sched_yield(2)
+ *   do_set_policy	  Request to change a proc's POSIX scheduling policy
+ *   sched_alarm	  Called from main.c when the alarm goes off
  *   init_scheduling      Called from main.c to set up/prepare scheduling
  */
 #include "sched.h"
@@ -13,12 +15,19 @@
 #include <assert.h>
 #include <minix/com.h>
 #include <machine/archtypes.h>
+#include <limits.h>
+#include <string.h>
 
 static unsigned balance_timeout;
+static clock_t next_balance;	/* when balance_queues() runs next */
 
 #define BALANCE_TIMEOUT	5 /* how often to balance queues in seconds */
 
 static int schedule_process(struct schedproc * rmp, unsigned flags);
+static void balance_queues(void);
+static void rt_begin(struct schedproc *rmp);
+static void rt_end(struct schedproc *rmp);
+static void set_alarm(void);
 
 #define SCHEDULE_CHANGE_PRIO	0x1
 #define SCHEDULE_CHANGE_QUANTUM	0x2
@@ -49,6 +58,13 @@ static int schedule_process(struct schedproc * rmp, unsigned flags);
  */
 #define lowest_queue(p)	\
 	((p)->max_priority <= MIN_SYS_Q ? MIN_SYS_Q : MIN_USER_Q)
+
+/* SCHED_FIFO runs until it blocks or yields: a quantum (ms) it never uses up
+ * in practice.  SCHED_RR has RR_QUANTUM.
+ */
+#define FIFO_QUANTUM	INT_MAX
+#define rt_quantum(policy)	\
+	((policy) == SCHED_FIFO ? FIFO_QUANTUM : RR_QUANTUM)
 
 static unsigned cpu_proc[CONFIG_MAX_CPUS];
 
@@ -103,7 +119,12 @@ int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < lowest_queue(rmp)) {
+	/* A real-time process keeps its queue: SCHED_RR goes to its tail for
+	 * a new quantum (SCHED_FIFO never runs out).  Others drop one, but a
+	 * system service stays above the real-time band.
+	 */
+	if ((!is_rt(rmp) || (rmp->flags & RT_THROTTLED)) &&
+	    rmp->priority < lowest_queue(rmp)) {
 		rmp->priority += 1; /* lower priority */
 	}
 
@@ -136,6 +157,15 @@ int do_yield(message *m_ptr)
 		return EBADEPT;
 
 	rmp = &schedproc[proc_nr_n];
+
+	/* A real-time process goes to the tail of its queue (POSIX), which it
+	 * does by itself: it is blocked on PM now and is queued at the tail
+	 * when PM replies.  Its quantum stays as it was, so that sched_yield()
+	 * in a loop does not escape RR or throttling.
+	 */
+	if (is_rt(rmp) && !(rmp->flags & RT_THROTTLED))
+		return OK;
+
 	if (rmp->priority < lowest_queue(rmp))
 		rmp->priority += 1;	/* lower priority */
 
@@ -165,6 +195,8 @@ int do_stop_scheduling(message *m_ptr)
 #ifdef CONFIG_SMP
 	cpu_proc[rmp->cpu]--;
 #endif
+	if (is_rt(rmp))
+		rt_end(rmp);
 	rmp->flags = 0; /*&= ~IN_USE;*/
 
 	return OK;
@@ -230,6 +262,8 @@ int do_start_scheduling(message *m_ptr)
 		 * from the parent */
 		rmp->priority   = rmp->max_priority;
 		rmp->time_slice = m_ptr->m_lsys_sched_scheduling_start.quantum;
+		rmp->policy	= SCHED_OTHER;
+		rmp->rt_prio	= 0;
 		break;
 		
 	case SCHEDULING_INHERIT:
@@ -242,6 +276,26 @@ int do_start_scheduling(message *m_ptr)
 
 		rmp->priority = schedproc[parent_nr_n].priority;
 		rmp->time_slice = schedproc[parent_nr_n].time_slice;
+
+		/* The POSIX policy is the one PM says, that of the thread that
+		 * forked or created this one: the 'parent' here is that of the
+		 * process.
+		 */
+		rmp->policy = m_ptr->m_lsys_sched_scheduling_start.policy;
+		rmp->rt_prio = m_ptr->m_lsys_sched_scheduling_start.prio;
+		if (rmp->policy != SCHED_FIFO && rmp->policy != SCHED_RR) {
+			rmp->policy = SCHED_OTHER;
+			rmp->rt_prio = 0;
+		} else if (rmp->rt_prio < RT_PRIO_MIN ||
+		    rmp->rt_prio > RT_PRIO_MAX)
+			return EINVAL;
+		if (is_rt(rmp)) {
+			rmp->priority = RT_PRIO_Q(rmp->rt_prio);
+			rmp->time_slice = rt_quantum(rmp->policy);
+		} else if (is_rt(&schedproc[parent_nr_n])) {
+			rmp->priority = rmp->max_priority;
+			rmp->time_slice = DEFAULT_USER_TIME_SLICE;
+		}
 		break;
 		
 	default: 
@@ -257,6 +311,8 @@ int do_start_scheduling(message *m_ptr)
 		return rv;
 	}
 	rmp->flags = IN_USE;
+	if (is_rt(rmp))
+		rt_begin(rmp);
 
 	/* Schedule the process, giving it some quantum */
 	pick_cpu(rmp);
@@ -314,8 +370,13 @@ int do_nice(message *m_ptr)
 	old_q     = rmp->priority;
 	old_max_q = rmp->max_priority;
 
-	/* Update the proc entry and reschedule the process */
-	rmp->max_priority = rmp->priority = new_q;
+	/* Update the proc entry and reschedule the process.  The nice level of
+	 * a real-time process counts only once it is back to SCHED_OTHER, or
+	 * while throttled.
+	 */
+	rmp->max_priority = new_q;
+	if (!is_rt(rmp) || (rmp->flags & RT_THROTTLED))
+		rmp->priority = new_q;
 
 	if ((rv = schedule_process_local(rmp)) != OK) {
 		/* Something went wrong when rescheduling the process, roll
@@ -369,16 +430,236 @@ static int schedule_process(struct schedproc * rmp, unsigned flags)
 
 
 /*===========================================================================*
+ *				real-time policies			     *
+ *===========================================================================*
+ * SCHED_FIFO and SCHED_RR, set by PM for sched_setscheduler(2) and co.  Each
+ * of the 32 priorities has a queue of its own, below the system services and
+ * above time-sharing (<minix/config.h>), and nothing moves a process out of
+ * it: no decay, no balancing.  The kernel puts a process preempted with time
+ * left back at the head of its queue, and one that wakes up at the tail, as
+ * POSIX has it.  SCHED_FIFO has a quantum it never uses up; SCHED_RR goes to
+ * the tail of its queue at the end of each RR_QUANTUM.
+ *
+ * Throttling: while there are real-time processes, every 1/RT_SAMPLES second
+ * their CPU time is added up for each CPU, over the last RT_SAMPLES samples.
+ * When it is above RT_RUNTIME_PCT of that second, the real-time processes of
+ * the CPU are run as time-sharing ones, at their nice level, until it is
+ * under again: time-sharing processes, a shell to kill a runaway, get the
+ * rest.  A process keeps its policy meanwhile (sched_getscheduler(2)).
+ */
+#define RT_SAMPLES	20
+
+static unsigned rt_sample_ticks;	/* ticks between samples */
+static unsigned nr_rt;			/* real-time processes */
+static unsigned rt_slot;		/* the sample being filled */
+static clock_t rt_ticks[CONFIG_MAX_CPUS][RT_SAMPLES];	/* real-time use */
+static clock_t rt_window[CONFIG_MAX_CPUS];	/* sum of rt_ticks[cpu] */
+static int rt_throttled[CONFIG_MAX_CPUS];
+
+static clock_t proc_time(struct schedproc *rmp)
+{
+	clock_t user, sys;
+
+	if (sys_times(rmp->endpoint, &user, &sys, NULL, NULL) != OK)
+		return rmp->rt_time;
+	return user + sys;
+}
+
+static void rt_begin(struct schedproc *rmp)
+{
+/* 'rmp' has just become real-time. */
+
+	rmp->rt_time = proc_time(rmp);
+	if (nr_rt++ == 0) {
+		/* Sampling starts afresh, and sooner than the balancing. */
+		memset(rt_ticks, 0, sizeof(rt_ticks));
+		memset(rt_window, 0, sizeof(rt_window));
+		memset(rt_throttled, 0, sizeof(rt_throttled));
+		set_alarm();
+	}
+}
+
+static void rt_end(struct schedproc *rmp)
+{
+/* 'rmp' is no longer real-time: back to SCHED_OTHER, or gone. */
+
+	assert(nr_rt > 0);
+	nr_rt--;
+	rmp->flags &= ~RT_THROTTLED;
+}
+
+static void rt_place(struct schedproc *rmp)
+{
+/* Set the queue and quantum of real-time 'rmp': its own, or time-sharing ones
+ * while its CPU is throttled.
+ */
+
+	if (rmp->cpu < CONFIG_MAX_CPUS && rt_throttled[rmp->cpu]) {
+		rmp->flags |= RT_THROTTLED;
+		rmp->priority = rmp->max_priority;
+		rmp->time_slice = DEFAULT_USER_TIME_SLICE;
+	} else {
+		rmp->flags &= ~RT_THROTTLED;
+		rmp->priority = RT_PRIO_Q(rmp->rt_prio);
+		rmp->time_slice = rt_quantum(rmp->policy);
+	}
+}
+
+static void rt_sample(void)
+{
+/* Add up the real-time CPU use since the last sample, and throttle or
+ * unthrottle each CPU by it.
+ */
+	struct schedproc *rmp;
+	clock_t now, budget;
+	unsigned cpu, was;
+	int proc_nr;
+
+	rt_slot = (rt_slot + 1) % RT_SAMPLES;
+	for (cpu = 0; cpu < CONFIG_MAX_CPUS; cpu++) {
+		rt_window[cpu] -= rt_ticks[cpu][rt_slot];
+		rt_ticks[cpu][rt_slot] = 0;
+	}
+
+	for (proc_nr = 0, rmp = schedproc; proc_nr < NR_PROCS;
+	    proc_nr++, rmp++) {
+		if (!(rmp->flags & IN_USE) || !is_rt(rmp))
+			continue;
+		now = proc_time(rmp);
+		/* Time it ran as time-sharing does not count. */
+		if (!(rmp->flags & RT_THROTTLED) && rmp->cpu < CONFIG_MAX_CPUS) {
+			rt_ticks[rmp->cpu][rt_slot] += now - rmp->rt_time;
+			rt_window[rmp->cpu] += now - rmp->rt_time;
+		}
+		rmp->rt_time = now;
+	}
+
+	budget = (clock_t)rt_sample_ticks * RT_SAMPLES * RT_RUNTIME_PCT / 100;
+	for (cpu = 0; cpu < CONFIG_MAX_CPUS; cpu++)
+		rt_throttled[cpu] = (rt_window[cpu] > budget);
+
+	for (proc_nr = 0, rmp = schedproc; proc_nr < NR_PROCS;
+	    proc_nr++, rmp++) {
+		if (!(rmp->flags & IN_USE) || !is_rt(rmp))
+			continue;
+		was = rmp->flags & RT_THROTTLED;
+		rt_place(rmp);
+		if ((rmp->flags & RT_THROTTLED) != was)
+			(void)schedule_process_local(rmp);
+	}
+}
+
+/*===========================================================================*
+ *				do_set_policy				     *
+ *===========================================================================*/
+int do_set_policy(message *m_ptr)
+{
+/* PM sets the POSIX scheduling policy of a user process, having checked the
+ * caller may (sched_setscheduler(2), pthread_setschedparam(3)).  The process
+ * goes to the tail of its new queue.
+ */
+	struct schedproc *rmp, old;
+	int proc_nr_n, policy, prio, rv;
+
+	if (!accept_message(m_ptr))
+		return EPERM;
+
+	if (sched_isokendpt(m_ptr->m_pm_sched_scheduling_set_policy.endpoint,
+	    &proc_nr_n) != OK)
+		return EBADEPT;
+	rmp = &schedproc[proc_nr_n];
+
+	policy = m_ptr->m_pm_sched_scheduling_set_policy.policy;
+	prio = m_ptr->m_pm_sched_scheduling_set_policy.prio;
+	switch (policy) {
+	case SCHED_OTHER:
+		if (prio != 0)
+			return EINVAL;
+		break;
+	case SCHED_FIFO:
+	case SCHED_RR:
+		if (prio < RT_PRIO_MIN || prio > RT_PRIO_MAX)
+			return EINVAL;
+		break;
+	default:
+		return EINVAL;
+	}
+
+	/* System services have their own band, above every policy. */
+	if (rmp->max_priority <= MIN_SYS_Q)
+		return EPERM;
+
+	old = *rmp;
+	rmp->policy = policy;
+	rmp->rt_prio = prio;
+	if (is_rt(rmp)) {
+		rt_place(rmp);
+	} else {
+		rmp->flags &= ~RT_THROTTLED;
+		rmp->priority = rmp->max_priority;
+		rmp->time_slice = DEFAULT_USER_TIME_SLICE;
+	}
+
+	if ((rv = schedule_process_local(rmp)) != OK) {
+		*rmp = old;
+		return rv;
+	}
+
+	/* Count it in or out; a change between the two real-time policies
+	 * keeps its sampling as it was.
+	 */
+	if (is_rt(&old) && !is_rt(rmp))
+		rt_end(rmp);
+	else if (!is_rt(&old) && is_rt(rmp))
+		rt_begin(rmp);
+	return OK;
+}
+
+/*===========================================================================*
+ *				set_alarm, sched_alarm			     *
+ *===========================================================================*/
+static void set_alarm(void)
+{
+/* Have the alarm go off for the next balancing, or the next real-time sample
+ * if there are real-time processes.
+ */
+	clock_t when;
+	int r;
+
+	when = next_balance;
+	if (nr_rt > 0 && getticks() + rt_sample_ticks < when)
+		when = getticks() + rt_sample_ticks;
+
+	if ((r = sys_setalarm(when, 1 /*absolute*/)) != OK)
+		panic("sys_setalarm failed: %d", r);
+}
+
+void sched_alarm(void)
+{
+	if (nr_rt > 0)
+		rt_sample();
+
+	if ((long)(getticks() - next_balance) >= 0) {
+		balance_queues();
+		next_balance = getticks() + balance_timeout;
+	}
+
+	set_alarm();
+}
+
+/*===========================================================================*
  *				init_scheduling				     *
  *===========================================================================*/
 void init_scheduling(void)
 {
-	int r;
 
 	balance_timeout = BALANCE_TIMEOUT * sys_hz();
+	rt_sample_ticks = sys_hz() / RT_SAMPLES;
+	if (rt_sample_ticks == 0)
+		rt_sample_ticks = 1;
 
-	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
-		panic("sys_setalarm failed: %d", r);
+	next_balance = getticks() + balance_timeout;
+	set_alarm();
 }
 
 /*===========================================================================*
@@ -537,13 +818,14 @@ static void colocate_system_servers(void)
  * quantum. This function will find all proccesses that have been bumped down,
  * and pulls them back up. This default policy will soon be changed.
  */
-void balance_queues(void)
+static void balance_queues(void)
 {
 	struct schedproc *rmp;
-	int r, proc_nr;
+	int proc_nr;
 
 	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if (rmp->flags & IN_USE) {
+		if ((rmp->flags & IN_USE) &&
+		    (!is_rt(rmp) || (rmp->flags & RT_THROTTLED))) {
 			if (rmp->priority > rmp->max_priority) {
 				rmp->priority -= 1; /* increase priority */
 				schedule_process_local(rmp);
@@ -554,7 +836,4 @@ void balance_queues(void)
 #ifdef CONFIG_SMP
 	colocate_system_servers();
 #endif
-
-	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
-		panic("sys_setalarm failed: %d", r);
 }

@@ -127,6 +127,8 @@ EXTERN struct mproc {
 
   /* Scheduling priority. */
   signed int mp_nice;		/* nice is PRIO_MIN..PRIO_MAX, standard 0. */
+  int mp_policy;		/* SCHED_OTHER, SCHED_FIFO or SCHED_RR */
+  int mp_rtprio;		/* its priority (0 for SCHED_OTHER) */
 
   /* User space scheduling */
   endpoint_t mp_scheduler;	/* scheduler endpoint id */
