@@ -195,49 +195,71 @@ static void *pt_zpage(phys_bytes *phys, int reason)
 	return p;
 }
 
-/* Make the PDPT and the page directory that entry pde is in. */
+/* Make the PDPT and the page directory that entry pde is in.
+ *
+ * The pages for them are VM's own, and mapping those into VM's address space
+ * can need a new page directory itself: in VM's own page table the very one
+ * being made, when VM's mapping window enters a new gigabyte.  That nested
+ * call makes it first (from spare pages, which need no mapping), so each
+ * level is built aside and installed only if it is still missing; otherwise
+ * it is thrown away and the nested call's one used.
+ */
 static int pt_pdalloc(pt_t *pt, long pde)
 {
 	struct pt_root *root = pt->pt_root;
-	struct pt_pdpt *pp;
-	struct pt_pd *pd;
+	struct pt_pdpt *pp, *npp;
+	struct pt_pd *npd;
+	phys_bytes phys;
+	void *dir, *shadow;
 	int l4 = PDE_PML4(pde), l3 = PDE_PDPT(pde);
 
 	assert(root);
 	assert(pde >= 0 && pde < PT_NPDES);
 
-	if(!(pp = root->pdpts[l4])) {
-		if(!SLABALLOC(pp))
+	if(!root->pdpts[l4]) {
+		if(!SLABALLOC(npp))
 			return ENOMEM;
-		USE(pp, pp->pdpt = NULL; pp->pds = NULL;);
-		USE(pp,
-		    pp->pdpt = pt_zpage(&pp->pdpt_phys, VMP_PAGEDIR);
-		    if(pp->pdpt) pp->pds = pt_zpage(NULL, VMP_PAGETABLE););
-		if(!pp->pdpt || !pp->pds) {
-			if(pp->pdpt) vm_freepages((vir_bytes) pp->pdpt, 1);
-			SLABFREE(pp);
-			return ENOMEM;
+		dir = pt_zpage(&phys, VMP_PAGEDIR);
+		shadow = dir ? pt_zpage(NULL, VMP_PAGETABLE) : NULL;
+		if(!dir || !shadow || root->pdpts[l4]) {
+			if(shadow) vm_freepages((vir_bytes) shadow, 1);
+			if(dir) vm_freepages((vir_bytes) dir, 1);
+			SLABFREE(npp);
+			if(!root->pdpts[l4])
+				return ENOMEM;
+		} else {
+			USE(npp, npp->pdpt = dir; npp->pdpt_phys = phys;
+			    npp->pds = shadow;);
+			root->pdpts[l4] = npp;
+			pt->pt_pml4[l4] = (phys & ARCH_VM_ADDR_MASK) |
+			    ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW |
+			    ARCH_VM_PTE_USER;
 		}
-		root->pdpts[l4] = pp;
-		pt->pt_pml4[l4] = (pp->pdpt_phys & ARCH_VM_ADDR_MASK) |
-		    ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW | ARCH_VM_PTE_USER;
 	}
-	if(!(pd = pp->pds[l3])) {
-		if(!SLABALLOC(pd))
+	pp = root->pdpts[l4];
+
+	if(!pp->pds[l3]) {
+		if(!SLABALLOC(npd))
 			return ENOMEM;
-		USE(pd, pd->pd = NULL; pd->pts = NULL;);
-		USE(pd,
-		    pd->pd = pt_zpage(&pd->pd_phys, VMP_PAGEDIR);
-		    if(pd->pd) pd->pts = pt_zpage(NULL, VMP_PAGETABLE););
-		if(!pd->pd || !pd->pts) {
-			if(pd->pd) vm_freepages((vir_bytes) pd->pd, 1);
-			SLABFREE(pd);
-			return ENOMEM;
+		dir = pt_zpage(&phys, VMP_PAGEDIR);
+		shadow = dir ? pt_zpage(NULL, VMP_PAGETABLE) : NULL;
+		if(!dir || !shadow || pp->pds[l3]) {
+			if(shadow) vm_freepages((vir_bytes) shadow, 1);
+			if(dir) vm_freepages((vir_bytes) dir, 1);
+			SLABFREE(npd);
+			if(!pp->pds[l3])
+				return ENOMEM;
+		} else {
+			USE(npd, npd->pd = dir; npd->pd_phys = phys;
+			    npd->pts = shadow;);
+			pp->pds[l3] = npd;
+			pp->pdpt[l3] = (phys & ARCH_VM_ADDR_MASK) |
+			    ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW |
+			    ARCH_VM_PTE_USER;
 		}
-		pp->pds[l3] = pd;
-		pp->pdpt[l3] = (pd->pd_phys & ARCH_VM_ADDR_MASK) |
-		    ARCH_VM_PAGE_PRESENT | ARCH_VM_PTE_RW | ARCH_VM_PTE_USER;
 	}
+	assert(pp->pds[l3]);
+
 	return OK;
 }
 
@@ -539,6 +561,9 @@ void *vm_allocpages(phys_bytes *phys, int reason, int pages)
 	}
 #endif
 
+	if(vm_usermem)
+		mem_flags |= PAF_USERMEM;
+
 	/* Allocate page of memory for use by VM. As VM
 	 * is trusted, we don't have to pre-clear it.
 	 */
@@ -551,6 +576,7 @@ void *vm_allocpages(phys_bytes *phys, int reason, int pages)
 	*phys = CLICK2ABS(newpage);
 
 	if(!(ret = vm_mappages(*phys, pages))) {
+		free_mem(newpage, pages);
 		level--;
 		printf("VM: vm_allocpage: vm_mappages failed\n");
 		return NULL;
@@ -708,9 +734,14 @@ static int pt_ptalloc(pt_t *pt, long pde, u32_t flags)
 	assert(!(flags & ~(PTF_ALLFLAGS)));
 
 #if defined(__x86_64__)
-	/* The page directory the entry is in, first. */
+	/* The page directory the entry is in, first.  Making it can map pages
+	 * through this very entry (see pt_pdalloc()), and so make its table. */
 	if(pt_pdalloc(pt, pde) != OK)
 		return ENOMEM;
+	if(PT_DIR(pt, pde) & ARCH_VM_PDE_PRESENT) {
+		assert(PT_PT(pt, pde));
+		return OK;
+	}
 #endif
 
 	/* We don't expect to overwrite page directory entry, nor
@@ -1108,7 +1139,7 @@ int pt_writemap(struct vmproc * vmp,
 /* Write mapping into page table. Allocate a new page table if necessary. */
 /* Page directory and table entries for this virtual address. */
 	vir_bytes p, pages;	/* a range may be terabytes */
-	int verify = 0;
+	int verify = 0, usermem;
 	int ret = OK;
 
 #ifdef CONFIG_SMP
@@ -1146,7 +1177,10 @@ int pt_writemap(struct vmproc * vmp,
 	 * before we start writing in any of them, because it's a pain
 	 * to undo our work properly.
 	 */
+	usermem = vm_usermem;
+	vm_usermem = vmp && vmp != &vmproc[VM_PROC_NR] && acl_is_user_proc(vmp);
 	ret = pt_ptalloc_in_range(pt, v, v + VM_PAGE_SIZE*pages, flags, verify);
+	vm_usermem = usermem;
 	if(ret != OK) {
 		printf("VM: writemap: pt_ptalloc_in_range failed\n");
 		goto resume_exit;

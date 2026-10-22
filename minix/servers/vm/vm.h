@@ -109,10 +109,17 @@ extern char _end;
 #define VM_OWN_HEAPSTART ((vir_bytes) (&_end))
 #define VM_OWN_HEAPBASE   roundup(VM_OWN_HEAPSTART, VM_PAGE_SIZE)
 #ifdef __x86_64__
-/* On amd64 the entire process virtual space fits within 0-512 MB.
- * Fix VM's mmap window at 128-256 MB so it stays within the 1-GB PD. */
-#define VM_OWN_MMAPBASE ((vir_bytes)0x08000000)   /* 128 MB */
-#define VM_OWN_MMAPTOP  ((vir_bytes)0x10000000)   /* 256 MB */
+/* Where VM maps the pages it allocates for itself (vm_allocpage()): slabs,
+ * page directories and every process's page tables.  Each of those is a
+ * physical page, so a window larger than the most memory VM can manage
+ * (256 GB) cannot fill up before memory does.  It used to be 128-256 MB:
+ * any process could fill it with page tables, by mapping single pages 2 MB
+ * apart, and VM's heap, which grows up from VM's end and never shrinks, ran
+ * into it on a large enough mmap() and corrupted the slabs and page tables
+ * mapped there.  It is above VM's boot mappings (0-1 GB), in page directories
+ * that pt_pdalloc() makes as the window is used. */
+#define VM_OWN_MMAPBASE ((vir_bytes)1 << 40)	/* 1 TB */
+#define VM_OWN_MMAPTOP  ((vir_bytes)2 << 40)	/* 2 TB */
 #else
 #define VM_OWN_MMAPBASE (VM_OWN_HEAPBASE+1024*1024*1024)
 #define VM_OWN_MMAPTOP   (VM_OWN_MMAPBASE+100 * 1024 * 1024)

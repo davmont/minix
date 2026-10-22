@@ -493,13 +493,33 @@ static unsigned int phys_slot(vir_bytes len)
 	return len / VM_PAGE_SIZE;
 }
 
+/* Whether a user process may have a region of 'slots' pages.  VM keeps a
+ * pointer per page of a region, in its heap, which does not shrink: a
+ * PROT_NONE reservation of terabytes, cheap for the process to ask, would take
+ * the machine's memory for good before anything failed.  Allow the array a
+ * quarter of the memory user processes can have.  This is a bound on the
+ * size, not a check that the memory is free: the allocation itself is charged
+ * to the OOM reserve and reclaims (see vm_usermem), which the free page count
+ * alone does not tell; it is low whenever memory sits in caches.
+ */
+static int physblocks_ok(struct vmproc *vmp, vir_bytes slots)
+{
+	vir_bytes pages;
+
+	if(!acl_is_user_proc(vmp))
+		return 1;
+	pages = (slots * sizeof(struct phys_region *) + VM_PAGE_SIZE - 1) /
+	    VM_PAGE_SIZE;
+	return pages <= usermem_total() / 4;
+}
+
 static struct vir_region *region_new(struct vmproc *vmp, vir_bytes startv, vir_bytes length,
 	int flags, mem_type_t *memtype)
 {
 	struct vir_region *newregion;
 	struct phys_region **newphysregions;
 	static u32_t id;
-	int slots = phys_slot(length);
+	int slots = phys_slot(length), usermem;
 
 	if(!(SLABALLOC(newregion))) {
 		printf("vm: region_new: could not allocate\n");
@@ -518,7 +538,17 @@ USE(newregion,
 	newregion->lower = newregion->higher = NULL;
 	newregion->parent = vmp;);
 
-	if(!(newphysregions = calloc(slots, sizeof(struct phys_region *)))) {
+	/* One pointer per page, from VM's heap: for a region of a user process
+	 * that is its memory (see vm_usermem), or one large mmap() could take
+	 * all of it. */
+	newphysregions = NULL;
+	if(physblocks_ok(vmp, slots)) {
+		usermem = vm_usermem;
+		vm_usermem = acl_is_user_proc(vmp);
+		newphysregions = calloc(slots, sizeof(struct phys_region *));
+		vm_usermem = usermem;
+	}
+	if(!newphysregions) {
 		printf("VM: region_new: allocating phys blocks failed\n");
 		SLABFREE(newregion);
 		return NULL;
@@ -1090,7 +1120,7 @@ int map_region_extend_upto_v(struct vmproc *vmp, vir_bytes v)
 	vir_bytes offset = v, limit, extralen;
 	struct vir_region *vr, *nextvr;
 	struct phys_region **newpr;
-	int newslots, prevslots, addedslots, r;
+	int newslots, prevslots, addedslots, r, usermem;
 
 	offset = roundup(offset, VM_PAGE_SIZE);
 
@@ -1135,8 +1165,15 @@ int map_region_extend_upto_v(struct vmproc *vmp, vir_bytes v)
 		return OK;
 	}
 
-	if(!(newpr = realloc(vr->physblocks,
-		newslots * sizeof(struct phys_region *)))) {
+	newpr = NULL;
+	if(physblocks_ok(vmp, newslots)) {
+		usermem = vm_usermem;
+		vm_usermem = acl_is_user_proc(vmp);
+		newpr = realloc(vr->physblocks,
+		    newslots * sizeof(struct phys_region *));
+		vm_usermem = usermem;
+	}
+	if(!newpr) {
 		printf("VM: map_region_extend_upto_v: realloc failed\n");
 		return ENOMEM;
 	}
