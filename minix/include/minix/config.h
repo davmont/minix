@@ -61,17 +61,44 @@
 #define NR_DOMAIN	8
 
 /* Scheduling priorities. Values must start at zero (highest
- * priority) and increment.
+ * priority) and increment.  The queues come in three bands, highest first:
+ *
+ *   0 .. MIN_SYS_Q		the kernel tasks and the system services;
+ *   MAX_RT_Q .. MIN_RT_Q	SCHED_FIFO and SCHED_RR, one queue for each of
+ *				the 32 POSIX priorities (31 is MAX_RT_Q);
+ *   MAX_USER_Q .. MIN_USER_Q	time-sharing (SCHED_OTHER), moved by nice(3)
+ *				and by CPU use.
+ *
+ * A real-time process thus never runs ahead of a server it depends on (PM,
+ * VFS, VM, the drivers): those run as if at a priority ceiling above every
+ * client, so a busy real-time process cannot freeze the system.  The SCHED
+ * server keeps it from starving time-sharing too (RT_RUNTIME_PCT).
  */
-#define NR_SCHED_QUEUES   16	/* MUST equal minimum priority + 1 */
+#define NR_SCHED_QUEUES   56	/* MUST equal minimum priority + 1 */
 #define TASK_Q		   0	/* highest, used for kernel tasks */
-#define MAX_USER_Q  	   0    /* highest priority for user processes */   
+#define MIN_SYS_Q	   7	/* lowest queue of the system services */
+#define MAX_RT_Q	   8	/* SCHED_FIFO and SCHED_RR, priority 31 */
+#define MIN_RT_Q	  39	/* SCHED_FIFO and SCHED_RR, priority 0 */
+#define MAX_USER_Q  	  40    /* highest priority for user processes */   
 #define USER_Q  	  ((MIN_USER_Q - MAX_USER_Q) / 2 + MAX_USER_Q) /* default
 						(should correspond to nice 0) */
 #define MIN_USER_Q	  (NR_SCHED_QUEUES - 1)	/* minimum priority for user
 						   processes */
+#define RT_PRIO_MIN	   0	/* POSIX priorities of SCHED_FIFO, SCHED_RR */
+#define RT_PRIO_MAX	  (MIN_RT_Q - MAX_RT_Q)
+#define RT_PRIO_Q(prio)	  (MIN_RT_Q - (prio))	/* its queue */
+
 /* default scheduling quanta */
 #define USER_QUANTUM 200
+#define RR_QUANTUM 100		/* SCHED_RR, sched_rr_get_interval(2) */
+
+/* Real-time processes (SCHED_FIFO, SCHED_RR) may use at most this share of
+ * each CPU, as measured over the last second; beyond it the SCHED server runs
+ * them as time-sharing ones until they are back under it (as Linux's
+ * sched_rt_runtime_us does).  A runaway real-time process then still leaves
+ * a shell to kill it.
+ */
+#define RT_RUNTIME_PCT 95
 
 /* defualt user process cpu */
 #define USER_DEFAULT_CPU	-1 /* use the default cpu or do not change the

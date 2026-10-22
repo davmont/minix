@@ -44,6 +44,12 @@ static int schedule_process(struct schedproc * rmp, unsigned flags);
 /* processes created by RS are sysytem processes */
 #define is_system_proc(p)	((p)->parent == RS_PROC_NR)
 
+/* The lowest queue a time-sharing process drops to by using up its quanta:
+ * the system services stay in their band, above the real-time one.
+ */
+#define lowest_queue(p)	\
+	((p)->max_priority <= MIN_SYS_Q ? MIN_SYS_Q : MIN_USER_Q)
+
 static unsigned cpu_proc[CONFIG_MAX_CPUS];
 
 static void pick_cpu(struct schedproc * proc)
@@ -97,7 +103,7 @@ int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
+	if (rmp->priority < lowest_queue(rmp)) {
 		rmp->priority += 1; /* lower priority */
 	}
 
@@ -130,7 +136,7 @@ int do_yield(message *m_ptr)
 		return EBADEPT;
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q)
+	if (rmp->priority < lowest_queue(rmp))
 		rmp->priority += 1;	/* lower priority */
 
 	return schedule_process_local(rmp);

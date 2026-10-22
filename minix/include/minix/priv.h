@@ -90,8 +90,8 @@
 #define USR_SCH   NONE                             /* user processes */
 
 /* scheduling priority queue. */
-#define SRV_Q     USER_Q                           /* system services */
-#define DSRV_Q    USER_Q                           /* dynamic system services */
+#define SRV_Q     MIN_SYS_Q                        /* system services */
+#define DSRV_Q    MIN_SYS_Q                        /* dynamic system services */
 #define USR_Q     USER_Q                           /* user processes */
 
 /* scheduling quantum. */

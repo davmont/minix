@@ -655,7 +655,7 @@ void kernel_call_resume(struct proc *caller)
 int sched_proc(struct proc *p, int priority, int quantum, int cpu, int niced)
 {
 	/* Make sure the values given are within the allowed range.*/
-	if ((priority < TASK_Q && priority != -1) || priority > NR_SCHED_QUEUES)
+	if ((priority < TASK_Q && priority != -1) || priority >= NR_SCHED_QUEUES)
 		return(EINVAL);
 
 	if (quantum < 1 && quantum != -1)

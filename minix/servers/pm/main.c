@@ -224,7 +224,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 
 			/* RS schedules this process */
 			rmp->mp_scheduler = NONE;
-			rmp->mp_nice = get_nice_value(SRV_Q);
+			/* SRV_Q is above the user band, where nice does not
+			 * reach: a user process it forks starts at nice 0.
+			 */
+			rmp->mp_nice = 0;
 		}
 
 		/* Get kernel endpoint identifier. */
