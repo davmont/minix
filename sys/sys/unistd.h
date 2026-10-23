@@ -151,6 +151,10 @@
 #define	_POSIX_THREAD_ATTR_STACKADDR	200112L
 					/* _r functions */
 #define	_POSIX_THREAD_SAFE_FUNCTIONS	200112L
+#ifdef __minix
+					/* thread scheduling policies */
+#define	_POSIX_THREAD_PRIORITY_SCHEDULING	200112L
+#endif
 					/* timeouts */
 #undef	_POSIX_TIMEOUTS
 					/* timers */

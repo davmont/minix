@@ -210,6 +210,12 @@ pthread__init(void)
 	ssize_t slen;
 	size_t len;
 	extern int __isthreaded;
+#ifdef __minix
+	/* This runs before main(), which must find errno as the program left
+	 * it: the sysctl below fails here (no vm.thread_guard_size).
+	 */
+	int serrno = errno;
+#endif
 
 	/*
 	 * Allocate pthread_keys descriptors before
@@ -297,6 +303,9 @@ pthread__init(void)
 	/* Tell libc that we're here and it should role-play accordingly. */
 	pthread_atfork(pthread__prefork, pthread__fork_parent, pthread__fork_child);
 	__isthreaded = 1;
+#ifdef __minix
+	errno = serrno;
+#endif
 }
 
 /* General-purpose thread data structure sanitization. */
@@ -544,11 +553,23 @@ pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 	if ((newthread->pt_flags & PT_FLAG_DETACHED) != 0)
 		flag |= LWP_DETACHED;
 
+#ifdef __minix
+	/*
+	 * MINIX has no LWP_SUSPENDED: the thread runs at once, with the policy
+	 * of this one.  For PTHREAD_EXPLICIT_SCHED it waits for pt_lock in
+	 * pthread__create_tramp() until it has its own (below).
+	 */
+	if ((nattr.pta_flags & PT_FLAG_EXPLICIT_SCHED) != 0)
+		pthread_mutex_lock(&newthread->pt_lock);
+#endif
 	ret = pthread__makelwp(pthread__create_tramp, newthread, private_area,
 	    newthread->pt_stack.ss_sp, newthread->pt_stack.ss_size,
 	    flag, &newthread->pt_lid);
 	if (ret != 0) {
 		ret = errno;
+#ifdef __minix
+		if ((nattr.pta_flags & PT_FLAG_EXPLICIT_SCHED) == 0)
+#endif
 		pthread_mutex_lock(&newthread->pt_lock);
 		/* Will unlock and free name. */
 		pthread__reap(newthread);
@@ -556,6 +577,20 @@ pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 	}
 
 	if ((nattr.pta_flags & PT_FLAG_EXPLICIT_SCHED) != 0) {
+#ifdef __minix
+		struct sched_param sp;
+
+		/* The attributes' policy, SCHED_OTHER if none was set. */
+		if (p != NULL) {
+			(void)pthread_setschedparam(newthread, p->ptap_policy,
+			    &p->ptap_sp);
+		} else {
+			memset(&sp, 0, sizeof(sp));
+			(void)pthread_setschedparam(newthread, SCHED_OTHER,
+			    &sp);
+		}
+		pthread_mutex_unlock(&newthread->pt_lock);
+#else
 		if (p != NULL) {
 			(void)pthread_setschedparam(newthread, p->ptap_policy,
 			    &p->ptap_sp);
@@ -563,6 +598,7 @@ pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 		if ((newthread->pt_flags & PT_FLAG_SUSPENDED) == 0) {
 			(void)_lwp_continue(newthread->pt_lid);
 		}
+#endif
 	}
 
 	*thread = newthread;
@@ -598,6 +634,14 @@ pthread__create_tramp(void *cookie)
 	 * pt_lid read below or any locking.
 	 */
 	self->pt_lid = _lwp_self();
+
+	/* PTHREAD_EXPLICIT_SCHED: wait until pthread_create() has set this
+	 * thread's policy, which it does holding pt_lock.
+	 */
+	if ((self->pt_flags & PT_FLAG_EXPLICIT_SCHED) != 0) {
+		pthread_mutex_lock(&self->pt_lock);
+		pthread_mutex_unlock(&self->pt_lock);
+	}
 #endif /* __minix */
 
 	/*

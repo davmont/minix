@@ -50,6 +50,10 @@ SH_RE = re.compile(r"^\d+-\d+\.sh$")
 
 # Run by qemutest in the guest, from the top of the unpacked suite: run one
 # test and print its result.  t0 kills a test that outlives POSIX_TIMEOUT.
+# A test is over when every process it started is: through the pipe the shell
+# waits for whatever still holds its output, as children shm_open/23-1 leaves
+# when fork() fails, which otherwise run on into the tests after it (and
+# fill the system's file table there).
 RUN1 = r"""#!/bin/sh
 # run1.sh ID: run one Open POSIX test; print "POSIXTS rc=N" or
 # "POSIXTS nobuild".
@@ -64,8 +68,7 @@ if [ "$2" = buildonly ]; then echo "POSIXTS rc=0"; exit 0; fi
 cd "$top/$(dirname "$1")" || exit 1
 t=./$(basename "$1")
 if [ "$2" = sh ]; then t="sh $t.sh"; fi
-$top/t0 ${POSIX_TIMEOUT:-60} $t < /dev/null
-echo "POSIXTS rc=$?"
+{ $top/t0 ${POSIX_TIMEOUT:-60} $t < /dev/null; echo "POSIXTS rc=$?"; } 2>&1 | cat
 """
 
 

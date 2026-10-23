@@ -75,12 +75,34 @@ int sched_start_user(endpoint_t ep, struct mproc *rmp)
 		inherit_from = mproc[rmp->mp_parent].mp_endpoint;
 	}
 
-	/* inherit quantum */
+	/* inherit quantum, and the policy of the thread that forked or created
+	 * this one (POSIX), which its slot has from that thread's
+	 */
 	return sched_inherit(ep, 			/* scheduler_e */
 		rmp->mp_endpoint, 			/* schedulee_e */
 		inherit_from, 				/* parent_e */
 		maxprio, 				/* maxprio */
+		rmp->mp_policy,				/* policy */
+		rmp->mp_rtprio,				/* prio */
 		&rmp->mp_scheduler);			/* *newsched_e */
+}
+
+/*===========================================================================*
+ *				sched_set_policy			     *
+ *===========================================================================*/
+int sched_set_policy(struct mproc *rmp, int policy, int prio)
+{
+/* Have the process's scheduler run it with POSIX 'policy' at 'prio'. */
+	message m;
+
+	if (rmp->mp_scheduler == KERNEL || rmp->mp_scheduler == NONE)
+		return (EPERM);
+
+	memset(&m, 0, sizeof(m));
+	m.m_pm_sched_scheduling_set_policy.endpoint = rmp->mp_endpoint;
+	m.m_pm_sched_scheduling_set_policy.policy = policy;
+	m.m_pm_sched_scheduling_set_policy.prio = prio;
+	return _taskcall(rmp->mp_scheduler, SCHEDULING_SET_POLICY, &m);
 }
 
 /*===========================================================================*

@@ -910,6 +910,7 @@
 #define SCHEDULING_SET_NICE	(SCHEDULING_BASE+4)
 #define SCHEDULING_INHERIT	(SCHEDULING_BASE+5)
 #define SCHEDULING_YIELD	(SCHEDULING_BASE+6)
+#define SCHEDULING_SET_POLICY	(SCHEDULING_BASE+7)	/* sched_setscheduler(2) */
 
 /*===========================================================================*
  *              Messages for USB                                             *

@@ -5,48 +5,67 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <sched.h>
-#include <signal.h>
 #include <string.h>
 #include <time.h>
 #include <minix/config.h>
 
 /*
- * POSIX process scheduling (sched_*).  The MINIX scheduler gives user
- * processes a time-sharing policy only: priorities move with nice(3) and with
- * CPU use, which is SCHED_OTHER.  SCHED_FIFO and SCHED_RR are not offered,
- * so they are refused with EINVAL, and SCHED_OTHER has the single priority 0.
+ * POSIX process scheduling (sched_*).  SCHED_OTHER is time-sharing, its
+ * priority moved by nice(3) and by CPU use, and has the single priority 0.
+ * SCHED_FIFO and SCHED_RR have the priorities RT_PRIO_MIN..RT_PRIO_MAX, above
+ * every time-sharing process and below the system services; setting them
+ * takes root.  PM keeps the policy of each process, and of each thread, which
+ * has a slot of its own (pthread_setschedparam(3)).  sched_setscheduler() and
+ * sched_setparam() on a process set that of its first thread; 0 is the
+ * calling thread.
  */
 
 #undef sched_yield		/* <sched.h> renames it to __libc_thr_yield */
 
 int _sys_sched_yield(void);
 
-/* Check that 'pid' names a process (0 is the caller).  To change its
- * parameters, the caller must also be allowed to signal it.
- */
 static int
-check_pid(pid_t pid, int set)
+sched_call(int call, pid_t pid, lwpid_t lid, int policy, int prio,
+	message *m)
 {
 
 	if (pid < 0) {
 		errno = EINVAL;
 		return -1;
 	}
-	if (pid == 0 || kill(pid, 0) == 0)
-		return 0;
-	if (errno == EPERM && !set)
-		return 0;
-	return -1;			/* ESRCH, or EPERM to change it */
+	memset(m, 0, sizeof(*m));
+	m->m_lc_pm_sched.pid = pid;
+	m->m_lc_pm_sched.lid = lid;
+	m->m_lc_pm_sched.policy = policy;
+	m->m_lc_pm_sched.prio = prio;
+	return _syscall(PM_PROC_NR, call, m);
 }
 
 static int
-check_param(int policy, const struct sched_param *param)
+set_param(pid_t pid, lwpid_t lid, int policy, const struct sched_param *param)
 {
+	message m;
 
-	if (policy != SCHED_OTHER || param == NULL ||
-	    param->sched_priority != 0) {
+	if (param == NULL) {
 		errno = EINVAL;
 		return -1;
+	}
+	return sched_call(PM_SCHED_SETPARAM, pid, lid, policy,
+	    param->sched_priority, &m);
+}
+
+static int
+get_param(pid_t pid, lwpid_t lid, int *policy, struct sched_param *param)
+{
+	message m;
+
+	if (sched_call(PM_SCHED_GETPARAM, pid, lid, 0, 0, &m) < 0)
+		return -1;
+	if (policy != NULL)
+		*policy = m.m_lc_pm_sched.policy;
+	if (param != NULL) {
+		memset(param, 0, sizeof(*param));
+		param->sched_priority = m.m_lc_pm_sched.prio;
 	}
 	return 0;
 }
@@ -55,27 +74,42 @@ int
 sched_get_priority_min(int policy)
 {
 
-	if (policy != SCHED_OTHER) {
+	switch (policy) {
+	case SCHED_OTHER:
+		return 0;
+	case SCHED_FIFO:
+	case SCHED_RR:
+		return RT_PRIO_MIN;
+	default:
 		errno = EINVAL;
 		return -1;
 	}
-	return 0;
 }
 
 int
 sched_get_priority_max(int policy)
 {
 
-	return sched_get_priority_min(policy);
+	switch (policy) {
+	case SCHED_OTHER:
+		return 0;
+	case SCHED_FIFO:
+	case SCHED_RR:
+		return RT_PRIO_MAX;
+	default:
+		errno = EINVAL;
+		return -1;
+	}
 }
 
 int
 sched_getscheduler(pid_t pid)
 {
+	int policy;
 
-	if (check_pid(pid, 0) != 0)
+	if (get_param(pid, 0, &policy, NULL) != 0)
 		return -1;
-	return SCHED_OTHER;
+	return policy;
 }
 
 int
@@ -86,17 +120,14 @@ sched_getparam(pid_t pid, struct sched_param *param)
 		errno = EINVAL;
 		return -1;
 	}
-	if (check_pid(pid, 0) != 0)
-		return -1;
-	memset(param, 0, sizeof(*param));
-	return 0;
+	return get_param(pid, 0, NULL, param);
 }
 
 int
 sched_setparam(pid_t pid, const struct sched_param *param)
 {
 
-	if (check_param(SCHED_OTHER, param) != 0 || check_pid(pid, 1) != 0)
+	if (set_param(pid, 0, SCHED_NONE, param) < 0)
 		return -1;
 	return 0;
 }
@@ -106,24 +137,32 @@ int
 sched_setscheduler(pid_t pid, int policy, const struct sched_param *param)
 {
 
-	if (check_param(policy, param) != 0 || check_pid(pid, 1) != 0)
+	if (policy == SCHED_NONE) {	/* not one to set */
+		errno = EINVAL;
 		return -1;
-	return SCHED_OTHER;
+	}
+	return set_param(pid, 0, policy, param);
 }
 
 int
 __sched_rr_get_interval50(pid_t pid, struct timespec *interval)
 {
+	int policy, ms;
 
 	if (interval == NULL) {
 		errno = EINVAL;
 		return -1;
 	}
-	if (check_pid(pid, 0) != 0)
+	if (get_param(pid, 0, &policy, NULL) != 0)
 		return -1;
-	/* The quantum a user process gets from the scheduler. */
-	interval->tv_sec = USER_QUANTUM / 1000;
-	interval->tv_nsec = (USER_QUANTUM % 1000) * 1000000L;
+	/* The quantum the scheduler gives it: SCHED_FIFO has none. */
+	switch (policy) {
+	case SCHED_RR:		ms = RR_QUANTUM;	break;
+	case SCHED_FIFO:	ms = 0;			break;
+	default:		ms = USER_QUANTUM;	break;
+	}
+	interval->tv_sec = ms / 1000;
+	interval->tv_nsec = (ms % 1000) * 1000000L;
 	return 0;
 }
 
@@ -150,18 +189,15 @@ sched_yield(void)
 }
 
 /*
- * The per-thread variants libpthread uses (pthread_[gs]etschedparam).  As
- * for processes, SCHED_OTHER at priority 0; SCHED_NONE keeps the policy.
+ * The per-thread variants libpthread uses (pthread_[gs]etschedparam): 'lid'
+ * is the thread's (_lwp_self()).  SCHED_NONE keeps the policy.
  */
 int
 _sched_setparam(pid_t pid, lwpid_t lid, int policy,
 	const struct sched_param *param)
 {
 
-	(void)lid;
-	if (policy == SCHED_NONE)
-		policy = SCHED_OTHER;
-	if (check_param(policy, param) != 0 || check_pid(pid, 1) != 0)
+	if (set_param(pid, lid, policy, param) < 0)
 		return -1;
 	return 0;
 }
@@ -170,12 +206,5 @@ int
 _sched_getparam(pid_t pid, lwpid_t lid, int *policy, struct sched_param *param)
 {
 
-	(void)lid;
-	if (check_pid(pid, 0) != 0)
-		return -1;
-	if (policy != NULL)
-		*policy = SCHED_OTHER;
-	if (param != NULL)
-		memset(param, 0, sizeof(*param));
-	return 0;
+	return get_param(pid, lid, policy, param);
 }

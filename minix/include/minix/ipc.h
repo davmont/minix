@@ -662,6 +662,17 @@ typedef struct {
 } mess_lc_pm_timer;
 _ASSERT_MSG_SIZE(mess_lc_pm_timer);
 
+/* PM_SCHED_SETPARAM, PM_SCHED_GETPARAM: sched_setscheduler(2) and co. */
+typedef struct {
+	pid_t pid;		/* 0 is the caller */
+	lwpid_t lid;		/* a thread of 'pid', or 0 */
+	int policy;		/* SCHED_*, SCHED_NONE to keep it (set); out */
+	int prio;		/* in (set), out */
+
+	uint8_t padding[40];
+} mess_lc_pm_sched;
+_ASSERT_MSG_SIZE(mess_lc_pm_sched);
+
 typedef struct {
 	int how;
 
@@ -1723,8 +1734,10 @@ typedef struct {
 	endpoint_t parent;
 	int maxprio;
 	int quantum;
+	int policy;		/* inherit: SCHED_OTHER, SCHED_FIFO, SCHED_RR */
+	int prio;		/* inherit: its priority */
 
-	uint8_t padding[40];
+	uint8_t padding[32];
 } mess_lsys_sched_scheduling_start;
 _ASSERT_MSG_SIZE(mess_lsys_sched_scheduling_start);
 
@@ -2117,6 +2130,15 @@ typedef struct {
 	uint8_t padding[48];
 } mess_pm_sched_scheduling_set_nice;
 _ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_nice);
+
+typedef struct {
+	endpoint_t endpoint;
+	int policy;		/* SCHED_OTHER, SCHED_FIFO or SCHED_RR */
+	int prio;		/* RT_PRIO_MIN..RT_PRIO_MAX, or 0 */
+
+	uint8_t padding[44];
+} mess_pm_sched_scheduling_set_policy;
+_ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_policy);
 
 typedef struct {
 	endpoint_t endpoint;
@@ -2889,6 +2911,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_priority	m_lc_pm_priority;
 		mess_lc_pm_ptrace	m_lc_pm_ptrace;
 		mess_lc_pm_timer	m_lc_pm_timer;
+		mess_lc_pm_sched	m_lc_pm_sched;
 		mess_lc_pm_reboot	m_lc_pm_reboot;
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;
@@ -3048,6 +3071,7 @@ typedef struct noxfer_message {
 		mess_pm_lsys_proc_event	m_pm_lsys_proc_event;
 		mess_pm_lsys_sigs_signal m_pm_lsys_sigs_signal;
 		mess_pm_sched_scheduling_set_nice m_pm_sched_scheduling_set_nice;
+		mess_pm_sched_scheduling_set_policy m_pm_sched_scheduling_set_policy;
 		mess_pm_sched_scheduling_yield m_pm_sched_scheduling_yield;
 		mess_pty_ptyfs_req	m_pty_ptyfs_req;
 		mess_ptyfs_pty_name	m_ptyfs_pty_name;

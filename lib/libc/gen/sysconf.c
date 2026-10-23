@@ -54,6 +54,9 @@ __RCSID("$NetBSD: sysconf.c,v 1.36 2013/12/19 19:11:50 rmind Exp $");
 #include <paths.h>
 #include <pwd.h>
 #include <signal.h>
+#ifdef __minix
+#include <minix/config.h>
+#endif
 
 #ifdef __weak_alias
 __weak_alias(sysconf,__sysconf)
@@ -325,11 +328,13 @@ sysconf(int name)
 		    &mib_len, NULL, NULL, NULL, SYSCTL_VERSION))
 			return -1;
 		break; 
+#ifndef __minix
 	case _SC_PRIORITY_SCHEDULING:
 		if (sysctlgetmibinfo("kern.posix_sched", &mib[0], &mib_len,
 		    NULL, NULL, NULL, SYSCTL_VERSION))
 			return -1;
 		goto yesno;
+#endif /* !__minix */
 	case _SC_ATEXIT_MAX:
 		mib[0] = CTL_USER;
 		mib[1] = USER_ATEXIT_MAX;
@@ -384,6 +389,7 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		    (long)(mem / _getpagesize()); 
 
 /* Native */
+#ifndef __minix
 	case _SC_SCHED_RT_TS:
 		if (sysctlgetmibinfo("kern.sched.rtts", &mib[0], &mib_len,
 		    NULL, NULL, NULL, SYSCTL_VERSION))      
@@ -399,6 +405,7 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		    NULL, NULL, NULL, SYSCTL_VERSION))
 			return -1;
 		break;
+#endif /* !__minix */
 	case _SC_THREAD_DESTRUCTOR_ITERATIONS:
 		return _POSIX_THREAD_DESTRUCTOR_ITERATIONS;
 	case _SC_THREAD_KEYS_MAX:
@@ -416,7 +423,9 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		return _POSIX_THREAD_ATTR_STACKSIZE;
 	case _SC_THREAD_SAFE_FUNCTIONS:
 		return _POSIX_THREAD_SAFE_FUNCTIONS;
+#ifndef __minix
 	case _SC_THREAD_PRIORITY_SCHEDULING:
+#endif /* !__minix */
 	case _SC_THREAD_PRIO_INHERIT:
 	case _SC_THREAD_PRIO_PROTECT:
 	case _SC_THREAD_PROCESS_SHARED:
@@ -450,6 +459,18 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		return _POSIX_PRIORITIZED_IO;
 	case _SC_AIO_PRIO_DELTA_MAX:
 		return 0;
+	/* What the SCHED server implements: SCHED_FIFO and SCHED_RR, for
+	 * processes and threads, at RT_PRIO_MIN..RT_PRIO_MAX. */
+	case _SC_PRIORITY_SCHEDULING:
+		return _POSIX_PRIORITY_SCHEDULING;
+	case _SC_THREAD_PRIORITY_SCHEDULING:
+		return _POSIX_THREAD_PRIORITY_SCHEDULING;
+	case _SC_SCHED_RT_TS:		/* microseconds */
+		return RR_QUANTUM * 1000;
+	case _SC_SCHED_PRI_MIN:
+		return RT_PRIO_MIN;
+	case _SC_SCHED_PRI_MAX:
+		return RT_PRIO_MAX;
 #endif /* __minix */
 	default:
 		errno = EINVAL;

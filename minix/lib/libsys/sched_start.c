@@ -10,7 +10,7 @@
  *===========================================================================*/
 int sched_inherit(endpoint_t scheduler_e, 
 	endpoint_t schedulee_e, endpoint_t parent_e, unsigned maxprio, 
-	endpoint_t *newscheduler_e)
+	int policy, int prio, endpoint_t *newscheduler_e)
 {
 	int rv;
 	message m;
@@ -25,6 +25,8 @@ int sched_inherit(endpoint_t scheduler_e,
 	m.m_lsys_sched_scheduling_start.endpoint	= schedulee_e;
 	m.m_lsys_sched_scheduling_start.parent		= parent_e;
 	m.m_lsys_sched_scheduling_start.maxprio		= maxprio;
+	m.m_lsys_sched_scheduling_start.policy		= policy;
+	m.m_lsys_sched_scheduling_start.prio		= prio;
 
 	/* Send the request to the scheduler */
 	if ((rv = _taskcall(scheduler_e, SCHEDULING_INHERIT, &m))) {

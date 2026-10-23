@@ -242,10 +242,17 @@ pthread_attr_getscope(const pthread_attr_t *attr, int *scope)
 	pthread__error(EINVAL, "Invalid attribute",
 	    attr->pta_magic == PT_ATTR_MAGIC);
 
+#ifdef __minix
+	/* Every thread is scheduled on its own, against all the system's
+	 * (see pthread_attr_setscope()).
+	 */
+	*scope = PTHREAD_SCOPE_SYSTEM;
+#else
 	if (attr->pta_flags & PT_FLAG_SCOPE_SYSTEM)
 		*scope = PTHREAD_SCOPE_SYSTEM;
 	else
 		*scope = PTHREAD_SCOPE_PROCESS;
+#endif
 
 	return 0;
 }
@@ -260,8 +267,15 @@ pthread_attr_setscope(pthread_attr_t *attr, int scope)
 
 	switch (scope) {
 	case PTHREAD_SCOPE_PROCESS:
+#ifdef __minix
+		/* A thread is a process of its own to the scheduler, with a
+		 * policy of its own: there is no process contention scope.
+		 */
+		return ENOTSUP;
+#else
 		attr->pta_flags &= ~PT_FLAG_SCOPE_SYSTEM;
 		break;
+#endif
 	case PTHREAD_SCOPE_SYSTEM:
 		attr->pta_flags |= PT_FLAG_SCOPE_SYSTEM;
 		break;
@@ -333,7 +347,11 @@ pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy)
 		p->ptap_policy = policy;
 		return 0;
 	default:
+#ifdef __minix
+		return EINVAL;		/* no such policy (POSIX) */
+#else
 		return ENOTSUP;
+#endif
 	}
 }
 

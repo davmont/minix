@@ -45,7 +45,7 @@ int main(void)
 		if (is_ipc_notify(ipc_status)) {
 			switch(who_e) {
 			case CLOCK:
-				balance_queues();
+				sched_alarm();
 				break;
 			default :
 				break;
@@ -67,6 +67,9 @@ int main(void)
 			break;
 		case SCHEDULING_YIELD:
 			result = do_yield(&m_in);
+			break;
+		case SCHEDULING_SET_POLICY:
+			result = do_set_policy(&m_in);
 			break;
 		case SCHEDULING_NO_QUANTUM:
 			/* This message was sent from the kernel, don't reply */

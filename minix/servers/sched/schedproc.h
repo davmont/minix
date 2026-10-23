@@ -4,6 +4,7 @@
 #include <limits.h>
 
 #include <minix/bitmap.h>
+#include <sys/sched.h>
 
 /* EXTERN should be extern except in main.c, where we want to keep the struct */
 #ifdef _MAIN
@@ -33,7 +34,15 @@ EXTERN struct schedproc {
 	bitchunk_t cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is the
 								process allowed
 								to run on */
+
+	/* POSIX scheduling policy, sched_setscheduler(2) */
+	int policy;		/* SCHED_OTHER, SCHED_FIFO or SCHED_RR */
+	int rt_prio;		/* its priority, for SCHED_FIFO and SCHED_RR */
+	clock_t rt_time;	/* CPU time (ticks) at the last real-time sample */
 } schedproc[NR_PROCS];
 
 /* Flag values */
 #define IN_USE		0x00001	/* set when 'schedproc' slot in use */
+#define RT_THROTTLED	0x00002	/* real-time, run as time-sharing for now */
+
+#define is_rt(p)	((p)->policy != SCHED_OTHER)
