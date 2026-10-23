@@ -34,6 +34,7 @@
 #define LAST_FEW            2	/* last few slots reserved for superuser */
 
 static void exec_dethread_done(struct mproc *leader);
+static void exit_group_leader(struct mproc *leader);
 static void leader_gone_check(struct mproc *leader);
 static void exit_lwp_group(struct mproc *caller, int status);
 static void zombify(struct mproc *rmp);
@@ -413,9 +414,18 @@ lwp_teardown_deferred(struct mproc *rmp)
 {
 /* The thread 'rmp' has finished a VFS or process event call.  If its thread
  * group was torn down meanwhile, without it (see teardown_group_members()),
- * tear it down now and return TRUE.  Otherwise return FALSE.
+ * tear it down now and return TRUE.  The same for a leader whose group went
+ * meanwhile: it exits now if its threads are gone, else when the last one is
+ * (exit_group_leader()).  Otherwise return FALSE.
  */
   struct mproc *leader;
+
+  if ((rmp->mp_flags & (IN_USE | MP_LWP | MP_GROUP_DYING | EXITING |
+      VFS_CALL | EVENT_CALL)) == (IN_USE | MP_GROUP_DYING)) {
+	if (count_group_members((int)(rmp - mproc)) == 0)
+		exit_group_leader(rmp);
+	return TRUE;
+  }
 
   if ((rmp->mp_flags & (IN_USE | MP_LWP | EXITING | MP_LWP_TEARDOWN |
       VFS_CALL | EVENT_CALL)) != (IN_USE | MP_LWP))
@@ -445,6 +455,13 @@ exit_group_leader(struct mproc *leader)
  * already logged by sig_proc_exit().
  */
   int dump_core;
+
+  /* A signal from before the group began to go may have the leader still
+   * waiting for VFS, say to unpause it: lwp_teardown_deferred() comes back
+   * here once VFS is done.
+   */
+  if (leader->mp_flags & (VFS_CALL | EVENT_CALL))
+	return;
 
   leader->mp_flags &= ~MP_GROUP_DYING;
 

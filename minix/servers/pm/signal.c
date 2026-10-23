@@ -767,6 +767,15 @@ sig_proc(
 	}
   }
 
+  /* The process is going (exit() or a fatal signal, in any of its threads):
+   * none of its threads is to take a signal any more, as with Linux's
+   * SIGNAL_GROUP_EXIT.  The main thread that called exit() waits for the
+   * others to go; unpausing it would have it wait for VFS too, and then it
+   * could not exit (tell_vfs(): "not idle").
+   */
+  if (process_of(rmp)->mp_flags & MP_GROUP_DYING)
+	return;
+
   slot = (int) (rmp - mproc);
 
   /* A realtime signal does not merge with an instance of it still pending:
