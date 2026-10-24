@@ -209,12 +209,37 @@ test152a(void)
 }
 
 /* Permissions: a real-time policy takes root, changing another's what
- * kill() takes.
+ * kill() takes.  So does creating a thread with one.
  */
+static volatile int ran;
+
+static void *
+must_not_run(void *arg)
+{
+	ran = 1;
+	return arg;
+}
+
+static void
+explicit_attr(pthread_attr_t *attr, int policy, int prio)
+{
+	struct sched_param sp;
+
+	pthread_attr_init(attr);
+	pthread_attr_setinheritsched(attr, PTHREAD_EXPLICIT_SCHED);
+	pthread_attr_setschedpolicy(attr, policy);
+	memset(&sp, 0, sizeof(sp));
+	sp.sched_priority = prio;
+	pthread_attr_setschedparam(attr, &sp);
+}
+
 static void
 test152b(void)
 {
+	pthread_attr_t attr;
+	pthread_t t;
 	pid_t pid;
+	int i;
 
 	subtest = 2;
 
@@ -234,6 +259,22 @@ test152b(void)
 		if (policy_of(1) != SCHED_OTHER) e(6);
 		errno = 0;
 		if (set(1, SCHED_OTHER, 0) != -1 || errno != EPERM) e(7);
+		/* No thread, joinable or detached, and none left over. */
+		explicit_attr(&attr, SCHED_FIFO, 1);
+		for (i = 0; i < 300; i++) {	/* more than NR_PROCS */
+			pthread_attr_setdetachstate(&attr, (i & 1) ?
+			    PTHREAD_CREATE_DETACHED : PTHREAD_CREATE_JOINABLE);
+			if (pthread_create(&t, &attr, must_not_run, NULL) !=
+			    EPERM) e(17);
+		}
+		pthread_attr_destroy(&attr);
+		usleep(100000);
+		if (ran != 0) e(21);
+		explicit_attr(&attr, SCHED_OTHER, 0);
+		if (pthread_create(&t, &attr, must_not_run, NULL) != 0) e(18);
+		else if (pthread_join(t, NULL) != 0) e(19);
+		pthread_attr_destroy(&attr);
+		if (ran != 1) e(20);
 		exit(errct);
 	}
 	if (pid < 0) e(8);

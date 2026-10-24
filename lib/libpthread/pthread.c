@@ -582,14 +582,25 @@ pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 
 		/* The attributes' policy, SCHED_OTHER if none was set. */
 		if (p != NULL) {
-			(void)pthread_setschedparam(newthread, p->ptap_policy,
+			ret = pthread_setschedparam(newthread, p->ptap_policy,
 			    &p->ptap_sp);
 		} else {
 			memset(&sp, 0, sizeof(sp));
-			(void)pthread_setschedparam(newthread, SCHED_OTHER,
+			ret = pthread_setschedparam(newthread, SCHED_OTHER,
 			    &sp);
 		}
+		/*
+		 * Refused (EPERM: a real-time policy takes root): the thread
+		 * exits without running, detached, and pthread_create() fails
+		 * as POSIX has it.
+		 */
+		if (ret != 0)
+			newthread->pt_flags |= PT_FLAG_SCHED_FAILED;
 		pthread_mutex_unlock(&newthread->pt_lock);
+		if (ret != 0) {
+			(void)pthread_detach(newthread);
+			return ret;
+		}
 #else
 		if (p != NULL) {
 			(void)pthread_setschedparam(newthread, p->ptap_policy,
@@ -639,8 +650,13 @@ pthread__create_tramp(void *cookie)
 	 * thread's policy, which it does holding pt_lock.
 	 */
 	if ((self->pt_flags & PT_FLAG_EXPLICIT_SCHED) != 0) {
+		int failed;
+
 		pthread_mutex_lock(&self->pt_lock);
+		failed = (self->pt_flags & PT_FLAG_SCHED_FAILED) != 0;
 		pthread_mutex_unlock(&self->pt_lock);
+		if (failed)
+			pthread_exit(NULL);
 	}
 #endif /* __minix */
 
