@@ -124,9 +124,13 @@ do_itimer(void)
 
   switch (which) {
   	case ITIMER_REAL :
-  		if (getval) get_realtimer(mp, &ovalue);
+		/* The real-time timer is the process's, so it lives in the
+		 * leader's slot: it is not a thread's to see alone, or to leave
+		 * queued in a slot freed when the thread exits.
+		 */
+  		if (getval) get_realtimer(process_of(mp), &ovalue);
 
-  		if (setval) set_realtimer(mp, &value);
+  		if (setval) set_realtimer(process_of(mp), &value);
 
   		r = OK;
   		break;
