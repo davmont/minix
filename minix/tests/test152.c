@@ -4,8 +4,9 @@
  * takes root), inheritance by fork() and by new threads, the pthread_attr
  * scheduling attributes, the order processes run in on one CPU (preemption
  * by a higher priority, none by an equal one under SCHED_FIFO, sched_yield()
- * and the SCHED_RR quantum), and the throttling that keeps a busy real-time
- * process from starving the rest of the system.
+ * and the SCHED_RR quantum), the throttling that keeps a busy real-time
+ * process from starving the rest of the system, and the order real-time
+ * threads get a rwlock in.
  *
  * The program is setuid root (see 'run'); a child drops to the real uid to
  * see what an ordinary user may not do.
@@ -527,6 +528,121 @@ test152e(void)
 	if (ms >= 20000) e(7);
 }
 
+/* Rwlocks go to real-time threads in priority order, to a writer first at
+ * the same priority, and a reader passes blocked writers of lower priority.
+ */
+static pthread_rwlock_t rw;
+static pthread_mutex_t order_lock = PTHREAD_MUTEX_INITIALIZER;
+static int rw_order[8], rw_n;
+static volatile int rw_entered[8];
+
+struct rw_arg {
+	int id, write;
+};
+
+static void *
+rw_thread(void *arg)
+{
+	struct rw_arg *a = arg;
+	int r;
+
+	rw_entered[a->id] = 1;
+	r = a->write ? pthread_rwlock_wrlock(&rw) : pthread_rwlock_rdlock(&rw);
+	if (r != 0)
+		return arg;
+	pthread_mutex_lock(&order_lock);
+	rw_order[rw_n++] = a->id;
+	pthread_mutex_unlock(&order_lock);
+	usleep(20000);
+	if (pthread_rwlock_unlock(&rw) != 0)
+		return arg;
+	return NULL;
+}
+
+/* Start thread 'id' at 'prio', and give it time to block on the lock. */
+static void
+rw_start(pthread_t *t, struct rw_arg *a, int id, int write, int prio, int n)
+{
+	pthread_attr_t attr;
+	struct sched_param sp;
+
+	a->id = id;
+	a->write = write;
+	pthread_attr_init(&attr);
+	pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+	pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+	memset(&sp, 0, sizeof(sp));
+	sp.sched_priority = prio;
+	pthread_attr_setschedparam(&attr, &sp);
+	if (pthread_create(t, &attr, rw_thread, a) != 0) e(n);
+	pthread_attr_destroy(&attr);
+	while (!rw_entered[id])
+		usleep(1000);
+	usleep(100000);
+}
+
+static void
+rw_join(pthread_t *t, int count, int n)
+{
+	void *res;
+	int i;
+
+	for (i = 0; i < count; i++)
+		if (pthread_join(t[i], &res) != 0 || res != NULL) e(n);
+}
+
+static void
+test152f(void)
+{
+	struct rw_arg a[4];
+	pthread_t t[4];
+	pid_t pid;
+
+	subtest = 6;
+
+	if ((pid = fork_child()) == 0) {
+		alarm(30);
+		if (set(0, SCHED_FIFO, RT_MAX) != SCHED_OTHER) e(1);
+		if (pthread_rwlock_init(&rw, NULL) != 0) e(2);
+
+		/* Read held; a writer at 2 waits.  A reader at 5 gets it
+		 * at once, one at 1 waits behind the writer.
+		 */
+		if (pthread_rwlock_rdlock(&rw) != 0) e(3);
+		rw_start(&t[0], &a[0], 0, 1, 2, 4);
+		if (rw_n != 0) e(5);
+		rw_start(&t[1], &a[1], 1, 0, 5, 6);
+		if (rw_n != 1 || rw_order[0] != 1) e(7);
+		rw_start(&t[2], &a[2], 2, 0, 1, 8);
+		if (rw_n != 1) e(9);
+		if (pthread_rwlock_destroy(&rw) != EBUSY) e(10);
+		if (pthread_rwlock_unlock(&rw) != 0) e(11);
+		rw_join(t, 3, 12);
+		if (rw_n != 3 || rw_order[1] != 0 || rw_order[2] != 2) e(13);
+
+		/* Write held; a writer and a reader at 5, a writer at 2, a
+		 * reader at 7: they get it in the order 7, 5 (the writer
+		 * first), 5, 2.
+		 */
+		memset((void *)rw_entered, 0, sizeof(rw_entered));
+		rw_n = 0;
+		if (pthread_rwlock_wrlock(&rw) != 0) e(14);
+		rw_start(&t[0], &a[0], 0, 1, 5, 15);
+		rw_start(&t[1], &a[1], 1, 0, 5, 16);
+		rw_start(&t[2], &a[2], 2, 1, 2, 17);
+		rw_start(&t[3], &a[3], 3, 0, 7, 18);
+		if (rw_n != 0) e(19);
+		if (pthread_rwlock_unlock(&rw) != 0) e(20);
+		rw_join(t, 4, 21);
+		if (rw_n != 4 || rw_order[0] != 3 || rw_order[1] != 0 ||
+		    rw_order[2] != 1 || rw_order[3] != 2) e(22);
+		if (pthread_rwlock_destroy(&rw) != 0) e(23);
+		exit(errct);
+	}
+	if (pid < 0) e(24);
+	wait_child(pid, 25);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -539,6 +655,7 @@ main(int argc, char **argv)
 	test152c();
 	test152d();
 	test152e();
+	test152f();
 
 	quit();
 	return 0;
