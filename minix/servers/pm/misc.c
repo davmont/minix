@@ -339,13 +339,39 @@ do_reboot(void)
 }
 
 /*===========================================================================*
+ *				set_nice				     *
+ *===========================================================================*/
+static int
+set_nice(struct mproc *rmp, int nice)
+{
+/* Give thread slot 'rmp' the nice level 'nice'.  One the scheduler does not
+ * have yet (EBADEPT while VFS has it, see do_sched_param) starts with it; one
+ * on its way out, or a leader whose own thread is gone, just keeps the value.
+ */
+	int r;
+
+	if (!(rmp->mp_flags & (EXITING | MP_LWP_TEARDOWN | MP_LEADER_GONE))) {
+		r = sched_nice(rmp, nice);
+		if (r == EBADEPT && (rmp->mp_flags & VFS_CALL))
+			r = OK;
+		if (r != OK)
+			return(r);
+	}
+	rmp->mp_nice = nice;
+	return(OK);
+}
+
+/*===========================================================================*
  *				do_getsetpriority			     *
  *===========================================================================*/
 int
 do_getsetpriority(void)
 {
-	int r, arg_which, arg_who, arg_pri;
-	struct mproc *rmp;
+/* The nice level is the process's (POSIX): every thread of it has it, each
+ * thread being a slot of its own, and its leader's slot stands for it.
+ */
+	int r, arg_which, arg_who, arg_pri, slot;
+	struct mproc *rmp, *t;
 
 	arg_which = m_in.m_lc_pm_priority.which;
 	arg_who = m_in.m_lc_pm_priority.who;
@@ -362,6 +388,7 @@ do_getsetpriority(void)
 	else
 		if ((rmp = find_proc(arg_who)) == NULL)
 			return(ESRCH);
+	rmp = process_of(rmp);
 
 	if (mp->mp_effuid != SUPER_USER &&
 	   mp->mp_effuid != rmp->mp_effuid && mp->mp_effuid != rmp->mp_realuid)
@@ -383,11 +410,14 @@ do_getsetpriority(void)
 	 * the kernel's scheduling queues.
 	 */
 
-	if ((r = sched_nice(rmp, arg_pri)) != OK) {
-		return r;
+	if ((r = set_nice(rmp, arg_pri)) != OK)
+		return(r);
+	slot = (int)(rmp - mproc);
+	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+		if ((t->mp_flags & (IN_USE | MP_LWP)) == (IN_USE | MP_LWP) &&
+		    t->mp_lwp_group == slot)
+			(void)set_nice(t, arg_pri);
 	}
-
-	rmp->mp_nice = arg_pri;
 	return(OK);
 }
 
