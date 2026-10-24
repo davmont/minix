@@ -91,6 +91,21 @@ static struct cached_page *file_cached_page(struct vir_region *region,
 		region->param.file.fdref->ino, referenced_offset, 1);
 }
 
+static int shared_mapped(struct phys_block *pb)
+{
+/* Is cached page 'pb' mapped by a shared mapping of its file?  The file
+ * system replacing the page unmaps it from them all (do_setcache()), so such
+ * a page is what the file has there now.
+ */
+	struct phys_region *pr;
+
+	for(pr = pb->firstregion; pr; pr = pr->next_ph_list)
+		if(pr->memtype == &mem_type_mappedfile &&
+		    (pr->parent->flags & VR_SHARED))
+			return TRUE;
+	return FALSE;
+}
+
 static int shared_pagefault(struct vmproc *vmp, struct vir_region *region,
 	struct phys_region *ph, int write, vfs_callback_t cb,
 	void *state, int statelen, int *io)
@@ -109,12 +124,19 @@ static int shared_pagefault(struct vmproc *vmp, struct vir_region *region,
 	cp = file_cached_page(region, referenced_offset);
 
 	/* Map the file's current page in, if it is not mapped already.  A
-	 * one-time page (a hole, see lmfs_zero_block_ino()) is taken only on
-	 * the retry after asking the file system, as for private mappings;
-	 * unlike these, keep it in the cache: should the hole be filled, VM
-	 * finds its mappings through it (see do_setcache()).
+	 * one-time page (a hole, see lmfs_zero_block_ino(), or a page of a
+	 * file system with no VM cache of its own, such as isofs) is taken
+	 * only on the retry after asking the file system, as for private
+	 * mappings, or while another shared mapping has it; unlike these,
+	 * keep it in the cache: should the hole be filled, VM finds its
+	 * mappings through it (see do_setcache()).  Asking again for a page
+	 * that others have mapped would replace it under them, and with a
+	 * few processes faulting on it, say on the ELF header of a library
+	 * ld.so maps from a CD, they would keep taking it from each other
+	 * and none of them would run.
 	 */
-	if(cp && cp->page != ph->ph && (!cb || !(cp->flags & VMSF_ONCE))) {
+	if(cp && cp->page != ph->ph && (!cb || !(cp->flags & VMSF_ONCE) ||
+	    shared_mapped(cp->page))) {
 		/* A stale page may go away below: unmap it first. */
 		if(ph->ph->phys != MAP_NONE && pt_writemap(region->parent,
 		    &region->parent->vm_pt, region->vaddr + ph->offset,
