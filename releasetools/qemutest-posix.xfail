@@ -9,6 +9,7 @@
 
 # interfaces/aio_cancel
 interfaces/aio_cancel/3-1                                flaky  # timing: UNRESOLVED when every write is done before aio_cancel()
+interfaces/aio_cancel/6-1                                flaky  # timing: the same, by the test's design
 
 # interfaces/clock
 interfaces/clock/1-1                                     flaky  # timing: passed on 1 CPU, failed once on 2
@@ -259,12 +260,6 @@ interfaces/pthread_mutexattr_setpshared/3-2              # nobuild
 interfaces/pthread_once/3-1                              # unresolved
 interfaces/pthread_once/6-1                              # timeout
 
-# interfaces/pthread_rwlock_destroy
-interfaces/pthread_rwlock_destroy/3-1                    # fail
-
-# interfaces/pthread_rwlock_rdlock
-interfaces/pthread_rwlock_rdlock/2-3                     # rwlock waiters are not ordered by priority
-
 # interfaces/pthread_rwlock_timedrdlock
 interfaces/pthread_rwlock_timedrdlock/6-2                # unresolved
 
@@ -273,9 +268,6 @@ interfaces/pthread_rwlock_timedwrlock/6-2                # unresolved
 
 # interfaces/pthread_rwlock_trywrlock
 interfaces/pthread_rwlock_trywrlock/speculative/3-1      # unresolved
-
-# interfaces/pthread_rwlock_unlock
-interfaces/pthread_rwlock_unlock/3-1                     # rwlock waiters are not ordered by priority
 
 # interfaces/pthread_rwlockattr_getpshared
 interfaces/pthread_rwlockattr_getpshared/1-1             # nobuild

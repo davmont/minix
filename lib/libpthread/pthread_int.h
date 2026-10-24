@@ -131,6 +131,7 @@ struct	__pthread_st {
 	int		pt_dummy1 __aligned(COHERENCY_UNIT);
 	struct lwpctl 	*pt_lwpctl;	/* Kernel/user comms area */
 	volatile int	pt_rwlocked;	/* Handed rwlock successfully */
+	int		pt_rwprio;	/* Priority waiting on a rwlock */
 	void * volatile	pt_sleepobj;	/* Object slept on */
 	PTQ_ENTRY(__pthread_st) pt_sleep;
 

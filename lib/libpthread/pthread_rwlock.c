@@ -39,6 +39,7 @@ __RCSID("$NetBSD: pthread_rwlock.c,v 1.44 2022/02/12 14:59:32 riastradh Exp $");
 #include <sys/lwpctl.h>
 
 #include <assert.h>
+#include <sched.h>
 #include <time.h>
 #include <errno.h>
 #include <stddef.h>
@@ -121,7 +122,7 @@ pthread_rwlock_destroy(pthread_rwlock_t *ptr)
 	    (!PTQ_EMPTY(&ptr->ptr_wblocked)) ||
 	    (ptr->ptr_nreaders != 0) ||
 	    (ptr->ptr_owner != NULL))
-		return EINVAL;
+		return EBUSY;		/* held or waited for (POSIX) */
 	ptr->ptr_magic = _PT_RWLOCK_DEAD;
 
 	return 0;
@@ -154,17 +155,53 @@ pthread__rwlock_spin(uintptr_t owner)
 	return 1;
 }
 
+/*
+ * With the Thread Execution Scheduling option, SCHED_FIFO and SCHED_RR
+ * threads get a rwlock in priority order, a writer first at the same
+ * priority, and a reader passes blocked writers of lower priority (POSIX).
+ * Other policies are below them all, and among those writers come first as
+ * before.  PM keeps the policy: a thread asks when it is to block.
+ */
+static int
+pthread__rwlock_prio(void)
+{
+	struct sched_param sp;
+	int policy;
+
+	if (_sched_getparam(0, 0, &policy, &sp) != 0)
+		return -1;
+	if (policy != SCHED_FIFO && policy != SCHED_RR)
+		return -1;
+	return sp.sched_priority;
+}
+
+/* Queue 'self' behind the waiters of its priority and higher. */
+static void
+pthread__rwlock_enqueue(pthread_queue_t *queue, pthread_t self)
+{
+	pthread_t thread;
+
+	PTQ_FOREACH(thread, queue, pt_sleep) {
+		if (thread->pt_rwprio < self->pt_rwprio) {
+			PTQ_INSERT_BEFORE(thread, self, pt_sleep);
+			return;
+		}
+	}
+	PTQ_INSERT_TAIL(queue, self, pt_sleep);
+}
+
 static int
 pthread__rwlock_rdlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 {
 	uintptr_t owner, next;
 	pthread_mutex_t *interlock;
-	pthread_t self;
-	int error;
+	pthread_t self, writer;
+	int error, haveprio;
 
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
+	haveprio = 0;
 	for (owner = (uintptr_t)ptr->ptr_owner;; owner = next) {
 		/*
 		 * Read the lock owner field.  If the need-to-wait
@@ -200,12 +237,33 @@ pthread__rwlock_rdlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 			continue;
 		}
 
+		if (!haveprio) {
+			self->pt_rwprio = pthread__rwlock_prio();
+			haveprio = 1;
+		}
+
 		/*
 		 * Grab the interlock.  Once we have that, we
 		 * can adjust the waiter bits and sleep queue.
 		 */
 		interlock = pthread__hashlock(ptr);
 		pthread_mutex_lock(interlock);
+
+		/*
+		 * Read locked, and the writers waiting have a lower
+		 * priority: take it ahead of them.
+		 */
+		writer = PTQ_FIRST(&ptr->ptr_wblocked);
+		if ((owner & RW_WRITE_LOCKED) == 0 && writer != NULL &&
+		    self->pt_rwprio > writer->pt_rwprio) {
+			next = rw_cas(ptr, owner, owner + RW_READ_INCR);
+			pthread_mutex_unlock(interlock);
+			if (owner == next) {
+				membar_enter();
+				return 0;
+			}
+			continue;
+		}
 
 		/*
 		 * Mark the rwlock as having waiters.  If the set fails,
@@ -218,7 +276,7 @@ pthread__rwlock_rdlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 		}
 
 		/* The waiters bit is set - it's safe to sleep. */
-	    	PTQ_INSERT_HEAD(&ptr->ptr_rblocked, self, pt_sleep);
+		pthread__rwlock_enqueue(&ptr->ptr_rblocked, self);
 	    	ptr->ptr_nreaders++;
 		self->pt_rwlocked = _RW_WANT_READ;
 		self->pt_sleepobj = &ptr->ptr_rblocked;
@@ -279,7 +337,7 @@ pthread__rwlock_wrlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 	uintptr_t owner, next;
 	pthread_mutex_t *interlock;
 	pthread_t self;
-	int error;
+	int error, haveprio;
 
 	self = pthread__self();
 	_DIAGASSERT(((uintptr_t)self & RW_FLAGMASK) == 0);
@@ -287,6 +345,7 @@ pthread__rwlock_wrlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
+	haveprio = 0;
 	for (owner = (uintptr_t)ptr->ptr_owner;; owner = next) {
 		/*
 		 * Read the lock owner field.  If the need-to-wait
@@ -322,6 +381,11 @@ pthread__rwlock_wrlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 			continue;
 		}
 
+		if (!haveprio) {
+			self->pt_rwprio = pthread__rwlock_prio();
+			haveprio = 1;
+		}
+
 		/*
 		 * Grab the interlock.  Once we have that, we
 		 * can adjust the waiter bits and sleep queue.
@@ -341,7 +405,7 @@ pthread__rwlock_wrlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 		}
 
 		/* The waiters bit is set - it's safe to sleep. */
-	    	PTQ_INSERT_TAIL(&ptr->ptr_wblocked, self, pt_sleep);
+		pthread__rwlock_enqueue(&ptr->ptr_wblocked, self);
 		self->pt_rwlocked = _RW_WANT_WRITE;
 		self->pt_sleepobj = &ptr->ptr_wblocked;
 		error = pthread__park(self, interlock, &ptr->ptr_wblocked,
@@ -445,7 +509,8 @@ pthread_rwlock_unlock(pthread_rwlock_t *ptr)
 {
 	uintptr_t owner, decr, new, next;
 	pthread_mutex_t *interlock;
-	pthread_t self, thread;
+	pthread_t self, thread, reader;
+	pthread_queue_t woken;
 
 	if (__predict_false(__uselibcstub))
 		return __libc_rwlock_unlock_stub(ptr);
@@ -507,17 +572,21 @@ pthread_rwlock_unlock(pthread_rwlock_t *ptr)
 		}
 
 		/*
-		 * Give the lock away.  SUSv3 dictates that we must give
-		 * preference to writers.
+		 * Give the lock away, in priority order: to the first
+		 * writer if no reader waiting has a higher priority (SUSv3
+		 * prefers writers), or else to the readers ahead of it.
 		 */
 		self = pthread__self();
-		if ((thread = PTQ_FIRST(&ptr->ptr_wblocked)) != NULL) {
+		thread = PTQ_FIRST(&ptr->ptr_wblocked);
+		reader = PTQ_FIRST(&ptr->ptr_rblocked);
+		if (thread != NULL &&
+		    (reader == NULL || thread->pt_rwprio >= reader->pt_rwprio)) {
 			_DIAGASSERT(((uintptr_t)thread & RW_FLAGMASK) == 0);
 			new = (uintptr_t)thread | RW_WRITE_LOCKED;
 
 			if (PTQ_NEXT(thread, pt_sleep) != NULL)
 				new |= RW_HAS_WAITERS | RW_WRITE_WANTED;
-			else if (ptr->ptr_nreaders != 0)
+			else if (reader != NULL)
 				new |= RW_HAS_WAITERS;
 
 			/*
@@ -535,19 +604,19 @@ pthread_rwlock_unlock(pthread_rwlock_t *ptr)
 			    interlock);
 		} else {
 			new = 0;
-			PTQ_FOREACH(thread, &ptr->ptr_rblocked, pt_sleep) {
-				/*
-				 * May have already been handed the lock,
-				 * since pthread__unpark_all() can release
-				 * our interlock before awakening all
-				 * threads.
-				 */
-				if (thread->pt_sleepobj == NULL)
-					continue;
+			PTQ_INIT(&woken);
+			while ((reader = PTQ_FIRST(&ptr->ptr_rblocked)) != NULL &&
+			    (thread == NULL ||
+			    reader->pt_rwprio > thread->pt_rwprio)) {
+				PTQ_REMOVE(&ptr->ptr_rblocked, reader, pt_sleep);
+				PTQ_INSERT_TAIL(&woken, reader, pt_sleep);
+				ptr->ptr_nreaders--;
 				new += RW_READ_INCR;
 				membar_exit();
-				thread->pt_rwlocked = _RW_LOCKED;
+				reader->pt_rwlocked = _RW_LOCKED;
 			}
+			if (thread != NULL)
+				new |= RW_HAS_WAITERS | RW_WRITE_WANTED;
 
 			/*
 			 * Set in the new value.  The lock becomes owned
@@ -555,10 +624,8 @@ pthread_rwlock_unlock(pthread_rwlock_t *ptr)
 			 */
 			(void)atomic_swap_ptr(&ptr->ptr_owner, (void *)new);
 
-			/* Wake up all sleeping readers. */
-			ptr->ptr_nreaders = 0;
-			pthread__unpark_all(&ptr->ptr_rblocked, self,
-			    interlock);
+			/* Wake them up. */
+			pthread__unpark_all(&woken, self, interlock);
 		}
 		pthread_mutex_unlock(interlock);
 
@@ -584,6 +651,8 @@ pthread__rwlock_early(pthread_t self, pthread_rwlock_t *ptr,
 		return;
 	}
 	PTQ_REMOVE(queue, self, pt_sleep);
+	if (queue == &ptr->ptr_rblocked)
+		ptr->ptr_nreaders--;
 	self->pt_sleepobj = NULL;
 	owner = (uintptr_t)ptr->ptr_owner;
 
@@ -594,7 +663,7 @@ pthread__rwlock_early(pthread_t self, pthread_rwlock_t *ptr,
 
 	if (!PTQ_EMPTY(&ptr->ptr_wblocked))
 		set = RW_HAS_WAITERS | RW_WRITE_WANTED;
-	else if (ptr->ptr_nreaders != 0)
+	else if (!PTQ_EMPTY(&ptr->ptr_rblocked))
 		set = RW_HAS_WAITERS;
 	else
 		set = 0;
