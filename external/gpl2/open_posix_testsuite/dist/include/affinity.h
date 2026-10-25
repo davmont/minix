@@ -98,6 +98,43 @@ set_affinity:
 	return set_affinity(cpu);
 }
 
+#elif defined(__minix)
+/*
+ * Local change for MINIX (see README.minix): NetBSD's cpuset(3) and
+ * sched_setaffinity_np(3).  They are declared here because <sched.h> has them
+ * only with _NETBSD_SOURCE, and so is the number of CPUs: try them from the
+ * highest down, the first that is there will do.  Not CPU 0: on MINIX the
+ * boot CPU runs the system services.
+ */
+#include <errno.h>
+#include <stddef.h>
+#include <sys/types.h>
+
+struct _cpuset;
+struct _cpuset *_cpuset_create(void);
+void _cpuset_destroy(struct _cpuset *);
+int _cpuset_set(unsigned long, struct _cpuset *);
+size_t _cpuset_size(const struct _cpuset *);
+int sched_setaffinity_np(pid_t, size_t, struct _cpuset *);
+
+static int set_affinity_single(void)
+{
+	struct _cpuset *set;
+	int cpu, rc = -1;
+
+	/* EINVAL: no such CPU, in the set or in the machine. */
+	for (cpu = 31; cpu >= 0; cpu--) {
+		if ((set = _cpuset_create()) == NULL)
+			return -1;
+		rc = _cpuset_set(cpu, set);
+		if (rc == 0)
+			rc = sched_setaffinity_np(0, _cpuset_size(set), set);
+		_cpuset_destroy(set);
+		if (rc == 0 || errno != EINVAL)
+			break;
+	}
+	return rc;
+}
 #else
 #include <errno.h>
 

@@ -61,22 +61,6 @@ int _lwp_ctl(int f, struct lwpctl **a)
  */
 int _lwp_detach(lwpid_t l)			{ (void)l; return 0; }
 
-/* --- CPU affinity: not supported (sched.c has the scheduling calls). --- */
-int
-_sched_setaffinity(pid_t pid, lwpid_t lid, size_t sz, const cpuset_t *s)
-{
-	(void)pid; (void)lid; (void)sz; (void)s;
-	errno = ENOSYS;
-	return -1;
-}
-
-int
-_sched_getaffinity(pid_t pid, lwpid_t lid, size_t sz, cpuset_t *s)
-{
-	(void)pid; (void)lid; (void)sz; (void)s;
-	errno = ENOSYS;
-	return -1;
-}
 
 /* --- Public POSIX functions MINIX libc is missing. --- */
 

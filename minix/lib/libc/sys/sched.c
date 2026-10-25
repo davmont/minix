@@ -208,3 +208,87 @@ _sched_getparam(pid_t pid, lwpid_t lid, int *policy, struct sched_param *param)
 
 	return get_param(pid, lid, policy, param);
 }
+
+/*
+ * CPU affinity: PM keeps, for each thread, a mask of the CPUs it may run on
+ * (0: any), which SCHED keeps it to.  A cpuset_t of 'size' bytes is turned
+ * into the mask and back.  lid 0 (P_ALL_LWPS) sets it for every thread of
+ * the process, and gets that of the calling thread (its own process) or of
+ * the first one.  An empty set is any CPU, as on NetBSD.
+ */
+#define MASK_CPUS	32		/* the CPUs a mask can name */
+#ifndef P_ALL_LWPS
+#define P_ALL_LWPS	0		/* every thread, as on NetBSD */
+#endif
+
+int
+_sched_setaffinity(pid_t pid, lwpid_t lid, size_t size, const cpuset_t *set)
+{
+	message m;
+	uint32_t mask = 0;
+	cpuid_t i;
+	int r;
+
+	if (pid < 0 || set == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (i = 0; i < size * NBBY; i++) {
+		if ((r = cpuset_isset(i, set)) < 0)
+			break;			/* past the end of the set */
+		if (r == 0)
+			continue;
+		if (i >= MASK_CPUS) {
+			errno = EINVAL;
+			return -1;
+		}
+		mask |= 1U << i;
+	}
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_affinity.pid = pid;
+	m.m_lc_pm_affinity.lid = lid;
+	m.m_lc_pm_affinity.set = 1;
+	m.m_lc_pm_affinity.cpumask = mask;
+	return _syscall(PM_PROC_NR, PM_SCHED_AFFINITY, &m);
+}
+
+int
+_sched_getaffinity(pid_t pid, lwpid_t lid, size_t size, cpuset_t *set)
+{
+	message m;
+	cpuid_t i;
+
+	if (pid < 0 || set == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_affinity.pid = pid;
+	m.m_lc_pm_affinity.lid = lid;
+	if (_syscall(PM_PROC_NR, PM_SCHED_AFFINITY, &m) < 0)
+		return -1;
+	memset(set, 0, size);
+	for (i = 0; i < MASK_CPUS; i++) {
+		if (!(m.m_lc_pm_affinity.cpumask & (1U << i)))
+			continue;
+		if (i >= size * NBBY || cpuset_set(i, set) < 0) {
+			errno = EINVAL;		/* the set is too small */
+			return -1;
+		}
+	}
+	return 0;
+}
+
+int
+sched_getaffinity_np(pid_t pid, size_t size, cpuset_t *set)
+{
+
+	return _sched_getaffinity(pid, P_ALL_LWPS, size, set);
+}
+
+int
+sched_setaffinity_np(pid_t pid, size_t size, cpuset_t *set)
+{
+
+	return _sched_setaffinity(pid, P_ALL_LWPS, size, set);
+}

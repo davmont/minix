@@ -31,9 +31,8 @@ EXTERN struct schedproc {
 	unsigned priority;		/* the process' current priority */
 	unsigned time_slice;		/* this process's time slice */
 	unsigned cpu;		/* what CPU is the process running on */
-	bitchunk_t cpu_mask[BITMAP_CHUNKS(CONFIG_MAX_CPUS)]; /* what CPUs is the
-								process allowed
-								to run on */
+	uint32_t cpumask;	/* the CPUs it may run on, 0 for any
+				   (_sched_setaffinity(2)) */
 
 	/* POSIX scheduling policy, sched_setscheduler(2) */
 	int policy;		/* SCHED_OTHER, SCHED_FIFO or SCHED_RR */
@@ -46,3 +45,4 @@ EXTERN struct schedproc {
 #define RT_THROTTLED	0x00002	/* real-time, run as time-sharing for now */
 
 #define is_rt(p)	((p)->policy != SCHED_OTHER)
+#define cpu_allowed(p, c) ((p)->cpumask == 0 || ((p)->cpumask & (1U << (c))))

@@ -68,6 +68,10 @@ struct pm_protect {
 };
 EXTERN struct pm_protect mpprotect[NR_PROCS];
 
+/* The CPUs a thread may run on (_sched_setaffinity(2)), 0 for all of them.
+ * Inherited by fork() and pthread_create(), kept across exec. */
+EXTERN uint32_t mpcpumask[NR_PROCS];
+
 /* The arguments of an exec in progress, kept so that PM can ask VFS again
  * once a threaded caller's other threads are gone (see exec_dethread()). */
 struct pm_execargs {

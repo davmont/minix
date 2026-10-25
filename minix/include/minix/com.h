@@ -911,6 +911,7 @@
 #define SCHEDULING_INHERIT	(SCHEDULING_BASE+5)
 #define SCHEDULING_YIELD	(SCHEDULING_BASE+6)
 #define SCHEDULING_SET_POLICY	(SCHEDULING_BASE+7)	/* sched_setscheduler(2) */
+#define SCHEDULING_SET_AFFINITY	(SCHEDULING_BASE+8)	/* _sched_setaffinity(2) */
 
 /*===========================================================================*
  *              Messages for USB                                             *

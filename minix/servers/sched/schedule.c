@@ -88,8 +88,8 @@ static void pick_cpu(struct schedproc * proc)
 	/* if no other cpu available, try BSP */
 	cpu = machine.bsp_id;
 	for (c = 0; c < machine.processors_count; c++) {
-		/* skip dead cpus */
-		if (!cpu_is_available(c))
+		/* skip dead cpus, and those it may not run on */
+		if (!cpu_is_available(c) || !cpu_allowed(proc, c))
 			continue;
 		if (c != machine.bsp_id && cpu_load > cpu_proc[c]) {
 			cpu_load = cpu_proc[c];
@@ -264,6 +264,7 @@ int do_start_scheduling(message *m_ptr)
 		rmp->time_slice = m_ptr->m_lsys_sched_scheduling_start.quantum;
 		rmp->policy	= SCHED_OTHER;
 		rmp->rt_prio	= 0;
+		rmp->cpumask	= 0;
 		break;
 		
 	case SCHEDULING_INHERIT:
@@ -283,6 +284,8 @@ int do_start_scheduling(message *m_ptr)
 		 */
 		rmp->policy = m_ptr->m_lsys_sched_scheduling_start.policy;
 		rmp->rt_prio = m_ptr->m_lsys_sched_scheduling_start.prio;
+		/* So are the CPUs it may run on. */
+		rmp->cpumask = m_ptr->m_lsys_sched_scheduling_start.cpumask;
 		if (rmp->policy != SCHED_FIFO && rmp->policy != SCHED_RR) {
 			rmp->policy = SCHED_OTHER;
 			rmp->rt_prio = 0;
@@ -616,6 +619,51 @@ int do_set_policy(message *m_ptr)
 }
 
 /*===========================================================================*
+ *				do_set_affinity				     *
+ *===========================================================================*/
+int do_set_affinity(message *m_ptr)
+{
+/* PM restricts a user process to the CPUs in a mask (0: any), having checked
+ * the caller may (_sched_setaffinity(2)).  If it is on another one, it moves
+ * now.
+ */
+	struct schedproc *rmp;
+	int proc_nr_n;
+#ifdef CONFIG_SMP
+	int rv;
+	unsigned old_cpu;
+#endif
+
+	if (!accept_message(m_ptr))
+		return EPERM;
+
+	if (sched_isokendpt(m_ptr->m_pm_sched_scheduling_set_affinity.endpoint,
+	    &proc_nr_n) != OK)
+		return EBADEPT;
+	rmp = &schedproc[proc_nr_n];
+
+	/* System services stay where they are (pick_cpu). */
+	if (rmp->max_priority <= MIN_SYS_Q)
+		return EPERM;
+
+	rmp->cpumask = m_ptr->m_pm_sched_scheduling_set_affinity.cpumask;
+#ifdef CONFIG_SMP
+	if (cpu_allowed(rmp, rmp->cpu))
+		return OK;
+	old_cpu = rmp->cpu;
+	cpu_proc[old_cpu]--;
+	pick_cpu(rmp);
+	if ((rv = schedule_process_migrate(rmp)) != OK) {
+		cpu_proc[rmp->cpu]--;
+		rmp->cpu = old_cpu;
+		cpu_proc[old_cpu]++;
+		return rv;
+	}
+#endif
+	return OK;
+}
+
+/*===========================================================================*
  *				set_alarm, sched_alarm			     *
  *===========================================================================*/
 static void set_alarm(void)
@@ -780,6 +828,7 @@ static void colocate_system_servers(void)
 		if (dominant_cpu == (int)rmp->cpu) continue;  /* already there */
 		if (dominant_cpu == CPU_DEAD ||
 		    !cpu_is_available(dominant_cpu)) continue;
+		if (!cpu_allowed(rmp, dominant_cpu)) continue;	/* affinity */
 
 		/* Migrate.  Apply exponential backoff on repeat migrations.
 		 * sys_schedule() directly, with our chosen CPU: only the

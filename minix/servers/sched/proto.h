@@ -13,6 +13,7 @@ int do_stop_scheduling(message *m_ptr);
 int do_nice(message *m_ptr);
 int do_yield(message *m_ptr);
 int do_set_policy(message *m_ptr);
+int do_set_affinity(message *m_ptr);
 void init_scheduling(void);
 void sched_alarm(void);
 

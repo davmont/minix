@@ -71,6 +71,9 @@ int main(void)
 		case SCHEDULING_SET_POLICY:
 			result = do_set_policy(&m_in);
 			break;
+		case SCHEDULING_SET_AFFINITY:
+			result = do_set_affinity(&m_in);
+			break;
 		case SCHEDULING_NO_QUANTUM:
 			/* This message was sent from the kernel, don't reply */
 			if (IPC_STATUS_FLAGS_TEST(ipc_status,

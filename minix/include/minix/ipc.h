@@ -674,6 +674,16 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_pm_sched);
 
 typedef struct {
+	pid_t pid;		/* 0 is the caller */
+	lwpid_t lid;		/* a thread of 'pid', or 0 for all of them */
+	int set;		/* set (1) or get (0) */
+	uint32_t cpumask;	/* CPUs it may run on, 0 for all; in, out */
+
+	uint8_t padding[40];
+} mess_lc_pm_affinity;
+_ASSERT_MSG_SIZE(mess_lc_pm_affinity);
+
+typedef struct {
 	int how;
 
 	uint8_t padding[52];
@@ -1736,8 +1746,9 @@ typedef struct {
 	int quantum;
 	int policy;		/* inherit: SCHED_OTHER, SCHED_FIFO, SCHED_RR */
 	int prio;		/* inherit: its priority */
+	uint32_t cpumask;	/* inherit: CPUs it may run on, 0 for all */
 
-	uint8_t padding[32];
+	uint8_t padding[28];
 } mess_lsys_sched_scheduling_start;
 _ASSERT_MSG_SIZE(mess_lsys_sched_scheduling_start);
 
@@ -2139,6 +2150,14 @@ typedef struct {
 	uint8_t padding[44];
 } mess_pm_sched_scheduling_set_policy;
 _ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_policy);
+
+typedef struct {
+	endpoint_t endpoint;
+	uint32_t cpumask;	/* CPUs it may run on, 0 for all */
+
+	uint8_t padding[48];
+} mess_pm_sched_scheduling_set_affinity;
+_ASSERT_MSG_SIZE(mess_pm_sched_scheduling_set_affinity);
 
 typedef struct {
 	endpoint_t endpoint;
@@ -2912,6 +2931,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_ptrace	m_lc_pm_ptrace;
 		mess_lc_pm_timer	m_lc_pm_timer;
 		mess_lc_pm_sched	m_lc_pm_sched;
+		mess_lc_pm_affinity	m_lc_pm_affinity;
 		mess_lc_pm_reboot	m_lc_pm_reboot;
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;
@@ -3072,6 +3092,7 @@ typedef struct noxfer_message {
 		mess_pm_lsys_sigs_signal m_pm_lsys_sigs_signal;
 		mess_pm_sched_scheduling_set_nice m_pm_sched_scheduling_set_nice;
 		mess_pm_sched_scheduling_set_policy m_pm_sched_scheduling_set_policy;
+		mess_pm_sched_scheduling_set_affinity m_pm_sched_scheduling_set_affinity;
 		mess_pm_sched_scheduling_yield m_pm_sched_scheduling_yield;
 		mess_pty_ptyfs_req	m_pty_ptyfs_req;
 		mess_ptyfs_pty_name	m_ptyfs_pty_name;
