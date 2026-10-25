@@ -120,6 +120,27 @@ do_sched_yield(void)
 }
 
 /*===========================================================================*
+ *				sched_set_effective		       	     *
+ *===========================================================================*/
+static int
+sched_set_effective(struct mproc *rmp, int policy, int prio)
+{
+/* Have 'rmp' run with its own 'policy' and 'prio', or, while it holds
+ * PTHREAD_PRIO_PROTECT mutexes with a higher ceiling, at that ceiling: as
+ * SCHED_FIFO if its own policy is SCHED_OTHER.  Its own policy is the one
+ * sched_getscheduler(2) reports.
+ */
+  int ceiling = mpprotect[rmp - mproc].ceiling;
+
+  if (ceiling >= 0 && (policy == SCHED_OTHER || ceiling > prio)) {
+	if (policy == SCHED_OTHER)
+		policy = SCHED_FIFO;
+	prio = ceiling;
+  }
+  return(sched_set_policy(rmp, policy, prio));
+}
+
+/*===========================================================================*
  *				do_sched_param			       	     *
  *===========================================================================*/
 int
@@ -194,7 +215,7 @@ do_sched_param(void)
    * before: the scheduler does not know it yet (EBADEPT), and is to start
    * it with what is set here.
    */
-  r = sched_set_policy(rmp, policy, prio);
+  r = sched_set_effective(rmp, policy, prio);
   if (r == EBADEPT && (rmp->mp_flags & VFS_CALL) &&
       !(rmp->mp_flags & MP_LWP_TEARDOWN))
 	r = OK;
@@ -205,6 +226,66 @@ do_sched_param(void)
   rmp->mp_policy = policy;
   rmp->mp_rtprio = prio;
   return(old);
+}
+
+/*===========================================================================*
+ *				do_sched_protect		       	     *
+ *===========================================================================*/
+int
+do_sched_protect(void)
+{
+/* Perform _sched_protect(2), which libpthread calls when the caller locks a
+ * PTHREAD_PRIO_PROTECT mutex, with its ceiling, and with -1 when it unlocks
+ * one.  The thread runs at the highest ceiling of those it holds until it
+ * holds none, as on NetBSD.  A ceiling below the caller's own real-time
+ * priority is EINVAL (POSIX: pthread_mutex_lock(3)).  Only root is raised:
+ * real-time priority is root's, as for sched_setscheduler(2), and a mutex is
+ * no way around that.  Anyone else still gets the lock, at its own priority.
+ */
+  struct pm_protect *pp = &mpprotect[mp - mproc];
+  int prio, old;
+
+  prio = m_in.m_lc_pm_sched.prio;
+  if (prio == -1) {
+	if (pp->depth == 0)
+		return(OK);		/* say, a mutex locked before fork() */
+	if (--pp->depth > 0 || pp->ceiling < 0)
+		return(OK);
+	pp->ceiling = -1;
+	return(sched_set_effective(mp, mp->mp_policy, mp->mp_rtprio));
+  }
+
+  if (prio < RT_PRIO_MIN || prio > RT_PRIO_MAX)
+	return(EINVAL);
+  if (mp->mp_policy != SCHED_OTHER && mp->mp_rtprio > prio)
+	return(EINVAL);
+  pp->depth++;
+  if (mp->mp_effuid != SUPER_USER || prio <= pp->ceiling)
+	return(OK);
+
+  old = pp->ceiling;
+  pp->ceiling = prio;
+  if (sched_set_effective(mp, mp->mp_policy, mp->mp_rtprio) != OK)
+	pp->ceiling = old;	/* a system service: it keeps its band */
+  return(OK);
+}
+
+/*===========================================================================*
+ *				sched_protect_reset		       	     *
+ *===========================================================================*/
+void
+sched_protect_reset(struct mproc *rmp)
+{
+/* 'rmp' holds no PTHREAD_PRIO_PROTECT mutex any more (exec): back to its own
+ * priority.
+ */
+  struct pm_protect *pp = &mpprotect[rmp - mproc];
+
+  pp->depth = 0;
+  if (pp->ceiling < 0)
+	return;
+  pp->ceiling = -1;
+  (void) sched_set_effective(rmp, rmp->mp_policy, rmp->mp_rtprio);
 }
 
 /*===========================================================================*

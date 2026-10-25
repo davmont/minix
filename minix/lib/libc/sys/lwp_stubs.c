@@ -28,13 +28,17 @@ _lwp_kill(lwpid_t lwp, int sig)
 }
 
 /*
- * Priority-ceiling protection for PTHREAD_PRIO_PROTECT mutexes.  MINIX has no
- * per-thread priority-ceiling call; treat it as a no-op.  Such mutexes still
- * provide mutual exclusion, just without priority elevation.
+ * Priority-ceiling protection for PTHREAD_PRIO_PROTECT mutexes: libpthread
+ * calls this with the ceiling of a mutex the caller locks, and with -1 when
+ * it unlocks one.  PM runs the thread at the highest ceiling it holds (only
+ * if it is root: real-time priority is root's; anyone else keeps its own).
  */
 int
 _sched_protect(int priority)
 {
-	(void)priority;
-	return 0;
+	message m;
+
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_sched.prio = priority;
+	return _syscall(PM_PROC_NR, PM_SCHED_PROTECT, &m);
 }

@@ -413,6 +413,31 @@ pthread_mutex_trylock(pthread_mutex_t *ptm)
 		return 0;
 	}
 
+#ifdef __minix
+	/* A free PTHREAD_PRIO_PROTECT mutex has its bit set, never NULL: take
+	 * it at its ceiling, as pthread_mutex_lock() does. */
+	if (MUTEX_PROTECT(val) && MUTEX_OWNER(val) == 0) {
+		int serrno = errno, error;
+
+		if (_sched_protect(ptm->ptm_ceiling) == -1) {
+			error = errno;
+			errno = serrno;
+			return error;
+		}
+		new = (void *)((uintptr_t)self | (uintptr_t)val);
+		next = atomic_cas_ptr(&ptm->ptm_owner, val, new);
+		if (__predict_true(next == val)) {
+#ifndef PTHREAD__ATOMIC_IS_MEMBAR
+			membar_enter();
+#endif
+			return 0;
+		}
+		(void)_sched_protect(-1);
+		errno = serrno;
+		val = next;
+	}
+#endif
+
 	if (MUTEX_RECURSIVE(val)) {
 		if (MUTEX_OWNER(val) == 0) {
 			new = (void *)((uintptr_t)self | (uintptr_t)val);
@@ -487,6 +512,13 @@ pthread_mutex_unlock(pthread_mutex_t *ptm)
 		 * Release the mutex.  If there appear to be waiters, then
 		 * wake them up.
 		 */
+#ifdef __minix
+		/* A free PTHREAD_PRIO_PROTECT mutex is still one: keep the
+		 * bit, or the next lock takes the fast path, without its
+		 * ceiling, and pthread_mutex_getprioceiling() says EINVAL. */
+		if (newval != val)
+			newval = (void *)((uintptr_t)newval | MUTEX_PROTECT(val));
+#endif
 		if (newval != val) {
 			val = atomic_swap_ptr(&ptm->ptm_owner, newval);
 			if (__predict_false(MUTEX_PROTECT(val))) {

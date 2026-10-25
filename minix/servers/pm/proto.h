@@ -68,6 +68,8 @@ int do_sysuname(void);
 int do_getsysinfo(void);
 int do_sched_yield(void);
 int do_sched_param(void);
+int do_sched_protect(void);
+void sched_protect_reset(struct mproc *rmp);
 int do_getprocnr(void);
 int do_getepinfo(void);
 int do_svrctl(void);

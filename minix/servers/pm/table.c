@@ -80,5 +80,6 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_SIGTIMEDWAIT)	= do_sigtimedwait,	/* sigtimedwait(2) */
 	CALL(PM_SCHED_SETPARAM)	= do_sched_param,	/* sched_setscheduler(2) */
 	CALL(PM_SCHED_GETPARAM)	= do_sched_param,	/* sched_getscheduler(2) */
-	CALL(PM_LWP_WAKEUP)	= do_lwp_wakeup		/* _lwp_wakeup(2) */
+	CALL(PM_LWP_WAKEUP)	= do_lwp_wakeup,	/* _lwp_wakeup(2) */
+	CALL(PM_SCHED_PROTECT)	= do_sched_protect	/* _sched_protect(2) */
 };
