@@ -220,6 +220,9 @@ void exec_restart(struct mproc *rmp, int result, vir_bytes pc, vir_bytes sp,
 	/* POSIX timers do not survive exec. */
 	ptimer_release(rmp);
 
+	/* Nor do the mutexes whose ceiling it may be running at. */
+	sched_protect_reset(rmp);
+
 	/* The alternate signal stack was in the old image. */
 	mpaltstack[rmp - mproc].ss_sp = NULL;
 	mpaltstack[rmp - mproc].ss_size = 0;

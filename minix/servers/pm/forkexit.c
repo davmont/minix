@@ -99,6 +99,8 @@ do_fork(void)
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   mpwoken[next_child] = FALSE;
+  mpprotect[next_child].depth = 0;	/* not boosted, not even if the */
+  mpprotect[next_child].ceiling = -1;	/* thread that forked is */
   /* Until VFS is done, the parent is the caller, to whom the fork replies;
    * then it becomes the caller's process (see VFS_PM_FORK_REPLY).
    */
@@ -221,6 +223,8 @@ do_lwp_create(void)
   init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
   mpwoken[next_lwp] = FALSE;
+  mpprotect[next_lwp].depth = 0;
+  mpprotect[next_lwp].ceiling = -1;
   /* A new thread starts without an alternate signal stack. */
   mpaltstack[next_lwp].ss_sp = NULL;
   mpaltstack[next_lwp].ss_size = 0;
@@ -1080,6 +1084,8 @@ do_srv_fork(void)
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
   mpwoken[next_child] = FALSE;
+  mpprotect[next_child].depth = 0;	/* not boosted, not even if the */
+  mpprotect[next_child].ceiling = -1;	/* thread that forked is */
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
 	rmc->mp_tracer = NO_TRACER;		/* no tracer attached */

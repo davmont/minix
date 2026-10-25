@@ -60,6 +60,14 @@ EXTERN struct pm_sigwait mpsigwait[NR_PROCS];
  * lwp_woken()). */
 EXTERN char mpwoken[NR_PROCS];
 
+/* The PTHREAD_PRIO_PROTECT mutexes a thread holds (see do_sched_protect()):
+ * how many, and the highest ceiling it runs at for them, or -1. */
+struct pm_protect {
+  int depth;
+  int ceiling;
+};
+EXTERN struct pm_protect mpprotect[NR_PROCS];
+
 /* The arguments of an exec in progress, kept so that PM can ask VFS again
  * once a threaded caller's other threads are gone (see exec_dethread()). */
 struct pm_execargs {
