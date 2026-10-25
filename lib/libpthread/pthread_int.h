@@ -157,6 +157,7 @@ struct	__pthread_st {
 #define PT_FLAG_SCOPE_SYSTEM	0x0040
 #define PT_FLAG_EXPLICIT_SCHED	0x0080
 #define PT_FLAG_SUSPENDED	0x0100	/* In the suspended queue */
+#define PT_FLAG_SCHED_FAILED	0x0200	/* Explicit policy refused */
 
 #define PT_MAGIC	0x11110001
 #define PT_DEAD		0xDEAD0001
