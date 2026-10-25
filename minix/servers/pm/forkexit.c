@@ -98,6 +98,7 @@ do_fork(void)
   init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
+  mpwoken[next_child] = FALSE;
   /* Until VFS is done, the parent is the caller, to whom the fork replies;
    * then it becomes the caller's process (see VFS_PM_FORK_REPLY).
    */
@@ -219,6 +220,7 @@ do_lwp_create(void)
   init_timer(&rmc->mp_timer);
   init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_lwp]));
+  mpwoken[next_lwp] = FALSE;
   /* A new thread starts without an alternate signal stack. */
   mpaltstack[next_lwp].ss_sp = NULL;
   mpaltstack[next_lwp].ss_size = 0;
@@ -760,6 +762,8 @@ do_lwp_wait(void)
 	return ESRCH;			/* no such joinable sibling */
 
   /* Target still running: block until it exits (lwp_exit_finish wakes us). */
+  if (lwp_woken(rmp))
+	return EINTR;
   rmp->mp_lwp_jointgt = (wait_for != 0) ? wait_for : ANY_LWP;
   rmp->mp_flags |= MP_LWP_JOINING;
   return SUSPEND;
@@ -893,6 +897,8 @@ do_lwp_park(void)
 	rmp->mp_flags &= ~MP_LWP_UNPARKED;
 	return OK;
   }
+  if (lwp_woken(rmp))
+	return EINTR;
 
   /* A timed park ends with ETIMEDOUT unless unparked or interrupted first. */
   if (m_in.m_lc_pm_lwp_park.has_timeout) {
@@ -917,6 +923,59 @@ do_lwp_unpark(void)
 {
 /* Wake a specific LWP (by lwpid) that is, or will be, parked. */
   return lwp_unpark_one(m_in.m_lc_pm_lwp_unpark.target);
+}
+
+/*===========================================================================*
+ *				do_lwp_wakeup				     *
+ *===========================================================================*/
+int
+do_lwp_wakeup(void)
+{
+/* Interrupt the sleep of a thread of the caller's own process -- what
+ * pthread_cancel(3) uses to reach a thread blocked at a cancellation point.  A
+ * thread blocked in _lwp_wait() or _lwp_park() returns EINTR; as on NetBSD, a
+ * thread not blocked yet gets EINTR from its next such sleep instead, so a
+ * cancel that comes between its test for cancellation and its sleep is not
+ * lost.  Only these two: libpthread retries them and tests for cancellation
+ * around them, but MINIX builds no cancellation stubs for the other system
+ * calls (PTHREAD_CANCELSTUB=no), so an EINTR from sigsuspend() or wait()
+ * would reach the program as a spurious one and cancel nothing.
+ */
+  struct mproc *target;
+  int slot;
+
+  if (pm_isokendpt((endpoint_t) m_in.m_lc_pm_lwp_unpark.target, &slot) != OK)
+	return ESRCH;
+  target = &mproc[slot];
+  if ((target->mp_flags & (IN_USE | EXITING | MP_LWP_ZOMBIE)) != IN_USE ||
+      process_of(target) != process_of(mp))
+	return ESRCH;
+
+  if (target->mp_flags & (MP_LWP_PARKED | MP_LWP_JOINING)) {
+	if (target->mp_flags & MP_LWP_PARKED)
+		cancel_timer(&target->mp_park_timer);
+	target->mp_flags &= ~(MP_LWP_PARKED | MP_LWP_JOINING);
+	reply(slot, EINTR);
+  } else
+	mpwoken[slot] = TRUE;
+  return OK;
+}
+
+/*===========================================================================*
+ *				lwp_woken				     *
+ *===========================================================================*/
+int
+lwp_woken(struct mproc *rmp)
+{
+/* Is an _lwp_wakeup() pending for the thread 'rmp', about to sleep in PM?
+ * Then it is used up: the sleep returns EINTR instead.
+ */
+  int slot = (int)(rmp - mproc);
+
+  if (!mpwoken[slot])
+	return FALSE;
+  mpwoken[slot] = FALSE;
+  return TRUE;
 }
 
 /*===========================================================================*
@@ -1020,6 +1079,7 @@ do_srv_fork(void)
   init_timer(&rmc->mp_park_timer);
   memcpy(rmc->mp_sigact, rmp->mp_sigact, sizeof(mpsigact[next_child]));
   mpaltstack[next_child] = mpaltstack[rmp - mproc];	/* inherited */
+  mpwoken[next_child] = FALSE;
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
 	rmc->mp_tracer = NO_TRACER;		/* no tracer attached */
