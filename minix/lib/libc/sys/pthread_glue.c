@@ -34,7 +34,6 @@
 /* --- NetBSD-internal LWP control: not yet supported on MINIX. --- */
 int _lwp_suspend(lwpid_t l)			{ (void)l; errno = ENOSYS; return -1; }
 int _lwp_continue(lwpid_t l)			{ (void)l; errno = ENOSYS; return -1; }
-int _lwp_wakeup(lwpid_t l)			{ (void)l; errno = ENOSYS; return -1; }
 int _lwp_setname(lwpid_t l, const char *n)	{ (void)l; (void)n; return 0; }
 
 /*

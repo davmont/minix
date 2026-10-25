@@ -55,6 +55,11 @@ struct pm_sigwait {
 };
 EXTERN struct pm_sigwait mpsigwait[NR_PROCS];
 
+/* _lwp_wakeup(2) (pthread_cancel()) reached the thread when it was not
+ * blocked: its next _lwp_wait() or _lwp_park() returns EINTR at once (see
+ * lwp_woken()). */
+EXTERN char mpwoken[NR_PROCS];
+
 /* The arguments of an exec in progress, kept so that PM can ask VFS again
  * once a threaded caller's other threads are gone (see exec_dethread()). */
 struct pm_execargs {

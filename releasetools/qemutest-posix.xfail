@@ -203,7 +203,6 @@ interfaces/pthread_exit/6-1                              # unresolved
 
 # interfaces/pthread_join
 interfaces/pthread_join/3-1                              # unresolved
-interfaces/pthread_join/4-1                               flaky  # timing: passed, then timed out, on the same tree
 interfaces/pthread_join/speculative/6-1                  # fail
 
 # interfaces/pthread_kill

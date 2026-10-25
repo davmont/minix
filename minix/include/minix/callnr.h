@@ -79,8 +79,9 @@
 #define PM_SIGTIMEDWAIT		(PM_BASE + 66)	/* sigtimedwait(2) and co. */
 #define PM_SCHED_SETPARAM	(PM_BASE + 67)	/* sched_setscheduler(2) and co. */
 #define PM_SCHED_GETPARAM	(PM_BASE + 68)	/* sched_getscheduler(2) and co. */
+#define PM_LWP_WAKEUP		(PM_BASE + 69)	/* _lwp_wakeup(2) — interrupt a thread */
 
-#define NR_PM_CALLS		69	/* highest number from base plus one */
+#define NR_PM_CALLS		70	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *
