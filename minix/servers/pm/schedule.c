@@ -84,6 +84,7 @@ int sched_start_user(endpoint_t ep, struct mproc *rmp)
 		maxprio, 				/* maxprio */
 		rmp->mp_policy,				/* policy */
 		rmp->mp_rtprio,				/* prio */
+		mpcpumask[rmp - mproc],			/* cpumask */
 		&rmp->mp_scheduler);			/* *newsched_e */
 }
 
@@ -103,6 +104,25 @@ int sched_set_policy(struct mproc *rmp, int policy, int prio)
 	m.m_pm_sched_scheduling_set_policy.policy = policy;
 	m.m_pm_sched_scheduling_set_policy.prio = prio;
 	return _taskcall(rmp->mp_scheduler, SCHEDULING_SET_POLICY, &m);
+}
+
+/*===========================================================================*
+ *				sched_set_affinity			     *
+ *===========================================================================*/
+int sched_set_affinity(struct mproc *rmp, uint32_t cpumask)
+{
+/* Have the process's scheduler run it only on the CPUs in 'cpumask' (0: on
+ * any), moving it now if it is on another.
+ */
+	message m;
+
+	if (rmp->mp_scheduler == KERNEL || rmp->mp_scheduler == NONE)
+		return (EPERM);
+
+	memset(&m, 0, sizeof(m));
+	m.m_pm_sched_scheduling_set_affinity.endpoint = rmp->mp_endpoint;
+	m.m_pm_sched_scheduling_set_affinity.cpumask = cpumask;
+	return _taskcall(rmp->mp_scheduler, SCHEDULING_SET_AFFINITY, &m);
 }
 
 /*===========================================================================*

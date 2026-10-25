@@ -9,6 +9,6 @@ int sched_start(endpoint_t scheduler_e, endpoint_t schedulee_e,
 	*newscheduler_e);
 int sched_inherit(endpoint_t scheduler_e, endpoint_t schedulee_e,
 	endpoint_t parent_e, unsigned maxprio, int policy, int prio,
-	endpoint_t *newscheduler_e);
+	uint32_t cpumask, endpoint_t *newscheduler_e);
 
 #endif /* _MINIX_SCHED_H */

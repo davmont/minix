@@ -8,6 +8,10 @@
 # aren't implemented.  See _minix_posix_stubs.c for the rules.
 SRCS+=	_minix_posix_stubs.c
 
+# cpuset(3), for _sched_setaffinity(2) and co. (minix/lib/libc/sys/sched.c)
+.PATH: ${NETBSDSRCDIR}/common/lib/libc/sys
+SRCS+=	cpuset.c
+
 .else
 # sys sources
 .PATH: ${ARCHDIR}/sys ${.CURDIR}/sys

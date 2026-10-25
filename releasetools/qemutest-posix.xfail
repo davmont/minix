@@ -106,7 +106,6 @@ interfaces/pthread_attr_getstacksize/1-1                 # nobuild
 interfaces/pthread_attr_setdetachstate/2-1               # fail
 
 # interfaces/pthread_attr_setschedpolicy
-interfaces/pthread_attr_setschedpolicy/2-1               # needs sched_setaffinity()
 
 # interfaces/pthread_attr_setstack
 interfaces/pthread_attr_setstack/1-1                     # nobuild
@@ -290,20 +289,17 @@ interfaces/pthread_sigmask/18-1                          # timeout
 
 # interfaces/sched_setparam
 interfaces/sched_setparam/27-1                           flaky  # timing: passed on 1 CPU, failed once on 2
-interfaces/sched_setparam/2-1                            # needs sched_setaffinity(), or _SC_NPROCESSORS_ONLN without _NETBSD_SOURCE
-interfaces/sched_setparam/2-2                            # needs sched_setaffinity(), or _SC_NPROCESSORS_ONLN without _NETBSD_SOURCE
 interfaces/sched_setparam/23-6                           # picks user 'toor', uid 0, to see EPERM
 interfaces/sched_setparam/25-2                           # nobuild
 interfaces/sched_setparam/25-3                           # nobuild
 interfaces/sched_setparam/25-4                           # nobuild
 interfaces/sched_setparam/26-1                           # picks user 'toor', uid 0, to see EPERM
-interfaces/sched_setparam/9-1                            # needs sched_setaffinity(), or _SC_NPROCESSORS_ONLN without _NETBSD_SOURCE
+interfaces/sched_setparam/9-1                            # on 2 CPUs: the child reads its priority from PM after the parent has its reply
 
 # interfaces/sched_setscheduler
 interfaces/sched_setscheduler/20-1                       # picks user 'toor', uid 0, to see EPERM
 
 # interfaces/sched_yield
-interfaces/sched_yield/1-1                               # needs sched_setaffinity()
 
 # interfaces/sem_open
 interfaces/sem_open/3-1                                  # fail

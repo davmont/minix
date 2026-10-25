@@ -5,7 +5,8 @@
  * is no way around that; anyone else still gets the lock, at its own
  * priority.  The test sees the ceiling at work: real-time threads below it
  * take every CPU for a while, and a time-sharing thread holding the mutex
- * still runs; one holding a plain mutex, or a non-root one, does not.
+ * still runs; one holding a plain mutex, or a non-root one, does not.  All on
+ * one CPU (sched_setaffinity_np(3)).
  *
  * Must be setuid root.
  */
@@ -28,10 +29,7 @@ int max_error = 4;
 #define MAX_SPIN	8
 
 #define RAN(gap)	((gap) < SPIN_MS / 3)	/* not kept off the CPU */
-/* Kept off it.  Only one CPU tells for sure: with more, SCHED may move a
- * thread to the boot CPU, which the spinners do not go to (pick_cpu()).
- */
-#define STARVED(gap)	(ncpu > 1 || (gap) >= SPIN_MS * 2 / 3)
+#define STARVED(gap)	((gap) >= SPIN_MS * 2 / 3)	/* kept off it */
 
 static volatile int stop, ready;
 static long ncpu;
@@ -274,10 +272,23 @@ test158c(void)
 int
 main(int argc, char **argv)
 {
+	cpuset_t *set;
+
 	start(158);
 
+	/* All on one CPU, so that the spinners keep a thread off for sure:
+	 * with more, SCHED may move it to the boot CPU, which they do not go
+	 * to.  The highest: the boot CPU runs the system services.
+	 */
 	if ((ncpu = sysconf(_SC_NPROCESSORS_ONLN)) < 1)
 		ncpu = 1;
+	if ((set = cpuset_create()) == NULL) e(1);
+	cpuset_zero(set);
+	if (cpuset_set(ncpu - 1, set) != 0) e(2);
+	if (sched_setaffinity_np(0, cpuset_size(set), set) != 0) e(3);
+	cpuset_destroy(set);
+	ncpu = 1;
+
 	alarm(120);
 	test158a();
 	test158b();

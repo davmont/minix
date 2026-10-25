@@ -69,6 +69,7 @@ int do_getsysinfo(void);
 int do_sched_yield(void);
 int do_sched_param(void);
 int do_sched_protect(void);
+int do_sched_affinity(void);
 void sched_protect_reset(struct mproc *rmp);
 int do_getprocnr(void);
 int do_getepinfo(void);
@@ -82,6 +83,7 @@ int sched_start_user(endpoint_t ep, struct mproc *rmp);
 int sched_nice(struct mproc *rmp, int nice);
 int sched_yield_proc(struct mproc *rmp);
 int sched_set_policy(struct mproc *rmp, int policy, int prio);
+int sched_set_affinity(struct mproc *rmp, uint32_t cpumask);
 
 /* profile.c */
 int do_sprofile(void);

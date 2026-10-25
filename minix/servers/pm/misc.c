@@ -271,6 +271,98 @@ do_sched_protect(void)
 }
 
 /*===========================================================================*
+ *				set_affinity			       	     *
+ *===========================================================================*/
+static int
+set_affinity(struct mproc *rmp, uint32_t mask)
+{
+/* Have the thread 'rmp' run on the CPUs in 'mask' (0: any).  One that VFS
+ * has not given to its scheduler yet starts with it (see do_sched_param()).
+ */
+  int r;
+
+  r = sched_set_affinity(rmp, mask);
+  if (r == EBADEPT && (rmp->mp_flags & VFS_CALL) &&
+      !(rmp->mp_flags & MP_LWP_TEARDOWN))
+	r = OK;
+  if (r != OK)
+	return(r);
+  mpcpumask[rmp - mproc] = mask;
+  return(OK);
+}
+
+/*===========================================================================*
+ *				do_sched_affinity		       	     *
+ *===========================================================================*/
+int
+do_sched_affinity(void)
+{
+/* Perform PM_SCHED_AFFINITY, for _sched_setaffinity(2) and
+ * _sched_getaffinity(2): the CPUs that thread 'lid' of process 'pid' (0: the
+ * caller) may run on.  With lid 0, setting is for all its threads, and
+ * getting is for the calling thread if 'pid' is its own process, else for its
+ * first thread.  The set is a mask: 0, or every CPU there is, is any CPU; one
+ * with none of them is EINVAL.  Anyone may look; changing it takes what
+ * nice(3) does.
+ */
+  struct mproc *rmp, *t;
+  pid_t pid;
+  int lid, proc_nr, r;
+  uint32_t mask, all;
+
+  all = (machine.processors_count >= 32) ? ~0U :
+	(1U << machine.processors_count) - 1;
+  pid = m_in.m_lc_pm_affinity.pid;
+  lid = m_in.m_lc_pm_affinity.lid;
+  if (pid < 0)
+	return(EINVAL);
+  if (pid == 0)
+	rmp = mp;
+  else if ((rmp = find_proc(pid)) == NULL)
+	return(ESRCH);
+  if (lid != 0) {
+	if (pm_isokendpt(lid, &proc_nr) != OK ||
+	    !(mproc[proc_nr].mp_flags & IN_USE) ||
+	    process_of(&mproc[proc_nr]) != process_of(rmp))
+		return(ESRCH);
+	rmp = &mproc[proc_nr];
+  } else if (process_of(rmp) == process_of(mp))
+	rmp = mp;
+  else
+	rmp = process_of(rmp);
+  if (rmp->mp_flags & EXITING)
+	return(ESRCH);
+
+  if (!m_in.m_lc_pm_affinity.set) {
+	mask = mpcpumask[rmp - mproc];
+	mp->mp_reply.m_lc_pm_affinity.cpumask = (mask != 0) ? mask : all;
+	return(OK);
+  }
+
+  mask = m_in.m_lc_pm_affinity.cpumask;
+  if (mask != 0 && (mask & all) == 0)
+	return(EINVAL);
+  mask &= all;
+  if (mask == all)
+	mask = 0;
+
+  if (mp->mp_effuid != SUPER_USER &&
+     mp->mp_effuid != rmp->mp_effuid && mp->mp_effuid != rmp->mp_realuid)
+	return(EPERM);
+
+  if (lid != 0)
+	return(set_affinity(rmp, mask));
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & (IN_USE | EXITING | MP_LWP_ZOMBIE)) != IN_USE ||
+	    process_of(t) != process_of(rmp))
+		continue;
+	if ((r = set_affinity(t, mask)) != OK)
+		return(r);
+  }
+  return(OK);
+}
+
+/*===========================================================================*
  *				sched_protect_reset		       	     *
  *===========================================================================*/
 void

@@ -18,5 +18,12 @@ image with --suite posix.  A test that does not compile is a result, not a
 build failure: usually the interface it tests is missing.  See
 releasetools/qemutest-posix.xfail for the known failures.
 
+Local changes to dist/, to carry over to a newer release:
+
+  include/affinity.h: set_affinity_single() for MINIX, which upstream
+  implements for Linux only ("Must be ported to OS's other than Linux"),
+  so that the tests that run on a single CPU when they can do.
+
 To update: unpack a newer LTP release, replace dist/ with the same
-directories, update the version and checksum here, and rebaseline.
+directories, apply the local changes above again, update the version and
+checksum here, and rebaseline.

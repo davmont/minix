@@ -149,6 +149,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   /* Signals raised without a known origin say so in their siginfo_t. */
   set_sig_origin(SI_NOINFO, 0, 0, 0, 0);
 
+  /* How many CPUs there are, for _sched_setaffinity(2). */
+  if ((s = sys_getmachine(&machine)) != OK)
+	panic("PM: couldn't get machine info: %d", s);
+
   /* Initialize process table, including timers. */
   for (rmp=&mproc[0]; rmp<&mproc[NR_PROCS]; rmp++) {
 	init_timer(&rmp->mp_timer);
