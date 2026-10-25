@@ -125,6 +125,13 @@ int	_sched_setaffinity(pid_t, lwpid_t, size_t, const cpuset_t *);
 int	_sched_getparam(pid_t, lwpid_t, int *, struct sched_param *);
 int	_sched_setparam(pid_t, lwpid_t, int, const struct sched_param *);
 int	_sched_protect(int);
+#ifdef __minix
+/* _sched_inherit(2) ops: see minix/lib/libc/sys/lwp_stubs.c. */
+#define	SCHED_INHERIT_WAIT	1	/* the caller blocks on the mutex */
+#define	SCHED_INHERIT_DONE	2	/* it no longer does */
+#define	SCHED_INHERIT_RELEASE	3	/* the caller unlocked it */
+int	_sched_inherit(int, lwpid_t, volatile void *, void *);
+#endif
 __END_DECLS
 
 /*

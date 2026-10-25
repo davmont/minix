@@ -683,6 +683,17 @@ typedef struct {
 } mess_lc_pm_affinity;
 _ASSERT_MSG_SIZE(mess_lc_pm_affinity);
 
+/* PM_SCHED_INHERIT: _sched_inherit(2), for PTHREAD_PRIO_INHERIT mutexes. */
+typedef struct {
+	int op;			/* SCHED_INHERIT_* */
+	lwpid_t lid;		/* WAIT: the thread that holds the mutex */
+	vir_bytes key;		/* the mutex's owner word */
+	vir_bytes owner;	/* WAIT: what the caller saw in it */
+
+	uint8_t padding[56 - 2 * sizeof(int) - 2 * sizeof(vir_bytes)];
+} mess_lc_pm_inherit;
+_ASSERT_MSG_SIZE(mess_lc_pm_inherit);
+
 typedef struct {
 	int how;
 
@@ -2932,6 +2943,7 @@ typedef struct noxfer_message {
 		mess_lc_pm_timer	m_lc_pm_timer;
 		mess_lc_pm_sched	m_lc_pm_sched;
 		mess_lc_pm_affinity	m_lc_pm_affinity;
+		mess_lc_pm_inherit	m_lc_pm_inherit;
 		mess_lc_pm_reboot	m_lc_pm_reboot;
 		mess_lc_pm_rusage	m_lc_pm_rusage;
 		mess_lc_pm_setgid	m_lc_pm_setgid;

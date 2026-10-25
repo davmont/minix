@@ -264,6 +264,7 @@
 ./usr/tests/minix-posix/test157                         minix-tests
 ./usr/tests/minix-posix/test158                         minix-tests
 ./usr/tests/minix-posix/test159                         minix-tests
+./usr/tests/minix-posix/test160                         minix-tests
 ./usr/tests/minix-posix/testinterp                      minix-tests
 ./usr/tests/minix-posix/testisofs                       minix-tests
 ./usr/tests/minix-posix/testkyua                        minix-tests

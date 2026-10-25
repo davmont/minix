@@ -68,6 +68,18 @@ struct pm_protect {
 };
 EXTERN struct pm_protect mpprotect[NR_PROCS];
 
+/* PTHREAD_PRIO_INHERIT (see do_sched_inherit()): the thread a thread waits
+ * for, the slot or -1, and on which mutex; the priority it runs at, as
+ * passed on to that thread (a real-time priority, or -1 for time-sharing);
+ * and the highest of those of the threads waiting for it, or -1. */
+struct pm_inherit {
+  int on;
+  vir_bytes key;
+  int level;
+  int inherited;
+};
+EXTERN struct pm_inherit mpinherit[NR_PROCS];
+
 /* The CPUs a thread may run on (_sched_setaffinity(2)), 0 for all of them.
  * Inherited by fork() and pthread_create(), kept across exec. */
 EXTERN uint32_t mpcpumask[NR_PROCS];

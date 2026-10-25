@@ -101,6 +101,7 @@ do_fork(void)
   mpwoken[next_child] = FALSE;
   mpprotect[next_child].depth = 0;	/* not boosted, not even if the */
   mpprotect[next_child].ceiling = -1;	/* thread that forked is */
+  sched_inherit_init(rmc);
   mpcpumask[next_child] = mpcpumask[rmp - mproc];	/* inherited */
   /* Until VFS is done, the parent is the caller, to whom the fork replies;
    * then it becomes the caller's process (see VFS_PM_FORK_REPLY).
@@ -226,6 +227,7 @@ do_lwp_create(void)
   mpwoken[next_lwp] = FALSE;
   mpprotect[next_lwp].depth = 0;
   mpprotect[next_lwp].ceiling = -1;
+  sched_inherit_init(rmc);
   mpcpumask[next_lwp] = mpcpumask[rmp - mproc];	/* inherited */
   /* A new thread starts without an alternate signal stack. */
   mpaltstack[next_lwp].ss_sp = NULL;
@@ -347,6 +349,9 @@ lwp_start_teardown(struct mproc *rmp)
   if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
 	printf("PM: lwp_start_teardown: sched_stop failed: %d\n", r);
   rmp->mp_scheduler = NONE;
+
+  /* Whoever it waited for, or was waiting for it, no longer does. */
+  sched_inherit_exit(rmp);
 
   memset(&m, 0, sizeof(m));
   m.m_type = VFS_PM_LWP_EXIT;
@@ -1088,6 +1093,7 @@ do_srv_fork(void)
   mpwoken[next_child] = FALSE;
   mpprotect[next_child].depth = 0;	/* not boosted, not even if the */
   mpprotect[next_child].ceiling = -1;	/* thread that forked is */
+  sched_inherit_init(rmc);
   mpcpumask[next_child] = mpcpumask[rmp - mproc];	/* inherited */
   rmc->mp_parent = who_p;			/* record child's parent */
   if (!(rmc->mp_trace_flags & TO_TRACEFORK)) {
@@ -1204,6 +1210,7 @@ exit_proc(
   if (rmp->mp_flags & ALARM_ON) set_alarm(rmp, (clock_t) 0);
   cancel_timer(&rmp->mp_park_timer);	/* and a timed _lwp_park() */
   ptimer_release(rmp);			/* and its POSIX timers */
+  sched_inherit_exit(rmp);		/* and priority inheritance */
 
   /* Do accounting: fetch usage times and save with dead child process.
    * POSIX forbids accumulation at parent until child has been waited for.

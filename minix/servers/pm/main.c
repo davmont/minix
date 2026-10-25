@@ -162,6 +162,8 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 	mpaltstack[rmp - mproc].ss_flags = SS_DISABLE;	/* none yet */
 	rmp->mp_eventsub = NO_EVENTSUB;
 	rmp->mp_lwp_group = NO_LWP_GROUP;
+	mpprotect[rmp - mproc].ceiling = -1;	/* no mutex ceiling */
+	sched_inherit_init(rmp);
   }
 
   /* Build the set of signals which cause core dumps, and the set of signals

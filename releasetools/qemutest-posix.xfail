@@ -105,8 +105,6 @@ interfaces/pthread_attr_getstacksize/1-1                 # nobuild
 # interfaces/pthread_attr_setdetachstate
 interfaces/pthread_attr_setdetachstate/2-1               # fail
 
-# interfaces/pthread_attr_setschedpolicy
-
 # interfaces/pthread_attr_setstack
 interfaces/pthread_attr_setstack/1-1                     # nobuild
 interfaces/pthread_attr_setstack/2-1                     # nobuild
@@ -192,7 +190,7 @@ interfaces/pthread_create/14-1                           flaky  # wedge when PM 
 
 # interfaces/pthread_detach
 interfaces/pthread_detach/1-1                            # fail
-interfaces/pthread_detach/1-2                            # unresolved
+interfaces/pthread_detach/1-2                            flaky  # _lwp_detach() is a stub: joins a detached thread unless it was already a zombie
 
 # interfaces/pthread_equal
 interfaces/pthread_equal/2-1                             # timeout
@@ -211,9 +209,6 @@ interfaces/pthread_kill/8-1                              # timeout
 interfaces/pthread_mutex_destroy/2-2                     # nobuild
 interfaces/pthread_mutex_destroy/5-2                     # nobuild
 
-# interfaces/pthread_mutex_getprioceiling
-interfaces/pthread_mutex_getprioceiling/3-3              # PTHREAD_PRIO_INHERIT: not implemented
-
 # interfaces/pthread_mutex_init
 interfaces/pthread_mutex_init/1-2                        # timeout
 interfaces/pthread_mutex_init/3-2                        # timeout
@@ -231,9 +226,6 @@ interfaces/pthread_mutex_trylock/4-3                     # nobuild
 # interfaces/pthread_mutexattr_destroy
 interfaces/pthread_mutexattr_destroy/4-1                 # signal
 
-# interfaces/pthread_mutexattr_getprotocol
-interfaces/pthread_mutexattr_getprotocol/1-2             # PTHREAD_PRIO_INHERIT: not implemented
-
 # interfaces/pthread_mutexattr_getpshared
 interfaces/pthread_mutexattr_getpshared/1-1              # nobuild
 interfaces/pthread_mutexattr_getpshared/1-2              # nobuild
@@ -242,9 +234,6 @@ interfaces/pthread_mutexattr_getpshared/3-1              # nobuild
 
 # interfaces/pthread_mutexattr_init
 interfaces/pthread_mutexattr_init/1-1                    # nobuild
-
-# interfaces/pthread_mutexattr_setprotocol
-interfaces/pthread_mutexattr_setprotocol/1-1             # PTHREAD_PRIO_INHERIT: not implemented
 
 # interfaces/pthread_mutexattr_setpshared
 interfaces/pthread_mutexattr_setpshared/1-1              # nobuild
@@ -298,8 +287,6 @@ interfaces/sched_setparam/9-1                            # on 2 CPUs: the child 
 
 # interfaces/sched_setscheduler
 interfaces/sched_setscheduler/20-1                       # picks user 'toor', uid 0, to see EPERM
-
-# interfaces/sched_yield
 
 # interfaces/sem_open
 interfaces/sem_open/3-1                                  # fail

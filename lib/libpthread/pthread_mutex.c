@@ -70,10 +70,19 @@ __RCSID("$NetBSD: pthread_mutex.c,v 1.83 2022/04/10 10:38:33 riastradh Exp $");
 
 #define	MUTEX_RECURSIVE_BIT		((uintptr_t)0x02)
 #define	MUTEX_PROTECT_BIT		((uintptr_t)0x08)
+#ifdef __minix
+#define	MUTEX_INHERIT_BIT		((uintptr_t)0x04)
+#endif
 #define	MUTEX_THREAD			((uintptr_t)~0x0f)
 
 #define	MUTEX_RECURSIVE(x)		((uintptr_t)(x) & MUTEX_RECURSIVE_BIT)
 #define	MUTEX_PROTECT(x)		((uintptr_t)(x) & MUTEX_PROTECT_BIT)
+#ifdef __minix
+#define	MUTEX_INHERIT(x)		((uintptr_t)(x) & MUTEX_INHERIT_BIT)
+/* The bits a free mutex keeps: what kind of mutex it is. */
+#define	MUTEX_KIND(x)			\
+    ((uintptr_t)(x) & (MUTEX_PROTECT_BIT | MUTEX_INHERIT_BIT))
+#endif
 #define	MUTEX_OWNER(x)			((uintptr_t)(x) & MUTEX_THREAD)
 
 #define	MUTEX_GET_TYPE(x)		\
@@ -169,6 +178,13 @@ pthread_mutex_init(pthread_mutex_t *ptm, const pthread_mutexattr_t *attr)
 		val |= MUTEX_PROTECT_BIT;
 		ptm->ptm_owner = (void *)val;
 		break;
+#ifdef __minix
+	case PTHREAD_PRIO_INHERIT:
+		val = (uintptr_t)ptm->ptm_owner;
+		val |= MUTEX_INHERIT_BIT;
+		ptm->ptm_owner = (void *)val;
+		break;
+#endif
 
 	}
 	ptm->ptm_magic = _PT_MUTEX_MAGIC;
@@ -279,6 +295,9 @@ pthread__mutex_lock_slow(pthread_mutex_t *ptm, const struct timespec *ts)
 	pthread_t self;
 	int serrno;
 	int error;
+#ifdef __minix
+	bool inherit;
+#endif
 
 	owner = ptm->ptm_owner;
 	self = pthread__self();
@@ -356,6 +375,20 @@ pthread__mutex_lock_slow(pthread_mutex_t *ptm, const struct timespec *ts)
 			pthread__mutex_wakeup(self,
 			    atomic_swap_ptr(&ptm->ptm_waiters, NULL));
 		}
+#ifdef __minix
+		/* Priority inheritance: the owner runs at our priority while
+		 * we wait.  If it has let go since, PM says EAGAIN, and the
+		 * unlock wakes us anyway. */
+		inherit = false;
+		if (MUTEX_INHERIT(owner)) {
+			void *cur = ptm->ptm_owner;
+			pthread_t holder = (pthread_t)MUTEX_OWNER(cur);
+
+			if (holder != NULL && holder != self)
+				inherit = (_sched_inherit(SCHED_INHERIT_WAIT,
+				    holder->pt_lid, &ptm->ptm_owner, cur) == 0);
+		}
+#endif
 
 		/*
 		 * We must not proceed until told that we are no longer
@@ -380,6 +413,11 @@ pthread__mutex_lock_slow(pthread_mutex_t *ptm, const struct timespec *ts)
 					(void)_lwp_park(CLOCK_MONOTONIC, 0,
 					    NULL, 0, NULL, NULL);
 				}
+#ifdef __minix
+				if (inherit)
+					(void)_sched_inherit(
+					    SCHED_INHERIT_DONE, 0, NULL, NULL);
+#endif
 
 				/* Priority protect */
 				if (MUTEX_PROTECT(owner))
@@ -388,6 +426,10 @@ pthread__mutex_lock_slow(pthread_mutex_t *ptm, const struct timespec *ts)
 				return ETIMEDOUT;
 			}
 		}
+#ifdef __minix
+		if (inherit)
+			(void)_sched_inherit(SCHED_INHERIT_DONE, 0, NULL, NULL);
+#endif
 		owner = ptm->ptm_owner;
 	}
 }
@@ -434,6 +476,18 @@ pthread_mutex_trylock(pthread_mutex_t *ptm)
 		}
 		(void)_sched_protect(-1);
 		errno = serrno;
+		val = next;
+	}
+	/* So has a free PTHREAD_PRIO_INHERIT one: nobody waits for it. */
+	if (MUTEX_INHERIT(val) && MUTEX_OWNER(val) == 0) {
+		new = (void *)((uintptr_t)self | (uintptr_t)val);
+		next = atomic_cas_ptr(&ptm->ptm_owner, val, new);
+		if (__predict_true(next == val)) {
+#ifndef PTHREAD__ATOMIC_IS_MEMBAR
+			membar_enter();
+#endif
+			return 0;
+		}
 		val = next;
 	}
 #endif
@@ -515,9 +569,10 @@ pthread_mutex_unlock(pthread_mutex_t *ptm)
 #ifdef __minix
 		/* A free PTHREAD_PRIO_PROTECT mutex is still one: keep the
 		 * bit, or the next lock takes the fast path, without its
-		 * ceiling, and pthread_mutex_getprioceiling() says EINVAL. */
+		 * ceiling, and pthread_mutex_getprioceiling() says EINVAL.
+		 * The same for PTHREAD_PRIO_INHERIT. */
 		if (newval != val)
-			newval = (void *)((uintptr_t)newval | MUTEX_PROTECT(val));
+			newval = (void *)((uintptr_t)newval | MUTEX_KIND(val));
 #endif
 		if (newval != val) {
 			val = atomic_swap_ptr(&ptm->ptm_owner, newval);
@@ -525,6 +580,13 @@ pthread_mutex_unlock(pthread_mutex_t *ptm)
 				/* restore elevated priority */
 				(void)_sched_protect(-1);
 			}
+#ifdef __minix
+			/* Back to our own priority, before any waiter runs:
+			 * one of the same priority on this CPU would not. */
+			if (__predict_false(MUTEX_INHERIT(val)))
+				(void)_sched_inherit(SCHED_INHERIT_RELEASE, 0,
+				    &ptm->ptm_owner, NULL);
+#endif
 		}
 	}
 
@@ -658,10 +720,15 @@ pthread_mutexattr_setprotocol(pthread_mutexattr_t* attr, int proto)
 	switch (proto) {
 	case PTHREAD_PRIO_NONE:
 	case PTHREAD_PRIO_PROTECT:
+#ifdef __minix
+	case PTHREAD_PRIO_INHERIT:
+#endif
 		MUTEX_SET_PROTOCOL(attr->ptma_private, proto);
 		return 0;
+#ifndef __minix
 	case PTHREAD_PRIO_INHERIT:
 		return ENOTSUP;
+#endif
 	default:
 		return EINVAL;
 	}
@@ -740,6 +807,14 @@ pthread__mutex_deferwake(pthread_t self, pthread_mutex_t *ptm,
 	    	pthread__mutex_wakeup(self, head);
 	    	return;
 	}
+#ifdef __minix
+	/* A thread waiting for a PTHREAD_PRIO_INHERIT mutex raises its owner,
+	 * which it can do only once it runs: wake it, and let it lock. */
+	if (__predict_false(MUTEX_INHERIT(ptm->ptm_owner))) {
+		pthread__mutex_wakeup(self, head);
+		return;
+	}
+#endif
 
 	/* This is easy if no existing waiters on mutex. */
 	if (atomic_cas_ptr(&ptm->ptm_waiters, NULL, head) == NULL) {
