@@ -404,10 +404,14 @@ teardown_group_members(int group)
 		continue;
 	}
 	members++;
-	if (t->mp_flags & (EXITING | MP_LWP_TEARDOWN))
-		continue;			/* already on its way out */
+	/* Detached even if it is on its way out already, in _lwp_exit() and
+	 * waiting for VFS: joinable, it would end a zombie, and the last
+	 * member's lwp_exit_finish() would never act on the leader.
+	 */
 	t->mp_flags |= MP_LWP_DETACHED;
 	t->mp_flags &= ~MP_LWP_JOINING;
+	if (t->mp_flags & (EXITING | MP_LWP_TEARDOWN))
+		continue;			/* already on its way out */
 	/* A thread waiting for VFS or for process event subscribers, say for
 	 * the unpause of a signal, cannot ask VFS for anything else yet: it is
 	 * torn down once that call is done (lwp_teardown_deferred()).
