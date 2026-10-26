@@ -119,25 +119,43 @@ do_sched_yield(void)
   return(sched_yield_proc(mp));
 }
 
+static void inherit_update(struct mproc *rmp);
+
 /*===========================================================================*
  *				sched_set_effective		       	     *
  *===========================================================================*/
 static int
 sched_set_effective(struct mproc *rmp, int policy, int prio)
 {
-/* Have 'rmp' run with its own 'policy' and 'prio', or, while it holds
- * PTHREAD_PRIO_PROTECT mutexes with a higher ceiling, at that ceiling: as
- * SCHED_FIFO if its own policy is SCHED_OTHER.  Its own policy is the one
- * sched_getscheduler(2) reports.
+/* Have 'rmp' run with its own 'policy' and 'prio', or higher: at the ceiling
+ * of the PTHREAD_PRIO_PROTECT mutexes it holds, or at the priority of the
+ * threads waiting for its PTHREAD_PRIO_INHERIT ones; as SCHED_FIFO if its own
+ * policy is SCHED_OTHER.  Its own policy is the one sched_getscheduler(2)
+ * reports.  The thread it waits for, if any, then inherits the result.
  */
-  int ceiling = mpprotect[rmp - mproc].ceiling;
+  struct pm_inherit *pi = &mpinherit[rmp - mproc];
+  int boost, level, r;
 
-  if (ceiling >= 0 && (policy == SCHED_OTHER || ceiling > prio)) {
+  boost = mpprotect[rmp - mproc].ceiling;
+  if (pi->inherited > boost)
+	boost = pi->inherited;
+  if (boost >= 0 && (policy == SCHED_OTHER || boost > prio)) {
 	if (policy == SCHED_OTHER)
 		policy = SCHED_FIFO;
-	prio = ceiling;
+	prio = boost;
   }
-  return(sched_set_policy(rmp, policy, prio));
+  r = sched_set_policy(rmp, policy, prio);
+
+  /* One that VFS has not given to its scheduler yet (EBADEPT, see
+   * do_sched_param()) starts with it.
+   */
+  level = (policy == SCHED_OTHER) ? -1 : prio;
+  if ((r == OK || r == EBADEPT) && level != pi->level) {
+	pi->level = level;
+	if (pi->on >= 0)
+		inherit_update(&mproc[pi->on]);
+  }
+  return(r);
 }
 
 /*===========================================================================*
@@ -271,6 +289,149 @@ do_sched_protect(void)
 }
 
 /*===========================================================================*
+ *				inherit_update		       	     	     *
+ *===========================================================================*/
+static void
+inherit_update(struct mproc *rmp)
+{
+/* The threads waiting for 'rmp' have changed, or their priorities: have it
+ * run at the highest of these.  That goes on down a chain of threads each
+ * waiting for the next, as far as a cycle (a deadlock) lets it.
+ */
+  static int depth;
+  struct mproc *t;
+  int slot = (int)(rmp - mproc), inherited = -1;
+
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+	if ((t->mp_flags & IN_USE) && mpinherit[t - mproc].on == slot &&
+	    mpinherit[t - mproc].level > inherited)
+		inherited = mpinherit[t - mproc].level;
+  }
+  if (inherited == mpinherit[slot].inherited || depth >= INHERIT_DEPTH)
+	return;
+  mpinherit[slot].inherited = inherited;
+  depth++;
+  (void) sched_set_effective(rmp, rmp->mp_policy, rmp->mp_rtprio);
+  depth--;
+}
+
+/*===========================================================================*
+ *				inherit_stop		       	     	     *
+ *===========================================================================*/
+static void
+inherit_stop(struct mproc *rmp)
+{
+/* 'rmp' no longer waits for a mutex. */
+  struct pm_inherit *pi = &mpinherit[rmp - mproc];
+  int on = pi->on;
+
+  if (on < 0)
+	return;
+  pi->on = -1;
+  inherit_update(&mproc[on]);
+}
+
+/*===========================================================================*
+ *				do_sched_inherit		       	     *
+ *===========================================================================*/
+int
+do_sched_inherit(void)
+{
+/* Perform _sched_inherit(2), which libpthread calls for PTHREAD_PRIO_INHERIT
+ * mutexes, identified by the address of their owner word: WAIT before the
+ * caller parks on one, which thread 'lid' holds, DONE once it is awake, and
+ * RELEASE when the caller unlocks one.  A thread runs at the highest
+ * priority of those waiting for it (POSIX), as long as they wait for it,
+ * which a thread in the same process may well have without being root.
+ *
+ * The owner may have unlocked the mutex, and asked for RELEASE, since the
+ * caller saw it as the owner: PM asks for each call in turn, so if the word
+ * still says what the caller saw, the RELEASE is still to come.  If not, the
+ * WAIT is EAGAIN.
+ */
+  struct pm_inherit *pi = &mpinherit[mp - mproc];
+  struct mproc *owner, *t;
+  vir_bytes key, word;
+  int proc_nr, r;
+
+  key = m_in.m_lc_pm_inherit.key;
+  switch (m_in.m_lc_pm_inherit.op) {
+  case SCHED_INHERIT_WAIT:
+	if (pm_isokendpt(m_in.m_lc_pm_inherit.lid, &proc_nr) != OK)
+		return(ESRCH);
+	owner = &mproc[proc_nr];
+	if (owner == mp || (owner->mp_flags & (IN_USE | EXITING |
+	    MP_LWP_TEARDOWN)) != IN_USE || process_of(owner) != process_of(mp))
+		return(ESRCH);
+	if ((r = sys_datacopy(who_e, key, PM_PROC_NR, (vir_bytes) &word,
+	    sizeof(word))) != OK)
+		return(r);
+	if (word != m_in.m_lc_pm_inherit.owner)
+		return(EAGAIN);
+	inherit_stop(mp);
+	pi->on = proc_nr;
+	pi->key = key;
+	inherit_update(owner);
+	return(OK);
+
+  case SCHED_INHERIT_DONE:
+	inherit_stop(mp);
+	return(OK);
+
+  case SCHED_INHERIT_RELEASE:
+	/* Its waiters are awake, or about to be; whichever of them does not
+	 * get it waits again, for the next owner.
+	 */
+	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
+		if ((t->mp_flags & IN_USE) &&
+		    mpinherit[t - mproc].on == (int)(mp - mproc) &&
+		    mpinherit[t - mproc].key == key)
+			mpinherit[t - mproc].on = -1;
+	}
+	inherit_update(mp);
+	return(OK);
+
+  default:
+	return(EINVAL);
+  }
+}
+
+/*===========================================================================*
+ *				sched_inherit_init		       	     *
+ *===========================================================================*/
+void
+sched_inherit_init(struct mproc *rmp)
+{
+/* 'rmp' is new, or starts over (exec), with its own policy: it waits for no
+ * mutex, and no thread waits for it.
+ */
+  struct pm_inherit *pi = &mpinherit[rmp - mproc];
+
+  pi->on = -1;
+  pi->inherited = -1;
+  pi->level = (rmp->mp_policy == SCHED_OTHER) ? -1 : rmp->mp_rtprio;
+}
+
+/*===========================================================================*
+ *				sched_inherit_exit		       	     *
+ *===========================================================================*/
+void
+sched_inherit_exit(struct mproc *rmp)
+{
+/* 'rmp' is going: those waiting for it wait for no one, and the one it waits
+ * for, if any, no longer inherits its priority.
+ */
+  struct mproc *t;
+  int slot = (int)(rmp - mproc);
+
+  inherit_stop(rmp);
+  for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++)
+	if (mpinherit[t - mproc].on == slot)
+		mpinherit[t - mproc].on = -1;
+  mpinherit[slot].inherited = -1;
+}
+
+/*===========================================================================*
  *				set_affinity			       	     *
  *===========================================================================*/
 static int
@@ -368,16 +529,18 @@ do_sched_affinity(void)
 void
 sched_protect_reset(struct mproc *rmp)
 {
-/* 'rmp' holds no PTHREAD_PRIO_PROTECT mutex any more (exec): back to its own
- * priority.
+/* 'rmp' holds no PTHREAD_PRIO_PROTECT or PTHREAD_PRIO_INHERIT mutex any more
+ * (exec): back to its own priority.
  */
   struct pm_protect *pp = &mpprotect[rmp - mproc];
+  int boosted;
 
+  boosted = (pp->ceiling >= 0 || mpinherit[rmp - mproc].inherited >= 0);
   pp->depth = 0;
-  if (pp->ceiling < 0)
-	return;
   pp->ceiling = -1;
-  (void) sched_set_effective(rmp, rmp->mp_policy, rmp->mp_rtprio);
+  sched_inherit_exit(rmp);
+  if (boosted)
+	(void) sched_set_effective(rmp, rmp->mp_policy, rmp->mp_rtprio);
 }
 
 /*===========================================================================*

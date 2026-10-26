@@ -15,6 +15,7 @@
 #define MAX_SECS	( (clock_t) (TMRDIFF_MAX/system_hz) )
 				/* max.secs for setitimer() ((2^31-1)/HZ) */
 #define NR_ITIMERS	   3	/* number of supported interval timers */
+#define INHERIT_DEPTH	  16	/* longest chain priority inheritance follows */
 
 #define SEND_PRIORITY      1	/* send current priority queue to scheduler */
 #define SEND_TIME_SLICE    2    /* send current time slice to scheduler */

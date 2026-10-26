@@ -82,8 +82,9 @@
 #define PM_LWP_WAKEUP		(PM_BASE + 69)	/* _lwp_wakeup(2) — interrupt a thread */
 #define PM_SCHED_PROTECT	(PM_BASE + 70)	/* _sched_protect(2): mutex ceiling */
 #define PM_SCHED_AFFINITY	(PM_BASE + 71)	/* _sched_[gs]etaffinity(2) */
+#define PM_SCHED_INHERIT	(PM_BASE + 72)	/* _sched_inherit(2): mutex owner */
 
-#define NR_PM_CALLS		72	/* highest number from base plus one */
+#define NR_PM_CALLS		73	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *
