@@ -27,3 +27,17 @@ _lwp_wait(lwpid_t wait_for, lwpid_t *departed)
 		*departed = (lwpid_t) m.m_pm_lc_lwp.lwpid;
 	return 0;
 }
+
+/*
+ * Detach the LWP 'lwp': it can no longer be joined, and PM frees it as it
+ * exits, or now if it has exited already.  The message is _lwp_wait()'s.
+ */
+int
+_lwp_detach(lwpid_t lwp)
+{
+	message m;
+
+	memset(&m, 0, sizeof(m));
+	m.m_lc_pm_lwp_wait.wait_for = (int32_t) lwp;
+	return _syscall(PM_PROC_NR, PM_LWP_DETACH, &m);
+}

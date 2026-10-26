@@ -781,6 +781,59 @@ do_lwp_wait(void)
 }
 
 /*===========================================================================*
+ *				do_lwp_detach				     *
+ *===========================================================================*/
+int
+do_lwp_detach(void)
+{
+/* Detach a thread (LWP) of the caller's process: no one may join it any more,
+ * and it frees its slot as it exits.  One that has exited already, a zombie, is
+ * reaped now.  A thread joining it is told there is no such thread, as it is if
+ * it joins it from now on.
+ */
+  struct mproc *t, *joiner;
+  endpoint_t target;
+  int i;
+
+  if (mp->mp_lwp_group == NO_LWP_GROUP)
+	return ESRCH;			/* not a threaded process */
+
+  target = (endpoint_t) m_in.m_lc_pm_lwp_wait.wait_for;
+
+  /* As for do_lwp_wait(), by endpoint, for that keeps a zombie's. */
+  for (i = 0; i < NR_PROCS; i++) {
+	t = &mproc[i];
+	if ((t->mp_flags & IN_USE) && t->mp_endpoint == target &&
+	    t->mp_lwp_group == mp->mp_lwp_group)
+		break;
+  }
+  if (i == NR_PROCS)
+	return ESRCH;
+  if (t->mp_flags & MP_LWP_DETACHED)
+	return EINVAL;
+
+  if (t->mp_flags & MP_LWP_ZOMBIE) {
+	t->mp_pid = 0;
+	t->mp_flags = 0;
+	procs_in_use--;
+	return OK;
+  }
+  t->mp_flags |= MP_LWP_DETACHED;
+
+  for (i = 0; i < NR_PROCS; i++) {
+	joiner = &mproc[i];
+	if ((joiner->mp_flags & MP_LWP_JOINING) &&
+	    joiner->mp_lwp_group == mp->mp_lwp_group &&
+	    joiner->mp_lwp_jointgt == target) {
+		joiner->mp_flags &= ~MP_LWP_JOINING;
+		joiner->mp_lwp_jointgt = 0;
+		reply(i, ESRCH);
+	}
+  }
+  return OK;
+}
+
+/*===========================================================================*
  *				lwp_unpark_one				     *
  *===========================================================================*/
 static int
