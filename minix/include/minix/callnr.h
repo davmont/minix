@@ -83,8 +83,9 @@
 #define PM_SCHED_PROTECT	(PM_BASE + 70)	/* _sched_protect(2): mutex ceiling */
 #define PM_SCHED_AFFINITY	(PM_BASE + 71)	/* _sched_[gs]etaffinity(2) */
 #define PM_SCHED_INHERIT	(PM_BASE + 72)	/* _sched_inherit(2): mutex owner */
+#define PM_LWP_DETACH		(PM_BASE + 73)	/* _lwp_detach(2) — detach a thread */
 
-#define NR_PM_CALLS		73	/* highest number from base plus one */
+#define NR_PM_CALLS		74	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *

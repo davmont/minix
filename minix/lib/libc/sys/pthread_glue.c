@@ -6,8 +6,8 @@
  * as stubs, _sys_<call> raw-syscall variants as thin wrappers over the normal
  * libc entry points, and a few public POSIX functions MINIX libc is missing.
  *
- * NOT covered here: _lwp_wait(2) (real PM call, see _lwp_wait.c) and per-thread
- * signals/_lwp_kill (lwp_stubs.c).
+ * NOT covered here: _lwp_wait(2) and _lwp_detach(2) (real PM calls, see
+ * _lwp_wait.c) and per-thread signals/_lwp_kill (lwp_stubs.c).
  *
  * TODO: CPU affinity (_sched_[gs]etaffinity).
  */
@@ -54,12 +54,6 @@ int _lwp_ctl(int f, struct lwpctl **a)
 	return 0;
 }
 
-/*
- * Detach: in our model a thread is created detached or joinable via the
- * _lwp_create() flags; runtime re-detach is a no-op for now (the thread will be
- * reaped on exit if detached, else it waits for a join).
- */
-int _lwp_detach(lwpid_t l)			{ (void)l; return 0; }
 
 
 /* --- Public POSIX functions MINIX libc is missing. --- */

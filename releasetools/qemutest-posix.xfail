@@ -190,7 +190,6 @@ interfaces/pthread_create/14-1                           flaky  # wedge when PM 
 
 # interfaces/pthread_detach
 interfaces/pthread_detach/1-1                            # fail
-interfaces/pthread_detach/1-2                            flaky  # _lwp_detach() is a stub: joins a detached thread unless it was already a zombie
 
 # interfaces/pthread_equal
 interfaces/pthread_equal/2-1                             # timeout
