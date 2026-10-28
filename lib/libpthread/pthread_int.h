@@ -300,6 +300,87 @@ __dead void	pthread__cancelled(void) PTHREAD_HIDE;
 void	pthread__mutex_deferwake(pthread_t, pthread_mutex_t *,
     struct pthread__waiter *) PTHREAD_HIDE;
 int	pthread__checkpri(int) PTHREAD_HIDE;
+
+#ifdef __minix
+/*
+ * Process-shared objects (PTHREAD_PROCESS_SHARED, pthread_pshared.c): what
+ * a pthread_mutex_t, pthread_cond_t, pthread_rwlock_t or pthread_barrier_t
+ * holds instead when it is one.  It has a magic of its own and no pointers:
+ * it is the same object in every process that maps it.  The threads blocked
+ * on it wait in the IPC server, under the id it keeps.
+ */
+#define	_PT_MUTEX_PSHARED_MAGIC		0x33330013
+#define	_PT_COND_PSHARED_MAGIC		0x55550015
+#define	_PT_RWLOCK_PSHARED_MAGIC	0x99990019
+#define	_PT_BARRIER_PSHARED_MAGIC	0x88880018
+
+struct pthread__pmutex {
+	unsigned int	pm_magic;
+	int		pm_id;
+	volatile unsigned int pm_word;	/* 0 free, 1 locked, 2 and waiters */
+	volatile lwpid_t pm_owner;	/* lwpid: unique in the system */
+	unsigned int	pm_recursed;
+	unsigned char	pm_type;
+	unsigned char	pm_proto;
+	unsigned char	pm_ceiling;
+};
+
+struct pthread__pcond {
+	unsigned int	pc_magic;
+	int		pc_id;
+	volatile unsigned int pc_seq;	/* bumped by each signal, broadcast */
+	volatile unsigned int pc_waiters;
+	int		pc_clock;
+};
+
+struct pthread__prwlock {
+	unsigned int	pr_magic;
+	int		pr_id;
+	volatile unsigned int pr_lock;	/* as pm_word, for the fields below */
+	unsigned int	pr_readers;
+	lwpid_t		pr_writer;
+	unsigned int	pr_rwaiters;
+	unsigned int	pr_wwaiters;
+	volatile unsigned int pr_rseq;
+	volatile unsigned int pr_wseq;
+};
+
+struct pthread__pbarrier {
+	unsigned int	pb_magic;
+	int		pb_id;
+	volatile unsigned int pb_lock;
+	unsigned int	pb_count;
+	unsigned int	pb_cur;
+	volatile unsigned int pb_gen;
+};
+
+int	pthread__pmutex_init(pthread_mutex_t *, int, int, int) PTHREAD_HIDE;
+int	pthread__pmutex_destroy(pthread_mutex_t *) PTHREAD_HIDE;
+int	pthread__pmutex_lock(pthread_mutex_t *, const struct timespec *)
+    PTHREAD_HIDE;
+int	pthread__pmutex_trylock(pthread_mutex_t *) PTHREAD_HIDE;
+int	pthread__pmutex_unlock(pthread_mutex_t *) PTHREAD_HIDE;
+int	pthread__pmutex_held(pthread_mutex_t *) PTHREAD_HIDE;
+int	pthread__pmutex_getprioceiling(const pthread_mutex_t *, int *)
+    PTHREAD_HIDE;
+int	pthread__pmutex_setprioceiling(pthread_mutex_t *, int, int *)
+    PTHREAD_HIDE;
+int	pthread__pcond_init(pthread_cond_t *, clockid_t) PTHREAD_HIDE;
+int	pthread__pcond_destroy(pthread_cond_t *) PTHREAD_HIDE;
+int	pthread__pcond_timedwait(pthread_cond_t *, pthread_mutex_t *,
+    const struct timespec *) PTHREAD_HIDE;
+int	pthread__pcond_signal(pthread_cond_t *, int) PTHREAD_HIDE;
+int	pthread__prwlock_init(pthread_rwlock_t *) PTHREAD_HIDE;
+int	pthread__prwlock_destroy(pthread_rwlock_t *) PTHREAD_HIDE;
+int	pthread__prwlock_rdlock(pthread_rwlock_t *, const struct timespec *,
+    int) PTHREAD_HIDE;
+int	pthread__prwlock_wrlock(pthread_rwlock_t *, const struct timespec *,
+    int) PTHREAD_HIDE;
+int	pthread__prwlock_unlock(pthread_rwlock_t *) PTHREAD_HIDE;
+int	pthread__pbarrier_init(pthread_barrier_t *, unsigned int) PTHREAD_HIDE;
+int	pthread__pbarrier_destroy(pthread_barrier_t *) PTHREAD_HIDE;
+int	pthread__pbarrier_wait(pthread_barrier_t *) PTHREAD_HIDE;
+#endif
 int	pthread__add_specific(pthread_t, pthread_key_t, const void *) PTHREAD_HIDE;
 
 #ifndef pthread__smt_pause

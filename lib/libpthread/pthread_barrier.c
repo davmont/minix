@@ -40,6 +40,13 @@ __RCSID("$NetBSD: pthread_barrier.c,v 1.23 2022/02/12 14:59:32 riastradh Exp $")
 #include "pthread.h"
 #include "pthread_int.h"
 
+#ifdef __minix
+#define	BARRIER_IS_PSHARED(b)	\
+    __predict_false((b)->ptb_magic == _PT_BARRIER_PSHARED_MAGIC)
+/* ptba_private: non-NULL for PTHREAD_PROCESS_SHARED. */
+#define	BARRIERATTR_PSHARED	((void *)1)
+#endif
+
 int
 pthread_barrier_init(pthread_barrier_t *barrier,
 		     const pthread_barrierattr_t *attr, unsigned int count)
@@ -50,6 +57,10 @@ pthread_barrier_init(pthread_barrier_t *barrier,
 	if (count == 0)
 		return EINVAL;
 
+#ifdef __minix
+	if (attr != NULL && attr->ptba_private == BARRIERATTR_PSHARED)
+		return pthread__pbarrier_init(barrier, count);
+#endif
 	barrier->ptb_magic = _PT_BARRIER_MAGIC;
 	PTQ_INIT(&barrier->ptb_waiters);
 	barrier->ptb_initcount = count;
@@ -62,6 +73,10 @@ int
 pthread_barrier_destroy(pthread_barrier_t *barrier)
 {
 
+#ifdef __minix
+	if (BARRIER_IS_PSHARED(barrier))
+		return pthread__pbarrier_destroy(barrier);
+#endif
 	pthread__error(EINVAL, "Invalid barrier",
 	    barrier->ptb_magic == _PT_BARRIER_MAGIC);
 	if (barrier->ptb_curcount != 0)
@@ -79,6 +94,10 @@ pthread_barrier_wait(pthread_barrier_t *barrier)
 	pthread_t self;
 	unsigned int gen;
 
+#ifdef __minix
+	if (BARRIER_IS_PSHARED(barrier))
+		return pthread__pbarrier_wait(barrier);
+#endif
 	pthread__error(EINVAL, "Invalid barrier",
 	    barrier->ptb_magic == _PT_BARRIER_MAGIC);
 
@@ -132,7 +151,12 @@ pthread_barrierattr_getpshared(const pthread_barrierattr_t * __restrict attr,
 	pthread__error(EINVAL, "Invalid barrier attribute",
 	    attr->ptba_magic == _PT_BARRIERATTR_MAGIC);
 
+#ifdef __minix
+	*pshared = (attr->ptba_private == BARRIERATTR_PSHARED) ?
+	    PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+#else
 	*pshared = PTHREAD_PROCESS_PRIVATE;
+#endif
 	return 0;
 }
 
@@ -145,9 +169,17 @@ pthread_barrierattr_setpshared(pthread_barrierattr_t *attr, int pshared)
 
 	switch(pshared) {
 	case PTHREAD_PROCESS_PRIVATE:
+#ifdef __minix
+		attr->ptba_private = NULL;
+#endif
 		return 0;
 	case PTHREAD_PROCESS_SHARED:
+#ifdef __minix
+		attr->ptba_private = BARRIERATTR_PSHARED;
+		return 0;
+#else
 		return ENOSYS;
+#endif
 	}
 	return EINVAL;
 }
@@ -158,6 +190,9 @@ pthread_barrierattr_init(pthread_barrierattr_t *attr)
 {
 
 	attr->ptba_magic = _PT_BARRIERATTR_MAGIC;
+#ifdef __minix
+	attr->ptba_private = NULL;
+#endif
 	return 0;
 }
 

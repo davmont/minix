@@ -80,6 +80,9 @@ SRCS+=	${PTHREAD_MAKELWP}
 SRCS+=	pthread_misc.c
 SRCS+=	pthread_mutex.c
 SRCS+=	pthread_once.c
+.if defined(__MINIX)
+SRCS+=	pthread_pshared.c
+.endif
 SRCS+=	pthread_rwlock.c
 SRCS+=	pthread_specific.c
 SRCS+=	pthread_spin.c

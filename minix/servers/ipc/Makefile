@@ -1,6 +1,6 @@
 # Makefile for IPC server
 PROG=	ipc
-SRCS=	main.c utility.c shm.c posix_shm.c sem.c mqueue.c psem.c
+SRCS=	main.c utility.c shm.c posix_shm.c sem.c mqueue.c psem.c psync.c
 
 DPADD+=	${LIBSYS} ${LIBTIMERS}
 LDADD+=	-lsys -ltimers

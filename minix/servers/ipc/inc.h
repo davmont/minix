@@ -46,6 +46,7 @@
 void update_sem_sub(int);
 void update_mq_sub(int);
 void update_psem_sub(int);
+void update_psync_sub(int);
 
 /* shm.c */
 int do_shmget(message *);
@@ -80,6 +81,13 @@ int do_psem_wait(message *);
 int do_psem_post(message *);
 int do_psem_getvalue(message *);
 void psem_process_event(endpoint_t, int);
+
+/* psync.c */
+int do_psync_init(message *);
+int do_psync_destroy(message *);
+int do_psync_wait(message *);
+int do_psync_wake(message *);
+void psync_process_event(endpoint_t, int);
 
 /* sem.c */
 int do_semget(message *);
