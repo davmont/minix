@@ -40,6 +40,12 @@
 
 #include <pthread_types.h>
 
+#if defined(__minix)
+/* PTHREAD_PROCESS_SHARED works for mutexes, condition variables, rwlocks
+ * and barriers: their *attr_[gs]etpshared() are there. */
+#define	_PTHREAD_PSHARED
+#endif
+
 __BEGIN_DECLS
 #ifndef __PTHREAD_ATFORK_DECLARED
 #define __PTHREAD_ATFORK_DECLARED

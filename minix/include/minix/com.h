@@ -899,6 +899,12 @@
 #define IPC_PSEM_POST	(IPC_BASE+22)	/* sem_post() */
 #define IPC_PSEM_GETVALUE (IPC_BASE+23)	/* sem_getvalue() */
 
+/* Wait queues for process-shared pthread objects (libpthread). */
+#define IPC_PSYNC_INIT	(IPC_BASE+24)	/* a new object: its id */
+#define IPC_PSYNC_DESTROY (IPC_BASE+25)	/* the object is gone */
+#define IPC_PSYNC_WAIT	(IPC_BASE+26)	/* block while a word is unchanged */
+#define IPC_PSYNC_WAKE	(IPC_BASE+27)	/* wake waiters: how many woke */
+
 /*===========================================================================*
  *                Messages for Scheduling				     *
  *===========================================================================*/

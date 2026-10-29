@@ -89,6 +89,13 @@ rw_cas(pthread_rwlock_t *ptr, uintptr_t o, uintptr_t n)
 	    (void *)n);
 }
 
+#ifdef __minix
+#define	RWLOCK_IS_PSHARED(ptr)	\
+    __predict_false((ptr)->ptr_magic == _PT_RWLOCK_PSHARED_MAGIC)
+/* ptra_private: non-NULL for PTHREAD_PROCESS_SHARED. */
+#define	RWLOCKATTR_PSHARED	((void *)1)
+#endif
+
 int
 pthread_rwlock_init(pthread_rwlock_t *ptr,
 	    const pthread_rwlockattr_t *attr)
@@ -99,6 +106,10 @@ pthread_rwlock_init(pthread_rwlock_t *ptr,
 	pthread__error(EINVAL, "Invalid rwlock attribute",
 	    attr == NULL || attr->ptra_magic == _PT_RWLOCKATTR_MAGIC);
 
+#ifdef __minix
+	if (attr != NULL && attr->ptra_private == RWLOCKATTR_PSHARED)
+		return pthread__prwlock_init(ptr);
+#endif
 	ptr->ptr_magic = _PT_RWLOCK_MAGIC;
 	PTQ_INIT(&ptr->ptr_rblocked);
 	PTQ_INIT(&ptr->ptr_wblocked);
@@ -115,6 +126,10 @@ pthread_rwlock_destroy(pthread_rwlock_t *ptr)
 	if (__predict_false(__uselibcstub))
 		return __libc_rwlock_destroy_stub(ptr);
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_destroy(ptr);
+#endif
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
@@ -198,6 +213,10 @@ pthread__rwlock_rdlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 	pthread_t self, writer;
 	int error, haveprio;
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_rdlock(ptr, ts, 0);
+#endif
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
@@ -309,6 +328,10 @@ pthread_rwlock_tryrdlock(pthread_rwlock_t *ptr)
 	if (__predict_false(__uselibcstub))
 		return __libc_rwlock_tryrdlock_stub(ptr);
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_rdlock(ptr, NULL, 1);
+#endif
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
@@ -339,6 +362,10 @@ pthread__rwlock_wrlock(pthread_rwlock_t *ptr, const struct timespec *ts)
 	pthread_t self;
 	int error, haveprio;
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_wrlock(ptr, ts, 0);
+#endif
 	self = pthread__self();
 	_DIAGASSERT(((uintptr_t)self & RW_FLAGMASK) == 0);
 
@@ -437,6 +464,10 @@ pthread_rwlock_trywrlock(pthread_rwlock_t *ptr)
 	if (__predict_false(__uselibcstub))
 		return __libc_rwlock_trywrlock_stub(ptr);
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_wrlock(ptr, NULL, 1);
+#endif
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
@@ -515,6 +546,10 @@ pthread_rwlock_unlock(pthread_rwlock_t *ptr)
 	if (__predict_false(__uselibcstub))
 		return __libc_rwlock_unlock_stub(ptr);
 
+#ifdef __minix
+	if (RWLOCK_IS_PSHARED(ptr))
+		return pthread__prwlock_unlock(ptr);
+#endif
 	pthread__error(EINVAL, "Invalid rwlock",
 	    ptr->ptr_magic == _PT_RWLOCK_MAGIC);
 
@@ -711,9 +746,14 @@ pthread_rwlockattr_getpshared(const pthread_rwlockattr_t * __restrict attr,
 {
 
 	pthread__error(EINVAL, "Invalid rwlock attribute",
-	    ptr->ptra_magic == _PT_RWLOCKATTR_MAGIC);
+	    attr->ptra_magic == _PT_RWLOCKATTR_MAGIC);
 
+#ifdef __minix
+	*pshared = (attr->ptra_private == RWLOCKATTR_PSHARED) ?
+	    PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+#else
 	*pshared = PTHREAD_PROCESS_PRIVATE;
+#endif
 	return 0;
 }
 
@@ -722,13 +762,21 @@ pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int pshared)
 {
 
 	pthread__error(EINVAL, "Invalid rwlock attribute",
-	    ptr->ptra_magic == _PT_RWLOCKATTR_MAGIC);
+	    attr->ptra_magic == _PT_RWLOCKATTR_MAGIC);
 
 	switch(pshared) {
 	case PTHREAD_PROCESS_PRIVATE:
+#ifdef __minix
+		attr->ptra_private = NULL;
+#endif
 		return 0;
 	case PTHREAD_PROCESS_SHARED:
+#ifdef __minix
+		attr->ptra_private = RWLOCKATTR_PSHARED;
+		return 0;
+#else
 		return ENOSYS;
+#endif
 	}
 	return EINVAL;
 }
@@ -741,6 +789,9 @@ pthread_rwlockattr_init(pthread_rwlockattr_t *attr)
 	if (attr == NULL)
 		return EINVAL;
 	attr->ptra_magic = _PT_RWLOCKATTR_MAGIC;
+#ifdef __minix
+	attr->ptra_private = NULL;
+#endif
 
 	return 0;
 }

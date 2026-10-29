@@ -3,6 +3,7 @@
 #define SEM_EVENTS	0x01	/* semaphore code wants process events */
 #define MQ_EVENTS	0x02	/* message queue code wants process events */
 #define PSEM_EVENTS	0x04	/* POSIX semaphore code wants process events */
+#define PSYNC_EVENTS	0x08	/* process-shared pthread objects want them */
 static unsigned int event_mask = 0;
 
 static int verbose = 0;
@@ -35,6 +36,10 @@ static int (* const call_vec[])(message *) = {
 	CALL(IPC_PSEM_WAIT)	= do_psem_wait,
 	CALL(IPC_PSEM_POST)	= do_psem_post,
 	CALL(IPC_PSEM_GETVALUE)	= do_psem_getvalue,
+	CALL(IPC_PSYNC_INIT)	= do_psync_init,
+	CALL(IPC_PSYNC_DESTROY)	= do_psync_destroy,
+	CALL(IPC_PSYNC_WAIT)	= do_psync_wait,
+	CALL(IPC_PSYNC_WAKE)	= do_psync_wake,
 };
 
 /*
@@ -233,6 +238,22 @@ update_psem_sub(int want_events)
 }
 
 /*
+ * Update the process event subscription mask for the process-shared pthread
+ * objects.
+ */
+void
+update_psync_sub(int want_events)
+{
+	unsigned int new_mask;
+
+	new_mask = event_mask & ~PSYNC_EVENTS;
+	if (want_events)
+		new_mask |= PSYNC_EVENTS;
+
+	update_sub(new_mask);
+}
+
+/*
  * PM sent us a process event message.  Handle it, and reply.
  */
 static void
@@ -254,6 +275,8 @@ got_proc_event(message * m)
 		mq_process_event(endpt, has_exited);
 	if (event_mask & PSEM_EVENTS)
 		psem_process_event(endpt, has_exited);
+	if (event_mask & PSYNC_EVENTS)
+		psync_process_event(endpt, has_exited);
 
 	/* Echo the request as a reply back to PM. */
 	m->m_type = PROC_EVENT_REPLY;

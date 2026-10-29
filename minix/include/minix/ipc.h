@@ -490,6 +490,26 @@ typedef struct {
 } mess_lc_ipc_psem;
 _ASSERT_MSG_SIZE(mess_lc_ipc_psem);
 
+/* IPC_PSYNC_*: a process-shared mutex, condition variable, rwlock or barrier
+ * of libpthread.  A wait blocks only while the 32-bit word at 'addr' in the
+ * caller still holds 'expected', so that a wake between the caller's check
+ * and its wait is not lost. */
+#define IPC_PSYNC_TIMED	0x1	/* wait: give up at the timeout */
+#define IPC_PSYNC_MONO	0x2	/* wait: the timeout is CLOCK_MONOTONIC */
+typedef struct {
+	uint64_t	addr;		/* wait: the word, in the caller */
+	int64_t		tv_sec;		/* wait: absolute timeout */
+	int32_t		tv_nsec;
+	int		id;		/* all but init */
+	int		chan;		/* wait, wake: the queue of the object */
+	uint32_t	expected;	/* wait: the word's value to block on */
+	int		flags;
+	int		count;		/* wake: at most so many */
+
+	uint8_t		padding[16];
+} mess_lc_ipc_psync;
+_ASSERT_MSG_SIZE(mess_lc_ipc_psync);
+
 typedef struct {
 	long		maxmsg;
 	long		msgsize;
@@ -2923,6 +2943,7 @@ typedef struct noxfer_message {
 		mess_lc_ipc_mqopen	m_lc_ipc_mqopen;
 		mess_lc_ipc_mqio	m_lc_ipc_mqio;
 		mess_lc_ipc_psem	m_lc_ipc_psem;
+		mess_lc_ipc_psync	m_lc_ipc_psync;
 		mess_ipc_lc_mq		m_ipc_lc_mq;
 		mess_lc_mib_sysctl	m_lc_mib_sysctl;
 		mess_lc_pm_exec		m_lc_pm_exec;

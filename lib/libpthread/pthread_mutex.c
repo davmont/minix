@@ -97,6 +97,13 @@ __RCSID("$NetBSD: pthread_mutex.c,v 1.83 2022/04/10 10:38:33 riastradh Exp $");
     ((int)(((uintptr_t)(x) & 0x00ff0000) >> 16))
 #define	MUTEX_SET_CEILING(x, c)	\
     (x) = (void *)(((uintptr_t)(x) & ~0x00ff0000) | ((c) << 16))
+#ifdef __minix
+#define	MUTEX_PSHARED_BIT		((uintptr_t)0x01000000)
+#define	MUTEX_PSHARED(x)		((uintptr_t)(x) & MUTEX_PSHARED_BIT)
+/* A process-shared mutex (pthread_pshared.c). */
+#define	MUTEX_IS_PSHARED(ptm)		\
+    __predict_false((ptm)->ptm_magic == _PT_MUTEX_PSHARED_MAGIC)
+#endif
 
 #if __GNUC_PREREQ__(3, 0)
 #define	NOINLINE		__attribute ((noinline))
@@ -157,6 +164,11 @@ pthread_mutex_init(pthread_mutex_t *ptm, const pthread_mutexattr_t *attr)
 		type = MUTEX_GET_TYPE(val);
 		proto = MUTEX_GET_PROTOCOL(val);
 		ceil = MUTEX_GET_CEILING(val);
+#ifdef __minix
+		if (MUTEX_PSHARED(val))
+			return pthread__pmutex_init(ptm, (int)type, (int)proto,
+			    (int)ceil);
+#endif
 	}
 	switch (type) {
 	case PTHREAD_MUTEX_ERRORCHECK:
@@ -202,6 +214,10 @@ pthread_mutex_destroy(pthread_mutex_t *ptm)
 	if (__predict_false(__uselibcstub))
 		return __libc_mutex_destroy_stub(ptm);
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_destroy(ptm);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 	pthread__error(EBUSY, "Destroying locked mutex",
@@ -220,6 +236,10 @@ pthread_mutex_lock(pthread_mutex_t *ptm)
 	if (__predict_false(__uselibcstub))
 		return __libc_mutex_lock_stub(ptm);
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_lock(ptm, NULL);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -240,6 +260,10 @@ pthread_mutex_timedlock(pthread_mutex_t* ptm, const struct timespec *ts)
 	pthread_t self;
 	void *val;
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_lock(ptm, ts);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -443,6 +467,10 @@ pthread_mutex_trylock(pthread_mutex_t *ptm)
 	if (__predict_false(__uselibcstub))
 		return __libc_mutex_trylock_stub(ptm);
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_trylock(ptm);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -524,6 +552,10 @@ pthread_mutex_unlock(pthread_mutex_t *ptm)
 	if (__predict_false(__uselibcstub))
 		return __libc_mutex_unlock_stub(ptm);
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_unlock(ptm);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -768,7 +800,12 @@ pthread_mutexattr_getpshared(const pthread_mutexattr_t * __restrict attr,
 	pthread__error(EINVAL, "Invalid mutex attribute",
 		attr->ptma_magic == _PT_MUTEXATTR_MAGIC);
 
+#ifdef __minix
+	*pshared = MUTEX_PSHARED(attr->ptma_private) ?
+	    PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+#else
 	*pshared = PTHREAD_PROCESS_PRIVATE;
+#endif
 	return 0;
 }
 
@@ -781,9 +818,19 @@ pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared)
 
 	switch(pshared) {
 	case PTHREAD_PROCESS_PRIVATE:
+#ifdef __minix
+		attr->ptma_private = (void *)((uintptr_t)attr->ptma_private &
+		    ~MUTEX_PSHARED_BIT);
+#endif
 		return 0;
 	case PTHREAD_PROCESS_SHARED:
+#ifdef __minix
+		attr->ptma_private = (void *)((uintptr_t)attr->ptma_private |
+		    MUTEX_PSHARED_BIT);
+		return 0;
+#else
 		return ENOSYS;
+#endif
 	}
 	return EINVAL;
 }
@@ -802,6 +849,13 @@ pthread__mutex_deferwake(pthread_t self, pthread_mutex_t *ptm,
 
 	pthread__assert(head != NULL);
 
+#ifdef __minix
+	/* A process-shared mutex has no list of waiters to move them to. */
+	if (ptm != NULL && MUTEX_IS_PSHARED(ptm)) {
+		pthread__mutex_wakeup(self, head);
+		return;
+	}
+#endif
 	if (__predict_false(ptm == NULL ||
 	    MUTEX_OWNER(ptm->ptm_owner) != (uintptr_t)self)) {
 	    	pthread__mutex_wakeup(self, head);
@@ -843,6 +897,10 @@ int
 pthread_mutex_getprioceiling(const pthread_mutex_t *ptm, int *ceil)
 {
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_getprioceiling(ptm, ceil);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -860,6 +918,10 @@ pthread_mutex_setprioceiling(pthread_mutex_t *ptm, int ceil, int *old_ceil)
 {
 	int error;
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_setprioceiling(ptm, ceil, old_ceil);
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    ptm->ptm_magic == _PT_MUTEX_MAGIC);
 
@@ -881,6 +943,10 @@ int
 _pthread_mutex_held_np(pthread_mutex_t *ptm)
 {
 
+#ifdef __minix
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_held(ptm);
+#endif
 	return MUTEX_OWNER(ptm->ptm_owner) == (uintptr_t)pthread__self();
 }
 
@@ -888,5 +954,10 @@ pthread_t
 _pthread_mutex_owner_np(pthread_mutex_t *ptm)
 {
 
+#ifdef __minix
+	/* Only the owner's lwpid is known, perhaps in another process. */
+	if (MUTEX_IS_PSHARED(ptm))
+		return pthread__pmutex_held(ptm) ? pthread__self() : NULL;
+#endif
 	return (pthread_t)MUTEX_OWNER(ptm->ptm_owner);
 }

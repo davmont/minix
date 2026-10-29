@@ -428,7 +428,9 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 #endif /* !__minix */
 	case _SC_THREAD_PRIO_INHERIT:
 	case _SC_THREAD_PRIO_PROTECT:
+#ifndef __minix
 	case _SC_THREAD_PROCESS_SHARED:
+#endif
 		return -1;
 	case _SC_TTY_NAME_MAX:
 		return pathconf(_PATH_DEV, _PC_NAME_MAX);
@@ -438,6 +440,9 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 		return _POSIX_REALTIME_SIGNALS;
 	case _SC_RTSIG_MAX:
 		return SIGRTMAX - SIGRTMIN + 1;
+	/* libpthread's pthread_pshared.c and the IPC server's psync.c. */
+	case _SC_THREAD_PROCESS_SHARED:
+		return _POSIX_THREAD_PROCESS_SHARED;
 	case _SC_SIGQUEUE_MAX:
 		return _POSIX_SIGQUEUE_MAX;
 	case _SC_TIMER_MAX:

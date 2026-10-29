@@ -64,6 +64,22 @@ __strong_alias(__libc_cond_destroy,pthread_cond_destroy)
  */
 static struct pthread__waiter pthread__cond_dummy;
 
+#ifdef __minix
+/*
+ * A condition variable attribute keeps no memory of its own: its clock and
+ * whether it is process-shared are in ptca_private, CLOCK_REALTIME when
+ * nothing has been set.
+ */
+#define	CONDATTR_CLOCK_SET	0x100
+#define	CONDATTR_PSHARED	0x200
+#define	CONDATTR_BITS(attr)	((uintptr_t)(attr)->ptca_private)
+#define	CONDATTR_CLOCK(attr)	((CONDATTR_BITS(attr) & CONDATTR_CLOCK_SET) ? \
+    (clockid_t)(CONDATTR_BITS(attr) & 0xff) : CLOCK_REALTIME)
+
+#define	COND_IS_PSHARED(cond)	\
+    __predict_false((cond)->ptc_magic == _PT_COND_PSHARED_MAGIC)
+#endif
+
 static clockid_t
 pthread_cond_getclock(const pthread_cond_t *cond)
 {
@@ -84,15 +100,27 @@ pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
 	pthread__error(EINVAL, "Invalid condition variable attribute",
 	    (attr == NULL) || (attr->ptca_magic == _PT_CONDATTR_MAGIC));
 
+#ifdef __minix
+	if (attr != NULL && (CONDATTR_BITS(attr) & CONDATTR_PSHARED))
+		return pthread__pcond_init(cond, CONDATTR_CLOCK(attr));
+#endif
 	cond->ptc_magic = _PT_COND_MAGIC;
 	cond->ptc_waiters = NULL;
 	cond->ptc_mutex = NULL;
+#ifdef __minix
+	if (attr != NULL && (CONDATTR_BITS(attr) & CONDATTR_CLOCK_SET)) {
+#else
 	if (attr && attr->ptca_private) {
+#endif
 		cond->ptc_private = malloc(sizeof(clockid_t));
 		if (cond->ptc_private == NULL)
 			return errno;
+#ifdef __minix
+		*(clockid_t *)cond->ptc_private = CONDATTR_CLOCK(attr);
+#else
 		*(clockid_t *)cond->ptc_private =
 		    *(clockid_t *)attr->ptca_private;
+#endif
 	} else
 		cond->ptc_private = NULL;
 
@@ -106,6 +134,10 @@ pthread_cond_destroy(pthread_cond_t *cond)
 	if (__predict_false(__uselibcstub))
 		return __libc_cond_destroy_stub(cond);
 
+#ifdef __minix
+	if (COND_IS_PSHARED(cond))
+		return pthread__pcond_destroy(cond);
+#endif
 	pthread__error(EINVAL, "Invalid condition variable",
 	    cond->ptc_magic == _PT_COND_MAGIC);
 	pthread__error(EBUSY, "Destroying condition variable in use",
@@ -124,17 +156,33 @@ pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
 	struct pthread__waiter waiter, *next, *head;
 	pthread_t self;
 	int error, cancel;
-	clockid_t clkid = pthread_cond_getclock(cond);
+	clockid_t clkid;
 
 	if (__predict_false(__uselibcstub))
 		return __libc_cond_timedwait_stub(cond, mutex, abstime);
 
+#ifdef __minix
+	if (COND_IS_PSHARED(cond))
+		return pthread__pcond_timedwait(cond, mutex, abstime);
+#endif
+	clkid = pthread_cond_getclock(cond);
 	pthread__error(EINVAL, "Invalid condition variable",
 	    cond->ptc_magic == _PT_COND_MAGIC);
+#ifdef __minix
+	/* A private condition variable may go with a shared mutex, within
+	 * one process. */
+	if (mutex->ptm_magic == _PT_MUTEX_PSHARED_MAGIC) {
+		pthread__error(EPERM, "Mutex not locked in condition wait",
+		    pthread__pmutex_held(mutex));
+	} else {
+#endif
 	pthread__error(EINVAL, "Invalid mutex",
 	    mutex->ptm_magic == _PT_MUTEX_MAGIC);
 	pthread__error(EPERM, "Mutex not locked in condition wait",
 	    mutex->ptm_owner != NULL);
+#ifdef __minix
+	}
+#endif
 
 	self = pthread__self();
 	pthread__assert(self->pt_lid != 0);
@@ -234,6 +282,10 @@ pthread_cond_signal(pthread_cond_t *cond)
 	if (__predict_false(__uselibcstub))
 		return __libc_cond_signal_stub(cond);
 
+#ifdef __minix
+	if (COND_IS_PSHARED(cond))
+		return pthread__pcond_signal(cond, 0);
+#endif
 	pthread__error(EINVAL, "Invalid condition variable",
 	    cond->ptc_magic == _PT_COND_MAGIC);
 
@@ -279,6 +331,10 @@ pthread_cond_broadcast(pthread_cond_t *cond)
 	if (__predict_false(__uselibcstub))
 		return __libc_cond_broadcast_stub(cond);
 
+#ifdef __minix
+	if (COND_IS_PSHARED(cond))
+		return pthread__pcond_signal(cond, 1);
+#endif
 	pthread__error(EINVAL, "Invalid condition variable",
 	    cond->ptc_magic == _PT_COND_MAGIC);
 
@@ -314,6 +370,10 @@ int
 _pthread_cond_has_waiters_np(pthread_cond_t *cond)
 {
 
+#ifdef __minix
+	if (COND_IS_PSHARED(cond))
+		return ((struct pthread__pcond *)(void *)cond)->pc_waiters != 0;
+#endif
 	return cond->ptc_waiters != NULL;
 }
 
@@ -337,11 +397,17 @@ pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clck)
 	switch (clck) {
 	case CLOCK_MONOTONIC:
 	case CLOCK_REALTIME:
+#ifdef __minix
+		attr->ptca_private = (void *)((CONDATTR_BITS(attr) &
+		    CONDATTR_PSHARED) | CONDATTR_CLOCK_SET |
+		    ((uintptr_t)clck & 0xff));
+#else
 		if (attr->ptca_private == NULL)
 			attr->ptca_private = malloc(sizeof(clockid_t));
 		if (attr->ptca_private == NULL)
 			return errno;
 		*(clockid_t *)attr->ptca_private = clck;
+#endif
 		return 0;
 	default:
 		return EINVAL;
@@ -356,9 +422,13 @@ pthread_condattr_getclock(const pthread_condattr_t *__restrict attr,
 	pthread__error(EINVAL, "Invalid condition variable attribute",
 	    attr->ptca_magic == _PT_CONDATTR_MAGIC);
 
+#ifdef __minix
+	*clock_id = CONDATTR_CLOCK(attr);
+#else
 	if (attr == NULL || attr->ptca_private == NULL)
 		return EINVAL;
 	*clock_id = *(clockid_t *)attr->ptca_private;
+#endif
 	return 0;
 }
 
@@ -370,7 +440,9 @@ pthread_condattr_destroy(pthread_condattr_t *attr)
 	    attr->ptca_magic == _PT_CONDATTR_MAGIC);
 
 	attr->ptca_magic = _PT_CONDATTR_DEAD;
+#ifndef __minix
 	free(attr->ptca_private);
+#endif
 
 	return 0;
 }
@@ -384,7 +456,12 @@ pthread_condattr_getpshared(const pthread_condattr_t * __restrict attr,
 	pthread__error(EINVAL, "Invalid condition variable attribute",
 	    attr->ptca_magic == _PT_CONDATTR_MAGIC);
 
+#ifdef __minix
+	*pshared = (CONDATTR_BITS(attr) & CONDATTR_PSHARED) ?
+	    PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+#else
 	*pshared = PTHREAD_PROCESS_PRIVATE;
+#endif
 	return 0;
 }
 
@@ -397,9 +474,19 @@ pthread_condattr_setpshared(pthread_condattr_t *attr, int pshared)
 
 	switch(pshared) {
 	case PTHREAD_PROCESS_PRIVATE:
+#ifdef __minix
+		attr->ptca_private = (void *)(CONDATTR_BITS(attr) &
+		    ~(uintptr_t)CONDATTR_PSHARED);
+#endif
 		return 0;
 	case PTHREAD_PROCESS_SHARED:
+#ifdef __minix
+		attr->ptca_private = (void *)(CONDATTR_BITS(attr) |
+		    CONDATTR_PSHARED);
+		return 0;
+#else
 		return ENOSYS;
+#endif
 	}
 	return EINVAL;
 }

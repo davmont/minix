@@ -152,6 +152,10 @@
 					/* _r functions */
 #define	_POSIX_THREAD_SAFE_FUNCTIONS	200112L
 #ifdef __minix
+					/* PTHREAD_PROCESS_SHARED */
+#define	_POSIX_THREAD_PROCESS_SHARED	200112L
+#endif
+#ifdef __minix
 					/* thread scheduling policies */
 #define	_POSIX_THREAD_PRIORITY_SCHEDULING	200112L
 #endif
