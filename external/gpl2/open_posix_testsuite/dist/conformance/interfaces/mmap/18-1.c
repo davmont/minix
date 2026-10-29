@@ -41,7 +41,7 @@ static int set_nonroot(void)
 	setpwent();
 	/* search for the first user which is non root */
 	while ((pw = getpwent()) != NULL)
-		if (strcmp(pw->pw_name, "root"))
+		if (pw->pw_uid != 0)
 			break;
 	endpwent();
 	if (pw == NULL) {

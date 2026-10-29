@@ -411,7 +411,11 @@ yesno:		if (sysctl(mib, mib_len, &value, &len, NULL, 0) == -1)
 	case _SC_THREAD_KEYS_MAX:
 		return _POSIX_THREAD_KEYS_MAX;
 	case _SC_THREAD_STACK_MIN:
+#ifdef __minix
+		return PTHREAD_STACK_MIN;
+#else
 		return _getpagesize();
+#endif
 	case _SC_THREAD_THREADS_MAX:
 		if (sysctlgetmibinfo("kern.maxproc", &mib[0], &mib_len,
 		    NULL, NULL, NULL, SYSCTL_VERSION))	/* XXX */

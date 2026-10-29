@@ -13,8 +13,8 @@ BEGIN {
 	if (!match(name, "SIG[^_]"))
 		next;
 	number = $3;
-	if (number < 0 || number == "SIGABRT")
-		next;
+	if (number < 0 || number ~ /^SIG/)
+		next;		# an alias: SIGIOT, SIGPOLL
 	printf("\t[%s] = \"%s\",\n", name, name);
 }
 /_KERNEL/ {

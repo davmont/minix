@@ -239,10 +239,14 @@ int	pthread_setschedprio(pthread_t, int);
 
 int 	*pthread__errno(void);
 
+#if defined(_NETBSD_SOURCE) || (defined(__minix) && defined(_GNU_SOURCE))
+/* glibc has the same one. */
+int	pthread_getattr_np(pthread_t, pthread_attr_t *);
+#endif
+
 #if defined(_NETBSD_SOURCE)
 int	pthread_getaffinity_np(pthread_t, size_t, cpuset_t *);
 int	pthread_setaffinity_np(pthread_t, size_t, cpuset_t *);
-int	pthread_getattr_np(pthread_t, pthread_attr_t *);
 
 int	pthread_mutex_held_np(pthread_mutex_t *);
 pthread_t pthread_mutex_owner_np(pthread_mutex_t *);

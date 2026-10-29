@@ -89,7 +89,12 @@
  */
 #define	PTHREAD_DESTRUCTOR_ITERATIONS 	_POSIX_THREAD_DESTRUCTOR_ITERATIONS
 #define	PTHREAD_KEYS_MAX		256
+#ifdef __minix
+/* The least stack a thread may get: a signal frame and a little C fit. */
+#define	PTHREAD_STACK_MIN		16384
+#else
 /* Not yet: PTHREAD_STACK_MIN */
+#endif
 #define	PTHREAD_THREADS_MAX		_POSIX_THREAD_THREADS_MAX
 
 #ifdef __minix
