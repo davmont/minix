@@ -641,7 +641,7 @@ int do_munmap(message *m)
 	} else	addr = (vir_bytes) m->VMUM_ADDR;
 
 	if(addr % VM_PAGE_SIZE)
-		return EFAULT;
+		return m->m_type == VM_MUNMAP ? EINVAL : EFAULT;	/* POSIX */
  
 	if(m->m_type == VM_UNMAP_PHYS || m->m_type == VM_SHM_UNMAP) {
 		struct vir_region *vr;

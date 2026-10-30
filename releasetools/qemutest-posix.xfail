@@ -51,18 +51,13 @@ interfaces/mlockall/3-7                                  # fail: the same
 
 # interfaces/mmap
 interfaces/mmap/1-2                                      # fail
-interfaces/mmap/11-1                                     # fail
 interfaces/mmap/11-3                                     # fail
 interfaces/mmap/11-4                                     # fail
 interfaces/mmap/13-1                                     # fail
 interfaces/mmap/18-1                                     # fail: wants EAGAIN past RLIMIT_MEMLOCK after MCL_FUTURE; nothing is pinned
-interfaces/mmap/19-1                                     # fail
-interfaces/mmap/21-1                                     # fail
 interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
 interfaces/mmap/24-2                                     # signal
-interfaces/mmap/6-6                                      # fail
 interfaces/mmap/7-4                                      # fail
-interfaces/mmap/9-1                                      # fail
 
 # interfaces/mq_close
 interfaces/mq_close/2-1                                  # fail
@@ -79,9 +74,6 @@ interfaces/munlock/7-1                                   # unresolved: munlock()
 
 # interfaces/munmap
 interfaces/munmap/1-1                                    flaky  # signal or pass, both CPU counts
-interfaces/munmap/2-1                                    # unresolved
-interfaces/munmap/3-1                                    # fail
-interfaces/munmap/8-1                                    # fail
 
 # interfaces/nanosleep
 interfaces/nanosleep/2-1                                 # unresolved
@@ -180,14 +172,10 @@ interfaces/sem_unlink/3-1                                # unresolved
 interfaces/sem_unlink/4-1                                # fail
 
 # interfaces/shm_open
-interfaces/shm_open/11-1                                 # fail
 interfaces/shm_open/23-1                                 # unresolved
 interfaces/shm_open/28-3                                 # fail
-interfaces/shm_open/37-1                                 # fail
-interfaces/shm_open/39-2                                 # fail
 
 # interfaces/shm_unlink
-interfaces/shm_unlink/10-2                               # fail
 interfaces/shm_unlink/5-1                                # unresolved: /var full of shm_open/23-1's objects
 interfaces/shm_unlink/9-1                                # fail
 
