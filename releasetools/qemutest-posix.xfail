@@ -43,20 +43,11 @@ interfaces/fsync/7-1                                     # fail
 interfaces/killpg/1-2                                    # nobuild
 
 # interfaces/mlock
-interfaces/mlock/10-1                                    # nobuild
-interfaces/mlock/12-1                                    # nobuild
-interfaces/mlock/5-1                                     # nobuild
-interfaces/mlock/8-1                                     # nobuild
-interfaces/mlock/speculative/12-1                        # nobuild
+interfaces/mlock/5-1                                     # unresolved: mlock() of an unaligned malloc() buffer: EINVAL, as POSIX permits
 
 # interfaces/mlockall
-interfaces/mlockall/13-1                                 # nobuild
-interfaces/mlockall/13-2                                 # nobuild
-interfaces/mlockall/15-1                                 # nobuild
-interfaces/mlockall/3-6                                  # nobuild
-interfaces/mlockall/3-7                                  # nobuild
-interfaces/mlockall/8-1                                  # nobuild
-interfaces/mlockall/speculative/15-1                     # nobuild
+interfaces/mlockall/3-6                                  # fail: wants EBUSY from msync(MS_INVALIDATE) on locked pages; nothing is pinned
+interfaces/mlockall/3-7                                  # fail: the same
 
 # interfaces/mmap
 interfaces/mmap/1-2                                      # fail
@@ -64,7 +55,7 @@ interfaces/mmap/11-1                                     # fail
 interfaces/mmap/11-3                                     # fail
 interfaces/mmap/11-4                                     # fail
 interfaces/mmap/13-1                                     # fail
-interfaces/mmap/18-1                                     # nobuild
+interfaces/mmap/18-1                                     # fail: wants EAGAIN past RLIMIT_MEMLOCK after MCL_FUTURE; nothing is pinned
 interfaces/mmap/19-1                                     # fail
 interfaces/mmap/21-1                                     # fail
 interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
@@ -84,12 +75,7 @@ interfaces/mq_timedsend/5-1                              # fail
 interfaces/mq_timedsend/5-2                              # fail
 
 # interfaces/munlock
-interfaces/munlock/10-1                                  # nobuild
-interfaces/munlock/11-1                                  # nobuild
-interfaces/munlock/7-1                                   # nobuild
-
-# interfaces/munlockall
-interfaces/munlockall/5-1                                # nobuild
+interfaces/munlock/7-1                                   # unresolved: munlock() of an unaligned malloc() buffer: EINVAL, as POSIX permits
 
 # interfaces/munmap
 interfaces/munmap/1-1                                    flaky  # signal or pass, both CPU counts
@@ -103,26 +89,8 @@ interfaces/nanosleep/2-1                                 # unresolved
 # interfaces/pthread_atfork
 interfaces/pthread_atfork/3-3                            # timeout
 
-# interfaces/pthread_attr_getstack
-interfaces/pthread_attr_getstack/1-1                     # nobuild
-
-# interfaces/pthread_attr_getstacksize
-interfaces/pthread_attr_getstacksize/1-1                 # nobuild
-
 # interfaces/pthread_attr_setdetachstate
 interfaces/pthread_attr_setdetachstate/2-1               # fail
-
-# interfaces/pthread_attr_setstack
-interfaces/pthread_attr_setstack/1-1                     # nobuild
-interfaces/pthread_attr_setstack/2-1                     # nobuild
-interfaces/pthread_attr_setstack/4-1                     # nobuild
-interfaces/pthread_attr_setstack/6-1                     # nobuild
-interfaces/pthread_attr_setstack/7-1                     # nobuild
-
-# interfaces/pthread_attr_setstacksize
-interfaces/pthread_attr_setstacksize/1-1                 # nobuild
-interfaces/pthread_attr_setstacksize/2-1                 # nobuild
-interfaces/pthread_attr_setstacksize/4-1                 # nobuild
 
 # interfaces/pthread_cancel
 interfaces/pthread_cancel/1-1                            # fail
@@ -218,18 +186,12 @@ interfaces/pthread_sigmask/18-1                          # timeout
 
 # interfaces/sched_setparam
 interfaces/sched_setparam/27-1                           flaky  # timing: passed on 1 CPU, failed once on 2
-interfaces/sched_setparam/23-6                           # picks user 'toor', uid 0, to see EPERM
 interfaces/sched_setparam/25-2                           # nobuild
 interfaces/sched_setparam/25-3                           # nobuild
 interfaces/sched_setparam/25-4                           # nobuild
-interfaces/sched_setparam/26-1                           # picks user 'toor', uid 0, to see EPERM
 interfaces/sched_setparam/9-1                            # on 2 CPUs: the child reads its priority from PM after the parent has its reply
 
-# interfaces/sched_setscheduler
-interfaces/sched_setscheduler/20-1                       # picks user 'toor', uid 0, to see EPERM
-
 # interfaces/sem_open
-interfaces/sem_open/3-1                                  # fail
 interfaces/sem_open/5-1                                  # fail
 
 # interfaces/sem_post
@@ -246,8 +208,6 @@ interfaces/sem_unlink/4-1                                # fail
 interfaces/shm_open/11-1                                 # fail
 interfaces/shm_open/23-1                                 # unresolved
 interfaces/shm_open/28-3                                 # fail
-interfaces/shm_open/32-1                                 # fail
-interfaces/shm_open/34-1                                 # fail
 interfaces/shm_open/37-1                                 # fail
 interfaces/shm_open/39-2                                 # fail
 
@@ -257,18 +217,10 @@ interfaces/shm_unlink/5-1                                # unresolved: /var full
 interfaces/shm_unlink/9-1                                # fail
 
 # interfaces/sigaction
-interfaces/sigaction/16-1                                # nobuild
-interfaces/sigaction/18-19                               # nobuild
-interfaces/sigaction/19-19                               # nobuild
 interfaces/sigaction/21-1                                # fail
-interfaces/sigaction/28-19                               # nobuild
 
 # interfaces/sigpause
 interfaces/sigpause/4-1                                  # timeout
-
-# interfaces/sigqueue
-interfaces/sigqueue/12-1                                 # fail: picks user 'toor', uid 0
-interfaces/sigqueue/3-1                                  # fail: picks user 'toor', uid 0
 
 # interfaces/sigwait
 interfaces/sigwait/6-1                                   flaky  # signal or pass on 2 CPUs

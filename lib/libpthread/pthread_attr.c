@@ -402,6 +402,9 @@ pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size)
 	pthread__error(EINVAL, "Invalid attribute",
 	    attr->pta_magic == PT_ATTR_MAGIC);
 
+	if (size < (size_t)sysconf(_SC_THREAD_STACK_MIN))
+		return EINVAL;
+
 	p = pthread__attr_init_private(attr);
 	if (p == NULL)
 		return ENOMEM;

@@ -24,6 +24,11 @@ Local changes to dist/, to carry over to a newer release:
   implements for Linux only ("Must be ported to OS's other than Linux"),
   so that the tests that run on a single CPU when they can do.
 
+  The tests that drop privileges take the first user that is not uid 0,
+  as sched_getparam/6-1 does upstream, and not the first that is not
+  named "root": on NetBSD and MINIX that is toor, uid 0 as well.
+  (19 files: grep for 'pw->pw_uid != 0'.)
+
 To update: unpack a newer LTP release, replace dist/ with the same
 directories, apply the local changes above again, update the version and
 checksum here, and rebaseline.

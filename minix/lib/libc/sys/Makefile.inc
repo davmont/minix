@@ -34,7 +34,7 @@ SRCS+= kernel_utils.c sprofile.c stack_utils.c _mcontext.c
 SRCS+= _lwp_create.c _lwp_self.c _lwp_exit.c _lwp_park.c _lwp_unpark.c \
 	_lwp_wakeup.c
 SRCS+= _lwp_wait.c lwp_stubs.c pthread_glue.c sched.c timer.c mqueue.c \
-	msync.c kqueue.c
+	msync.c kqueue.c mlock.c
 
 # Emulation for missing lchflags (lchmod and lchown are in chmod.c, chown.c)
 OBJS+= lchflags.o

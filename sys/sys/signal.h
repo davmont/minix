@@ -73,6 +73,9 @@
 #define	SIGTTIN		21	/* to readers pgrp upon background tty read */
 #define	SIGTTOU		22	/* like TTIN for output if (tp->t_local&LTOSTOP) */
 #define	SIGIO		23	/* input/output possible signal */
+#ifdef __minix
+#define	SIGPOLL		SIGIO	/* pollable event (XSI), as on Linux */
+#endif
 #define	SIGXCPU		24	/* exceeded CPU time limit */
 #define	SIGXFSZ		25	/* exceeded file size limit */
 #define	SIGVTALRM	26	/* virtual time alarm */
