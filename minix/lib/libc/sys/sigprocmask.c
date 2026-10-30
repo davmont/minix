@@ -28,6 +28,9 @@ sigset_t *oset;
 	}
 	m.m_lc_pm_sigset.how = how;
 	m.m_lc_pm_sigset.set = *set;
+	/* libpthread's cancellation signal is never blocked. */
+	if (how != SIG_UNBLOCK)
+		sigdelset(&m.m_lc_pm_sigset.set, __SIGCANCEL);
   }
   if (_syscall(PM_PROC_NR, PM_SIGPROCMASK, &m) < 0) return(-1);
   if (oset != NULL) *oset = m.m_pm_lc_sigset.set;
