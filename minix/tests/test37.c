@@ -264,6 +264,10 @@ void test37b()
   if (sigdelset(&s_nokill, SIGKILL) != 0) e(8);
   s_nokill_stop = s_nokill;
   if (sigdelset(&s_nokill_stop, SIGSTOP) != 0) e(8);
+#ifdef __SIGCANCEL
+  /* libpthread's cancellation signal cannot be blocked either. */
+  if (sigdelset(&s_nokill_stop, __SIGCANCEL) != 0) e(8);
+#endif
   if (SIGSTOP >= _NSIG) e(666);
   if (SIGSTOP < _NSIG && sigdelset(&s_nokill, SIGSTOP) != 0) e(888);
 

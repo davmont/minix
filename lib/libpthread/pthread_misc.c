@@ -163,10 +163,32 @@ pthread_kill(pthread_t thread, int sig)
 	return 0;
 }
 
+#ifdef __minix
+/* The cancellation signal is never blocked: pthread_cancel() must reach an
+ * asynchronously cancelable thread whatever its mask. */
+static int
+sigmask_nocancel(int how, const sigset_t *set, sigset_t *oset)
+{
+	sigset_t s;
+
+	if (set != NULL && how != SIG_UNBLOCK &&
+	    sigismember(set, __SIGCANCEL)) {
+		s = *set;
+		sigdelset(&s, __SIGCANCEL);
+		set = &s;
+	}
+	return _sys___sigprocmask14(how, set, oset);
+}
+#endif
+
 int
 pthread_sigmask(int how, const sigset_t *set, sigset_t *oset)
 {
+#ifdef __minix
+	if (sigmask_nocancel(how, set, oset))
+#else
 	if (_sys___sigprocmask14(how, set, oset))
+#endif
 		return errno;
 	return 0;
 }
@@ -179,7 +201,7 @@ int	__sigprocmask14(int, const sigset_t *, sigset_t *);
 int
 __sigprocmask14(int how, const sigset_t *set, sigset_t *oset)
 {
-	return _sys___sigprocmask14(how, set, oset);
+	return sigmask_nocancel(how, set, oset);
 }
 #endif
 

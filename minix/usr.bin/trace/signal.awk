@@ -15,6 +15,9 @@ BEGIN {
 	number = $3;
 	if (number < 0 || number ~ /^SIG/)
 		next;		# an alias: SIGIOT, SIGPOLL
+	if (name in seen)
+		next;		# the other branch of an #ifdef: SIGRTMAX
+	seen[name] = 1;
 	printf("\t[%s] = \"%s\",\n", name, name);
 }
 /_KERNEL/ {
