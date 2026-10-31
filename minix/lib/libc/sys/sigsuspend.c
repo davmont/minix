@@ -12,6 +12,7 @@ const sigset_t *set;
 
   memset(&m, 0, sizeof(m));
   m.m_lc_pm_sigset.set = *set;
+  sigdelset(&m.m_lc_pm_sigset.set, __SIGCANCEL);	/* never blocked */
   return(_syscall(PM_PROC_NR, PM_SIGSUSPEND, &m));
 }
 

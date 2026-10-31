@@ -70,7 +70,7 @@ test161a(void)
 	go = 0;
 	if (pthread_create(&t, NULL, waiter, (void *) 200) != 0) e(3);
 	if (pthread_detach(t) != 0) e(4);
-	if ((r = pthread_join(t, NULL)) != ESRCH) e(5);
+	if ((r = pthread_join(t, NULL)) != EINVAL) e(5);	/* not joinable */
 	go = 1;
 	sleep_ms(50);
 

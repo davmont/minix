@@ -87,7 +87,14 @@
 #define	SIGPWR		32	/* power fail/restart (not reset when caught) */
 
 #define	SIGRTMIN	33	/* realtime signals: queued, lowest first */
+#ifdef __minix
+#define	SIGRTMAX	62
+/* libpthread's, for asynchronous pthread_cancel(): sigaction() refuses it,
+ * and the calls that take a signal mask leave it out. */
+#define	__SIGCANCEL	63
+#else
 #define	SIGRTMAX	63
+#endif
 
 #ifndef _KERNEL
 #include <sys/cdefs.h>

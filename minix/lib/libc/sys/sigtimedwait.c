@@ -35,6 +35,8 @@ sigtimedwait(const sigset_t * __restrict set, siginfo_t * __restrict info,
   }
   memset(&m, 0, sizeof(m));
   m.m_lc_pm_sigtimedwait.set = *set;
+  /* libpthread's cancellation signal is not for the caller to take. */
+  sigdelset(&m.m_lc_pm_sigtimedwait.set, __SIGCANCEL);
   m.m_lc_pm_sigtimedwait.info = (vir_bytes) info;
   m.m_lc_pm_sigtimedwait.timeout = (vir_bytes) timeout;
   return(_syscall(PM_PROC_NR, PM_SIGTIMEDWAIT, &m));

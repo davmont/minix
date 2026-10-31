@@ -200,6 +200,28 @@ pthread__fork_child(void)
  * to work properly (thread-specific data is an application-visible example;
  * spinlock counts for mutexes is an internal example).
  */
+#ifdef __minix
+int	__libc_sigaction_cancel(const struct sigaction *, struct sigaction *);
+
+/*
+ * pthread_cancel() of an asynchronously cancelable thread sends it the
+ * cancellation signal: the thread acts on it wherever it is, in its own code
+ * or blocked in a call that the signal interrupts.  Anyone may send the
+ * signal; only a pending cancellation, enabled and asynchronous, does
+ * anything.
+ */
+static void
+pthread__cancel_handler(int sig)
+{
+	pthread_t self = pthread__self();
+
+	if (self->pt_cancel &&
+	    (self->pt_flags & (PT_FLAG_CS_ASYNC | PT_FLAG_CS_DISABLED)) ==
+	    PT_FLAG_CS_ASYNC)
+		pthread__cancelled();
+}
+#endif
+
 void
 pthread__init(void)
 {
@@ -302,6 +324,18 @@ pthread__init(void)
 
 	/* Tell libc that we're here and it should role-play accordingly. */
 	pthread_atfork(pthread__prefork, pthread__fork_parent, pthread__fork_child);
+#ifdef __minix
+	{
+		struct sigaction sa;
+
+		/* No SA_RESTART: a blocked call is cut short. */
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = pthread__cancel_handler;
+		sigemptyset(&sa.sa_mask);
+		if (__libc_sigaction_cancel(&sa, NULL) != 0)
+			err(EXIT_FAILURE, "cancellation signal");
+	}
+#endif
 	__isthreaded = 1;
 #ifdef __minix
 	errno = serrno;
@@ -800,6 +834,12 @@ pthread_join(pthread_t thread, void **valptr)
 	if (thread == self)
 		return EDEADLK;
 
+#ifdef __minix
+	/* Not joinable: PM's _lwp_wait() would say ESRCH. */
+	if (thread->pt_flags & PT_FLAG_DETACHED)
+		return EINVAL;
+#endif
+
 	/* IEEE Std 1003.1 says pthread_join() never returns EINTR. */
 	for (;;) {
 		pthread__testcancel(self);
@@ -959,6 +999,9 @@ pthread_self(void)
 int
 pthread_cancel(pthread_t thread)
 {
+#ifdef __minix
+	int async;
+#endif
 
 	pthread__error(EINVAL, "Invalid thread",
 	    thread->pt_magic == PT_MAGIC);
@@ -969,7 +1012,17 @@ pthread_cancel(pthread_t thread)
 	thread->pt_flags |= PT_FLAG_CS_PENDING;
 	if ((thread->pt_flags & PT_FLAG_CS_DISABLED) == 0) {
 		thread->pt_cancel = 1;
+#ifdef __minix
+		async = (thread->pt_flags & PT_FLAG_CS_ASYNC) != 0;
+#endif
 		pthread_mutex_unlock(&thread->pt_lock);
+#ifdef __minix
+		if (async) {
+			if (thread == pthread__self())
+				pthread__cancelled();
+			_lwp_kill(thread->pt_lid, __SIGCANCEL);
+		} else
+#endif
 		_lwp_wakeup(thread->pt_lid);
 	} else
 		pthread_mutex_unlock(&thread->pt_lock);
