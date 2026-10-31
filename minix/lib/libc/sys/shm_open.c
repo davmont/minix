@@ -47,9 +47,26 @@ ipc_endpt(endpoint_t *pt)
 static int
 shm_path(const char *name, char *buf, size_t bufsz)
 {
+	/* POSIX: ENAMETOOLONG for a name longer than PATH_MAX, or with a
+	 * component longer than NAME_MAX, before anything else. */
+	const char *c;
+	size_t n;
+
+	if (strlen(name) >= PATH_MAX) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	for (c = name; *c != '\0'; c += n) {
+		c += strspn(c, "/");
+		if ((n = strcspn(c, "/")) > NAME_MAX) {
+			errno = ENAMETOOLONG;
+			return -1;
+		}
+	}
 	while (*name == '/')
 		name++;
-	if (*name == '\0' || strchr(name, '/') != NULL) {
+	if (*name == '\0' || strchr(name, '/') != NULL ||
+	    strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -72,7 +89,8 @@ shm_open(const char *name, int oflag, mode_t mode)
 	if (shm_path(name, path, sizeof(path)) < 0)
 		return -1;
 
-	if ((fd = open(path, oflag, mode)) < 0)
+	/* POSIX: the descriptor has FD_CLOEXEC set. */
+	if ((fd = open(path, oflag | O_CLOEXEC, mode)) < 0)
 		return -1;
 	if (fstat(fd, &st) < 0)
 		goto fail;
