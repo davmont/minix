@@ -213,6 +213,7 @@
 ./usr/libdata/debug/service/readclock.drv.debug         minix-debug     debug
 ./usr/libdata/debug/service/rs.debug                    minix-debug     debug
 ./usr/libdata/debug/service/sched.debug                 minix-debug     debug
+./usr/libdata/debug/service/tmpfs.debug                 minix-debug     debug
 ./usr/libdata/debug/service/tty.debug                   minix-debug     debug
 ./usr/libdata/debug/service/uds.debug                   minix-debug     debug
 ./usr/libdata/debug/service/usb_hub.debug               minix-debug     debug
