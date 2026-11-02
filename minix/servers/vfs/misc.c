@@ -511,6 +511,13 @@ int dupvm(struct fproc *rfp, int pfd, int *vmfd, struct filp **newfilp)
 		return EBADF;
 	}
 
+	/* Any mapping reads the file: EACCES, as POSIX has it, if it is not
+	 * open for reading. */
+	if (!(f->filp_mode & R_BIT)) {
+		unlock_filp(f);
+		return EACCES;
+	}
+
 	/* Only regular files and block devices can be mapped: ENODEV, as
 	 * POSIX has it, for the rest.  Check the type first: a pipe's vnode
 	 * belongs to no mounted file system (v_vmnt is NULL), and looking at

@@ -8,9 +8,11 @@
 
 /* INCLUDES HERE */
 
+#include <machine/vmparam.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <minix/rs.h>
+#include <minix/dmap.h>
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
@@ -97,9 +99,48 @@ __minix_shm_mmap(int fd, size_t len, int prot)
 	return m.m_lc_ipc_shm.retaddr;
 }
 
+/* /dev/zero, which VM cannot map as a file: an anonymous mapping, as
+ * elsewhere. */
+static int
+is_dev_zero(int fd)
+{
+	struct stat st;
+
+	return fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) &&
+	    major(st.st_rdev) == MEMORY_MAJOR && minor(st.st_rdev) == ZERO_DEV;
+}
+
+/* What POSIX has mmap() check; VM's own callers do not come this way.  As in
+ * the servers, E* are negative here.  A file mapping with neither MAP_SHARED
+ * nor MAP_PRIVATE (a bare MAP_FILE) is still taken as private, as NetBSD and
+ * older software expect. */
+static int
+mmap_check(void *addr, int flags, int fd, off_t offset)
+{
+
+	if ((flags & (MAP_SHARED | MAP_PRIVATE)) == (MAP_SHARED | MAP_PRIVATE) ||
+	    ((flags & MAP_FIXED) && ((vir_bytes)addr % PAGE_SIZE) != 0))
+		return EINVAL;
+	if (!(flags & MAP_ANON)) {
+		if (fd < 0)
+			return EBADF;
+		if (offset % PAGE_SIZE != 0)
+			return EINVAL;
+	}
+	return OK;
+}
+
 void *mmap(void *addr, size_t len, int prot, int flags,
 	int fd, off_t offset)
 {
+	void *r;
+	int e;
+
+	if ((e = mmap_check(addr, flags, fd, offset)) != OK) {
+		errno = -e;
+		return MAP_FAILED;
+	}
+
 	/*
 	 * A shared, file-backed mapping of a POSIX shm object (shm_open) cannot
 	 * use the normal file-mmap path, which copy-on-writes into private
@@ -108,17 +149,26 @@ void *mmap(void *addr, size_t len, int prot, int flags,
 	 * mappings fall through unchanged.
 	 */
 	if (fd >= 0 && (flags & MAP_SHARED) && !(flags & MAP_ANON)) {
-		void *r = __minix_shm_mmap(fd, len, prot);
+		r = __minix_shm_mmap(fd, len, prot);
 		if (r != MAP_FAILED)
 			return r;
 	}
-	return minix_mmap_for(SELF, addr, len, prot, flags, fd, offset);
+	r = minix_mmap_for(SELF, addr, len, prot, flags, fd, offset);
+	if (r == MAP_FAILED && errno == -ENODEV && !(flags & MAP_ANON) &&
+	    is_dev_zero(fd))
+		r = minix_mmap_for(SELF, addr, len, prot, flags | MAP_ANON, -1,
+		    0);
+	return r;
 }
 
 int munmap(void *addr, size_t len)
 {
 	message m;
 
+	if (len == 0 || ((vir_bytes)addr % PAGE_SIZE) != 0) {
+		errno = -EINVAL;
+		return -1;
+	}
 	memset(&m, 0, sizeof(m));
 	m.VMUM_ADDR = addr;
 	m.VMUM_LEN = len;
