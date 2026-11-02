@@ -1,17 +1,15 @@
 /*	oomprobe - shared memory must not be a way around the OOM defences
  *
- * A POSIX shm pool is anonymous memory held by the IPC server and vm_remap()ed
- * into its clients.  That ownership is what made it a hole:
+ * A POSIX shm pool is a file in the tmpfs on /var/shm, whose pages that file
+ * system -- a system service -- allocates on its users' behalf.  That makes it
+ * a way around the OOM reserve (PAF_USERMEM), which keeps the last pages for
+ * system services, unless tmpfs allocates them as user memory (MAP_USERMEM),
+ * as it does.  Its size= limit, half of memory by default, bounds it besides.
+ * A pool's mapping goes through do_mmap(), and with it RLIMIT_AS.
  *
- *   - the fault that allocates a pool page runs with the IPC server -- a system
- *     service -- as the region's owner, so the OOM reserve (PAF_USERMEM), which
- *     keeps the last pages for system services, did not apply.  A user process
- *     could reach those pages simply by asking a service to allocate for it.
- *
- *   - RLIMIT_AS is enforced in do_mmap(), but an shm mapping reaches memory
- *     through do_remap() instead, so it escaped the limit entirely.
- *
- * Both are closed by tagging the pool VR_USERMEM.  This probe is what says so:
+ * (It used to be anonymous memory of the IPC server's, vm_remap()ed into its
+ * clients, and closing both holes then took tagging the pool VR_USERMEM.)
+ * This probe is what says so:
  * it checks that a pool is bounded by RLIMIT_AS, and that a client which tries
  * to eat all of memory through shm is stopped with the system still alive --
  * still able to fork, exec and allocate.
@@ -88,7 +86,7 @@ make_pool(const char *name, size_t size)
  * would, until something refuses.  It must NOT get through all of them -- the
  * reserve has to stop it, either by refusing a mapping or by failing the fault
  * that would allocate a page (which kills the child with SIGSEGV).  Either way
- * the client is what dies, not the IPC server.
+ * the client is what dies, not the system.
  *
  * Exits with the number of chunks it managed to take, so the parent can say how
  * far it got; HOG_CHUNKS means it took everything and the hole is still open.
