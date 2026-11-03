@@ -78,7 +78,7 @@ phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len)
 		if(cbi->memmap[m].mm_base_addr < lowest) lowest = cbi->memmap[m].mm_base_addr;
 	}
 	assert(lowest != EMPTY);
-	cut_memmap(cbi, lowest, len);
+	cut_memmap(cbi, lowest, lowest + len);
 	cbi->kernel_allocated_bytes_dynamic += len;
 	return lowest;
 }
