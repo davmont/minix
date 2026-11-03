@@ -488,7 +488,14 @@ phys_bytes alloc_lowest(kinfo_t *cbi, phys_bytes len)
  * range, which faulted once a segment allocation reached the copy's 2 MB page
  * - the regression the 512->896 MB expansion exposed.)  Requires RAM above the
  * ceiling, i.e. >= ~1 GB, as the amd64 layout already assumes.
+ *
+ * The caller reaches the copy through the 0-4 GB identity map, so it must end
+ * at or below 4 GB: on a machine with RAM above 4 GB (any QEMU guest of 4 GB or
+ * more, whose top gigabytes sit above the PCI hole) the highest RAM is out of
+ * that map's reach, and the memcpy into it was a nested pagefault at boot.
  */
+#define ALLOC_HIGHEST_LIMIT	((phys_bytes)4 << 30)	/* identity map's end */
+
 phys_bytes alloc_highest(kinfo_t *cbi, phys_bytes len)
 {
     int m, best = -1;
@@ -499,8 +506,11 @@ phys_bytes alloc_highest(kinfo_t *cbi, phys_bytes len)
     assert(kernel_may_alloc);
 
     for (m = 0; m < cbi->mmap_size; m++) {
-        if (cbi->memmap[m].mm_length < len) continue;
-        top = cbi->memmap[m].mm_base_addr + cbi->memmap[m].mm_length;
+        base = cbi->memmap[m].mm_base_addr;
+        top = base + cbi->memmap[m].mm_length;
+        if (top > ALLOC_HIGHEST_LIMIT)
+            top = ALLOC_HIGHEST_LIMIT;
+        if (top < base + len) continue;	/* too small below the limit */
         if (top > best_top) { best_top = top; best = m; }
     }
     assert(best != -1);
