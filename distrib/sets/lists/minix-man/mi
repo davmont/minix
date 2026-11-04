@@ -4180,6 +4180,7 @@
 ./usr/man/man8/tcpd.8                                   minix-man       obsolete
 ./usr/man/man8/tcpdump.8                                minix-man
 ./usr/man/man8/telnetd.8                                minix-man
+./usr/man/man8/tmpfs.8                                  minix-man
 ./usr/man/man8/traceroute.8                             minix-man
 ./usr/man/man8/traceroute6.8                            minix-man       use_inet6
 ./usr/man/man8/uds.8                                    minix-man       obsolete

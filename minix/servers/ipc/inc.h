@@ -57,12 +57,6 @@ ssize_t get_shm_mib_info(struct rmib_oldp *);
 int is_shm_nil(void);
 void update_refcount_and_destroy(void);
 
-/* posix_shm.c */
-int do_shm_open(message *);
-int do_shm_map(message *);
-int do_shm_unlink(message *);
-void posix_shm_update(void);
-
 /* mqueue.c */
 int do_mq_open(message *);
 int do_mq_send(message *);

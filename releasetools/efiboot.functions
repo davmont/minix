@@ -104,13 +104,24 @@ _efi_mkimage()
 		configfile ($root)/EFI/BOOT/grub.cfg
 	EARLY
 
+	# Only the modules this GRUB has: 2.16 dropped efi_uga, for one, and
+	# grub-mkimage fails outright on a module it cannot find.
+	local m mods=""
+	for m in ${GRUB_MODULES}; do
+		if [ -f "${GRUB_LIBDIR}/${gdir}/${m}.mod" ]; then
+			mods="${mods} ${m}"
+		else
+			echo "NOTE: no GRUB module ${m} for ${gdir}; leaving it out" >&2
+		fi
+	done
+
 	"${GRUB_MKIMAGE}" \
 		--directory="${GRUB_LIBDIR}/${gdir}" \
 		--config="${early}" \
 		--prefix="/EFI/BOOT" \
 		--output="${out}" \
 		--format="${target}" \
-		${GRUB_MODULES}
+		${mods}
 }
 
 # efi_build_esp_image

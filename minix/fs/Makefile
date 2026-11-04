@@ -10,6 +10,7 @@ SUBDIR+=	vfat
 SUBDIR+=	exfat
 SUBDIR+=	procfs
 SUBDIR+=	ptyfs
+SUBDIR+=	tmpfs
 
 .  if ${MACHINE_ARCH} == "i386"
 SUBDIR+=	hgfs

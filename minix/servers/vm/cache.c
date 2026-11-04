@@ -244,7 +244,7 @@ int addcache(dev_t dev, u64_t dev_off, ino_t ino, u64_t ino_off, int flags,
         hb->dev_offset = dev_off;
         hb->ino = ino;
         hb->ino_offset = ino_off;
-	hb->flags = flags & VMSF_ONCE;
+	hb->flags = flags & (VMSF_ONCE | VMSF_PINNED);
         hb->page = pb;
         hb->page->refcount++;   /* block also referenced by cache now */
 	hb->page->flags |= PBF_INCACHE;
@@ -313,7 +313,7 @@ int cache_freepages(int pages, int evict)
 	for(cp = lru_oldest; cp && freed < pages; cp = newercp) {
 		newercp = cp->newer;
 		assert(cp->page->refcount >= 1);
-		if(cp->page->refcount == 1) {
+		if(cp->page->refcount == 1 && !(cp->flags & VMSF_PINNED)) {
 			rmcache(cp);
 			freed++;
 			skips = 0;
@@ -332,6 +332,9 @@ int cache_freepages(int pages, int evict)
 		for(cp = lru_oldest; cp && freed < pages; cp = newercp) {
 			newercp = cp->newer;
 			assert(cp->page->refcount >= 1);
+			/* Nothing else has a pinned page's contents. */
+			if(cp->flags & VMSF_PINNED)
+				continue;
 			if(cp->page->refcount == 1) {
 				/* freed since (or missed by) pass one */
 				rmcache(cp);

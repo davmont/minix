@@ -84,15 +84,14 @@ socket semantics, all of which MINIX has.
                           three-argument, printf-style form.
   07  qstorageinfo_unix.cpp  MINIX has statvfs, not statfs -- Qt already carves
                           NetBSD out of Q_OS_BSD4 for this; MINIX joins it.
-  08  qwaylandshmbackingstore.cpp  The important one.  With no memfd_create Qt
-                          falls back to a temp file and mmaps it MAP_SHARED --
-                          which MINIX cannot do for a plain file at all (a file
-                          mapping copy-on-writes into private pages, so the
-                          compositor would never see what the client painted).
-                          Use shm_open(), whose mmap is routed to the IPC server
-                          and yields genuinely shared pages.  Without this Qt
-                          connects, creates a surface, and never produces a
-                          single pixel.
+  08  qwaylandshmbackingstore.cpp  With no memfd_create Qt falls back to a
+                          temp file, which on MINIX may well be on disk, so
+                          every frame would be written out.  Use shm_open()
+                          instead: its objects are files in the tmpfs on
+                          /var/shm, in memory only, and MAP_SHARED mappings of
+                          them share the very pages.  (Before tmpfs, when a
+                          file could not be mapped MAP_SHARED at all, this
+                          patch was what let Qt show a single pixel.)
   11  qprocess_unix.cpp   Never use vfork() on MINIX.  vfork() suspends the
                           calling process and lends its address space to the
                           child until it exec()s -- unsafe in this multithreaded

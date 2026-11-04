@@ -61,16 +61,17 @@ try:
     ser.send("PS1='Q''T#'\n")
     ser.expect(r"\n" + qemutest.PROMPT, 30)
 
-    rc, o = ser.run("startlxqt > /tmp/startlxqt.log 2>&1 &", 30)
+    # In a subshell: run() appends "; echo ...", and "&;" is a syntax error.
+    rc, o = ser.run("(startlxqt > /tmp/startlxqt.log 2>&1 &)", 30)
     time.sleep(45)
     screendump("1-session.png")
     rc, o = ser.run("ps -ax | grep -E 'lxqt|wlcompd|dbus' | grep -v grep",
                     60)
     result["after_startlxqt"] = o
 
-    rc, o = ser.run("env XDG_RUNTIME_DIR=/tmp/runtime-0 "
+    rc, o = ser.run("(env XDG_RUNTIME_DIR=/tmp/runtime-0 "
                     "WAYLAND_DISPLAY=wayland-0 qterminal "
-                    "> /tmp/qterminal.log 2>&1 &", 30)
+                    "> /tmp/qterminal.log 2>&1 &)", 30)
     time.sleep(20)
     screendump("2-qterminal.png")
     rc, o = ser.run("ps -ax | grep -E 'qterminal' | grep -v grep", 60)

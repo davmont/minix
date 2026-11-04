@@ -430,16 +430,6 @@ typedef struct {
 } mess_lc_ipc_shmget;
 _ASSERT_MSG_SIZE(mess_lc_ipc_shmget);
 
-typedef struct {
-	uint64_t	dev;		/* token file device */
-	uint64_t	ino;		/* token file inode number */
-	uint64_t	size;		/* object size (bytes), for MAP */
-	int		flag;		/* IPC_SHM_MAP: nonzero = read-only */
-	void		*retaddr;	/* IPC_SHM_MAP: mapped address out */
-	uint8_t		padding[24];
-} mess_lc_ipc_shm;
-_ASSERT_MSG_SIZE(mess_lc_ipc_shm);
-
 /* IPC_MQ_OPEN */
 #define IPC_MQ_FRESH	0x1	/* the token file was just created */
 #define IPC_MQ_CREAT	0x2	/* O_CREAT: create the queue if there is none */
@@ -2939,7 +2929,6 @@ typedef struct noxfer_message {
 		mess_lc_ipc_shmctl	m_lc_ipc_shmctl;
 		mess_lc_ipc_shmdt	m_lc_ipc_shmdt;
 		mess_lc_ipc_shmget	m_lc_ipc_shmget;
-		mess_lc_ipc_shm		m_lc_ipc_shm;
 		mess_lc_ipc_mqopen	m_lc_ipc_mqopen;
 		mess_lc_ipc_mqio	m_lc_ipc_mqio;
 		mess_lc_ipc_psem	m_lc_ipc_psem;

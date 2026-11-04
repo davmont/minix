@@ -162,6 +162,15 @@ start)
     fsck -x / $fflag $fsckopts
     mount -a
 
+    # POSIX shared memory objects are files in a tmpfs on /var/shm (see
+    # shm_open(3)), unless /etc/fstab mounts something else there.
+    if ! grep -q " on /var/shm " /etc/mtab
+    then
+	mkdir -p /var/shm
+	mount -t tmpfs none /var/shm >/dev/null ||
+	    echo "Failed to mount tmpfs on /var/shm"
+    fi
+
     if [ -z "`sysenv bootramdisk`" ]
     then
 	# Unmount and free now defunct ramdisk

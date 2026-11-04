@@ -11,7 +11,6 @@
 #include <machine/vmparam.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <minix/rs.h>
 #include <minix/dmap.h>
 #include <stdarg.h>
 #include <string.h>
@@ -71,34 +70,6 @@ int minix_vfs_mmap(endpoint_t who, off_t offset, size_t len,
 	return _syscall(VM_PROC_NR, VM_VFS_MMAP, &m);
 }
 
-/*
- * POSIX shm hook.  If fd is a registered shm object (shm_open), the IPC server
- * vm_remaps its shared region into us; returns MAP_FAILED for any other fd so
- * mmap() falls through.  Kept here (not in shm_open.c) and dependency-light so
- * the receiver of a passed shm fd works without calling shm_open(), and so the
- * dynamic linker's minimal libc link does not drag in heavy objects.
- */
-static void *
-__minix_shm_mmap(int fd, size_t len, int prot)
-{
-	message m;
-	struct stat st;
-	endpoint_t pt;
-
-	if (fstat(fd, &st) < 0)
-		return MAP_FAILED;
-	if (minix_rs_lookup("ipc", &pt) != 0)
-		return MAP_FAILED;
-	memset(&m, 0, sizeof(m));
-	m.m_lc_ipc_shm.dev = st.st_dev;
-	m.m_lc_ipc_shm.ino = st.st_ino;
-	m.m_lc_ipc_shm.size = len;
-	m.m_lc_ipc_shm.flag = !(prot & PROT_WRITE);
-	if (_syscall(pt, IPC_SHM_MAP, &m) != OK)
-		return MAP_FAILED;
-	return m.m_lc_ipc_shm.retaddr;
-}
-
 /* /dev/zero, which VM cannot map as a file: an anonymous mapping, as
  * elsewhere. */
 static int
@@ -141,18 +112,6 @@ void *mmap(void *addr, size_t len, int prot, int flags,
 		return MAP_FAILED;
 	}
 
-	/*
-	 * A shared, file-backed mapping of a POSIX shm object (shm_open) cannot
-	 * use the normal file-mmap path, which copy-on-writes into private
-	 * pages.  Route it to the IPC server, which vm_remaps the shared region.
-	 * __minix_shm_mmap() returns MAP_FAILED for any non-shm fd, so ordinary
-	 * mappings fall through unchanged.
-	 */
-	if (fd >= 0 && (flags & MAP_SHARED) && !(flags & MAP_ANON)) {
-		r = __minix_shm_mmap(fd, len, prot);
-		if (r != MAP_FAILED)
-			return r;
-	}
 	r = minix_mmap_for(SELF, addr, len, prot, flags, fd, offset);
 	if (r == MAP_FAILED && errno == -ENODEV && !(flags & MAP_ANON) &&
 	    is_dev_zero(fd))
