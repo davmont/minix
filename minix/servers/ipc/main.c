@@ -20,9 +20,6 @@ static int (* const call_vec[])(message *) = {
 	CALL(IPC_SEMGET)	= do_semget,
 	CALL(IPC_SEMCTL)	= do_semctl,
 	CALL(IPC_SEMOP)		= do_semop,
-	CALL(IPC_SHM_OPEN)	= do_shm_open,
-	CALL(IPC_SHM_MAP)	= do_shm_map,
-	CALL(IPC_SHM_UNLINK)	= do_shm_unlink,
 	CALL(IPC_MQ_OPEN)	= do_mq_open,
 	CALL(IPC_MQ_SEND)	= do_mq_send,
 	CALL(IPC_MQ_RECEIVE)	= do_mq_receive,
@@ -356,7 +353,6 @@ main(int argc, char ** argv)
 
 		/* XXX there must be a better way to do this! */
 		update_refcount_and_destroy();
-		posix_shm_update();
 	}
 
 	/* NOTREACHED */

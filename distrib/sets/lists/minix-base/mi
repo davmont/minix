@@ -296,6 +296,7 @@
 ./service/readclock.drv                                 minix-base
 ./service/rs                                            minix-base
 ./service/sched                                         minix-base
+./service/tmpfs                                         minix-base
 ./service/tty                                           minix-base
 ./service/uds                                           minix-base
 ./service/usb_hub                                       minix-base

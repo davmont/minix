@@ -1,0 +1,42 @@
+.TH TMPFS 8
+.SH NAME
+tmpfs \- in-memory file system server
+.SH SYNOPSIS
+\fBmount \-t tmpfs \fR[\fB\-o \fIoptions\fR] \fBnone \fImountpoint
+.SH DESCRIPTION
+The tmpfs server keeps a file system in memory.
+Its files, directories, symbolic links and device nodes are lost when it is
+unmounted.
+File data lives in pages that VM's cache shares, so files on tmpfs can be
+mapped with
+.BR mmap (2),
+including writable MAP_SHARED mappings, and executed.
+POSIX shared memory
+.RB ( shm_open (3))
+uses a tmpfs mounted on
+.BR /var/shm .
+.PP
+The \fIoptions\fR field is a string of comma-delimited \fIkey\fB=\fIvalue\fR
+options:
+.TP 4
+\fBsize=\fIbytes\fR[\fBk\fR|\fBm\fR|\fBg\fR]
+The most file data the file system holds; by default, half of physical
+memory.
+Past that, writes fail with ENOSPC.
+.TP
+\fBnr_inodes=\fInumber\fR
+The most files, directories and other nodes; by default, as many as there
+are pages in \fBsize\fR.
+.TP
+\fBmode=\fIoctal\fR
+The root directory's permissions; by default 1777.
+.TP
+\fBuid=\fInumber\fR, \fBgid=\fInumber\fR
+The root directory's owner and group; by default 0.
+.SH LIMITATIONS
+File data is not paged out to swap, and file flags and extended attributes
+are not supported.
+.SH "SEE ALSO"
+.BR mount (8),
+.BR mmap (2),
+.BR shm_open (3)

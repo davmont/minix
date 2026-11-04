@@ -172,7 +172,7 @@ static ino_t entry_inode(struct vnode *dirp, char *name)
   if (vp == NULL) return(0);
 
   ino = vp->v_inode_nr;
-  unlock_vnode(vp);
+  if (vp != dirp) unlock_vnode(vp);	/* "." is locked already */
   put_vnode(vp);
   return(ino);
 }
@@ -252,7 +252,9 @@ static int unlink_path(char fullpath[PATH_MAX], struct vnode *start, int rmdir)
 		if (vp->v_uid != fp->fp_effuid &&
 		    dirp->v_uid != fp->fp_effuid && fp->fp_effuid != SU_UID)
 			r = EPERM;
-		unlock_vnode(vp);
+		/* "." (as for a mount point) is the directory itself, whose
+		 * lock is ours already: advance() took none. */
+		if (vp != dirp) unlock_vnode(vp);
 		put_vnode(vp);
 	} else
 		r = err_code;
@@ -350,7 +352,7 @@ static int rename_path(char name1[PATH_MAX], struct vnode *start1,
 		    old_dirp->v_uid != fp->fp_effuid &&
 		    fp->fp_effuid != SU_UID)
 			r = EPERM;
-		unlock_vnode(vp);
+		if (vp != old_dirp) unlock_vnode(vp);	/* as in unlink_path() */
 		put_vnode(vp);
 	} else
 		r = err_code;

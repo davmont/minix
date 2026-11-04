@@ -1,21 +1,15 @@
 /*	POSIX shared memory - shm_open(2), shm_unlink(3)			*/
 /*
- * MINIX has no fd-backed writable shared memory (mapping a file MAP_SHARED
- * writable copy-on-writes into private pages), so POSIX shm is implemented on
- * top of the IPC server's vm_remap mechanism - the same one SysV shm uses.
- *
- * shm_open() opens a small token file under /var/shm; its name gives the
- * object identity and its (dev, ino) key the shared region held by the IPC
- * server.  The returned fd is a real fd (mmap-able, SCM_RIGHTS-passable); its
- * mapping is redirected to the IPC region by __minix_shm_mmap(), called from
- * mmap().  See minix/servers/ipc/posix_shm.c.
+ * A shared memory object is a file under /var/shm, where the system mounts
+ * a tmpfs (as NetBSD does): its mmap(2) maps the file's pages themselves,
+ * MAP_SHARED mappings write to them, and read(2), write(2), ftruncate(2) and
+ * fstat(2) work on it as on any file.
  */
 
 #include <sys/cdefs.h>
 #include <lib.h>
 #include "namespace.h"
 
-#include <minix/rs.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -33,14 +27,8 @@ __weak_alias(shm_unlink, _shm_unlink)
 
 #define SHM_DIR		"/var/shm/"
 
-static int
-ipc_endpt(endpoint_t *pt)
-{
-	return minix_rs_lookup("ipc", pt);
-}
-
 /*
- * Map a POSIX shm name to a token-file path.  POSIX allows only a leading
+ * Map a POSIX shm name to the path of its file.  POSIX allows only a leading
  * slash and no other slashes; be lenient about leading slashes, strict about
  * embedded ones.
  */
@@ -81,56 +69,20 @@ int
 shm_open(const char *name, int oflag, mode_t mode)
 {
 	char path[PATH_MAX];
-	message m;
-	struct stat st;
-	endpoint_t pt;
-	int fd, err;
 
 	if (shm_path(name, path, sizeof(path)) < 0)
 		return -1;
 
 	/* POSIX: the descriptor has FD_CLOEXEC set. */
-	if ((fd = open(path, oflag | O_CLOEXEC, mode)) < 0)
-		return -1;
-	if (fstat(fd, &st) < 0)
-		goto fail;
-
-	if (ipc_endpt(&pt) != 0) {
-		errno = ENOSYS;
-		goto fail;
-	}
-	memset(&m, 0, sizeof(m));
-	m.m_lc_ipc_shm.dev = st.st_dev;
-	m.m_lc_ipc_shm.ino = st.st_ino;
-	if (_syscall(pt, IPC_SHM_OPEN, &m) != 0)
-		goto fail;
-
-	return fd;
-
-fail:
-	err = errno;
-	close(fd);
-	errno = err;
-	return -1;
+	return open(path, oflag | O_CLOEXEC | O_NOFOLLOW, mode);
 }
 
 int
 shm_unlink(const char *name)
 {
 	char path[PATH_MAX];
-	message m;
-	struct stat st;
-	endpoint_t pt;
 
 	if (shm_path(name, path, sizeof(path)) < 0)
 		return -1;
-	if (stat(path, &st) < 0)
-		return -1;
-	if (ipc_endpt(&pt) == 0) {
-		memset(&m, 0, sizeof(m));
-		m.m_lc_ipc_shm.dev = st.st_dev;
-		m.m_lc_ipc_shm.ino = st.st_ino;
-		(void)_syscall(pt, IPC_SHM_UNLINK, &m);
-	}
 	return unlink(path);
 }

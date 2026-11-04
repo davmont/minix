@@ -1,8 +1,8 @@
 /*
  * POSIX message queues (mq_open and co.) for the IPC server.
  *
- * As for POSIX shm (posix_shm.c), libc's mq_open() opens a token file, under
- * /var/mqueue, for the queue's name, its permissions and its identity: the
+ * libc's mq_open() opens a token file, under /var/mqueue, for the queue's
+ * name, its permissions and its identity: the
  * token's (dev, ino) keys the queue held here, and its file descriptor is the
  * mqd_t.  Descriptors are thereby inherited across fork, closed on exec (libc
  * sets FD_CLOEXEC) and passed over sockets like any other fd; the access mode

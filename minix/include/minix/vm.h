@@ -114,6 +114,8 @@ int vm_clear_cache(dev_t dev);
 
 /* setflags for vm_set_cacheblock, also used internally in VM */
 #define VMSF_ONCE		0x01	/* discard block after one-time use */
+#define VMSF_PINNED		0x02	/* the file's only copy (tmpfs): never
+					 * evict it, the file system forgets it */
 
 #endif /* _MINIX_VM_H */
 
