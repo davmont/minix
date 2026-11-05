@@ -32,7 +32,13 @@ int do_vmctl(struct proc * caller, message * m_ptr)
   switch(m_ptr->SVMCTL_PARAM) {
 	case VMCTL_CLEAR_PAGEFAULT:
 		assert(RTS_ISSET(p,RTS_PAGEFAULT));
-		RTS_UNSET(p, RTS_PAGEFAULT);
+		/* The fault did not give up the CPU: back to the head of the
+		 * queue, not behind what became runnable meanwhile (as
+		 * RTS_UNSET() would put it).
+		 */
+		p->p_rts_flags &= ~RTS_PAGEFAULT;
+		if (proc_is_runnable(p))
+			enqueue_resumed(p);
 		return OK;
 	case VMCTL_MEMREQ_GET:
 		/* Send VM the information about the memory request. We can
