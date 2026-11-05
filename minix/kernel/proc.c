@@ -59,6 +59,7 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	struct proc *dst_ptr);
 static struct proc * pick_proc(void);
 static void enqueue_head(struct proc *rp);
+static void enqueue_at(struct proc *rp, int at_head);
 
 /* all idles share the same idle_priv structure */
 static struct priv idle_priv;
@@ -2114,6 +2115,25 @@ void enqueue(
  * This function can be used x-cpu as it always uses the queues of the cpu the
  * process is assigned to.
  */
+  enqueue_at(rp, FALSE);
+}
+
+/*===========================================================================*
+ *				enqueue_resumed				     *
+ *===========================================================================*/
+void enqueue_resumed(struct proc *rp)
+{
+/* 'rp' is runnable again after an interruption it did not ask for, such as a
+ * page fault that VM has resolved: not a blocking call, after which it would
+ * go to the tail of its queue.  It goes back to the head, as a preempted
+ * process does (POSIX, for SCHED_FIFO), while it has quantum left; else, as
+ * always, to the tail.
+ */
+  enqueue_at(rp, rp->p_cpu_time_left != 0);
+}
+
+static void enqueue_at(struct proc *rp, int at_head)
+{
   int q = rp->p_priority;	 		/* scheduling queue to use */
   struct proc **rdy_head, **rdy_tail;
   reg_t _rqf = 0;			/* saved interrupt flags for RUNQ_LOCK */
@@ -2135,6 +2155,10 @@ void enqueue(
   if (!rdy_head[q]) {		/* add to empty queue */
       rdy_head[q] = rdy_tail[q] = rp; 		/* create a new queue */
       rp->p_nextready = NULL;		/* mark new end */
+  }
+  else if (at_head) {				/* add to head of queue */
+      rp->p_nextready = rdy_head[q];		/* chain head of queue */
+      rdy_head[q] = rp;				/* set new queue head */
   }
   else {					/* add to tail of queue */
       rdy_tail[q]->p_nextready = rp;		/* chain tail of queue */
