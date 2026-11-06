@@ -5,13 +5,15 @@
 #include <string.h>
 #include <unistd.h>
 
+int _sys_fdatasync(int);
+
 /*
  * MINIX implements file synchronisation at the granularity of a whole file
  * (data plus inode), so fdatasync() does the same work as fsync() -- which is
  * a correct, POSIX-conforming implementation: fsync() is a superset of
  * fdatasync(), and doing the extra (timestamp) metadata flush is always safe.
  */
-int fdatasync(int fd)
+int _sys_fdatasync(int fd)
 {
   message m;
 
@@ -20,3 +22,9 @@ int fdatasync(int fd)
 
   return(_syscall(VFS_PROC_NR, VFS_FSYNC, &m));
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(fdatasync, _sys_fdatasync)
+__weak_alias(_fdatasync, _sys_fdatasync)
+#endif

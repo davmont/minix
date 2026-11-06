@@ -40,8 +40,10 @@
 #include <errno.h>
 #include <fcntl.h>
 
+int _sys_poll(struct pollfd *, nfds_t, int);
+
 int
-poll(struct pollfd *p, nfds_t nfds, int timout)
+_sys_poll(struct pollfd *p, nfds_t nfds, int timout)
 {
 	fd_set rd, wr, except;
 	struct timeval tv, *tvp;
@@ -138,3 +140,9 @@ poll(struct pollfd *p, nfds_t nfds, int timout)
 	}
 	return rval;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(poll, _sys_poll)
+__weak_alias(_poll, _sys_poll)
+#endif

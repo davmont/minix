@@ -21,6 +21,8 @@
 #include <net/gen/udp_hdr.h>
 #include <net/gen/udp_io.h>
 
+ssize_t _sys_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
+
 #define DEBUG 0
 
 static ssize_t _tcp_sendto(int sock, const void *message, size_t length,
@@ -53,7 +55,7 @@ __sendto(int fd, const void * buffer, size_t length, int flags,
 	return _syscall(VFS_PROC_NR, VFS_SENDTO, &m);
 }
 
-ssize_t sendto(int sock, const void *message, size_t length, int flags,
+ssize_t _sys_sendto(int sock, const void *message, size_t length, int flags,
 	const struct sockaddr *dest_addr, socklen_t dest_len)
 {
 	int r;
@@ -297,3 +299,8 @@ static ssize_t _uds_sendto_dgram(int sock, const void *message, size_t length,
 	/* do the send */
 	return write(sock, message, length);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(sendto, _sys_sendto)
+#endif

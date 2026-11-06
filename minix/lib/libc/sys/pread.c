@@ -6,11 +6,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef __weak_alias
-__weak_alias(pread, _pread)
-#endif
+ssize_t _sys_pread(int, void *, size_t, off_t);
 
-ssize_t pread(int fd, void *buffer, size_t nbytes, off_t where)
+ssize_t _sys_pread(int fd, void *buffer, size_t nbytes, off_t where)
 {
   message m;
 
@@ -23,3 +21,9 @@ ssize_t pread(int fd, void *buffer, size_t nbytes, off_t where)
 
   return _syscall(VFS_PROC_NR, VFS_PREAD, &m);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(pread, _sys_pread)
+__weak_alias(_pread, _sys_pread)
+#endif

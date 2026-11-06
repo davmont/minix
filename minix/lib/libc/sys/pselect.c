@@ -21,8 +21,10 @@
 #include <signal.h>
 #include <errno.h>
 
+int _sys___pselect50(int, fd_set * __restrict, fd_set * __restrict, fd_set * __restrict, const struct timespec * __restrict, const sigset_t * __restrict);
+
 int
-pselect(int nfds, fd_set * __restrict readfds, fd_set * __restrict writefds,
+_sys___pselect50(int nfds, fd_set * __restrict readfds, fd_set * __restrict writefds,
 	fd_set * __restrict exceptfds,
 	const struct timespec * __restrict timeout,
 	const sigset_t * __restrict sigmask)
@@ -53,6 +55,8 @@ pselect(int nfds, fd_set * __restrict readfds, fd_set * __restrict writefds,
 	return r;
 }
 
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(pselect, __pselect50)
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__pselect50, _sys___pselect50)
+__weak_alias(pselect, _sys___pselect50)
 #endif

@@ -6,7 +6,9 @@
 #include <sys/time.h>
 #include <sys/select.h>
 
-int select(int nfds,
+int _sys___select50(int, fd_set *, fd_set *, fd_set *, struct timeval *);
+
+int _sys___select50(int nfds,
 	fd_set *readfds, fd_set *writefds, fd_set *errorfds,
 	struct timeval *timeout)
 {
@@ -22,7 +24,8 @@ int select(int nfds,
   return (_syscall(VFS_PROC_NR, VFS_SELECT, &m));
 }
 
-
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(select, __select50)
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__select50, _sys___select50)
+__weak_alias(select, _sys___select50)
 #endif

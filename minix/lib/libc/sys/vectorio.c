@@ -14,6 +14,9 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+ssize_t _sys_readv(int, const struct iovec *, int);
+ssize_t _sys_writev(int, const struct iovec *, int);
+
 /*
  * Return how many bytes of a vector of TOTALLEN bytes are worth passing to a
  * write to FD, with the given send(2) FLAGS: a nonblocking write to a stream
@@ -168,7 +171,7 @@ _vectorio_cleanup(const struct iovec * iov, int iovcnt, char * buffer,
  * Read a vector.
  */
 ssize_t
-readv(int fd, const struct iovec * iov, int iovcnt)
+_sys_readv(int fd, const struct iovec * iov, int iovcnt)
 {
 	char *ptr;
 	ssize_t r;
@@ -234,7 +237,7 @@ pwritev(int fd, const struct iovec * iov, int iovcnt, off_t offset)
  * Write a vector.
  */
 ssize_t
-writev(int fd, const struct iovec * iov, int iovcnt)
+_sys_writev(int fd, const struct iovec * iov, int iovcnt)
 {
 	char *ptr;
 	ssize_t r;
@@ -254,3 +257,11 @@ writev(int fd, const struct iovec * iov, int iovcnt)
 
 	return r;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(readv, _sys_readv)
+__weak_alias(_readv, _sys_readv)
+__weak_alias(writev, _sys_writev)
+__weak_alias(_writev, _sys_writev)
+#endif

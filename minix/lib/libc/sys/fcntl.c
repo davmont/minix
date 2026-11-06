@@ -6,7 +6,9 @@
 #include <fcntl.h>
 #include <stdarg.h>
 
-int fcntl(int fd, int cmd, ...)
+int _sys_fcntl(int, int, ...);
+
+int _sys_fcntl(int fd, int cmd, ...)
 {
   va_list argp;
   message m;
@@ -41,3 +43,9 @@ int fcntl(int fd, int cmd, ...)
   m.m_lc_vfs_fcntl.cmd = cmd;
   return(_syscall(VFS_PROC_NR, VFS_FCNTL, &m));
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(fcntl, _sys_fcntl)
+__weak_alias(_fcntl, _sys_fcntl)
+#endif

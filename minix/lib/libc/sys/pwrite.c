@@ -6,11 +6,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef __weak_alias
-__weak_alias(pwrite, _pwrite)
-#endif
+ssize_t _sys_pwrite(int, const void *, size_t, off_t);
 
-ssize_t pwrite(int fd, const void *buffer, size_t nbytes, off_t where)
+ssize_t _sys_pwrite(int fd, const void *buffer, size_t nbytes, off_t where)
 {
   message m;
 
@@ -23,3 +21,9 @@ ssize_t pwrite(int fd, const void *buffer, size_t nbytes, off_t where)
 
   return _syscall(VFS_PROC_NR, VFS_PWRITE, &m);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(pwrite, _sys_pwrite)
+__weak_alias(_pwrite, _sys_pwrite)
+#endif

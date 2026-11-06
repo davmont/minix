@@ -5,7 +5,9 @@
 #include <string.h>
 #include <signal.h>
 
-int sigsuspend(set)
+int _sys___sigsuspend14(const sigset_t *);
+
+int _sys___sigsuspend14(set)
 const sigset_t *set;
 {
   message m;
@@ -16,6 +18,8 @@ const sigset_t *set;
   return(_syscall(PM_PROC_NR, PM_SIGSUSPEND, &m));
 }
 
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(sigsuspend, __sigsuspend14)
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__sigsuspend14, _sys___sigsuspend14)
+__weak_alias(sigsuspend, _sys___sigsuspend14)
 #endif

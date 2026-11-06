@@ -49,11 +49,6 @@ CPPFLAGS+=	-I${.CURDIR}/../libc/stdlib
 # TLS Variant II is enabled globally on amd64 (sys/arch/amd64/include/types.h);
 # kept here harmlessly.
 CPPFLAGS+=	-D__HAVE_TLS_VARIANT_II
-# The cancellation-point stubs (pthread_cancelstub.c) wrap ~40 syscalls as
-# _sys_<call>, which MINIX libc does not provide.  Drop them: pthread_cancel()
-# then cannot interrupt a thread blocked in a syscall, but create/join/mutex/
-# cond/rwlock all work.  (Follow-up: provide MINIX cancellation points.)
-PTHREAD_CANCELSTUB=	no
 .endif
 
 # providing alternative MI implementations for creating an lwp is

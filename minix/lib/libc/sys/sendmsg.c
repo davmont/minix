@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
+ssize_t _sys_sendmsg(int, const struct msghdr *, int);
+
 #define DEBUG 0
 
 static ssize_t _uds_sendmsg_conn(int sock, const struct msghdr *msg, 
@@ -82,7 +84,7 @@ __sendmsg(int fd, const struct msghdr * msg, int flags)
 	return r;
 }
 
-ssize_t sendmsg(int sock, const struct msghdr *msg, int flags)
+ssize_t _sys_sendmsg(int sock, const struct msghdr *msg, int flags)
 {
 	int r;
 	int uds_sotype;
@@ -202,3 +204,8 @@ static ssize_t _uds_sendmsg_dgram(int sock, const struct msghdr *msg,
 	/* do the send */
 	return writev(sock, msg->msg_iov, msg->msg_iovlen);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(sendmsg, _sys_sendmsg)
+#endif

@@ -6,6 +6,9 @@
 #include <stdarg.h>
 #include <string.h>
 
+int _sys_open(const char *, int, ...);
+int _sys_openat(int, const char *, int, ...);
+
 static int __openat(int dirfd, const char *name, int flags, va_list argp)
 {
   message m;
@@ -18,7 +21,7 @@ static int __openat(int dirfd, const char *name, int flags, va_list argp)
   return (_syscall(VFS_PROC_NR, VFS_OPENAT, &m));
 }
 
-int openat(int dirfd, const char *name, int flags, ...)
+int _sys_openat(int dirfd, const char *name, int flags, ...)
 {
   va_list argp;
   int r;
@@ -29,7 +32,7 @@ int openat(int dirfd, const char *name, int flags, ...)
   return r;
 }
 
-int open(const char *name, int flags, ...)
+int _sys_open(const char *name, int flags, ...)
 {
   va_list argp;
   int r;
@@ -39,3 +42,11 @@ int open(const char *name, int flags, ...)
   va_end(argp);
   return r;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(open, _sys_open)
+__weak_alias(_open, _sys_open)
+__weak_alias(openat, _sys_openat)
+__weak_alias(_openat, _sys_openat)
+#endif
