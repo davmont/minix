@@ -42,6 +42,7 @@ extern struct minix_kerninfo *_minix_kerninfo;
 EXTERN  mem_type_t mem_type_anon,       /* anonymous memory */
         mem_type_directphys,		/* direct physical mapping memory */
 	mem_type_anon_contig,		/* physically contig anon memory */
+	mem_type_anon_shared,		/* anon memory not COW across fork */
 	mem_type_cache,			/* disk cache */
 	mem_type_mappedfile,		/* memory with file contents */
 	mem_type_shared;		/* memory shared by multiple processes */

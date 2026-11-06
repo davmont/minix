@@ -66,6 +66,10 @@ typedef struct vir_region {
 			u64_t	offset;
 			u16_t	clearend;
 		} file;
+		struct {		/* mem_type_anon_shared */
+			struct vir_region *next, *prev;	/* same object */
+			vir_bytes offset;	/* into the object */
+		} anon_shared;
 	} param;
 
 	/* AVL fields */
