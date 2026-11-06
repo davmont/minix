@@ -1653,7 +1653,8 @@ void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui)
 				vui->vui_common += VM_PAGE_SIZE;
 	
 				/* Any common, non-COW page is shared. */
-				if (vr->flags & VR_SHARED)
+				if ((vr->flags & VR_SHARED) ||
+				    vr->def_memtype == &mem_type_anon_shared)
 					vui->vui_shared += VM_PAGE_SIZE;
 			}
 		}

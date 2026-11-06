@@ -314,6 +314,8 @@ int do_mmap(message *m)
 
 		if(m->m_mmap.flags & MAP_CONTIG) {
 			mt = &mem_type_anon_contig;
+		} else if(m->m_mmap.flags & MAP_SHARED) {
+			mt = &mem_type_anon_shared;	/* not COW on fork */
 		} else	mt = &mem_type_anon;
 
 		if(!(vr = mmap_region(vmp, addr, m->m_mmap.flags, len,
@@ -473,6 +475,11 @@ int do_remap(message *m)
 		printf("VM: do_remap: not start of region.\n");
 		return EFAULT;
 	}
+
+	/* Only anonymous memory can be shared this way (see mem_shared.c);
+	 * shared_setsource() would panic on any other. */
+	if(src_region->def_memtype != &mem_type_anon)
+		return EINVAL;
 
 	if (size % VM_PAGE_SIZE)  
 		size += VM_PAGE_SIZE - size % VM_PAGE_SIZE;
