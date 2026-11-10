@@ -830,6 +830,10 @@ __strong_alias(___nanosleep50, __nanosleep50)
 __strong_alias(_open, open)
 __strong_alias(_openat, openat)
 __strong_alias(_poll, poll)
+#if defined(__minix)
+/* <poll.h> does not rename ppoll(2) to __pollts50, as it does pollts(2). */
+__strong_alias(ppoll, __pollts50)
+#endif
 __strong_alias(_pread, pread)
 __strong_alias(_pwrite, pwrite)
 __strong_alias(_read, read)

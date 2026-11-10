@@ -3,9 +3,10 @@
  * A thread whose cancellation is deferred, the default, is cancelled when it
  * reaches a cancellation point, and also while blocked in one: read(2),
  * write(2), open(2) of a FIFO, select(2), poll(2), sleep(3), nanosleep(2),
- * clock_nanosleep(2), pause(3), sigwait(3), waitpid(2), recv(2) and
- * accept(2); its cleanup handlers run.  A cancellation already pending stops
- * the call before it does anything.  A thread that has disabled cancellation
+ * clock_nanosleep(2), pause(3), sigwait(3), waitpid(2), recv(2), accept(2)
+ * and ppoll(2); its cleanup handlers run.  A cancellation already pending
+ * stops the call before it does anything: read(2) reads nothing, ppoll(2)
+ * does not install its signal mask.  A thread that has disabled cancellation
  * is not interrupted, and is cancelled at its next cancellation point once it
  * enables it again.
  */
@@ -52,10 +53,10 @@ on_cancel(void *arg)
 
 /* What the thread blocks in. */
 enum { READ, WRITE, FIFO, SELECT, POLL, SLEEP, NANOSLEEP, CLOCK_NANOSLEEP,
-	PAUSE, SIGWAIT, WAITPID, RECV, ACCEPT, NCALLS };
+	PAUSE, SIGWAIT, WAITPID, RECV, ACCEPT, PPOLL, NCALLS };
 static const char *names[NCALLS] = { "read", "write", "fifo", "select",
 	"poll", "sleep", "nanosleep", "clock_nanosleep", "pause", "sigwait",
-	"waitpid", "recv", "accept" };
+	"waitpid", "recv", "accept", "ppoll" };
 
 static void
 block_in(int call)
@@ -84,9 +85,13 @@ block_in(int call)
 		(void)select(fds[0] + 1, &set, NULL, NULL, NULL);
 		break;
 	case POLL:
+	case PPOLL:
 		pfd.fd = fds[0];
 		pfd.events = POLLIN;
-		(void)poll(&pfd, 1, -1);
+		if (call == POLL)
+			(void)poll(&pfd, 1, -1);
+		else
+			(void)ppoll(&pfd, 1, NULL, NULL);
 		break;
 	case SLEEP:
 		(void)sleep(30);
@@ -140,6 +145,7 @@ setup(int call)
 	switch (call) {
 	case FIFO:
 		if (mkfifo("fifo", 0600) != 0) e(90);
+		fds[0] = fds[1] = -1;
 		break;
 	case RECV:
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) e(91);
@@ -179,7 +185,8 @@ teardown(int call)
 {
 	int status;
 
-	close(fds[0]);
+	if (fds[0] != -1)
+		close(fds[0]);
 	if (fds[1] != -1)
 		close(fds[1]);
 	if (call == FIFO) (void)unlink("fifo");
@@ -361,6 +368,67 @@ test169d(void)
 	}
 }
 
+/* A cancellation already pending stops ppoll(2) before it installs its signal
+ * mask: the cleanup handlers run with the thread's own. */
+static volatile int masked;
+
+static void
+on_cancel_mask(void *arg)
+{
+	sigset_t cur;
+
+	if (pthread_sigmask(SIG_BLOCK, NULL, &cur) == 0)
+		masked = sigismember(&cur, SIGUSR2);
+}
+
+static void *
+pending_ppoll(void *arg)
+{
+	struct pollfd pfd;
+	sigset_t mask;
+
+	pthread_cleanup_push(on_cancel_mask, NULL);
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+	running = 1;
+	while (!go)
+		;				/* no cancellation point */
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGUSR2);
+	pfd.fd = fds[0];
+	pfd.events = POLLIN;
+	(void)ppoll(&pfd, 1, NULL, &mask);
+	pthread_cleanup_pop(0);
+	return NULL;
+}
+
+static void
+test169e(void)
+{
+	pthread_t t;
+	void *res;
+	sigset_t none;
+
+	subtest = 5;
+
+	sigemptyset(&none);
+	if (pthread_sigmask(SIG_SETMASK, &none, NULL) != 0) e(1);
+	if (pipe(fds) != 0) e(2);
+	running = go = 0;
+	masked = -1;
+	if (pthread_create(&t, NULL, pending_ppoll, NULL) != 0) e(3);
+	while (!running)
+		sleep_ms(10);
+	if (pthread_cancel(t) != 0) e(4);
+	go = 1;
+	alarm(20);
+	if (pthread_join(t, &res) != 0 || res != PTHREAD_CANCELED) e(5);
+	alarm(0);
+	if (masked != 0) e(6);			/* SIGUSR2 was blocked */
+	close(fds[0]);
+	close(fds[1]);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -371,6 +439,7 @@ main(int argc, char **argv)
 	test169b();
 	test169c();
 	test169d();
+	test169e();
 
 	quit();
 	return 0;
