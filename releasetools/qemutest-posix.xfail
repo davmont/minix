@@ -53,8 +53,6 @@ interfaces/mlockall/3-7                                  # fail: the same
 interfaces/mmap/11-4                                     # fail
 interfaces/mmap/13-1                                     # fail
 interfaces/mmap/18-1                                     # fail: wants EAGAIN past RLIMIT_MEMLOCK after MCL_FUTURE; nothing is pinned
-interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
-interfaces/mmap/24-2                                     # signal
 
 # interfaces/mq_close
 interfaces/mq_close/2-1                                  # fail
@@ -168,7 +166,6 @@ interfaces/sem_unlink/4-1                                # fail
 interfaces/shm_open/23-1                                 # unresolved
 
 # interfaces/shm_unlink
-interfaces/shm_unlink/9-1                                # fail
 
 # interfaces/sigaction
 interfaces/sigaction/21-1                                # fail

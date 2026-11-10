@@ -164,6 +164,7 @@ int map_unmap_range(struct vmproc *vmp, vir_bytes, vir_bytes);
 int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 	int prot);
 int map_free_proc(struct vmproc *vmp);
+int map_count_full(struct vmproc *vmp, int more);
 int map_proc_copy(struct vmproc *dst, struct vmproc *src);
 int map_proc_copy_range(struct vmproc *dst, struct vmproc *src, struct
 	vir_region *start_src_vr, struct vir_region *end_src_vr);

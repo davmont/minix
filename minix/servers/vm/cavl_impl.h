@@ -175,7 +175,13 @@
 
 #if (L__IMPL_MASK & AVL_IMPL_INIT)
 
-L__SC void L__(init)(L__(avl) *L__tree) { AVL_SET_ROOT(L__tree, AVL_NULL); }
+L__SC void L__(init)(L__(avl) *L__tree)
+  {
+    AVL_SET_ROOT(L__tree, AVL_NULL);
+#ifdef AVL_COUNT
+    L__tree->AVL_COUNT = 0;
+#endif
+  }
 
 #endif
 
@@ -446,6 +452,9 @@ L__SC AVL_HANDLE L__(insert)(L__(avl) *L__tree, AVL_HANDLE h)
 
       }
 
+#ifdef AVL_COUNT
+    L__tree->AVL_COUNT++;
+#endif
     return(h);
   }
 
@@ -752,6 +761,9 @@ L__SC AVL_HANDLE L__(remove)(L__(avl) *L__tree, AVL_KEY k)
         AVL_SET_ROOT(L__tree, h);
       }
 
+#ifdef AVL_COUNT
+    L__tree->AVL_COUNT--;
+#endif
     return(rm);
   }
 
