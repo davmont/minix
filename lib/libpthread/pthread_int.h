@@ -134,6 +134,10 @@ struct	__pthread_st {
 	int		pt_rwprio;	/* Priority waiting on a rwlock */
 	void * volatile	pt_sleepobj;	/* Object slept on */
 	PTQ_ENTRY(__pthread_st) pt_sleep;
+#ifdef __minix
+	volatile int	pt_cancelpt;	/* In a cancellation point: see
+					 * pthread_cancelstub.c */
+#endif
 
 	/* Thread-specific data.  Large so it sits close to the end. */
 	int		pt_havespecific __aligned(COHERENCY_UNIT);

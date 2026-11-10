@@ -5,12 +5,14 @@
 #include <sys/mman.h>
 #include <string.h>
 
+int _sys___msync13(void *, size_t, int);
+
 /*
  * msync(2).  Shared mappings of a file write to the file system's own cache
  * of it, so VM has the file flushed for MS_SYNC, and nothing to do else.
  */
 int
-__msync13(void *addr, size_t len, int flags)
+_sys___msync13(void *addr, size_t len, int flags)
 {
 	message m;
 
@@ -21,3 +23,8 @@ __msync13(void *addr, size_t len, int flags)
 
 	return _syscall(VM_PROC_NR, VM_MSYNC, &m);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__msync13, _sys___msync13)
+#endif

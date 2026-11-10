@@ -12,6 +12,8 @@
 #include <sys/select.h>
 #include <sys/time.h>
 
+int _sys___nanosleep50(const struct timespec *, struct timespec *);
+
 #define MSEC_PER_SEC 1000
 #define USEC_PER_MSEC 1000
 #define NSEC_PER_USEC 1000
@@ -19,7 +21,7 @@
 #define USEC_PER_SEC (USEC_PER_MSEC * MSEC_PER_SEC)
 #define NSEC_PER_SEC (NSEC_PER_USEC * USEC_PER_SEC)
 
-int nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
+int _sys___nanosleep50(const struct timespec *rqtp, struct timespec *rmtp)
 {
 	struct timeval timeout, timestart = { 0, 0 }, timeend;
 	int errno_select, r;
@@ -94,7 +96,8 @@ int nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
 	return r;
 }
 
-
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(nanosleep, __nanosleep50)
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__nanosleep50, _sys___nanosleep50)
+__weak_alias(nanosleep, _sys___nanosleep50)
 #endif

@@ -9,6 +9,9 @@
 #include <signal.h>
 #include <time.h>
 
+int ____sigtimedwait50(const sigset_t * __restrict, siginfo_t * __restrict, const struct timespec * __restrict);
+int _sys_sigwait(const sigset_t * __restrict, int * __restrict);
+
 int
 sigqueue(pid_t pid, int signo, const union sigval value)
 {
@@ -22,9 +25,10 @@ sigqueue(pid_t pid, int signo, const union sigval value)
   return(_syscall(PM_PROC_NR, PM_SIGQUEUE, &m));
 }
 
-/* <signal.h> names this one __sigtimedwait50, as on NetBSD. */
+/* <signal.h> names this one __sigtimedwait50, as on NetBSD, and the
+ * libc-internal name is NetBSD's too. */
 int
-sigtimedwait(const sigset_t * __restrict set, siginfo_t * __restrict info,
+____sigtimedwait50(const sigset_t * __restrict set, siginfo_t * __restrict info,
 	const struct timespec * __restrict timeout)
 {
   message m;
@@ -50,7 +54,7 @@ sigwaitinfo(const sigset_t * __restrict set, siginfo_t * __restrict info)
 }
 
 int
-sigwait(const sigset_t * __restrict set, int * __restrict sig)
+_sys_sigwait(const sigset_t * __restrict set, int * __restrict sig)
 {
   int saved_errno = errno, r;
 
@@ -67,3 +71,10 @@ sigwait(const sigset_t * __restrict set, int * __restrict sig)
   *sig = r;
   return(0);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__sigtimedwait50, ____sigtimedwait50)
+__weak_alias(sigwait, _sys_sigwait)
+__weak_alias(_sigwait, _sys_sigwait)
+#endif

@@ -5,11 +5,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef __weak_alias
-__weak_alias(read, _read)
-#endif
+ssize_t _sys_read(int, void *, size_t);
 
-ssize_t read(int fd, void *buffer, size_t nbytes)
+ssize_t _sys_read(int fd, void *buffer, size_t nbytes)
 {
   message m;
 
@@ -20,3 +18,9 @@ ssize_t read(int fd, void *buffer, size_t nbytes)
   m.m_lc_vfs_readwrite.cum_io = 0;
   return(_syscall(VFS_PROC_NR, VFS_READ, &m));
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(read, _sys_read)
+__weak_alias(_read, _sys_read)
+#endif

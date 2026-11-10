@@ -24,6 +24,8 @@
 
 #include <minix/const.h>
 
+int _sys_connect(int, const struct sockaddr *, socklen_t);
+
 #define DEBUG 0
 
 static int _tcp_connect(int sock, const struct sockaddr *address,
@@ -49,7 +51,7 @@ __connect(int fd, const struct sockaddr * address, socklen_t address_len)
 	return _syscall(VFS_PROC_NR, VFS_CONNECT, &m);
 }
 
-int connect(int sock, const struct sockaddr *address,
+int _sys_connect(int sock, const struct sockaddr *address,
 	socklen_t address_len)
 {
 	int r;
@@ -193,3 +195,8 @@ static int _uds_connect(int sock, const struct sockaddr *address,
 	/* perform the connect */
 	return ioctl(sock, NWIOSUDSCONN, (void *) __UNCONST(address));
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(connect, _sys_connect)
+#endif

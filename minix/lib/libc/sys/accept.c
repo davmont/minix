@@ -20,6 +20,8 @@
 #include <net/gen/udp.h>
 #include <net/gen/udp_io.h>
 
+int _sys_accept(int, struct sockaddr *__restrict, socklen_t *__restrict);
+
 static int _tcp_accept(int sock, struct sockaddr *__restrict address,
 	socklen_t *__restrict address_len);
 
@@ -55,7 +57,7 @@ __accept(int fd, struct sockaddr * __restrict address,
 	return r;
 }
 
-int accept(int sock, struct sockaddr *__restrict address,
+int _sys_accept(int sock, struct sockaddr *__restrict address,
 	socklen_t *__restrict address_len)
 {
 	int r;
@@ -205,3 +207,8 @@ int paccept(int sock, struct sockaddr *__restrict address,
 
 	return r;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(accept, _sys_accept)
+#endif

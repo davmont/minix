@@ -74,9 +74,18 @@ mprotect(void *addr, size_t len, int prot)
 	return _syscall(VM_PROC_NR, VM_MPROTECT, &m);
 }
 
-/* clock_nanosleep(2): implement via nanosleep(2) (TIMER_ABSTIME -> relative). */
+int _sys___nanosleep50(const struct timespec *, struct timespec *);
+int _sys_clock_nanosleep(clockid_t, int, const struct timespec *,
+    struct timespec *);
+
+/* clock_nanosleep(2): implement via nanosleep(2) (TIMER_ABSTIME -> relative).
+ * A cancellation point: libpthread's clock_nanosleep overrides the name. */
+#ifdef __weak_alias
+__weak_alias(clock_nanosleep, _sys_clock_nanosleep)
+__weak_alias(_clock_nanosleep, _sys_clock_nanosleep)
+#endif
 int
-clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp,
+_sys_clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp,
     struct timespec *rmtp)
 {
 	struct timespec rel;
@@ -93,7 +102,7 @@ clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp,
 		rqtp = &rel;
 		rmtp = NULL;		/* remaining time is meaningless for ABSTIME */
 	}
-	if (nanosleep(rqtp, rmtp) == -1)
+	if (_sys___nanosleep50(rqtp, rmtp) == -1)
 		return errno;
 	return 0;
 }
@@ -113,13 +122,8 @@ rasctl(void *addr, size_t len, int op)
  */
 
 /* --- _sys_<call>: raw (non-cancellable) syscall variants libpthread calls
- *     directly.  MINIX libc has no _sys_ layer, so map them to the normal
- *     entry points. --- */
-ssize_t
-_sys_write(int fd, const void *buf, size_t n)
-{
-	return write(fd, buf, n);
-}
+ *     directly.  Those of the cancellation points are where the calls are
+ *     (read.c, write.c, ...). --- */
 
 /*
  * Raw sigprocmask: issue the PM syscall directly.  We must NOT call the public

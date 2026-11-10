@@ -79,7 +79,6 @@ interfaces/nanosleep/2-1                                 # unresolved
 interfaces/pthread_atfork/3-3                            # timeout
 
 # interfaces/pthread_cond_broadcast
-interfaces/pthread_cond_broadcast/1-2                    # nobuild
 interfaces/pthread_cond_broadcast/2-3                    # nobuild
 interfaces/pthread_cond_broadcast/4-2                    # unresolved
 
@@ -87,7 +86,6 @@ interfaces/pthread_cond_broadcast/4-2                    # unresolved
 interfaces/pthread_cond_destroy/2-1                      # nobuild
 
 # interfaces/pthread_cond_signal
-interfaces/pthread_cond_signal/1-2                       # nobuild
 interfaces/pthread_cond_signal/4-2                       # unresolved
 
 # interfaces/pthread_cond_timedwait
@@ -104,7 +102,6 @@ interfaces/pthread_cond_wait/4-1                         # unresolved
 interfaces/pthread_condattr_destroy/4-1                  # signal
 
 # interfaces/pthread_create
-interfaces/pthread_create/1-3                            # timeout
 interfaces/pthread_create/1-6                            # unresolved
 interfaces/pthread_create/14-1                           flaky  # wedge when PM panics ("tell_vfs: not idle: 2308") in its SIGUSR1 storm; the storm without SCHED_FIFO does it too, before this change
 
@@ -115,7 +112,6 @@ interfaces/pthread_equal/2-1                             # timeout
 interfaces/pthread_exit/6-1                              # unresolved
 
 # interfaces/pthread_join
-interfaces/pthread_join/3-1                              # unresolved
 
 # interfaces/pthread_kill
 interfaces/pthread_kill/8-1                              # timeout

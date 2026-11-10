@@ -22,6 +22,8 @@
 #include <net/gen/ip_hdr.h>
 #include <net/gen/ip_io.h>
 
+ssize_t _sys_recvfrom(int, void *__restrict, size_t, int, struct sockaddr *__restrict, socklen_t *__restrict);
+
 #define DEBUG 0
 
 static ssize_t _tcp_recvfrom(int sock, void *__restrict buffer, size_t length,
@@ -69,7 +71,7 @@ __recvfrom(int fd, void * __restrict buffer, size_t length, int flags,
 	return r;
 }
 
-ssize_t recvfrom(int sock, void *__restrict buffer, size_t length,
+ssize_t _sys_recvfrom(int sock, void *__restrict buffer, size_t length,
 	int flags, struct sockaddr *__restrict address,
 	socklen_t *__restrict address_len)
 {
@@ -367,3 +369,7 @@ static ssize_t _uds_recvfrom_dgram(int sock, void *__restrict buffer,
 	return r;
 }
 
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(recvfrom, _sys_recvfrom)
+#endif

@@ -5,12 +5,10 @@
 #include <string.h>
 #include <sys/wait.h>
 
-#ifdef __weak_alias
-__weak_alias(wait4, __wait450)
-#endif
+pid_t _sys___wait450(pid_t, int *, int, struct rusage *);
 
 pid_t
-wait4(pid_t pid, int * status, int options, struct rusage * rusage)
+_sys___wait450(pid_t pid, int * status, int options, struct rusage * rusage)
 {
 	message m;
 
@@ -24,3 +22,9 @@ wait4(pid_t pid, int * status, int options, struct rusage * rusage)
 	if (status != NULL) *status = m.m_pm_lc_wait4.status;
 	return m.m_type;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__wait450, _sys___wait450)
+__weak_alias(wait4, _sys___wait450)
+#endif

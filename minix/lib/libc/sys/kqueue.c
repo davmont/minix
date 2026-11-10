@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <string.h>
 
+int _sys___kevent50(int, const struct kevent *, size_t, struct kevent *, size_t, const struct timespec *);
+
 /*
  * kqueue(2) and kevent(2): VFS keeps the queues (minix/servers/vfs/kqueue.c).
  */
@@ -28,7 +30,7 @@ kqueue(void)
 }
 
 int
-__kevent50(int fd, const struct kevent *changelist, size_t nchanges,
+_sys___kevent50(int fd, const struct kevent *changelist, size_t nchanges,
 	struct kevent *eventlist, size_t nevents,
 	const struct timespec *timeout)
 {
@@ -44,3 +46,8 @@ __kevent50(int fd, const struct kevent *changelist, size_t nchanges,
 
 	return _syscall(VFS_PROC_NR, VFS_KEVENT, &m);
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__kevent50, _sys___kevent50)
+#endif

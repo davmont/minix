@@ -23,8 +23,10 @@
 #include <errno.h>
 #include <limits.h>
 
+int _sys___pollts50(struct pollfd * __restrict, nfds_t, const struct timespec * __restrict, const sigset_t * __restrict);
+
 int
-pollts(struct pollfd * __restrict fds, nfds_t nfds,
+_sys___pollts50(struct pollfd * __restrict fds, nfds_t nfds,
 	const struct timespec * __restrict timeout,
 	const sigset_t * __restrict sigmask)
 {
@@ -59,8 +61,11 @@ pollts(struct pollfd * __restrict fds, nfds_t nfds,
 	return r;
 }
 
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(pollts, __pollts50)
 /* POSIX.1-2024 ppoll() is pollts(), as in NetBSD. */
-__weak_alias(ppoll, __pollts50)
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(__pollts50, _sys___pollts50)
+__weak_alias(pollts, _sys___pollts50)
+__weak_alias(ppoll, _sys___pollts50)
 #endif

@@ -149,6 +149,32 @@ int	__sigsuspend14(const sigset_t *);
 		pthread__cancelled();					\
 	} while (0)
 
+#ifdef __minix
+/*
+ * pthread_cancel() of a thread blocked in one of these calls sends it the
+ * cancellation signal, which cuts the call short; its handler acts on a
+ * pending cancellation only while pt_cancelpt, how deep the thread is in
+ * cancellation points, is not zero.  The thread raises it before testing for
+ * a cancellation, as pthread_cancel() sets pt_cancel before reading it: one
+ * of the two sees the other, and no cancellation is missed.
+ */
+#define CANCELPOINT_ENTER(id) do {					\
+	if (__predict_true(!__uselibcstub)) {				\
+		(id)->pt_cancelpt++;					\
+		membar_sync();						\
+	}								\
+	TESTCANCEL(id);							\
+	} while (0)
+#define CANCELPOINT_LEAVE(id) do {					\
+	if (__predict_true(!__uselibcstub))				\
+		(id)->pt_cancelpt--;					\
+	TESTCANCEL(id);							\
+	} while (0)
+#else
+#define CANCELPOINT_ENTER(id)	TESTCANCEL(id)
+#define CANCELPOINT_LEAVE(id)	TESTCANCEL(id)
+#endif
+
 
 int
 accept(int s, struct sockaddr *addr, socklen_t *addrlen)
@@ -157,13 +183,14 @@ accept(int s, struct sockaddr *addr, socklen_t *addrlen)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_accept(s, addr, addrlen);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#if !defined(__minix)
 int
 __aio_suspend50(const struct aiocb * const list[], int nent,
     const struct timespec *timeout)
@@ -172,12 +199,13 @@ __aio_suspend50(const struct aiocb * const list[], int nent,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___aio_suspend50(list, nent, timeout);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
 int
 __kevent50(int fd, const struct kevent *ev, size_t nev, struct kevent *rev,
@@ -187,9 +215,9 @@ __kevent50(int fd, const struct kevent *ev, size_t nev, struct kevent *rev,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___kevent50(fd, ev, nev, rev, nrev, ts);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -202,9 +230,9 @@ clock_nanosleep(clockid_t clock_id, int flags,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_clock_nanosleep(clock_id, flags, rqtp, rmtp);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -216,9 +244,9 @@ close(int d)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_close(d);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -230,9 +258,9 @@ connect(int s, const struct sockaddr *addr, socklen_t namelen)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_connect(s, addr, namelen);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -245,17 +273,15 @@ fcntl(int fd, int cmd, ...)
 	va_list ap;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	va_start(ap, cmd);
 	retval = _sys_fcntl(fd, cmd, va_arg(ap, void *));
 	va_end(ap);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
-#if !defined(__minix)
-/* MINIX has no fdatasync(2) (and no _sys_fdatasync); skip this cancel stub. */
 int
 fdatasync(int d)
 {
@@ -263,13 +289,12 @@ fdatasync(int d)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_fdatasync(d);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
-#endif /* !defined(__minix) */
 
 int
 fsync(int d)
@@ -278,13 +303,14 @@ fsync(int d)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_fsync(d);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#if !defined(__minix)
 int
 fsync_range(int d, int f, off_t s, off_t e)
 {
@@ -292,12 +318,13 @@ fsync_range(int d, int f, off_t s, off_t e)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_fsync_range(d, f, s, e);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
 int
 mq_send(mqd_t mqdes, const char *msg_ptr, size_t msg_len, unsigned msg_prio)
@@ -306,9 +333,9 @@ mq_send(mqd_t mqdes, const char *msg_ptr, size_t msg_len, unsigned msg_prio)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_mq_send(mqdes, msg_ptr, msg_len, msg_prio);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -320,9 +347,9 @@ mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned *msg_prio)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_mq_receive(mqdes, msg_ptr, msg_len, msg_prio);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -335,9 +362,9 @@ __mq_timedsend50(mqd_t mqdes, const char *msg_ptr, size_t msg_len,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___mq_timedsend50(mqdes, msg_ptr, msg_len, msg_prio, abst);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -350,13 +377,14 @@ __mq_timedreceive50(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned *msg_pr
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___mq_timedreceive50(mqdes, msg_ptr, msg_len, msg_prio, abst);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#if !defined(__minix)
 ssize_t
 msgrcv(int msgid, void *msgp, size_t msgsz, long msgtyp, int msgflg)
 {
@@ -364,13 +392,15 @@ msgrcv(int msgid, void *msgp, size_t msgsz, long msgtyp, int msgflg)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_msgrcv(msgid, msgp, msgsz, msgtyp, msgflg);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
+#if !defined(__minix)
 int
 msgsnd(int msgid, const void *msgp, size_t msgsz, int msgflg)
 {
@@ -378,12 +408,13 @@ msgsnd(int msgid, const void *msgp, size_t msgsz, int msgflg)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_msgsnd(msgid, msgp, msgsz, msgflg);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
 int
 __msync13(void *addr, size_t len, int flags)
@@ -392,9 +423,9 @@ __msync13(void *addr, size_t len, int flags)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___msync13(addr, len, flags);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -407,11 +438,11 @@ open(const char *path, int flags, ...)
 	va_list ap;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	va_start(ap, flags);
 	retval = _sys_open(path, flags, va_arg(ap, mode_t));
 	va_end(ap);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -424,11 +455,11 @@ openat(int fd, const char *path, int flags, ...)
 	va_list ap;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	va_start(ap, flags);
 	retval = _sys_openat(fd, path, flags, va_arg(ap, mode_t));
 	va_end(ap);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -440,13 +471,13 @@ __nanosleep50(const struct timespec *rqtp, struct timespec *rmtp)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	/*
 	 * For now, just nanosleep.  In the future, maybe pass a ucontext_t
 	 * to _lwp_nanosleep() and allow it to recycle our kernel stack.
 	 */
 	retval = _sys___nanosleep50(rqtp, rmtp);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -458,9 +489,9 @@ poll(struct pollfd *fds, nfds_t nfds, int timeout)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_poll(fds, nfds, timeout);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -473,9 +504,9 @@ __pollts50(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___pollts50(fds, nfds, ts, sigmask);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -487,9 +518,9 @@ pread(int d, void *buf, size_t nbytes, off_t offset)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_pread(d, buf, nbytes, offset);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -502,10 +533,10 @@ __pselect50(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___pselect50(nfds, readfds, writefds, exceptfds, timeout,
 	    sigmask);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -517,9 +548,9 @@ pwrite(int d, const void *buf, size_t nbytes, off_t offset)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_pwrite(d, buf, nbytes, offset);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -531,9 +562,9 @@ read(int d, void *buf, size_t nbytes)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_read(d, buf, nbytes);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -545,9 +576,9 @@ readv(int d, const struct iovec *iov, int iovcnt)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_readv(d, iov, iovcnt);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -560,9 +591,9 @@ recvfrom(int s, void * restrict buf, size_t len, int flags,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_recvfrom(s, buf, len, flags, from, fromlen);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -574,13 +605,14 @@ recvmsg(int s, struct msghdr *msg, int flags)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_recvmsg(s, msg, flags);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#if !defined(__minix)
 int
 recvmmsg(int s, struct mmsghdr *mmsg, unsigned int vlen,
     unsigned int flags, struct timespec *timeout)
@@ -589,12 +621,13 @@ recvmmsg(int s, struct mmsghdr *mmsg, unsigned int vlen,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_recvmmsg(s, mmsg, vlen, flags, timeout);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
 int
 __select50(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
@@ -604,9 +637,9 @@ __select50(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___select50(nfds, readfds, writefds, exceptfds, timeout);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -619,9 +652,9 @@ sendto(int s, const void *msg, size_t len, int flags,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_sendto(s, msg, len, flags, to, tolen);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -633,13 +666,14 @@ sendmsg(int s, const struct msghdr *msg, int flags)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_sendmsg(s, msg, flags);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#if !defined(__minix)
 int
 sendmmsg(int s, struct mmsghdr *mmsg, unsigned int vlen,
     unsigned int flags)
@@ -648,12 +682,13 @@ sendmmsg(int s, struct mmsghdr *mmsg, unsigned int vlen,
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_sendmmsg(s, mmsg, vlen, flags);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
+#endif
 
 
 pid_t
@@ -663,9 +698,9 @@ __wait450(pid_t wpid, int *status, int options, struct rusage *rusage)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___wait450(wpid, status, options, rusage);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -677,9 +712,9 @@ write(int d, const void *buf, size_t nbytes)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_write(d, buf, nbytes);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -691,9 +726,9 @@ writev(int d, const struct iovec *iov, int iovcnt)
 	pthread_t self;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys_writev(d, iov, iovcnt);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -705,9 +740,9 @@ __sigsuspend14(const sigset_t *sigmask)
 	int retval;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = _sys___sigsuspend14(sigmask);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
@@ -727,13 +762,30 @@ __sigtimedwait50(const sigset_t * __restrict set, siginfo_t * __restrict info,
 		tp = NULL;
 
 	self = pthread__self();
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = ____sigtimedwait50(set, info, tp);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 
 	return retval;
 }
 
+#ifdef __minix
+int	_sys_sigwait(const sigset_t * __restrict, int * __restrict);
+
+int
+sigwait(const sigset_t * __restrict set, int * __restrict sig)
+{
+	pthread_t	self;
+	int		retval;
+
+	self = pthread__self();
+	CANCELPOINT_ENTER(self);
+	retval = _sys_sigwait(set, sig);
+	CANCELPOINT_LEAVE(self);
+
+	return retval;
+}
+#else
 int
 sigwait(const sigset_t * __restrict set, int * __restrict sig)
 {
@@ -744,9 +796,9 @@ sigwait(const sigset_t * __restrict set, int * __restrict sig)
 
 	self = pthread__self();
 	saved_errno = errno;
-	TESTCANCEL(self);
+	CANCELPOINT_ENTER(self);
 	retval = ____sigtimedwait50(set, NULL, NULL);
-	TESTCANCEL(self);
+	CANCELPOINT_LEAVE(self);
 	new_errno = errno;
 	errno = saved_errno;
 	if (retval < 0) {
@@ -755,31 +807,46 @@ sigwait(const sigset_t * __restrict set, int * __restrict sig)
 	*sig = retval;
 	return 0;
 }
+#endif
 
 __strong_alias(_close, close)
 __strong_alias(_clock_nanosleep, clock_nanosleep)
 __strong_alias(_fcntl, fcntl)
 __strong_alias(_fdatasync, fdatasync)
 __strong_alias(_fsync, fsync)
+#if !defined(__minix)
 __weak_alias(fsync_range, _fsync_range)
+#endif
 __strong_alias(_mq_send, mq_send)
 __strong_alias(_mq_receive, mq_receive)
+#if !defined(__minix)
 __strong_alias(_msgrcv, msgrcv)
+#endif
+#if !defined(__minix)
 __strong_alias(_msgsnd, msgsnd)
+#endif
 __strong_alias(___msync13, __msync13)
 __strong_alias(___nanosleep50, __nanosleep50)
 __strong_alias(_open, open)
 __strong_alias(_openat, openat)
 __strong_alias(_poll, poll)
+#if defined(__minix)
+/* <poll.h> does not rename ppoll(2) to __pollts50, as it does pollts(2). */
+__strong_alias(ppoll, __pollts50)
+#endif
 __strong_alias(_pread, pread)
 __strong_alias(_pwrite, pwrite)
 __strong_alias(_read, read)
 __strong_alias(_readv, readv)
 __strong_alias(_recvfrom, recvfrom)
 __strong_alias(_recvmsg, recvmsg)
+#if !defined(__minix)
 __strong_alias(_recvmmsg, recvmmsg)
+#endif
 __strong_alias(_sendmsg, sendmsg)
+#if !defined(__minix)
 __strong_alias(_sendmmsg, sendmmsg)
+#endif
 __strong_alias(_sendto, sendto)
 __strong_alias(_sigwait, sigwait)
 __strong_alias(_write, write)

@@ -25,6 +25,11 @@
 #include <time.h>
 #include <unistd.h>
 
+int _sys_mq_send(mqd_t, const char *, size_t, unsigned);
+ssize_t _sys_mq_receive(mqd_t, char *, size_t, unsigned *);
+int _sys___mq_timedsend50(mqd_t, const char *, size_t, unsigned, const struct timespec *);
+ssize_t _sys___mq_timedreceive50(mqd_t, char * __restrict, size_t, unsigned * __restrict, const struct timespec * __restrict);
+
 #define MQ_DIR		"/var/mqueue/"
 
 static int
@@ -250,21 +255,21 @@ mq_receive_common(mqd_t mqd, char *msg, size_t len, unsigned *priop,
 }
 
 int
-mq_send(mqd_t mqd, const char *msg, size_t len, unsigned prio)
+_sys_mq_send(mqd_t mqd, const char *msg, size_t len, unsigned prio)
 {
 
 	return mq_send_common(mqd, msg, len, prio, NULL);
 }
 
 ssize_t
-mq_receive(mqd_t mqd, char *msg, size_t len, unsigned *priop)
+_sys_mq_receive(mqd_t mqd, char *msg, size_t len, unsigned *priop)
 {
 
 	return mq_receive_common(mqd, msg, len, priop, NULL);
 }
 
 int
-__mq_timedsend50(mqd_t mqd, const char *msg, size_t len, unsigned prio,
+_sys___mq_timedsend50(mqd_t mqd, const char *msg, size_t len, unsigned prio,
 	const struct timespec *abs_timeout)
 {
 
@@ -276,7 +281,7 @@ __mq_timedsend50(mqd_t mqd, const char *msg, size_t len, unsigned prio,
 }
 
 ssize_t
-__mq_timedreceive50(mqd_t mqd, char * __restrict msg, size_t len,
+_sys___mq_timedreceive50(mqd_t mqd, char * __restrict msg, size_t len,
 	unsigned * __restrict priop, const struct timespec * __restrict abs_timeout)
 {
 
@@ -357,3 +362,13 @@ mq_notify(mqd_t mqd, const struct sigevent *notification)
 	}
 	return _syscall(pt, IPC_MQ_NOTIFY, &m) < 0 ? -1 : 0;
 }
+
+#ifdef __weak_alias
+/* libpthread's cancellation points (pthread_cancelstub.c) override these. */
+__weak_alias(mq_send, _sys_mq_send)
+__weak_alias(_mq_send, _sys_mq_send)
+__weak_alias(mq_receive, _sys_mq_receive)
+__weak_alias(_mq_receive, _sys_mq_receive)
+__weak_alias(__mq_timedsend50, _sys___mq_timedsend50)
+__weak_alias(__mq_timedreceive50, _sys___mq_timedreceive50)
+#endif

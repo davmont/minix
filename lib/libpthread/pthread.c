@@ -142,14 +142,7 @@ __strong_alias(__libc_thr_init,pthread__init)
  * Static library kludge.  Place a reference to a symbol any library
  * file which does not already have a reference here.
  */
-#if defined(__minix)
-/* pthread_cancelstub.c (which defines this binder) is not built on MINIX; the
- * binder only exists to force-link the cancel stubs into static binaries, so a
- * dummy definition suffices here. */
-int pthread__cancel_stub_binder;
-#else
 extern int pthread__cancel_stub_binder;
-#endif
 
 void *pthread__static_lib_binder[] = {
 	&pthread__cancel_stub_binder,
@@ -204,20 +197,20 @@ pthread__fork_child(void)
 int	__libc_sigaction_cancel(const struct sigaction *, struct sigaction *);
 
 /*
- * pthread_cancel() of an asynchronously cancelable thread sends it the
- * cancellation signal: the thread acts on it wherever it is, in its own code
- * or blocked in a call that the signal interrupts.  Anyone may send the
- * signal; only a pending cancellation, enabled and asynchronous, does
- * anything.
+ * pthread_cancel() sends the cancellation signal to an asynchronously
+ * cancelable thread, and to a deferred one in a cancellation point (one of
+ * pthread_cancelstub.c's calls, such as read(2) or sleep(3)): the thread acts
+ * on it wherever it is, in its own code or blocked in a call that the signal
+ * interrupts.  Anyone may send the signal; only a pending cancellation,
+ * enabled, and asynchronous or in a cancellation point, does anything.
  */
 static void
 pthread__cancel_handler(int sig)
 {
 	pthread_t self = pthread__self();
 
-	if (self->pt_cancel &&
-	    (self->pt_flags & (PT_FLAG_CS_ASYNC | PT_FLAG_CS_DISABLED)) ==
-	    PT_FLAG_CS_ASYNC)
+	if (self->pt_cancel && !(self->pt_flags & PT_FLAG_CS_DISABLED) &&
+	    ((self->pt_flags & PT_FLAG_CS_ASYNC) || self->pt_cancelpt > 0))
 		pthread__cancelled();
 }
 #endif
@@ -367,6 +360,9 @@ pthread__scrubthread(pthread_t t, char *name, int flags)
 	t->pt_exitval = NULL;
 	t->pt_flags = flags;
 	t->pt_cancel = 0;
+#ifdef __minix
+	t->pt_cancelpt = 0;	/* may have exited in a cancellation point */
+#endif
 	t->pt_errno = 0;
 	t->pt_name = name;
 	t->pt_lid = 0;
@@ -1021,9 +1017,16 @@ pthread_cancel(pthread_t thread)
 			if (thread == pthread__self())
 				pthread__cancelled();
 			_lwp_kill(thread->pt_lid, __SIGCANCEL);
-		} else
-#endif
+		} else {
+			/* After pt_cancel is set: see CANCELPOINT_ENTER(). */
+			membar_sync();
+			if (thread->pt_cancelpt > 0)
+				_lwp_kill(thread->pt_lid, __SIGCANCEL);
+			_lwp_wakeup(thread->pt_lid);
+		}
+#else
 		_lwp_wakeup(thread->pt_lid);
+#endif
 	} else
 		pthread_mutex_unlock(&thread->pt_lock);
 
