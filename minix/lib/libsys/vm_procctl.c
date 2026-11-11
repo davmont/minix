@@ -43,3 +43,9 @@ int vm_procctl_handlemem(endpoint_t ep, vir_bytes m1, vir_bytes len,
 	return vm_procctl(ep, VMPPARAM_HANDLEMEM, m1, len, writeflag);
 }
 
+
+/* PM: may process 'ep' lock memory past its RLIMIT_MEMLOCK (is it root)? */
+int vm_procctl_memlock(endpoint_t ep, int privileged)
+{
+	return vm_procctl(ep, VMPPARAM_MEMLOCK, 0, 0, privileged);
+}

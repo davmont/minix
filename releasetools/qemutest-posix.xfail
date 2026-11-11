@@ -43,16 +43,12 @@ interfaces/fsync/7-1                                     # fail
 interfaces/killpg/1-2                                    # nobuild
 
 # interfaces/mlock
-interfaces/mlock/5-1                                     # unresolved: mlock() of an unaligned malloc() buffer: EINVAL, as POSIX permits
 
 # interfaces/mlockall
-interfaces/mlockall/3-6                                  # fail: wants EBUSY from msync(MS_INVALIDATE) on locked pages; nothing is pinned
-interfaces/mlockall/3-7                                  # fail: the same
 
 # interfaces/mmap
 interfaces/mmap/11-4                                     # fail
 interfaces/mmap/13-1                                     # fail
-interfaces/mmap/18-1                                     # fail: wants EAGAIN past RLIMIT_MEMLOCK after MCL_FUTURE; nothing is pinned
 interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
 interfaces/mmap/24-2                                     # signal
 
@@ -67,7 +63,6 @@ interfaces/mq_timedsend/5-1                              # fail
 interfaces/mq_timedsend/5-2                              # fail
 
 # interfaces/munlock
-interfaces/munlock/7-1                                   # unresolved: munlock() of an unaligned malloc() buffer: EINVAL, as POSIX permits
 
 # interfaces/munmap
 interfaces/munmap/1-1                                    flaky  # signal or pass, both CPU counts

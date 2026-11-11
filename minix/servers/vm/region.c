@@ -1521,6 +1521,122 @@ int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 }
 
 /*========================================================================*
+ *				map_lock_range				  *
+ *========================================================================*/
+int map_lock_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
+	int lock)
+{
+/* Set (lock) or clear VR_LOCKED on a page-aligned range of the address space,
+ * splitting the regions it begins or ends in.  As map_protect_range(), the
+ * whole range is checked first: a failing call changes nothing.
+ */
+	vir_bytes limit, a;
+	struct vir_region *vr;
+	int r;
+
+	assert(!(start % VM_PAGE_SIZE));
+	assert(!(length % VM_PAGE_SIZE));
+	limit = start + length;
+	if(limit <= start)
+		return ENOMEM;
+
+	for(a = start; a < limit; a = vr->vaddr + vr->length) {
+		/* POSIX: ENOMEM when part of the range is not mapped. */
+		if(!(vr = map_lookup(vmp, a, NULL)))
+			return ENOMEM;
+		if(!!(vr->flags & VR_LOCKED) != !!lock &&
+		    (start > vr->vaddr || limit < vr->vaddr + vr->length) &&
+		    !vr->def_memtype->ev_split)
+			return ENOTSUP;
+	}
+
+	for(a = start; a < limit; a = vr->vaddr + vr->length) {
+		struct vir_region *vr1, *vr2;
+
+		vr = map_lookup(vmp, a, NULL);
+		assert(vr);
+		if(!!(vr->flags & VR_LOCKED) == !!lock)
+			continue;		/* nothing to change, or split */
+
+		if(vr->vaddr < a) {
+			if((r = split_region(vmp, vr, &vr1, &vr2,
+			    a - vr->vaddr)) != OK)
+				return r;
+			vr = vr2;
+		}
+		if(vr->vaddr + vr->length > limit) {
+			if((r = split_region(vmp, vr, &vr1, &vr2,
+			    limit - vr->vaddr)) != OK)
+				return r;
+			vr = vr1;
+		}
+		if(lock)
+			vr->flags |= VR_LOCKED;
+		else
+			vr->flags &= ~VR_LOCKED;
+	}
+
+	return OK;
+}
+
+/*========================================================================*
+ *				map_locked_bytes			  *
+ *========================================================================*/
+vir_bytes map_locked_bytes(struct vmproc *vmp, vir_bytes start,
+	vir_bytes limit, int locked)
+{
+/* How much of [start, limit) is mapped, and locked (locked) or not (!locked)?
+ */
+	struct vir_region *vr;
+	region_iter iter;
+	vir_bytes n = 0, lo, hi;
+
+	region_start_iter(&vmp->vm_regions_avl, &iter, start, AVL_LESS_EQUAL);
+	if(!region_get_iter(&iter))
+		region_start_iter_least(&vmp->vm_regions_avl, &iter);
+	while((vr = region_get_iter(&iter)) && vr->vaddr < limit) {
+		region_incr_iter(&iter);
+		if(!!(vr->flags & VR_LOCKED) != !!locked)
+			continue;
+		lo = MAX(vr->vaddr, start);
+		hi = MIN(vr->vaddr + vr->length, limit);
+		if(lo < hi)
+			n += hi - lo;
+	}
+	return n;
+}
+
+/*========================================================================*
+ *				map_lock_all				  *
+ *========================================================================*/
+void map_lock_all(struct vmproc *vmp)
+{
+	struct vir_region *vr;
+	region_iter iter;
+
+	region_start_iter_least(&vmp->vm_regions_avl, &iter);
+	while((vr = region_get_iter(&iter))) {
+		region_incr_iter(&iter);
+		vr->flags |= VR_LOCKED;
+	}
+}
+
+/*========================================================================*
+ *				map_unlock_all				  *
+ *========================================================================*/
+void map_unlock_all(struct vmproc *vmp)
+{
+	struct vir_region *vr;
+	region_iter iter;
+
+	region_start_iter_least(&vmp->vm_regions_avl, &iter);
+	while((vr = region_get_iter(&iter))) {
+		region_incr_iter(&iter);
+		vr->flags &= ~VR_LOCKED;
+	}
+}
+
+/*========================================================================*
  *			  map_region_lookup_type			  *
  *========================================================================*/
 struct vir_region* map_region_lookup_type(struct vmproc *vmp, u32_t type)
@@ -1821,6 +1937,8 @@ int map_evict_clean_page(struct phys_block *pb)
 			return EBUSY;
 
 		assert(pr->parent);
+		if(pr->parent->flags & VR_LOCKED)	/* mlock(2) */
+			return EBUSY;
 		vmp = pr->parent->parent;
 		assert(vmp);
 
@@ -1995,6 +2113,8 @@ int map_compress_anon_pages(int target, int cold_only)
 			if (region->def_memtype != &mem_type_anon)
 				continue;
 			if (region->remaps > 0)
+				continue;
+			if (region->flags & VR_LOCKED)	/* mlock(2) */
 				continue;
 
 			for (i = 0; i < slots && freed < target &&

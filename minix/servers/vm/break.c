@@ -76,6 +76,24 @@ int do_rlimit(message *msg)
 		return EINVAL;
 	vmp = vm_lwp_group(&vmproc[proc]);
 
+	if(msg->m_lc_vm_rlimit.which == RLIMIT_MEMLOCK) {
+		u64_t cur = msg->m_lc_vm_rlimit.limit,
+		    max = msg->m_lc_vm_rlimit.max;
+
+		if(msg->m_lc_vm_rlimit.op != VMRL_SET) {
+			msg->m_lc_vm_rlimit.limit = vmp->vm_memlock_cur;
+			msg->m_lc_vm_rlimit.max = vmp->vm_memlock_max;
+			return OK;
+		}
+		if(cur > max)
+			return EINVAL;
+		if(max > vmp->vm_memlock_max && !vmp->vm_memlock_priv)
+			return EPERM;
+		vmp->vm_memlock_cur = cur;
+		vmp->vm_memlock_max = max;
+		return OK;
+	}
+
 	switch(msg->m_lc_vm_rlimit.which) {
 	case RLIMIT_AS:		slot = &vmp->vm_as_limit;   break;
 	case RLIMIT_DATA:	slot = &vmp->vm_data_limit; break;

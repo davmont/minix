@@ -1,13 +1,15 @@
 /* Test 164 - mlock(2) and co., PTHREAD_STACK_MIN, SIGPOLL.
  *
- * The memory locking calls check what POSIX has them check: only the
- * superuser may lock, the range must start on a page and be mapped, and
- * mlockall() takes MCL_CURRENT and MCL_FUTURE only.  A thread runs, and
+ * The memory locking calls check what POSIX has them check: a user with no
+ * RLIMIT_MEMLOCK may not lock, the range must be mapped (an unaligned one
+ * takes the pages it touches), and mlockall() takes MCL_CURRENT and
+ * MCL_FUTURE only.  test172 has the rest.  A thread runs, and
  * takes a signal, on a stack of PTHREAD_STACK_MIN bytes, which is what
  * sysconf(_SC_THREAD_STACK_MIN) says.
  */
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <limits.h>
@@ -36,8 +38,8 @@ test164a(void)
 
 	if (mlock(p, 4 * pg) != 0) e(2);
 	if (munlock(p, 4 * pg) != 0) e(3);
-	if (mlock(p + 1, pg) != -1 || errno != EINVAL) e(4);
-	if (munlock(p + 1, pg) != -1 || errno != EINVAL) e(5);
+	if (mlock(p + 1, pg) != 0) e(4);
+	if (munlock(p + 1, pg) != 0) e(5);
 	/* Not mapped: part of the range, and all of it. */
 	if (munmap(p + 2 * pg, 2 * pg) != 0) e(6);
 	if (mlock(p, 4 * pg) != -1 || errno != ENOMEM) e(7);
@@ -50,9 +52,13 @@ test164a(void)
 	if (mlockall(0x100) != -1 || errno != EINVAL) e(13);
 	if (munlockall() != 0) e(14);
 
-	/* An ordinary user may not lock. */
+	/* An ordinary user with no RLIMIT_MEMLOCK may not lock. */
 	if ((pid = fork()) == 0) {
+		struct rlimit rl;
+
 		errct = 0;
+		rl.rlim_cur = rl.rlim_max = 0;
+		if (setrlimit(RLIMIT_MEMLOCK, &rl) != 0) e(23);
 		if (setuid(1) != 0) e(15);
 		if (mlock(p, pg) != -1 || errno != EPERM) e(16);
 		if (mlockall(MCL_CURRENT) != -1 || errno != EPERM) e(17);

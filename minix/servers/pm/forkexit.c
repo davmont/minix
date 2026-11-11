@@ -1175,6 +1175,7 @@ do_srv_fork(void)
   rmc->mp_realgid = m_in.m_lsys_pm_srv_fork.gid;
   rmc->mp_effgid = m_in.m_lsys_pm_srv_fork.gid;
   rmc->mp_svgid = m_in.m_lsys_pm_srv_fork.gid;
+  tell_vm_memlock(rmc);
   for (i = 0; i < NR_ITIMERS; i++)
 	rmc->mp_interval[i] = 0;	/* reset timer intervals */
   rmc->mp_started = getticks();		/* remember start time, for ps(1) */

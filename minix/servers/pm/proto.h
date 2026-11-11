@@ -143,5 +143,6 @@ struct mproc *find_proc(pid_t lpid);
 int nice_to_priority(int nice, unsigned *new_q);
 int pm_isokendpt(int ep, int *proc);
 void tell_vfs(struct mproc *rmp, message *m_ptr);
+void tell_vm_memlock(struct mproc *rmp);
 void set_rusage_times(struct rusage *r_usage, clock_t user_time,
 	clock_t sys_time);
