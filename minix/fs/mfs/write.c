@@ -232,19 +232,29 @@ struct super_block *sb;		/* superblock of device block resides on */
  *===========================================================================*/
 void clear_zone(rip, pos, flag)
 register struct inode *rip;	/* inode to clear */
-off_t __unused pos;		/* points to block to clear */
-int __unused flag;		/* 1 if called by new_block, 0 otherwise */
+off_t pos;			/* the file's old end */
+int flag;			/* 1 if called by new_block, 0 otherwise */
 {
-/* Zero a zone, possibly starting in the middle.  The parameter 'pos' gives
- * a byte in the first block to be zeroed.  Clearzone() is called from 
- * fs_readwrite(), truncate_inode(), and new_block().
+/* The file is about to grow from 'pos', its present end: zero the rest of the
+ * block 'pos' is in, which must read as zeroes once the file covers it.  A
+ * shared mapping of the file may have written there, past the end: its page
+ * is the block itself.  The zones are a block each (see the assertion), so
+ * this is all of the zone there is; new_block() has a fresh, zeroed block.
  */
-  int scale;
+  struct buf *bp;
+  unsigned int off, block_size;
 
-  /* If the block size and zone size are the same, clear_zone() not needed. */
-  scale = rip->i_sp->s_log_zone_size;
-  assert(scale == 0);
-  return;
+  assert(rip->i_sp->s_log_zone_size == 0);
+  if (flag)
+	return;
+  block_size = rip->i_sp->s_block_size;
+  if ((off = pos % block_size) == 0)
+	return;
+  if ((bp = get_block_map(rip, rounddown(pos, block_size))) == NULL)
+	return;				/* a hole: reads as zeroes */
+  memset(b_data(bp) + off, 0, block_size - off);
+  MARKDIRTY_DATA(bp);
+  put_block(bp);
 }
 
 
