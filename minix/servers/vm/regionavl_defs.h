@@ -14,4 +14,7 @@
 #define AVL_SET_ROOT(h, v) (h)->root = v;
 #define AVL_COMPARE_KEY_KEY(k1, k2) ((k1) > (k2) ? 1 : ((k1) < (k2) ? -1 : 0))
 #define AVL_COMPARE_KEY_NODE(k, h) AVL_COMPARE_KEY_KEY((k), (h)->vaddr)
+/* How many regions the tree has: see VM_MAX_MAP_COUNT. */
+#define AVL_INSIDE_STRUCT unsigned int count;
+#define AVL_COUNT count
 #define AVL_COMPARE_NODE_NODE(h1, h2) AVL_COMPARE_KEY_KEY((h1)->vaddr, (h2)->vaddr)
