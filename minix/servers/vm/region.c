@@ -1044,6 +1044,20 @@ int map_writept(struct vmproc *vmp)
 }
 
 /*========================================================================*
+ *			       map_count_full			     	  *
+ *========================================================================*/
+int map_count_full(struct vmproc *vmp, int more)
+{
+/* Like Linux's vm.max_map_count: a user process that keeps mapping, or
+ * splitting its regions with mprotect(), gets ENOMEM rather than all of VM's
+ * own memory for its regions.  Not the services: a file system's cache is a
+ * region per block, and it may well have more blocks than that.
+ */
+	return acl_is_user_proc(vmp) &&
+		vmp->vm_regions_avl.count + more > VM_MAX_MAP_COUNT;
+}
+
+/*========================================================================*
  *			       map_proc_copy			     	  *
  *========================================================================*/
 int map_proc_copy(struct vmproc *dst, struct vmproc *src)
@@ -1450,7 +1464,7 @@ int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 {
 	vir_bytes limit, a;
 	struct vir_region *vr;
-	int r;
+	int r, splits = 0;
 
 	assert(!(start % VM_PAGE_SIZE));
 	assert(!(length % VM_PAGE_SIZE));
@@ -1468,12 +1482,17 @@ int map_protect_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 		if((start > vr->vaddr || limit < vr->vaddr + vr->length) &&
 		    !vr->def_memtype->ev_split)
 			return ENOTSUP;
+		/* Each split makes a region more: see mmap_region(). */
+		if(start > vr->vaddr) splits++;
+		if(limit < vr->vaddr + vr->length) splits++;
 		/* Write access to shared or physical memory is VM's to grant;
 		 * mprotect() may only give back what it took away. */
 		if((prot & PROT_WRITE) && (vr->flags & (VR_SHARED|VR_DIRECT)) &&
 		    !(vr->flags & (VR_WRITABLE|VR_WASWRITABLE)))
 			return EACCES;
 	}
+	if(map_count_full(vmp, splits))
+		return ENOMEM;
 
 	for(a = start; a < limit; a = vr->vaddr + vr->length) {
 		struct vir_region *vr1, *vr2;

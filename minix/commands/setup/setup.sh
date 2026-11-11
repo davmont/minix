@@ -11,9 +11,24 @@
 ROOTMB=128
 ROOTSECTS="`expr $ROOTMB '*' 1024 '*' 2`"
 BOOTXXSECTS=32
+# The installation sets live in /usr/<arch>/binary/sets on the CD (see
+# workdir_add_sets in releasetools/image.functions).  <arch> is the build's
+# ARCH (i386, amd64...), which is not what uname -m prints on every port
+# (x86_64 on amd64), so look for the directory instead of guessing it.
+# Stop here, before any disk is touched, if there are none.
+SETS_DIR=
+for d in /usr/*/binary/sets; do
+	if [ -f "$d/minix-base.tgz" ]; then SETS_DIR=$d; break; fi
+done
+if [ -z "$SETS_DIR" ]; then
+	echo "setup: no installation sets in /usr/*/binary/sets." >&2
+	echo "setup: run it from the installation CD." >&2
+	exit 1
+fi
+
 #LSC: Slight over shoot, as files for / are taken into account, although
 #     metadata is not, all in all should be pretty accurate.
-USRKB=$(cat /i386/binary/sets/*.size | awk '{s+=$1} END{print (s/1024)}')
+USRKB=$(cat "$SETS_DIR"/*.size | awk '{s+=$1} END{print (s/1024)}')
 TOTALMB="`expr 3 + $USRKB / 1024 + $ROOTMB`"
 TOTALFILES="`find -x / | wc -l`"
 
@@ -514,12 +529,20 @@ if [ "$nohome" = 0 ]; then
 	mount /dev/$home /mnt/home >/dev/null || exit		# Mount the intended /home
 fi
 
-# Running from the installation CD.
-for set in /i386/binary/sets/*.tgz; do
+# Running from the installation CD.  pax's status is lost in the pipe to
+# progressbar, so it is passed back through a file: a set that does not
+# extract must stop the installation, not leave a half-copied system.
+for set in "$SETS_DIR"/*.tgz; do
 	echo "Extracting $(basename "$set")..."
 	COUNT_FILES=$(cat $(echo "$set" | sed -e "s/\.tgz/\.count/"))
-	(cd /mnt; pax -rz -f $set -v -pe 2>&1 | progressbar "$COUNT_FILES" || exit)
-done;
+	(cd /mnt && pax -rz -f "$set" -v -pe 2>&1; echo $? >/tmp/setup.pax) |
+	    progressbar "$COUNT_FILES"
+	if [ "$(cat /tmp/setup.pax 2>/dev/null)" != 0 ]; then
+		echo "setup: extracting $(basename "$set") failed." >&2
+		exit 1
+	fi
+done
+rm -f /tmp/setup.pax
 
 echo "Creating device nodes..."
 (cd /mnt/dev; MAKEDEV -s all)

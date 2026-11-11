@@ -84,8 +84,20 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 		return NULL;
 	}
 
+	if(map_count_full(vmp, 1))
+		return NULL;
+
+	/* The mapping must fit in the address space.  A MAP_FIXED one is
+	 * checked before it replaces what is there: [addr, addr + len) with
+	 * len, say, RLIMIT_AS's infinity would otherwise unmap the stack. */
+	if(len > VM_DATATOP)
+		return NULL;
+
 	if(len % VM_PAGE_SIZE)
 		len += VM_PAGE_SIZE - (len % VM_PAGE_SIZE);
+
+	if((vmm_flags & MAP_FIXED) && addr > VM_DATATOP - len)
+		return NULL;
 
 	if (addr && (vmm_flags & MAP_FIXED)) {
 		int r = map_unmap_range(vmp, addr, len);

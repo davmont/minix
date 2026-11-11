@@ -125,8 +125,11 @@ ssize_t fs_readwrite(ino_t ino_nr, struct fsdriver_data *data, size_t nrbytes,
   if (!rip->i_sp->s_rd_only) {
 	  int upd = 0;
 	  /* relatime: a read only updates (and dirties) atime when warranted,
-	   * so plain reads no longer write the inode back on every call. */
-	  if (call == FSC_READ && update_atime(rip)) {
+	   * so plain reads no longer write the inode back on every call.  A
+	   * page brought in for a mapping, and the first write through a shared
+	   * one, are references to the file too (POSIX mmap(2)). */
+	  if ((call == FSC_READ || call == FSC_PEEK || call == FSC_MAPWRITE) &&
+	      update_atime(rip)) {
 		  rip->i_update |= ATIME;
 		  upd = 1;
 	  }

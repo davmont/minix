@@ -174,6 +174,7 @@ vir_bytes map_locked_bytes(struct vmproc *vmp, vir_bytes start,
 void map_lock_all(struct vmproc *vmp);
 void map_unlock_all(struct vmproc *vmp);
 int map_free_proc(struct vmproc *vmp);
+int map_count_full(struct vmproc *vmp, int more);
 int map_proc_copy(struct vmproc *dst, struct vmproc *src);
 int map_proc_copy_range(struct vmproc *dst, struct vmproc *src, struct
 	vir_region *start_src_vr, struct vir_region *end_src_vr);

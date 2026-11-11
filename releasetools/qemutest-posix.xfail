@@ -47,8 +47,9 @@ interfaces/killpg/1-2                                    # nobuild
 # interfaces/mlockall
 
 # interfaces/mmap
-interfaces/mmap/11-4                                     # fail
+interfaces/mmap/11-4                                     # fail: a later mapping still sees bytes written past EOF in the cached last block (growing the file zeroes them)
 interfaces/mmap/13-1                                     # fail
+interfaces/mmap/18-1                                     # fail: wants EAGAIN past RLIMIT_MEMLOCK after MCL_FUTURE; nothing is pinned
 interfaces/mmap/24-1                                     flaky  # maps to ENOMEM in about the 60 s limit
 interfaces/mmap/24-2                                     # signal
 
@@ -163,7 +164,6 @@ interfaces/sem_unlink/4-1                                # fail
 interfaces/shm_open/23-1                                 # unresolved
 
 # interfaces/shm_unlink
-interfaces/shm_unlink/9-1                                # fail
 
 # interfaces/sigaction
 interfaces/sigaction/21-1                                # fail
