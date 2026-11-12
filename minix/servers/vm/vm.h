@@ -63,6 +63,10 @@
 #define MAP_NONE	0xFFFFFFFE
 #define NO_MEM ((phys_clicks) MAP_NONE)  /* returned by alloc_mem() with mem is up */
 
+/* The most regions a process may have; mmap() and mprotect() beyond it fail
+ * with ENOMEM.  As Linux's default vm.max_map_count. */
+#define VM_MAX_MAP_COUNT	65530
+
 /* And what is the highest addressable piece of memory? */
 #define VM_DATATOP	kernel_boot_info.user_end
 

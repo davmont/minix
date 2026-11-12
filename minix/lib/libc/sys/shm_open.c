@@ -84,5 +84,11 @@ shm_unlink(const char *name)
 
 	if (shm_path(name, path, sizeof(path)) < 0)
 		return -1;
-	return unlink(path);
+	if (unlink(path) == 0)
+		return 0;
+	/* /var/shm is sticky: unlink(2) says EPERM for another user's object,
+	 * where POSIX wants EACCES from shm_unlink(), as glibc gives. */
+	if (errno == EPERM)
+		errno = EACCES;
+	return -1;
 }
