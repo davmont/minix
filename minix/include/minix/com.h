@@ -760,11 +760,12 @@
 #	define VMSW_MINOR		m1_i2	/* swap minor device */
 #	define VMSW_NSLOTS		m1_i3	/* number of 4 KB slots */
 
-/* Per-process address-space resource limit (RLIMIT_AS / RLIMIT_DATA),
- * enforced by VM at mmap()/brk().  Uses m_lc_vm_rlimit. */
+/* Per-process resource limits that VM enforces: RLIMIT_AS / RLIMIT_DATA at
+ * mmap()/brk(), RLIMIT_MEMLOCK at mlock().  Uses m_lc_vm_rlimit. */
 #define VM_RLIMIT		(VM_RQ_BASE+50)
 #	define VMRL_GET			0	/* read current limit */
-#	define VMRL_SET			1	/* set soft limit */
+#	define VMRL_SET			1	/* set soft (and, for
+						 * RLIMIT_MEMLOCK, hard) limit */
 #	define VMV_DEV			m10_i4
 #	define VMV_INO			m10_l1
 #	define VMV_FD			m10_l2
@@ -820,6 +821,8 @@
 
 #define VMPPARAM_CLEAR		1	/* values for VMPCTL_PARAM */
 #define VMPPARAM_HANDLEMEM	2
+#define VMPPARAM_MEMLOCK	3	/* PM: VMPCTL_FLAGS nonzero if the process
+					 * may lock past RLIMIT_MEMLOCK (root) */
 
 #define VM_VFS_MMAP             (VM_RQ_BASE+46)
 
@@ -840,10 +843,17 @@
 /* msync(2).  Uses m_lc_vm_mprotect, with the msync flags in 'prot'. */
 #define VM_MSYNC		(VM_RQ_BASE+53)
 
-/* Total.  Must exceed the highest CALLMAP()ed call index: VM_MSYNC is
- * VM_RQ_BASE+53, so the vm_calls[] table needs 54 entries.  (VM_SWAPON at
+/* mlock(2), munlock(2), mlockall(2), munlockall(2).  Uses m_lc_vm_mlock. */
+#define VM_MLOCK		(VM_RQ_BASE+54)
+#	define VMML_LOCK		1	/* mlock(addr, len) */
+#	define VMML_UNLOCK		2	/* munlock(addr, len) */
+#	define VMML_LOCKALL		3	/* mlockall(flags) */
+#	define VMML_UNLOCKALL		4	/* munlockall() */
+
+/* Total.  Must exceed the highest CALLMAP()ed call index: VM_MLOCK is
+ * VM_RQ_BASE+54, so the vm_calls[] table needs 55 entries.  (VM_SWAPON at
  * +49 is dispatched directly from VM's main loop, not through CALLMAP.) */
-#define NR_VM_CALLS				54
+#define NR_VM_CALLS				55
 #define VM_CALL_MASK_SIZE			BITMAP_CHUNKS(NR_VM_CALLS)
 
 /* not handled as a normal VM call, thus at the end of the reserved rage */
@@ -856,7 +866,7 @@
     VM_BRK, VM_MMAP, VM_MUNMAP, VM_MAP_PHYS, VM_UNMAP_PHYS, VM_INFO, \
     VM_RLIMIT, /* every process may get/set its own RLIMIT_AS/DATA */ \
     VM_MPROTECT, /* every process may change its own page protection */ \
-    VM_MSYNC, \
+    VM_MSYNC, VM_MLOCK, \
     VM_GETRUSAGE /* VM_GETRUSAGE is to be removed from this list ASAP */
 
 /*===========================================================================*

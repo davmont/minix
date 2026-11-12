@@ -42,6 +42,9 @@ struct vmproc {
 					 * (OOM killer prefers active hogs) */
 	u64_t		vm_as_limit;	/* RLIMIT_AS soft limit, bytes (0=none) */
 	u64_t		vm_data_limit;	/* RLIMIT_DATA soft limit, bytes (0=none) */
+	u64_t		vm_memlock_cur;	/* RLIMIT_MEMLOCK soft limit, bytes */
+	u64_t		vm_memlock_max;	/* RLIMIT_MEMLOCK hard limit, bytes */
+	int		vm_memlock_priv; /* may lock past it (root; PM says) */
 	u64_t		vm_minor_page_fault;
 	u64_t		vm_major_page_fault;
 
@@ -73,5 +76,6 @@ struct vmproc {
 #define VMF_INUSE	0x001	/* slot contains a process */
 #define VMF_EXITING	0x002	/* PM is cleaning up this process */
 #define VMF_VM_INSTANCE 0x010   /* This is a VM process instance */
+#define VMF_MCL_FUTURE	0x020	/* mlockall(MCL_FUTURE): lock new mappings */
 
 #endif

@@ -1240,10 +1240,12 @@ typedef struct {
 _ASSERT_MSG_SIZE(mess_lc_vm_brk);
 
 typedef struct {
-	int		which;		/* RLIMIT_AS / RLIMIT_DATA */
+	int		which;		/* RLIMIT_AS / RLIMIT_DATA / _MEMLOCK */
 	int		op;		/* VMRL_GET / VMRL_SET */
-	uint64_t	limit;		/* soft limit in bytes (0 = unlimited) */
-	uint8_t		padding[80];
+	uint64_t	limit;		/* soft limit in bytes (AS/DATA: 0 =
+					 * unlimited) */
+	uint64_t	max;		/* hard limit: RLIMIT_MEMLOCK only */
+	uint8_t		padding[32];	/* exactly 56 bytes on i386 */
 } mess_lc_vm_rlimit;
 _ASSERT_MSG_SIZE(mess_lc_vm_rlimit);
 
@@ -1254,6 +1256,15 @@ typedef struct {
 	uint8_t		padding[44];	/* exactly 56 bytes on i386 */
 } mess_lc_vm_mprotect;
 _ASSERT_MSG_SIZE(mess_lc_vm_mprotect);
+
+typedef struct {
+	void		*addr;		/* page aligned */
+	size_t		len;
+	int		op;		/* VMML_* */
+	int		flags;		/* VMML_LOCKALL: MCL_CURRENT, MCL_FUTURE */
+	uint8_t		padding[40];	/* exactly 56 bytes on i386 */
+} mess_lc_vm_mlock;
+_ASSERT_MSG_SIZE(mess_lc_vm_mlock);
 
 typedef struct {
 	endpoint_t	endpt;
@@ -3009,6 +3020,7 @@ typedef struct noxfer_message {
 		mess_lc_vm_brk		m_lc_vm_brk;
 		mess_lc_vm_rlimit	m_lc_vm_rlimit;
 		mess_lc_vm_mprotect	m_lc_vm_mprotect;
+		mess_lc_vm_mlock	m_lc_vm_mlock;
 		mess_lc_vm_getphys	m_lc_vm_getphys;
 		mess_lc_vm_shm_unmap	m_lc_vm_shm_unmap;
 		mess_lchardriver_vfs_reply m_lchardriver_vfs_reply;

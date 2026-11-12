@@ -51,11 +51,24 @@ int getrlimit(int resource, struct rlimit *rlp)
 			}
 			break;
 
+		case RLIMIT_MEMLOCK:
+			/* Enforced by VM, with a hard limit of its own. */
+			{
+				message m;
+				memset(&m, 0, sizeof(m));
+				m.m_lc_vm_rlimit.which = resource;
+				m.m_lc_vm_rlimit.op = VMRL_GET;
+				if (_syscall(VM_PROC_NR, VM_RLIMIT, &m) < 0)
+					return -1;
+				rlp->rlim_cur = (rlim_t) m.m_lc_vm_rlimit.limit;
+				rlp->rlim_max = (rlim_t) m.m_lc_vm_rlimit.max;
+			}
+			return 0;
+
 		case RLIMIT_CPU:
 		case RLIMIT_FSIZE:
 		case RLIMIT_CORE:
 		case RLIMIT_RSS:
-		case RLIMIT_MEMLOCK:
 		case RLIMIT_SBSIZE:
 		case RLIMIT_NTHR:
 			/* no limit enforced (however architectural limits

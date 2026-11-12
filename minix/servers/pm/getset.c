@@ -394,6 +394,10 @@ do_set(void)
 		return(EINVAL);
   }
 
+  /* VM lets root lock memory past RLIMIT_MEMLOCK. */
+  if (m.m_type == VFS_PM_SETUID)
+	tell_vm_memlock(rmp);
+
   /* Send the request to VFS */
   tell_vfs(rmp, &m);
 

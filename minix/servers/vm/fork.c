@@ -131,6 +131,9 @@ int do_fork(message *msg)
   /* Only inherit these flags. */
   vmc->vm_flags &= VMF_INUSE;
 
+  /* Nor are memory locks inherited (POSIX). */
+  map_unlock_all(vmc);
+
   /* Deal with ACLs. */
   acl_fork(vmc);
 

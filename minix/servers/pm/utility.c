@@ -16,6 +16,7 @@
 #include <minix/callnr.h>
 #include <minix/com.h>
 #include <minix/endpoint.h>
+#include <minix/vm.h>
 #include <fcntl.h>
 #include <signal.h>		/* needed only because mproc.h needs it */
 #include "mproc.h"
@@ -153,4 +154,19 @@ set_rusage_times(struct rusage * r_usage, clock_t user_time, clock_t sys_time)
 	usec = sys_time * 1000000 / sys_hz();
 	r_usage->ru_stime.tv_sec = usec / 1000000;
 	r_usage->ru_stime.tv_usec = usec % 1000000;
+}
+
+/*===========================================================================*
+ *				tell_vm_memlock				     *
+ *===========================================================================*/
+void tell_vm_memlock(struct mproc *rmp)
+{
+/* VM keeps whether a process may lock memory past its RLIMIT_MEMLOCK, as the
+ * superuser may: tell it, after the effective user ID may have changed.
+ */
+  int r;
+
+  if ((r = vm_procctl_memlock(rmp->mp_endpoint,
+      rmp->mp_effuid == SUPER_USER)) != OK)
+	panic("tell_vm_memlock: vm_procctl_memlock failed: %d", r);
 }

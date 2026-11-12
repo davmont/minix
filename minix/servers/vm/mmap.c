@@ -71,6 +71,14 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 	 * a user process, but that is too late for pages the service itself
 	 * touches first -- the copy that grows an shm pool, for one. */
 	if(vmm_flags & MAP_USERMEM) vrflags |= VR_USERMEM;
+	/* After mlockall(MCL_FUTURE) a new mapping is locked.  Anonymous
+	 * memory is brought in here; a file's pages are kept once in. */
+	if(vmp->vm_flags & VMF_MCL_FUTURE) {
+		vrflags |= VR_LOCKED;
+		if((mt == &mem_type_anon || mt == &mem_type_anon_shared) &&
+		    !(vrflags & VR_NOACCESS))
+			mfflags |= MF_PREALLOC;
+	}
 
 	if(len <= 0) {
 		return NULL;
@@ -258,6 +266,13 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 	    NULL, NULL, 0) != OK)
 		printf("VM: mmap_file_cont: could not close fd\n");
 
+	/* After mlockall(MCL_FUTURE) the mapping is locked: its pages come in
+	 * before mmap() returns, and the reply may then come later. */
+	if(result == OK && (vmp->vm_flags & VMF_MCL_FUTURE) &&
+	    mlock_mmap_populate(vmp, origmsg->m_source, v,
+	    origmsg->m_mmap.len) == SUSPEND)
+		return;
+
 	/* Unblock requesting process: the caller, which for a thread is not
 	 * the process owning the address space.
 	 */
@@ -309,6 +324,11 @@ int do_mmap(message *m)
 	 * ENOMEM to that process instead of pressuring the whole system. */
 	if(vm_rlimit_exceeded(vmp, (vir_bytes) len, 0 /*AS only*/))
 		return ENOMEM;
+
+	/* Past RLIMIT_MEMLOCK after mlockall(MCL_FUTURE): POSIX says EAGAIN. */
+	if((vmp->vm_flags & VMF_MCL_FUTURE) &&
+	    map_memlock_exceeded(vmp, roundup(len, VM_PAGE_SIZE)))
+		return EAGAIN;
 
 	if(m->m_mmap.fd == -1 || (m->m_mmap.flags & MAP_ANON)) {
 		/* actual memory in some form */
@@ -766,6 +786,12 @@ int do_msync(message *m)
 	for(a = addr; a < addr + len; a = vr->vaddr + vr->length)
 		if(!(vr = map_lookup(vmp, a, NULL)))
 			return ENOMEM;
+
+	/* POSIX: EBUSY when MS_INVALIDATE would discard locked pages. */
+	if(flags & MS_INVALIDATE)
+		for(a = addr; a < addr + len; a = vr->vaddr + vr->length)
+			if((vr = map_lookup(vmp, a, NULL))->flags & VR_LOCKED)
+				return EBUSY;
 
 	/* Shared mappings and the file are one and the same (there is
 	 * nothing to invalidate), and their changes are in the file system's

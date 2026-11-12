@@ -29,12 +29,14 @@
 #include <minix/bitmap.h>
 
 #include <errno.h>
+#include <sys/param.h>
 #include <sys/resource.h>
 
 #include "glo.h"
 #include "vm.h"
 #include "proto.h"
 #include "util.h"
+#include "region.h"
 
 #define DATA_CHANGED       1    /* flag value when data segment size changed */
 #define STACK_CHANGED      2    /* flag value when stack size changed */
@@ -75,6 +77,24 @@ int do_rlimit(message *msg)
 	if (vm_isokendpt(msg->m_source, &proc) != OK)
 		return EINVAL;
 	vmp = vm_lwp_group(&vmproc[proc]);
+
+	if(msg->m_lc_vm_rlimit.which == RLIMIT_MEMLOCK) {
+		u64_t cur = msg->m_lc_vm_rlimit.limit,
+		    max = msg->m_lc_vm_rlimit.max;
+
+		if(msg->m_lc_vm_rlimit.op != VMRL_SET) {
+			msg->m_lc_vm_rlimit.limit = vmp->vm_memlock_cur;
+			msg->m_lc_vm_rlimit.max = vmp->vm_memlock_max;
+			return OK;
+		}
+		if(cur > max)
+			return EINVAL;
+		if(max > vmp->vm_memlock_max && !vmp->vm_memlock_priv)
+			return EPERM;
+		vmp->vm_memlock_cur = cur;
+		vmp->vm_memlock_max = max;
+		return OK;
+	}
 
 	switch(msg->m_lc_vm_rlimit.which) {
 	case RLIMIT_AS:		slot = &vmp->vm_as_limit;   break;
@@ -117,10 +137,30 @@ int real_brk(struct vmproc *vmp, vir_bytes v)
 	 * address space is already at the limit, refuse to grow it further so
 	 * the process's own brk()/malloc() fails gracefully with ENOMEM rather
 	 * than driving the system toward OOM. */
+	struct vir_region *vr;
+	vir_bytes end = 0;
+	int lock;
+
 	if(vm_rlimit_exceeded(vmp, 0, 1 /*check_data*/))
 		return(ENOMEM);
 
+	/* A locked heap, or any after mlockall(MCL_FUTURE), grows locked: past
+	 * RLIMIT_MEMLOCK it does not grow, as Linux has it. */
+	vr = region_search(&vmp->vm_regions_avl, roundup(v, VM_PAGE_SIZE),
+	    AVL_LESS);
+	lock = vr && vr->vaddr + vr->length < v &&
+	    ((vr->flags & VR_LOCKED) || (vmp->vm_flags & VMF_MCL_FUTURE));
+	if(lock) {
+		end = vr->vaddr + vr->length;
+		if(map_memlock_exceeded(vmp,
+		    roundup(v, VM_PAGE_SIZE) - end))
+			return(ENOMEM);
+	}
+
 	if(map_region_extend_upto_v(vmp, v) == OK) {
+		if(lock)
+			mlock_brk_populate(vmp, end,
+			    roundup(v, VM_PAGE_SIZE));
 		return OK;
 	}
 

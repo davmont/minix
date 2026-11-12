@@ -70,6 +70,10 @@
 /* And what is the highest addressable piece of memory? */
 #define VM_DATATOP	kernel_boot_info.user_end
 
+/* RLIMIT_MEMLOCK, soft and hard, of a process that has not changed it: as
+ * Linux has it.  The superuser may lock past it. */
+#define VM_MEMLOCK_DEFAULT	(8 * 1024 * 1024)
+
 #define VM_STACKTOP	kernel_boot_info.user_sp
 
 /* Live update will work only with magic instrumentation. Live update requires

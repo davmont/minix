@@ -4,65 +4,54 @@
 
 #include <sys/mman.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 /*
- * mlock(2), munlock(2), mlockall(2) and munlockall(2).  <unistd.h> has said
- * _POSIX_MEMLOCK and _POSIX_MEMLOCK_RANGE all along, and <sys/mman.h>
- * declared the calls, but the library did not have them: a program that
- * used them failed to link.
- *
- * They check what POSIX has them check, and succeed, but VM does not pin
- * the pages: a locked page may still be compressed or swapped out when
- * memory runs short, as any other.  Only the superuser may lock, as on
- * NetBSD with no RLIMIT_MEMLOCK to spare.  The range must be mapped
- * (ENOMEM) and start on a page (EINVAL); VM's msync(2) checks the very same,
- * and MS_ASYNC has it do nothing else.
+ * mlock(2), munlock(2), mlockall(2) and munlockall(2).  VM pins the pages:
+ * it brings them in, and neither compresses, swaps out nor evicts them until
+ * they are unlocked, unmapped, or the process exits or execs.  A child of
+ * fork(2) does not inherit the locks.  The superuser may lock any amount;
+ * others up to their RLIMIT_MEMLOCK.
  */
 
 static int
-check_range(const void *addr, size_t len)
+vm_mlock(int op, const void *addr, size_t len, int flags)
 {
+	message m;
 
-	return msync(__UNCONST(addr), len, MS_ASYNC);
+	memset(&m, 0, sizeof(m));
+	m.m_lc_vm_mlock.op = op;
+	m.m_lc_vm_mlock.addr = __UNCONST(addr);
+	m.m_lc_vm_mlock.len = len;
+	m.m_lc_vm_mlock.flags = flags;
+	return _syscall(VM_PROC_NR, VM_MLOCK, &m) < 0 ? -1 : 0;
 }
 
 int
 mlock(const void *addr, size_t len)
 {
 
-	if (geteuid() != 0) {
-		errno = EPERM;
-		return -1;
-	}
-	return check_range(addr, len);
+	return vm_mlock(VMML_LOCK, addr, len, 0);
 }
 
 int
 munlock(const void *addr, size_t len)
 {
 
-	return check_range(addr, len);
+	return vm_mlock(VMML_UNLOCK, addr, len, 0);
 }
 
 int
 mlockall(int flags)
 {
 
-	if (flags == 0 || (flags & ~(MCL_CURRENT | MCL_FUTURE)) != 0) {
-		errno = EINVAL;
-		return -1;
-	}
-	if (geteuid() != 0) {
-		errno = EPERM;
-		return -1;
-	}
-	return 0;
+	return vm_mlock(VMML_LOCKALL, NULL, 0, flags);
 }
 
 int
 munlockall(void)
 {
 
-	return 0;
+	return vm_mlock(VMML_UNLOCKALL, NULL, 0, 0);
 }

@@ -114,6 +114,16 @@ typedef struct vir_region {
  * boot images and program text keep execute permission.
  */
 #define VR_NOEXEC	0x4000
+/*
+ * mlock(2): the pages are kept in memory.  Locking brings them in; reclaim
+ * neither compresses nor evicts them.  Not inherited across fork().
+ */
+#define VR_LOCKED	0x8000
+/*
+ * Locked by an mlock(2) or mlockall(2) call still bringing its pages in: if
+ * the call fails, these regions, and only these, are unlocked again.
+ */
+#define VR_MLOCKING	0x002
 
 /* Mapping type: */
 #define VR_ANON		0x100	/* Memory to be cleared and allocated */

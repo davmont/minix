@@ -109,6 +109,8 @@ void clear_proc(struct vmproc *vmp)
 	vmp->vm_flags = 0;		/* Clear INUSE, so slot is free. */
 	vmp->vm_as_limit = 0;		/* fresh slot: no RLIMIT_AS/DATA yet */
 	vmp->vm_data_limit = 0;		/* (exec preserves via free_proc) */
+	vmp->vm_memlock_cur = vmp->vm_memlock_max = VM_MEMLOCK_DEFAULT;
+	vmp->vm_memlock_priv = 1;	/* PM tells otherwise, at a setuid */
 	vmp->vm_shared_total = 0;	/* regions are gone with the slot */
 	vmp->vm_lwp_leader = NO_LWP_LEADER;	/* clean slot for reuse */
 	vmp->vm_lwp_refcount = 0;
@@ -207,6 +209,9 @@ int do_procctl(message *msg, int transid)
 			 * mmap()s below a random top, which its forks keep.
 			 * System services (RS asks) keep the fixed layout that
 			 * live update expects. */
+			/* Exec ends mlockall(MCL_FUTURE); the locks went
+			 * with the address space. */
+			vmp->vm_flags &= ~VMF_MCL_FUTURE;
 			if(msg->m_source == VFS_PROC_NR) {
 #ifdef VM_HOLE_END
 				/* A stack above 1 GB (an exec'd user
@@ -258,6 +263,13 @@ int do_procctl(message *msg, int transid)
 
 			return SUSPEND;
 		}
+		case VMPPARAM_MEMLOCK:
+			if(msg->m_source != PM_PROC_NR)
+				return EPERM;
+			vmp->vm_memlock_priv = !!msg->VMPCTL_FLAGS;
+			vm_lwp_group(vmp)->vm_memlock_priv =
+			    vmp->vm_memlock_priv;
+			return OK;
 		default:
 			return EINVAL;
 	}

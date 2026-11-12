@@ -128,6 +128,7 @@ int do_newexec(void)
 	/* Always update the saved user and group ID at this point. */
 	rmp->mp_svuid = rmp->mp_effuid;
 	rmp->mp_svgid = rmp->mp_effgid;
+	tell_vm_memlock(rmp);
 
 	/* A process is considered 'tainted' when it's executing with
 	 * setuid or setgid bit set, or when the real{u,g}id doesn't
