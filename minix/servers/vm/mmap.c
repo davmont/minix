@@ -266,6 +266,13 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 	    NULL, NULL, 0) != OK)
 		printf("VM: mmap_file_cont: could not close fd\n");
 
+	/* After mlockall(MCL_FUTURE) the mapping is locked: its pages come in
+	 * before mmap() returns, and the reply may then come later. */
+	if(result == OK && (vmp->vm_flags & VMF_MCL_FUTURE) &&
+	    mlock_mmap_populate(vmp, origmsg->m_source, v,
+	    origmsg->m_mmap.len) == SUSPEND)
+		return;
+
 	/* Unblock requesting process: the caller, which for a thread is not
 	 * the process owning the address space.
 	 */

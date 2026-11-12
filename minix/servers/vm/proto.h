@@ -88,6 +88,10 @@ int do_msync(message *msg);
 /* mlock.c */
 int do_mlock(message *msg);
 int map_memlock_exceeded(struct vmproc *vmp, vir_bytes add);
+int mlock_mmap_populate(struct vmproc *vmp, endpoint_t caller,
+	vir_bytes addr, vir_bytes len);
+void mlock_brk_populate(struct vmproc *vmp, vir_bytes start,
+	vir_bytes limit);
 int do_map_phys(message *msg);
 int do_unmap_phys(message *msg);
 int do_remap(message *m);
@@ -173,6 +177,8 @@ vir_bytes map_locked_bytes(struct vmproc *vmp, vir_bytes start,
 	vir_bytes limit, int locked);
 void map_lock_all(struct vmproc *vmp);
 void map_unlock_all(struct vmproc *vmp);
+void map_lock_done(struct vmproc *vmp, vir_bytes start, vir_bytes limit,
+	int undo);
 int map_free_proc(struct vmproc *vmp);
 int map_count_full(struct vmproc *vmp, int more);
 int map_proc_copy(struct vmproc *dst, struct vmproc *src);

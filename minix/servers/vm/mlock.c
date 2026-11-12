@@ -11,6 +11,11 @@
  * tells VM which processes are the superuser's (vm_memlock_priv).  The locks
  * are the address space's: a thread's call acts on its group leader's, a
  * fork() child has none, and they go with the address space at exec.
+ *
+ * A call marks the regions it locks VR_MLOCKING until their pages are in; if
+ * it fails, those are unlocked again, and what was locked before stays so.
+ * After mlockall(MCL_FUTURE), a new mapping and the heap's growth are locked
+ * and brought in too: see mlock_mmap_populate() and mlock_brk_populate().
  */
 
 #include <minix/callnr.h>
@@ -45,7 +50,8 @@ struct mlock_state {
 	endpoint_t caller;		/* who called, to reply to */
 	vir_bytes start, limit;		/* the range locked */
 	vir_bytes next;			/* the next page to bring in */
-	int all;			/* mlockall(): unlock all on failure */
+	int mmap;			/* for mmap(2): reply with its address */
+	int sync;			/* may not suspend: skip file pages */
 	int retry;			/* VFS was asked for the next page */
 };
 
@@ -101,6 +107,10 @@ static int mlock_step(struct vmproc *vmp, struct mlock_state *st)
 		 * so as not to dirty its file. */
 		wr = (vr->flags & VR_WRITABLE) && !(vr->flags & VR_SHARED);
 
+		if(vr->def_memtype == &mem_type_mappedfile && st->sync) {
+			st->next = vr->vaddr + vr->length;
+			continue;
+		}
 		if(vr->def_memtype == &mem_type_mappedfile && !st->retry) {
 			st->retry = 1;	/* in the copy the callback gets */
 			r = map_handle_memory(vmp, vr, offset, VM_PAGE_SIZE,
@@ -125,20 +135,30 @@ static int mlock_step(struct vmproc *vmp, struct mlock_state *st)
 	return OK;
 }
 
-/* The call failed: what it locked is unlocked again. */
-static void mlock_undo(struct vmproc *vmp, struct mlock_state *st)
+/* Reply to the caller, once the pages are in (or the call failed).  An
+ * mlock() that fails unlocks what it locked; an mmap() stands, as Linux has
+ * it, with what could be brought in.
+ */
+static void mlock_reply(struct vmproc *vmp, struct mlock_state *st, int r)
 {
-	if(st->all)
-		map_unlock_all(vmp);
-	else
-		(void) map_lock_range(vmp, st->start, st->limit - st->start, 0);
+	message reply;
+
+	memset(&reply, 0, sizeof(reply));
+	if(st->mmap) {
+		reply.m_type = OK;
+		reply.m_mmap.retaddr = (void *) st->start;
+	} else {
+		map_lock_done(vmp, st->start, st->limit, r != OK);
+		reply.m_type = r;
+	}
+	if(ipc_send(st->caller, &reply) != OK)
+		printf("VM: mlock_reply: ipc_send() failed\n");
 }
 
 static void mlock_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 	void *statearg)
 {
 	struct mlock_state *st = statearg;
-	message reply;
 	int r;
 
 	if(vmp == NULL)
@@ -152,13 +172,44 @@ static void mlock_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 
 	if((r = mlock_step(vmp, st)) == SUSPEND)
 		return;
-	if(r != OK)
-		mlock_undo(vmp, st);
+	mlock_reply(vmp, st, r);
+}
 
-	memset(&reply, 0, sizeof(reply));
-	reply.m_type = r;
-	if(ipc_send(st->caller, &reply) != OK)
-		printf("VM: mlock_cont: ipc_send() failed\n");
+/* A file mapping made after mlockall(MCL_FUTURE) is locked (mmap_region()):
+ * bring its pages in before mmap() returns.  SUSPEND if VFS was asked; the
+ * reply, with the address, then comes from mlock_cont().
+ */
+int mlock_mmap_populate(struct vmproc *vmp, endpoint_t caller, vir_bytes addr,
+	vir_bytes len)
+{
+	struct mlock_state st;
+
+	memset(&st, 0, sizeof(st));
+	st.caller = caller;
+	st.mmap = 1;
+	st.start = st.next = addr;
+	st.limit = addr + roundup(len, VM_PAGE_SIZE);
+	return mlock_step(vmp, &st) == SUSPEND ? SUSPEND : OK;
+}
+
+/* The heap grew to 'limit' from 'start', locked: lock what is new and bring
+ * it in.  The heap is anonymous memory, so this does not suspend; out of
+ * memory, the pages stay locked and come in at the fault, as Linux has it.
+ */
+void mlock_brk_populate(struct vmproc *vmp, vir_bytes start, vir_bytes limit)
+{
+	struct mlock_state st;
+
+	/* Only when the region count is full may this fail: then the growth
+	 * is just not locked. */
+	if(map_lock_range(vmp, start, limit - start, 1) != OK)
+		return;
+	memset(&st, 0, sizeof(st));
+	st.sync = 1;
+	st.start = st.next = start;
+	st.limit = limit;
+	(void) mlock_step(vmp, &st);
+	map_lock_done(vmp, start, limit, 0);
 }
 
 /*===========================================================================*
@@ -233,7 +284,6 @@ int do_mlock(message *m)
 		    map_locked_bytes(vmp, 0, (vir_bytes) -1, 0)))
 			return ENOMEM;
 		map_lock_all(vmp);
-		st.all = 1;
 		st.start = st.next = 0;
 		st.limit = (vir_bytes) -1;
 		break;
@@ -247,7 +297,8 @@ int do_mlock(message *m)
 		return EINVAL;
 	}
 
-	if((r = mlock_step(vmp, &st)) != OK && r != SUSPEND)
-		mlock_undo(vmp, &st);
+	if((r = mlock_step(vmp, &st)) == SUSPEND)
+		return SUSPEND;
+	map_lock_done(vmp, st.start, st.limit, r != OK);
 	return r;
 }

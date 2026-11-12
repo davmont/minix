@@ -5,7 +5,8 @@
  * locked pages.  Locks split regions and are kept per page; a fork(2) child
  * does not inherit them; mlockall(MCL_FUTURE) locks later mappings.  Past
  * RLIMIT_MEMLOCK only the superuser may lock, so the test is setuid root, and
- * takes a user's effective ID for the limits.
+ * takes a user's effective ID for the limits.  After mlockall(MCL_FUTURE) the
+ * heap grows locked, and a file mapping's pages are in before mmap() returns.
  */
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -13,6 +14,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -234,6 +236,8 @@ test172e(void)
 	if (mlockall(MCL_FUTURE) != 0) e(14);
 	if (mmap(NULL, pg, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1,
 	    0) != MAP_FAILED || errno != EAGAIN) e(15);
+	/* The heap does not grow past it either. */
+	if (sbrk(pg) != (void *)-1 || errno != ENOMEM) e(27);
 	if (munlockall() != 0) e(16);
 
 	/* The hard limit is the superuser's to raise. */
@@ -256,6 +260,46 @@ test172e(void)
 	if (munmap(p, 8 * pg) != 0) e(26);
 }
 
+/* After mlockall(MCL_FUTURE): the heap, and the pages of a file mapping. */
+static void
+test172f(void)
+{
+	char buf[4096], *b, *q;
+	int fd;
+
+	subtest = 6;
+
+	if (mlockall(MCL_FUTURE) != 0) e(1);
+
+	/* The heap grows locked. */
+	b = sbrk(0);
+	if ((uintptr_t)b % pg != 0 && sbrk(pg - (uintptr_t)b % pg) == (void *)-1)
+		e(2);
+	if ((b = sbrk(2 * pg)) == (void *)-1) e(3);
+	if (!locked(b) || !locked(b + pg)) e(4);
+	if (b[0] != 0 || b[2 * pg - 1] != 0) e(5);
+
+	/* A private writable file mapping is brought in written to: it has
+	 * its own copy of the page already, and a later write to the file
+	 * does not show in it. */
+	memset(buf, 'f', sizeof(buf));
+	(void)unlink("f2");
+	if ((fd = open("f2", O_RDWR | O_CREAT | O_EXCL, 0600)) < 0) e(6);
+	if (write(fd, buf, pg) != pg) e(7);
+	if ((q = mmap(NULL, pg, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd,
+	    0)) == MAP_FAILED) e(8);
+	if (!locked(q)) e(9);
+	if (pwrite(fd, "n", 1, 0) != 1) e(10);
+	if (q[0] != 'f') e(11);
+
+	if (munlockall() != 0) e(12);
+	if (locked(q) || locked(b)) e(13);
+	if (munmap(q, pg) != 0) e(14);
+	close(fd);
+	(void)unlink("f2");
+	if (sbrk(-2 * pg) == (void *)-1) e(15);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -268,6 +312,7 @@ main(int argc, char **argv)
 	test172c();
 	test172d();
 	test172e();
+	test172f();
 
 	quit();
 	return 0;

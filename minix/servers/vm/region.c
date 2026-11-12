@@ -1551,7 +1551,7 @@ int map_lock_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
  */
 	vir_bytes limit, a;
 	struct vir_region *vr;
-	int r;
+	int r, splits = 0;
 
 	assert(!(start % VM_PAGE_SIZE));
 	assert(!(length % VM_PAGE_SIZE));
@@ -1563,11 +1563,17 @@ int map_lock_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 		/* POSIX: ENOMEM when part of the range is not mapped. */
 		if(!(vr = map_lookup(vmp, a, NULL)))
 			return ENOMEM;
-		if(!!(vr->flags & VR_LOCKED) != !!lock &&
-		    (start > vr->vaddr || limit < vr->vaddr + vr->length) &&
+		if(!!(vr->flags & VR_LOCKED) == !!lock)
+			continue;
+		if((start > vr->vaddr || limit < vr->vaddr + vr->length) &&
 		    !vr->def_memtype->ev_split)
 			return ENOTSUP;
+		/* Each split makes a region more: see map_count_full(). */
+		if(start > vr->vaddr) splits++;
+		if(limit < vr->vaddr + vr->length) splits++;
 	}
+	if(map_count_full(vmp, splits))
+		return ENOMEM;
 
 	for(a = start; a < limit; a = vr->vaddr + vr->length) {
 		struct vir_region *vr1, *vr2;
@@ -1590,12 +1596,37 @@ int map_lock_range(struct vmproc *vmp, vir_bytes start, vir_bytes length,
 			vr = vr1;
 		}
 		if(lock)
-			vr->flags |= VR_LOCKED;
+			vr->flags |= VR_LOCKED | VR_MLOCKING;
 		else
-			vr->flags &= ~VR_LOCKED;
+			vr->flags &= ~(VR_LOCKED | VR_MLOCKING);
 	}
 
 	return OK;
+}
+
+/*========================================================================*
+ *				map_lock_done				  *
+ *========================================================================*/
+void map_lock_done(struct vmproc *vmp, vir_bytes start, vir_bytes limit,
+	int undo)
+{
+/* An mlock(2) or mlockall(2) call on [start, limit) has brought its pages in,
+ * or failed (undo): the regions it locked (VR_MLOCKING) stay locked, or are
+ * unlocked again.  What was locked before the call stays as it was.
+ */
+	struct vir_region *vr;
+	region_iter iter;
+
+	region_start_iter_least(&vmp->vm_regions_avl, &iter);
+	while((vr = region_get_iter(&iter))) {
+		region_incr_iter(&iter);
+		if(!(vr->flags & VR_MLOCKING) || vr->vaddr >= limit ||
+		    vr->vaddr + vr->length <= start)
+			continue;
+		vr->flags &= ~VR_MLOCKING;
+		if(undo)
+			vr->flags &= ~VR_LOCKED;
+	}
 }
 
 /*========================================================================*
@@ -1636,7 +1667,8 @@ void map_lock_all(struct vmproc *vmp)
 	region_start_iter_least(&vmp->vm_regions_avl, &iter);
 	while((vr = region_get_iter(&iter))) {
 		region_incr_iter(&iter);
-		vr->flags |= VR_LOCKED;
+		if(!(vr->flags & VR_LOCKED))
+			vr->flags |= VR_LOCKED | VR_MLOCKING;
 	}
 }
 
@@ -1651,7 +1683,7 @@ void map_unlock_all(struct vmproc *vmp)
 	region_start_iter_least(&vmp->vm_regions_avl, &iter);
 	while((vr = region_get_iter(&iter))) {
 		region_incr_iter(&iter);
-		vr->flags &= ~VR_LOCKED;
+		vr->flags &= ~(VR_LOCKED | VR_MLOCKING);
 	}
 }
 
