@@ -22,14 +22,18 @@
 
 #define CPUCLOCK_ID_MASK	0x1fffffff
 
-/* Add the CPU time 'rmp' has used to '*ticks'. */
-static void
+/* Add the CPU time 'rmp' has used to '*ticks'; FALSE if it is gone from the
+ * kernel.
+ */
+static int
 add_cpu_time(struct mproc *rmp, clock_t *ticks)
 {
   clock_t user_time, sys_time;
 
-  if (sys_times(rmp->mp_endpoint, &user_time, &sys_time, NULL, NULL) == OK)
-	*ticks += user_time + sys_time;
+  if (sys_times(rmp->mp_endpoint, &user_time, &sys_time, NULL, NULL) != OK)
+	return FALSE;
+  *ticks += user_time + sys_time;
+  return TRUE;
 }
 
 /* The CPU time, in ticks, that the CPU time clock 'clk' shows. */
@@ -55,6 +59,11 @@ cpu_clock(clockid_t clk, clock_t *ticks)
 	for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
 		if (!(t->mp_flags & IN_USE))
 			continue;
+		/* Not one that has exited: that is counted already, and the
+		 * kernel may no longer know it.
+		 */
+		if (t->mp_flags & (MP_LWP_TEARDOWN | MP_LWP_ZOMBIE))
+			continue;
 		if ((int) (t - mproc) == leader ||
 		    ((t->mp_flags & MP_LWP) && t->mp_lwp_group == leader))
 			add_cpu_time(t, ticks);
@@ -75,7 +84,14 @@ cpu_clock(clockid_t clk, clock_t *ticks)
 			continue;
 		if ((int) (t - mproc) == leader ||
 		    ((t->mp_flags & MP_LWP) && t->mp_lwp_group == leader)) {
-			add_cpu_time(t, ticks);
+			/* A thread that has exited, and is not joined yet,
+			 * shows the time it ended with (lwp_start_teardown());
+			 * the kernel may no longer know it, or show it as 0.
+			 */
+			if (t->mp_flags & (MP_LWP_TEARDOWN | MP_LWP_ZOMBIE))
+				*ticks = t->mp_lwp_time;
+			else
+				(void) add_cpu_time(t, ticks);
 			return OK;
 		}
 	}

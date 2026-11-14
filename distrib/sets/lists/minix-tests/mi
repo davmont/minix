@@ -277,6 +277,7 @@
 ./usr/tests/minix-posix/test170                         minix-tests
 ./usr/tests/minix-posix/test171                         minix-tests
 ./usr/tests/minix-posix/test172                         minix-tests
+./usr/tests/minix-posix/test173                         minix-tests
 ./usr/tests/minix-posix/testinterp                      minix-tests
 ./usr/tests/minix-posix/testisofs                       minix-tests
 ./usr/tests/minix-posix/testkyua                        minix-tests

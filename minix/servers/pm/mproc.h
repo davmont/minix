@@ -144,6 +144,8 @@ EXTERN struct mproc {
   minix_timer_t mp_timer;	/* watchdog timer for alarm(2), setitimer(2) */
   minix_timer_t mp_park_timer;	/* timeout of _lwp_park(2), sigtimedwait(2) */
   clock_t mp_interval[NR_ITIMERS];	/* setitimer(2) repetition intervals */
+  u64_t mp_alarm_due;		/* uptime_ns() the alarm was set for; 0: the
+				 * tick it goes off on (an interval's) */
   clock_t mp_started;		/* when the process was started, for ps(1) */
 
   unsigned mp_flags;		/* flag bits */

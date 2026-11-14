@@ -193,8 +193,10 @@ int do_select(void)
 	if (timeout.tv_sec >= (TMRDIFF_MAX - 1) / system_hz) {
 		ticks = TMRDIFF_MAX; /* silently truncate */
 	} else {
-		ticks = timeout.tv_sec * system_hz +
-		    (timeout.tv_usec * system_hz + USECPERSEC-1) / USECPERSEC;
+		/* The timer counts from the last tick, which may be most of
+		 * a tick ago, and the call may not return before its time. */
+		ticks = timeout_ticks(timeout.tv_sec,
+		    (long) timeout.tv_usec * 1000);
 	}
 	assert(ticks != 0 && ticks <= TMRDIFF_MAX);
   }

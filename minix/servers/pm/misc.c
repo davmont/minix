@@ -303,7 +303,8 @@ inherit_update(struct mproc *rmp)
   int slot = (int)(rmp - mproc), inherited = -1;
 
   for (t = &mproc[0]; t < &mproc[NR_PROCS]; t++) {
-	if ((t->mp_flags & IN_USE) && mpinherit[t - mproc].on == slot &&
+	if ((t->mp_flags & (IN_USE | MP_LWP_PARKED)) ==
+	    (IN_USE | MP_LWP_PARKED) && mpinherit[t - mproc].on == slot &&
 	    mpinherit[t - mproc].level > inherited)
 		inherited = mpinherit[t - mproc].level;
   }
@@ -342,7 +343,8 @@ do_sched_inherit(void)
  * caller parks on one, which thread 'lid' holds, DONE once it is awake, and
  * RELEASE when the caller unlocks one.  A thread runs at the highest
  * priority of those waiting for it (POSIX), as long as they wait for it,
- * which a thread in the same process may well have without being root.
+ * which a thread in the same process may well have without being root.  A
+ * waiter counts while it is parked (sched_inherit_parked()).
  *
  * The owner may have unlocked the mutex, and asked for RELEASE, since the
  * caller saw it as the owner: PM asks for each call in turn, so if the word
@@ -410,6 +412,25 @@ sched_inherit_init(struct mproc *rmp)
   pi->on = -1;
   pi->inherited = -1;
   pi->level = (rmp->mp_policy == SCHED_OTHER) ? -1 : rmp->mp_rtprio;
+}
+
+/*===========================================================================*
+ *				sched_inherit_parked		       	     *
+ *===========================================================================*/
+void
+sched_inherit_parked(struct mproc *rmp)
+{
+/* 'rmp' has just parked in _lwp_park(), or stopped being parked: unparked,
+ * timed out, interrupted or gone.  A thread passes its priority on to the
+ * owner of the mutex it waits for only while it is parked.  Were it to do so
+ * from SCHED_INHERIT_WAIT on, the owner, now at its priority, would run ahead
+ * of it, and could keep it from parking, or from running again once woken,
+ * for as long as the owner keeps the CPU.
+ */
+  struct pm_inherit *pi = &mpinherit[rmp - mproc];
+
+  if (pi->on >= 0)
+	inherit_update(&mproc[pi->on]);
 }
 
 /*===========================================================================*

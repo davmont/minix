@@ -747,10 +747,8 @@ int do_kevent(void)
 	else if (ts.tv_sec >= (TMRDIFF_MAX - 1) / system_hz)
 		ticks = TMRDIFF_MAX;
 	else
-		ticks = ts.tv_sec * system_hz +
-		    (ts.tv_nsec / 1000 * system_hz + 999999) / 1000000;
-	if (ticks == 0 && block)
-		ticks = 1;
+		/* Not before its time (see do_select()). */
+		ticks = timeout_ticks(ts.tv_sec, ts.tv_nsec);
   }
   if (due > 0 && (ticks == 0 || due < ticks))
 	ticks = due;

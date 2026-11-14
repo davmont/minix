@@ -9,9 +9,18 @@ gettimeofday.c
 #include <string.h>
 #include <sys/time.h>
 
+int __minix_clock_fast(clockid_t, struct timespec *);
+
 int gettimeofday(struct timeval *__restrict tp, void *__restrict tzp)
 {
+  struct timespec ts;
   message m;
+
+  if (__minix_clock_fast(CLOCK_REALTIME, &ts) == 0) {
+	tp->tv_sec = ts.tv_sec;
+	tp->tv_usec = ts.tv_nsec / 1000;
+	return 0;
+  }
 
   memset(&m, 0, sizeof(m));
 

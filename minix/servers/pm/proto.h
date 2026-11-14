@@ -75,6 +75,7 @@ void sched_protect_reset(struct mproc *rmp);
 int do_sched_inherit(void);
 void sched_inherit_init(struct mproc *rmp);
 void sched_inherit_exit(struct mproc *rmp);
+void sched_inherit_parked(struct mproc *rmp);
 int do_getprocnr(void);
 int do_getepinfo(void);
 int do_svrctl(void);

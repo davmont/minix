@@ -17,6 +17,7 @@
 #include "mproc.h"
 
 #define US 1000000UL	/* shortcut for microseconds per second */
+#define MAX_DUE_SEC (60LL * 60 * 24 * 365 * 100)	/* farther: tick only */
 
 static clock_t ticks_from_timeval(struct timeval *tv);
 static void timeval_from_ticks(struct timeval *tv, clock_t ticks);
@@ -250,27 +251,32 @@ check_vtimer(int proc_nr, int sig)
 static void
 get_realtimer(struct mproc *rmp, struct itimerval *value)
 {
-  clock_t exptime;	/* time at which alarm will expire */
-  clock_t uptime;	/* current system time */
-  clock_t remaining;	/* time left on alarm */
+  u64_t left, now;	/* ns left on the alarm */
 
-  /* First determine remaining time, in ticks, of previous alarm, if set. */
+  /* First determine the time left on the alarm, if set: to the time it was
+   * set for, which may be most of a tick before the tick it goes off on, or
+   * else (an interval's) to that tick.
+   */
+  left = 0;
   if (rmp->mp_flags & ALARM_ON) {
-	uptime = getticks();
-	exptime = tmr_exp_time(&rmp->mp_timer);
-
-  	remaining = exptime - uptime;
-
-  	/* If the alarm expired already, we should take into account the
-  	 * interval. Return zero only if the interval is zero as well.
-  	 */
-  	if (remaining <= 0) remaining = rmp->mp_interval[ITIMER_REAL];
-  } else {
-  	remaining = 0;
+	if (rmp->mp_alarm_due != 0) {
+		now = uptime_ns(NULL);
+		/* Due, but not gone off yet: a little time is left still. */
+		left = (rmp->mp_alarm_due > now) ? rmp->mp_alarm_due - now : 1;
+	} else
+		left = tick_left_ns(tmr_exp_time(&rmp->mp_timer));
   }
 
-  /* Convert the result to a timeval structure. */
-  timeval_from_ticks(&value->it_value, remaining);
+  /* If the alarm went off already, the interval is what is left; zero only
+   * if the interval is zero as well.
+   */
+  if (left == 0)
+	timeval_from_ticks(&value->it_value, rmp->mp_interval[ITIMER_REAL]);
+  else {
+	left = (left + 999) / 1000;	/* microseconds, rounded up */
+	value->it_value.tv_sec = (time_t) (left / US);
+	value->it_value.tv_usec = (long) (left % US);
+  }
 
   /* Similarly convert and store the interval of the timer. */
   timeval_from_ticks(&value->it_interval, rmp->mp_interval[ITIMER_REAL]);
@@ -284,9 +290,23 @@ set_realtimer(struct mproc *rmp, struct itimerval *value)
 {
   clock_t ticks;	/* New amount of ticks to the next alarm. */
   clock_t interval;	/* New amount of ticks for the alarm's interval. */
+  u64_t due;
 
-  /* Convert the timeval structures in the 'value' structure to ticks. */
-  ticks = ticks_from_timeval(&value->it_value);
+  /* Convert the timeval structures in the 'value' structure to ticks.  The
+   * first expiry counts from now, which may be most of a tick past the last
+   * tick; the next ones from the tick the timer went off on.
+   */
+  due = 0;
+  if (value->it_value.tv_sec == 0 && value->it_value.tv_usec == 0)
+	ticks = 0;
+  else {
+	if (value->it_value.tv_sec < MAX_DUE_SEC)
+		due = uptime_ns(NULL) +
+		    (u64_t) value->it_value.tv_sec * 1000000000ULL +
+		    (u64_t) value->it_value.tv_usec * 1000ULL;
+	ticks = timeout_ticks(value->it_value.tv_sec,
+	    (long) value->it_value.tv_usec * 1000);
+  }
   interval = ticks_from_timeval(&value->it_interval);
 
   /* If no timer is set, the interval must be zero. */
@@ -294,6 +314,7 @@ set_realtimer(struct mproc *rmp, struct itimerval *value)
 
   /* Apply these values. */
   set_alarm(rmp, ticks);
+  if (ticks > 0) rmp->mp_alarm_due = due;
   rmp->mp_interval[ITIMER_REAL] = interval;
 }
 
@@ -304,6 +325,7 @@ void set_alarm(rmp, ticks)
 struct mproc *rmp;		/* process that wants the alarm */
 clock_t ticks;			/* how many ticks delay before the signal */
 {
+  rmp->mp_alarm_due = 0;		/* it goes off at the tick */
   if (ticks > 0) {
 	assert(ticks <= TMRDIFF_MAX);
   	set_timer(&rmp->mp_timer, ticks, cause_sigalrm, rmp->mp_endpoint);

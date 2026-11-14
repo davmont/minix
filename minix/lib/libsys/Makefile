@@ -97,6 +97,7 @@ SRCS+=  \
 	sys_vumap.c \
 	taskcall.c \
 	tickdelay.c \
+	timeout_ticks.c \
 	timers.c \
 	vm_cache.c \
 	vm_exit.c \

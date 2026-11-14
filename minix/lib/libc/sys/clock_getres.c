@@ -9,9 +9,14 @@
 __weak_alias(clock_getres, __clock_getres50);
 #endif
 
+int __minix_clock_fast_res(clockid_t, struct timespec *);
+
 int clock_getres(clockid_t clock_id, struct timespec *res)
 {
   message m;
+
+  if (res != NULL && __minix_clock_fast_res(clock_id, res) == 0)
+	return 0;
 
   memset(&m, 0, sizeof(m));
   m.m_lc_pm_time.clk_id = clock_id;
