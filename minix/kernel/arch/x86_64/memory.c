@@ -762,6 +762,7 @@ int arch_phys_map_reply(const int index, const vir_bytes addr)
 		}
 
 		minix_kerninfo.ki_flags |= MINIX_KIF_USERINFO;
+		minix_kerninfo.ki_flags |= MINIX_KIF_CLOCKTSC;
 		return OK;
 	}
 

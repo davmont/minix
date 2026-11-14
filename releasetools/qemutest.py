@@ -66,7 +66,7 @@ QUICK_TESTS = ("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
                "124 125 126 127 128 129 130 131 132 133 134 135 136 137 "
                "138 139 140 141 142 143 144 145 146 147 148 149 150 151 "
                "152 153 154 155 156 157 158 159 160 161 162 163 164 165 "
-               "166 167 168 169 170 171 172 sh1 interp mfs isofs")
+               "166 167 168 169 170 171 172 173 sh1 interp mfs isofs")
 
 # Where the tests live on the image and how much ramdisk they get (KB).
 TESTS_DIR = "/usr/tests/minix-posix"

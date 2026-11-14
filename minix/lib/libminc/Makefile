@@ -296,7 +296,7 @@ CLEANFILES+= ${f:C/\.o/.bc/}
 .endfor
 
 .for f in \
-	access.o brk.o close.o environ.o execve.o fork.o fsync.o \
+	access.o brk.o clock_fast.o close.o environ.o execve.o fork.o fsync.o \
 	getgid.o getpid.o geteuid.o getuid.o gettimeofday.o getvfsstat.o \
 	init.o kernel_utils.o kill.o link.o loadname.o lseek.o _mcontext.o \
 	minix_rs.o mknod.o mmap.o nanosleep.o open.o pread.o pwrite.o read.o \

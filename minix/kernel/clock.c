@@ -16,6 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#if defined(__i386__) || defined(__x86_64__)
+#include <minix/minlib.h>
+#endif
 
 #include "clock.h"
 
@@ -41,6 +44,80 @@ static minix_timer_t *clock_timers;	/* queue of CLOCK timers */
  */
 static int32_t adjtime_delta = 0;
 
+/* Updates of kclockinfo that userland reads (see <minix/type.h>) are made
+ * between these, which make its sequence number odd and then even again.
+ * The boot CPU's clock interrupt and the kernel calls that set the clock run
+ * under the big kernel lock, so there is one writer at a time; x86 keeps
+ * stores in order, so only the compiler must be kept from moving them.
+ */
+static void
+kclock_write_begin(void)
+{
+	kclockinfo.seq++;
+	__insn_barrier();
+}
+
+static void
+kclock_write_end(void)
+{
+	__insn_barrier();
+	kclockinfo.seq++;
+}
+
+/* The ticks realtime will gain at the next tick: two or none while adjtime()
+ * runs it fast or slow, every other tick (timer_int_handler()), else one.
+ * Userland reading the time between ticks goes no further than that, so the
+ * clock never runs back at the tick.
+ */
+static uint32_t
+next_rt_step(void)
+{
+	if (adjtime_delta != 0 && ((kclockinfo.uptime + 1) & 0x1))
+		return (adjtime_delta > 0) ? 2 : 0;
+	return 1;
+}
+
+#if defined(__i386__) || defined(__x86_64__)
+/*
+ * May userland read the time off the TSC between ticks?  Only if the TSC runs
+ * at one rate, on every CPU and in every power state: CPUID says so of an
+ * invariant TSC, and a hypervisor keeps its guests' so.  Booting with
+ * "hirestime=0" says no.  Called once the TSC rate is known.
+ */
+static void
+init_user_tsc(void)
+{
+	u32_t eax, ebx, ecx, edx;
+	char *value;
+	int ok;
+
+	if ((value = env_get("hirestime")) != NULL && atoi(value) == 0)
+		return;
+
+	eax = 1; ecx = 0;
+	_cpuid(&eax, &ebx, &ecx, &edx);
+	if (!(edx & (1U << 4)))			/* no TSC at all */
+		return;
+	ok = !!(ecx & (1U << 31));		/* a hypervisor's */
+
+	eax = 0x80000000; ecx = 0;
+	_cpuid(&eax, &ebx, &ecx, &edx);
+	if (eax >= 0x80000007) {
+		eax = 0x80000007; ecx = 0;
+		_cpuid(&eax, &ebx, &ecx, &edx);
+		if (edx & (1U << 8))		/* invariant TSC */
+			ok = 1;
+	}
+	if (!ok || cpu_get_freq(cpuid) == 0)
+		return;
+
+	kclock_write_begin();
+	read_tsc_64(&kclockinfo.tick_tsc);
+	kclockinfo.tsc_hz = cpu_get_freq(cpuid);
+	kclock_write_end();
+}
+#endif
+
 /*
  * Initialize the clock variables.
  */
@@ -58,6 +135,7 @@ init_clock(void)
 		kclockinfo.hz = atoi(value);
 	if (value == NULL || kclockinfo.hz < 2 || kclockinfo.hz > 50000)
 		kclockinfo.hz = DEFAULT_HZ;
+	kclockinfo.rt_step = 1;
 
 	/* Load average data initialization. */
 	memset(&kloadinfo, 0, sizeof(kloadinfo));
@@ -103,6 +181,11 @@ int timer_int_handler(void)
 #endif
 
 	if (cpu_is_bsp(cpuid)) {
+		kclock_write_begin();
+#if defined(__i386__) || defined(__x86_64__)
+		if (kclockinfo.tsc_hz != 0)
+			read_tsc_64(&kclockinfo.tick_tsc);
+#endif
 		kclockinfo.uptime++;
 
 		/* if adjtime_delta has ticks remaining, apply one to realtime.
@@ -115,6 +198,8 @@ int timer_int_handler(void)
 		} else {
 			kclockinfo.realtime++;
 		}
+		kclockinfo.rt_step = next_rt_step();
+		kclock_write_end();
 	}
 
 	/* Update user and system accounting times. Charge the current process
@@ -200,7 +285,9 @@ clock_t get_realtime(void)
  *===========================================================================*/
 void set_realtime(clock_t newrealtime)
 {
+  kclock_write_begin();
   kclockinfo.realtime = newrealtime;
+  kclock_write_end();
 }
 
 /*===========================================================================*
@@ -208,7 +295,10 @@ void set_realtime(clock_t newrealtime)
  *===========================================================================*/
 void set_adjtime_delta(int32_t ticks)
 {
+  kclock_write_begin();
   adjtime_delta = ticks;
+  kclockinfo.rt_step = next_rt_step();
+  kclock_write_end();
 }
 
 /*===========================================================================*
@@ -225,7 +315,9 @@ clock_t get_monotonic(void)
  *===========================================================================*/
 void set_boottime(time_t newboottime)
 {
+  kclock_write_begin();
   kclockinfo.boottime = newboottime;
+  kclock_write_end();
 }
 
 /*===========================================================================*
@@ -309,6 +401,10 @@ int boot_cpu_init_timer(unsigned freq)
 {
 	if (init_local_timer(freq))
 		return -1;
+
+#if defined(__i386__) || defined(__x86_64__)
+	init_user_tsc();
+#endif
 
 	if (register_local_timer_handler(
 				(irq_handler_t) timer_int_handler))

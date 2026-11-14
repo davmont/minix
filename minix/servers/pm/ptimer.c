@@ -1,10 +1,13 @@
 /* POSIX per-process timers: timer_create(2), timer_settime(2) and co.
  *
- * A timer counts on CLOCK_REALTIME or CLOCK_MONOTONIC in clock ticks, the
- * resolution PM has, and on expiry raises the signal its sigevent names, with
- * si_code SI_TIMER and the sigev_value.  While that signal is still pending
- * further expiries are counted as overruns instead, and the count at the
- * delivery of the signal is what timer_getoverrun(2) reports.  Timers belong
+ * A timer keeps its expiry and interval to the nanosecond, on the monotonic
+ * clock, and goes off at the first clock tick at or after its expiry (no
+ * sooner: see timeout_ticks(3)).  It then raises the signal its sigevent
+ * names, with si_code SI_TIMER and the sigev_value.  While that signal is
+ * still pending, further expiries, however many periods went by meanwhile
+ * (and an interval may be shorter than a tick), are counted as overruns
+ * instead, and the count at the delivery of the signal is what
+ * timer_getoverrun(2) reports.  Timers belong
  * to the process (the thread group), are not inherited across fork(2), and
  * are deleted by exec(2) and exit.
  *
@@ -36,8 +39,8 @@ struct ptimer {
   int pt_notify;		/* SIGEV_NONE or SIGEV_SIGNAL */
   int pt_signo;
   vir_bytes pt_value;		/* sigev_value */
-  clock_t pt_expires;		/* uptime in ticks; 0: disarmed */
-  clock_t pt_interval;		/* ticks; 0: one-shot */
+  u64_t pt_expires;		/* monotonic time, ns; 0: disarmed */
+  u64_t pt_interval;		/* ns; 0: one-shot */
   int pt_queued;		/* our signal raised and not yet delivered */
   int pt_overrun;		/* expiries while it was queued */
   int pt_overrun_last;		/* reported by timer_getoverrun(2) */
@@ -69,43 +72,65 @@ find_timer(int owner, int id)
   return NULL;
 }
 
-/* Ticks in 'ts', rounded up: a timer may not expire early. */
+#define NSEC		1000000000ULL
+#define FAR_NS		(NSEC * 60 * 60 * 24 * 365 * 100)	/* 100 years */
+
+/* Nanoseconds in 'ts', at most FAR_NS: that is far enough. */
 static int
-ticks_from_timespec(const struct timespec *ts, clock_t *ticks)
+ns_from_timespec(const struct timespec *ts, u64_t *ns)
 {
-  u64_t t;
 
   if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000L)
 	return EINVAL;
-  t = (u64_t) ts->tv_sec * system_hz +
-	((u64_t) ts->tv_nsec * system_hz + 999999999) / 1000000000;
-  if (t > (u64_t) LONG_MAX / 2)
-	t = LONG_MAX / 2;		/* far enough in the future */
-  *ticks = (clock_t) t;
+  if ((u64_t) ts->tv_sec >= FAR_NS / NSEC)
+	*ns = FAR_NS;
+  else
+	*ns = (u64_t) ts->tv_sec * NSEC + (u64_t) ts->tv_nsec;
   return OK;
 }
 
 static void
-timespec_from_ticks(struct timespec *ts, clock_t ticks)
+timespec_from_ns(struct timespec *ts, u64_t ns)
 {
 
-  ts->tv_sec = ticks / system_hz;
-  ts->tv_nsec = (long) ((u64_t) (ticks % system_hz) * 1000000000 /
-	system_hz);
+  ts->tv_sec = (time_t) (ns / NSEC);
+  ts->tv_nsec = (long) (ns % NSEC);
 }
 
 /* Arm the watchdog for the timer's expiry.  The timer library takes at most
  * TMRDIFF_MAX ticks at a time; ptimer_expire() re-arms for the rest.
  */
 static void
-arm(struct ptimer *pt, clock_t now)
+arm(struct ptimer *pt)
 {
-  clock_t delta;
 
-  delta = pt->pt_expires - now;
-  if (delta <= 0) delta = 1;
-  if (delta > TMRDIFF_MAX) delta = TMRDIFF_MAX;
-  set_timer(&pt->pt_tmr, delta, ptimer_expire, (int) (pt - ptimers));
+  set_timer(&pt->pt_tmr, deadline_ticks(pt->pt_expires), ptimer_expire,
+	(int) (pt - ptimers));
+}
+
+/* Move the expiry of 'pt' past 'now' by whole periods, and say how many
+ * went by entirely.
+ */
+static u64_t
+skip_periods(struct ptimer *pt, u64_t now)
+{
+  u64_t missed;
+
+  if (pt->pt_interval == 0 || pt->pt_expires > now)
+	return 0;
+  missed = (now - pt->pt_expires) / pt->pt_interval + 1;
+  pt->pt_expires += missed * pt->pt_interval;
+  return missed;
+}
+
+static void
+add_overruns(struct ptimer *pt, u64_t n)
+{
+
+  if ((u64_t) pt->pt_overrun + n > DELAYTIMER_MAX)
+	pt->pt_overrun = DELAYTIMER_MAX;
+  else
+	pt->pt_overrun += (int) n;
 }
 
 static void
@@ -135,9 +160,11 @@ pending_in_process(int owner, int signo)
   return FALSE;
 }
 
-/* The timer went off: raise its signal, or count an overrun. */
+/* The timer went off, and 'missed' periods more went by: raise its signal,
+ * or count overruns.
+ */
 static void
-fire(struct ptimer *pt)
+fire(struct ptimer *pt, u64_t missed)
 {
   struct mproc *rmp;
   struct pm_siginfo saved;
@@ -152,13 +179,14 @@ fire(struct ptimer *pt)
 	pt->pt_queued = FALSE;
 
   if (pt->pt_queued) {
-	if (pt->pt_overrun < DELAYTIMER_MAX)
-		pt->pt_overrun++;
+	add_overruns(pt, 1 + missed);
 	return;
   }
 
   rmp = &mproc[pt->pt_owner];
   pt->pt_queued = TRUE;
+  pt->pt_overrun = 0;
+  add_overruns(pt, missed);
   saved = sig_origin;
   set_sig_origin(SI_TIMER, 0, 0, pt->pt_id, 0);
   sig_origin.ps_value = pt->pt_value;
@@ -173,7 +201,7 @@ ptimer_expire(int arg)
 {
   struct ptimer *pt;
   struct mproc *rmp;
-  clock_t now, missed;
+  u64_t now;
 
   if (arg < 0 || arg >= NR_PTIMERS) return;
   pt = &ptimers[arg];
@@ -183,31 +211,30 @@ ptimer_expire(int arg)
       rmp->mp_endpoint != pt->pt_endpt)
 	return;
 
-  now = getticks();
-  if (now < pt->pt_expires) {		/* a long timer: not yet */
-	arm(pt, now);
+  /* We are at or past the tick of the expiry, which is at or past the
+   * expiry itself, unless the timer was too far off to set in one go.
+   */
+  now = uptime_ns(NULL);
+  if (now < pt->pt_expires) {
+	arm(pt);
 	return;
   }
 
-  fire(pt);
-
+  /* On to the next period before raising the signal, which may be taken at
+   * once (by sigwait(2)), and its delivery count the periods up to then.
+   * Those that went by entirely already are overruns.
+   */
   if (pt->pt_interval == 0) {
 	pt->pt_expires = 0;
+	fire(pt, 0);
 	return;
   }
-  /* Periods that went by entirely before we got here are overruns. */
   pt->pt_expires += pt->pt_interval;
-  if (pt->pt_expires <= now) {
-	missed = (now - pt->pt_expires) / pt->pt_interval + 1;
-	pt->pt_expires += missed * pt->pt_interval;
-	if (pt->pt_queued) {
-		if (pt->pt_overrun > DELAYTIMER_MAX - missed)
-			pt->pt_overrun = DELAYTIMER_MAX;
-		else
-			pt->pt_overrun += missed;
-	}
-  }
-  arm(pt, now);
+  fire(pt, skip_periods(pt, now));
+
+  /* The signal may have ended the process, and deleted its timers. */
+  if (pt->pt_inuse)
+	arm(pt);
 }
 
 /*===========================================================================*
@@ -224,6 +251,9 @@ ptimer_delivered(int slot, int id)
 
   if ((pt = find_timer(owner_slot(&mproc[slot]), id)) == NULL)
 	return;
+  /* Up to now, not just to the last tick. */
+  if (pt->pt_queued && pt->pt_expires != 0)
+	add_overruns(pt, skip_periods(pt, uptime_ns(NULL)));
   pt->pt_overrun_last = pt->pt_overrun;
   pt->pt_overrun = 0;
   pt->pt_queued = FALSE;
@@ -298,15 +328,19 @@ timer_create_op(int owner)
 
 /* Report the time left and the interval of 'pt' to the caller. */
 static int
-copy_out(struct ptimer *pt, vir_bytes addr, clock_t now)
+copy_out(struct ptimer *pt, vir_bytes addr)
 {
   struct itimerspec its;
+  u64_t now;
 
   memset(&its, 0, sizeof(its));
-  if (pt->pt_expires != 0)
-	timespec_from_ticks(&its.it_value, pt->pt_expires > now ?
+  if (pt->pt_expires != 0) {
+	now = uptime_ns(NULL);
+	/* Due, but not gone off yet: a little time is left still. */
+	timespec_from_ns(&its.it_value, pt->pt_expires > now ?
 		pt->pt_expires - now : 1);
-  timespec_from_ticks(&its.it_interval, pt->pt_interval);
+  }
+  timespec_from_ns(&its.it_interval, pt->pt_interval);
   return sys_datacopy(SELF, (vir_bytes) &its, who_e, addr, sizeof(its));
 }
 
@@ -314,50 +348,55 @@ static int
 timer_settime_op(struct ptimer *pt)
 {
   struct itimerspec its;
-  struct timespec now_ts;
-  clock_t now, value, interval, realtime;
+  clock_t uptime, realtime;
   time_t boottime;
-  int r;
+  u64_t now, value, interval;
+  int64_t rt_ahead;
+  int r, precise;
 
   if ((r = sys_datacopy(who_e, m_in.m_lc_pm_timer.itp, SELF,
       (vir_bytes) &its, sizeof(its))) != OK)
 	return r;
-  if ((r = ticks_from_timespec(&its.it_value, &value)) != OK ||
-      (r = ticks_from_timespec(&its.it_interval, &interval)) != OK)
+  if ((r = ns_from_timespec(&its.it_value, &value)) != OK ||
+      (r = ns_from_timespec(&its.it_interval, &interval)) != OK)
 	return r;
 
-  if ((r = getuptime(&now, &realtime, &boottime)) != OK)
-	return r;
   if (m_in.m_lc_pm_timer.oitp != 0 &&
-      (r = copy_out(pt, m_in.m_lc_pm_timer.oitp, now)) != OK)
+      (r = copy_out(pt, m_in.m_lc_pm_timer.oitp)) != OK)
 	return r;
 
   disarm(pt);
-  if (its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0)
+  if (value == 0)
 	return OK;			/* disarm only */
 
+  now = uptime_ns(&precise);
   if (m_in.m_lc_pm_timer.flags & TIMER_ABSTIME) {
-	/* An absolute time on the timer's clock: how far away is it?
-	 * CLOCK_REALTIME counts from the boot time, CLOCK_MONOTONIC from the
-	 * boot (see do_gettime).  A time that has passed expires at once.
+	/* An absolute time on the timer's clock, which for CLOCK_REALTIME
+	 * is ahead of the monotonic one by the boot time and the ticks it has
+	 * gained since (see do_gettime).  A time that has passed expires at
+	 * the next tick.
 	 */
-	clock_t clk = (pt->pt_clock == CLOCK_REALTIME) ? realtime : now;
-	clock_t since_boot;
-
-	now_ts.tv_sec = its.it_value.tv_sec -
-	    (pt->pt_clock == CLOCK_REALTIME ? boottime : 0);
-	now_ts.tv_nsec = its.it_value.tv_nsec;
-	if (now_ts.tv_sec < 0)
-		since_boot = 0;
-	else if ((r = ticks_from_timespec(&now_ts, &since_boot)) != OK)
-		return r;
-	value = since_boot > clk ? since_boot - clk : 1;
+	if (pt->pt_clock == CLOCK_REALTIME) {
+		if ((r = getuptime(&uptime, &realtime, &boottime)) != OK)
+			return r;
+		rt_ahead = (int64_t) boottime * (int64_t) NSEC +
+		    (int64_t) (int32_t) (realtime - uptime) *
+		    (int64_t) NSEC / (int64_t) system_hz;
+		value = ((int64_t) value > rt_ahead) ?
+		    (u64_t) ((int64_t) value - rt_ahead) : 0;
+	}
+	pt->pt_expires = (value > now) ? value : now;
+  } else {
+	/* From now; without the TSC we know it only to the last tick, and
+	 * now may be up to a tick later.
+	 */
+	if (!precise)
+		now += NSEC / system_hz;
+	pt->pt_expires = now + value;
   }
-
-  pt->pt_expires = now + value;
-  if (pt->pt_expires <= 0) pt->pt_expires = 1;
+  if (pt->pt_expires == 0) pt->pt_expires = 1;
   pt->pt_interval = interval;
-  arm(pt, now);
+  arm(pt);
   return OK;
 }
 
@@ -387,7 +426,7 @@ do_timer(void)
   case PM_TIMER_SETTIME:
 	return timer_settime_op(pt);
   case PM_TIMER_GETTIME:
-	return copy_out(pt, m_in.m_lc_pm_timer.oitp, getticks());
+	return copy_out(pt, m_in.m_lc_pm_timer.oitp);
   case PM_TIMER_GETOVERRUN:
 	return pt->pt_overrun_last;
   default:

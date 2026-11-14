@@ -333,6 +333,7 @@ lwp_start_teardown(struct mproc *rmp)
   if (rmp->mp_flags & (MP_LWP_PARKED | SIGWAITING)) {
 	cancel_timer(&rmp->mp_park_timer);
 	rmp->mp_flags &= ~(MP_LWP_PARKED | SIGWAITING);
+	sched_inherit_parked(rmp);
   }
   if (!(rmp->mp_flags & PROC_STOPPED)) {
 	if ((r = sys_stop(proc_nr_e)) != OK)
@@ -343,8 +344,13 @@ lwp_start_teardown(struct mproc *rmp)
   /* The thread's CPU time stays with its process (CLOCK_PROCESS_CPUTIME_ID).
    * It is stopped, so the count is final.
    */
-  if (sys_times(proc_nr_e, &user_time, &sys_time, NULL, NULL) == OK)
+  if (sys_times(proc_nr_e, &user_time, &sys_time, NULL, NULL) == OK) {
 	mproc[rmp->mp_lwp_group].mp_lwp_time += user_time + sys_time;
+	/* And its own clock (pthread_getcpuclockid()) stops there, until it
+	 * is joined: see cpu_clock().
+	 */
+	rmp->mp_lwp_time = user_time + sys_time;
+  }
 
   if ((r = sched_stop(rmp->mp_scheduler, proc_nr_e)) != OK)
 	printf("PM: lwp_start_teardown: sched_stop failed: %d\n", r);
@@ -861,6 +867,7 @@ lwp_unpark_one(int lwpid)
   if (target->mp_flags & MP_LWP_PARKED) {
 	target->mp_flags &= ~MP_LWP_PARKED;
 	cancel_timer(&target->mp_park_timer);
+	sched_inherit_parked(target);
 	reply(slot, OK);		/* its _lwp_park() returns 0 */
   } else {
 	target->mp_flags |= MP_LWP_UNPARKED;	/* pending: next park won't block */
@@ -882,6 +889,7 @@ lwp_park_expire(int arg)
   if (!(mproc[slot].mp_flags & MP_LWP_PARKED))
 	return;
   mproc[slot].mp_flags &= ~MP_LWP_PARKED;
+  sched_inherit_parked(&mproc[slot]);
   reply(slot, ETIMEDOUT);
 }
 
@@ -923,8 +931,13 @@ lwp_park_ticks(clock_t *ticksp)
 			return ETIMEDOUT;
 		sec -= boottime;
 	}
-  } else
-	now = 0;
+  } else {
+	/* From now, which may be most of a tick past the last tick. */
+	if (sec == 0 && nsec == 0)
+		return ETIMEDOUT;
+	*ticksp = timeout_ticks(sec, nsec);
+	return OK;
+  }
 
   /* Further ahead than a timer can reach: wait as long as one can.  For an
    * absolute time this is the distance from now, not from the boot time,
@@ -980,6 +993,7 @@ do_lwp_park(void)
    * timed out, or interrupted by a signal.
    */
   rmp->mp_flags |= MP_LWP_PARKED;
+  sched_inherit_parked(rmp);		/* now it passes its priority on */
   return SUSPEND;
 }
 
@@ -1020,9 +1034,13 @@ do_lwp_wakeup(void)
 	return ESRCH;
 
   if (target->mp_flags & (MP_LWP_PARKED | MP_LWP_JOINING)) {
-	if (target->mp_flags & MP_LWP_PARKED)
+	int parked = (target->mp_flags & MP_LWP_PARKED);
+
+	if (parked)
 		cancel_timer(&target->mp_park_timer);
 	target->mp_flags &= ~(MP_LWP_PARKED | MP_LWP_JOINING);
+	if (parked)
+		sched_inherit_parked(target);
 	reply(slot, EINTR);
   } else
 	mpwoken[slot] = TRUE;
@@ -1280,8 +1298,10 @@ exit_proc(
   /* A thread's CPU time stays with its process (CLOCK_PROCESS_CPUTIME_ID),
    * unless lwp_start_teardown() has counted it already.
    */
-  if ((rmp->mp_flags & (MP_LWP | MP_LWP_TEARDOWN)) == MP_LWP)
+  if ((rmp->mp_flags & (MP_LWP | MP_LWP_TEARDOWN)) == MP_LWP) {
 	mproc[rmp->mp_lwp_group].mp_lwp_time += user_time + sys_time;
+	rmp->mp_lwp_time = user_time + sys_time;	/* its own, final */
+  }
 
   /* Tell the kernel the process is no longer runnable to prevent it from
    * being scheduled in between the following steps. Then tell VFS that it

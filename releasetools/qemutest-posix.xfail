@@ -173,9 +173,3 @@ interfaces/sigwait/6-2                                   flaky  # signal or pass
 
 # interfaces/timer_create
 interfaces/timer_create/10-1                             # unresolved: _SC_CPUTIME
-
-# interfaces/timer_getoverrun
-interfaces/timer_getoverrun/2-2                          # unresolved
-
-# interfaces/timer_gettime
-interfaces/timer_gettime/1-4                             # unresolved

@@ -133,6 +133,16 @@ struct kclockinfo {
 #error "unknown endianness"
 #endif
   uint32_t hz;			/* clock frequency in ticks per second */
+  /* Between ticks, libc reads the time off the TSC, with no call into PM:
+   * uptime (or realtime) ticks, and what the TSC has counted since the
+   * last one, up to the next.  The kernel makes 'seq' odd while it updates
+   * these fields; a reader that sees it change reads them again.
+   */
+  uint32_t seq;			/* odd while the kernel updates them */
+  uint64_t tick_tsc;		/* the TSC at the last tick */
+  uint64_t tsc_hz;		/* TSC rate; 0: do not use the TSC */
+  uint32_t rt_step;		/* ticks realtime gains at the next tick */
+  uint32_t _rsvd3;
 };
 
 struct machine {
@@ -269,5 +279,6 @@ struct minix_kerninfo {
 
 #define MINIX_KIF_IPCVECS	(1L << 0)	/* minix_ipcvecs is valid */
 #define MINIX_KIF_USERINFO	(1L << 1)	/* kuserinfo is valid */
+#define MINIX_KIF_CLOCKTSC	(1L << 2)	/* kclockinfo has seq..rt_step */
 
 #endif /* _TYPE_H */

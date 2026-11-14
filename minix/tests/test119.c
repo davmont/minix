@@ -45,11 +45,14 @@ burn(long cpu_ms)
 			;
 }
 
+static volatile int burnt;
+
 static void *
 burner(void *arg)
 {
 
 	burn((long)arg);
+	burnt = 1;
 	return NULL;
 }
 
@@ -108,6 +111,19 @@ test_threads(void)
 	own0 = ms(clk);
 	burn(100);
 	if (ms(clk) - own0 < 80) e(7);
+
+	/* A thread that has exited, and is not joined yet, keeps the time it
+	 * ended with (it read 0 once its kernel process was gone).
+	 */
+	burnt = 0;
+	if (pthread_create(&t, NULL, burner, (void *)100L) != 0) e(8);
+	if (pthread_getcpuclockid(t, &clk) != 0) e(9);
+	while (!burnt)
+		usleep(10000);
+	usleep(200000);				/* it is gone by now */
+	t1 = ms(clk);
+	if (t1 < 80 || t1 > 1000) e(10);
+	if (pthread_join(t, NULL) != 0) e(11);
 }
 
 static void

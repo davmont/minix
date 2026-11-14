@@ -398,7 +398,6 @@ int do_sigtimedwait(void)
   struct mproc *leader = process_of(mp);
   struct timespec ts;
   clock_t ticks = 0;
-  int64_t t;
   int i, r;
 
   assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
@@ -430,15 +429,9 @@ int do_sigtimedwait(void)
   if (m_in.m_lc_pm_sigtimedwait.timeout != 0) {
 	if (ts.tv_sec == 0 && ts.tv_nsec == 0)
 		return(EAGAIN);			/* a poll */
-	/* In ticks, rounded up. */
-	if (ts.tv_sec >= TMRDIFF_MAX / system_hz)
-		ticks = TMRDIFF_MAX;
-	else {
-		t = (int64_t) ts.tv_sec * system_hz +
-			((int64_t) ts.tv_nsec * system_hz + 999999999) /
-			1000000000;
-		ticks = (t > TMRDIFF_MAX) ? TMRDIFF_MAX : (clock_t) t;
-	}
+	/* Not before its time: the timer counts from the last tick, which
+	 * may be most of a tick ago. */
+	ticks = timeout_ticks(ts.tv_sec, ts.tv_nsec);
 	if (ticks == 0)
 		ticks = 1;
 	set_timer(&mp->mp_park_timer, ticks, sigwait_expire, mp->mp_endpoint);
@@ -1643,11 +1636,14 @@ sig_send(
    * NetBSD: libpthread parks again if it must. */
   if (rmp->mp_flags & (WAITING | SIGSUSPENDED | SIGWAITING | MP_LWP_PARKED)) {
 	int restart = (rmp->mp_flags & WAITING) && (sigflags & SA_RESTART);
+	int parked = (rmp->mp_flags & MP_LWP_PARKED);
 
 	if (rmp->mp_flags & (SIGWAITING | MP_LWP_PARKED))
 		cancel_timer(&rmp->mp_park_timer);
 	rmp->mp_flags &= ~(WAITING | SIGSUSPENDED | SIGWAITING |
 		MP_LWP_PARKED);
+	if (parked)
+		sched_inherit_parked(rmp);
 
 	reply(slot, restart ? ERESTARTSYS : EINTR);
 
